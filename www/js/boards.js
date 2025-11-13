@@ -31,6 +31,10 @@ class BoardsManager {
               <label for="board-name">Board Name</label>
               <input type="text" id="board-name" name="name" required placeholder="Enter board name" autofocus>
             </div>
+            <div class="form-group">
+              <label for="board-description">Description (optional)</label>
+              <textarea id="board-description" name="description" placeholder="Enter board description" rows="3"></textarea>
+            </div>
             <div class="modal-actions">
               <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
               <button type="submit" class="btn btn-primary">Create Board</button>
@@ -38,17 +42,53 @@ class BoardsManager {
           </form>
         </div>
       </div>
+      
+      <!-- Edit Board Modal -->
+      <div id="edit-board-modal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Edit Board</h3>
+            <button class="modal-close" id="edit-modal-close">&times;</button>
+          </div>
+          <form id="edit-board-form">
+            <input type="hidden" id="edit-board-id">
+            <div class="form-group">
+              <label for="edit-board-name">Board Name</label>
+              <input type="text" id="edit-board-name" name="name" required placeholder="Enter board name" autofocus>
+            </div>
+            <div class="form-group">
+              <label for="edit-board-description">Description</label>
+              <textarea id="edit-board-description" name="description" placeholder="Enter board description" rows="3"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="edit-cancel-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+          </form>
+        </div>
+      </div>
     `;
 
-    // Attach event listeners
+    // Attach event listeners for new board modal
     document.getElementById('modal-close').addEventListener('click', () => this.closeModal());
     document.getElementById('cancel-btn').addEventListener('click', () => this.closeModal());
     document.getElementById('new-board-form').addEventListener('submit', (e) => this.handleCreateBoard(e));
     
-    // Close modal on backdrop click
+    // Attach event listeners for edit board modal
+    document.getElementById('edit-modal-close').addEventListener('click', () => this.closeEditModal());
+    document.getElementById('edit-cancel-btn').addEventListener('click', () => this.closeEditModal());
+    document.getElementById('edit-board-form').addEventListener('submit', (e) => this.handleEditBoard(e));
+    
+    // Close modals on backdrop click
     document.getElementById('new-board-modal').addEventListener('click', (e) => {
       if (e.target.id === 'new-board-modal') {
         this.closeModal();
+      }
+    });
+    
+    document.getElementById('edit-board-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'edit-board-modal') {
+        this.closeEditModal();
       }
     });
   }
@@ -89,8 +129,10 @@ class BoardsManager {
       listContainer.className = 'boards-grid';
       listContainer.innerHTML = this.boards.map(board => `
         <div class="board-card" data-board-id="${board.id}">
+          <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
           <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
           <h4>${this.escapeHtml(board.name)}</h4>
+          ${board.description ? `<p class="board-description">${this.escapeHtml(board.description)}</p>` : ''}
         </div>
       `).join('') + `
         <div class="add-board-placeholder">
@@ -100,6 +142,17 @@ class BoardsManager {
       
       // Add event listener for inline add board button
       document.getElementById('add-board-inline-btn').addEventListener('click', () => this.openModal());
+      
+      // Add event listeners for edit buttons
+      listContainer.querySelectorAll('.board-edit-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click
+          const boardId = parseInt(e.target.dataset.boardId);
+          const boardName = e.target.dataset.boardName;
+          const boardDescription = e.target.dataset.boardDescription;
+          this.openEditModal(boardId, boardName, boardDescription);
+        });
+      });
       
       // Add event listeners for delete buttons
       listContainer.querySelectorAll('.board-delete-btn').forEach(btn => {
@@ -136,6 +189,7 @@ class BoardsManager {
     
     const formData = new FormData(e.target);
     const boardName = formData.get('name').trim();
+    const boardDescription = formData.get('description')?.trim() || null;
     
     if (!boardName) {
       alert('Please enter a board name');
@@ -148,7 +202,7 @@ class BoardsManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ name: boardName })
+        body: JSON.stringify({ name: boardName, description: boardDescription })
       });
 
       const data = await response.json();
@@ -195,6 +249,62 @@ class BoardsManager {
       }
     } catch (err) {
       alert('Error deleting board: ' + err.message);
+    }
+  }
+
+  openEditModal(boardId, boardName, boardDescription) {
+    const modal = document.getElementById('edit-board-modal');
+    document.getElementById('edit-board-id').value = boardId;
+    document.getElementById('edit-board-name').value = boardName;
+    document.getElementById('edit-board-description').value = boardDescription || '';
+    modal.classList.add('active');
+    document.getElementById('edit-board-name').focus();
+  }
+
+  closeEditModal() {
+    const modal = document.getElementById('edit-board-modal');
+    modal.classList.remove('active');
+    document.getElementById('edit-board-form').reset();
+  }
+
+  async handleEditBoard(e) {
+    e.preventDefault();
+    
+    const boardId = document.getElementById('edit-board-id').value;
+    const formData = new FormData(e.target);
+    const boardName = formData.get('name').trim();
+    const boardDescription = formData.get('description')?.trim() || '';
+    
+    if (!boardName) {
+      alert('Please enter a board name');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/boards/${boardId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: boardName, description: boardDescription })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.closeEditModal();
+        await this.loadBoards();
+        
+        // Update header status and boards dropdown if available
+        if (window.header) {
+          window.header.checkDatabaseStatus();
+          window.header.loadBoardsDropdown();
+        }
+      } else {
+        alert('Failed to update board: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error updating board: ' + err.message);
     }
   }
 

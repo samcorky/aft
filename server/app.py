@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 
 app = Flask(__name__)
 
@@ -402,12 +402,21 @@ def restore_database():
         db_name = os.environ.get('MYSQL_DATABASE')
         db_host = 'db'
         
-        # Drop all existing tables
+        # Drop all existing tables (including alembic_version)
         db = SessionLocal()
         from sqlalchemy import MetaData
         metadata = MetaData()
         metadata.reflect(bind=engine)
         metadata.drop_all(bind=engine)
+        
+        # Explicitly drop alembic_version table if it exists
+        # (it's not in our models so metadata.reflect won't catch it)
+        try:
+            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Could not drop alembic_version table: {e}")
+        
         db.close()
         
         logger.info(f"Restoring database from backup (version {backup_version})")
@@ -571,7 +580,7 @@ def get_boards():
         db.close()
         return jsonify({
             "success": True,
-            "boards": [{"id": b.id, "name": b.name} for b in boards]
+            "boards": [{"id": b.id, "name": b.name, "description": b.description} for b in boards]
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
@@ -642,11 +651,11 @@ def create_board():
             return jsonify({"success": False, "message": "Name is required"}), 400
         
         db = SessionLocal()
-        board = Board(name=data["name"])
+        board = Board(name=data["name"], description=data.get("description"))
         db.add(board)
         db.commit()
         db.refresh(board)
-        result = {"id": board.id, "name": board.name}
+        result = {"id": board.id, "name": board.name, "description": board.description}
         db.close()
         
         return jsonify({"success": True, "board": result}), 201
@@ -713,6 +722,117 @@ def delete_board(board_id):
         db.close()
         
         return jsonify({"success": True, "message": "Board deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/boards/<int:board_id>", methods=["PATCH"])
+def update_board(board_id):
+    """Update a board's name and/or description.
+    ---
+    tags:
+      - Boards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board to update
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Updated Board Name"
+              description: The new name for the board
+            description:
+              type: string
+              example: "Updated board description"
+              description: The new description for the board
+    responses:
+      200:
+        description: Board updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            board:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                name:
+                  type: string
+                  example: "Updated Board Name"
+                description:
+                  type: string
+                  example: "Updated board description"
+            message:
+              type: string
+              example: "Board updated successfully"
+      400:
+        description: Bad request - no valid fields provided
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "At least one field (name or description) is required"
+      404:
+        description: Board not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Board not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        data = request.get_json()
+        if not data or ("name" not in data and "description" not in data):
+            return jsonify({"success": False, "message": "At least one field (name or description) is required"}), 400
+        
+        db = SessionLocal()
+        board = db.query(Board).filter(Board.id == board_id).first()
+        
+        if not board:
+            db.close()
+            return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Update fields if provided
+        if "name" in data:
+            board.name = data["name"]
+        if "description" in data:
+            board.description = data["description"]
+        
+        db.commit()
+        db.refresh(board)
+        result = {"id": board.id, "name": board.name, "description": board.description}
+        db.close()
+        
+        return jsonify({"success": True, "board": result, "message": "Board updated successfully"}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

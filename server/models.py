@@ -1,5 +1,5 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -11,6 +11,7 @@ class Board(Base):
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
     
     # Relationship to columns
     columns = relationship("BoardColumn", back_populates="board", cascade="all, delete-orphan")

@@ -253,7 +253,7 @@ class SystemInfo {
         return;
       }
 
-      this.backupStatus.textContent = 'Restoring database...';
+      this.backupStatus.textContent = 'Restoring database... This may take a minute.';
       this.backupStatus.className = 'backup-status info';
       this.restoreBtn.disabled = true;
 
@@ -264,6 +264,12 @@ class SystemInfo {
         method: 'POST',
         body: formData
       });
+
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
+      }
 
       const data = await response.json();
 

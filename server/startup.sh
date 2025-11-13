@@ -32,4 +32,4 @@ echo "Running database migrations..."
 alembic upgrade head
 
 echo "Starting application..."
-exec gunicorn --bind 0.0.0.0:5000 --workers 4 app:app
+exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 300 app:app

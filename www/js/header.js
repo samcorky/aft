@@ -17,6 +17,14 @@ class Header {
     this.statusText = document.getElementById('status-text');
     this.versionInfo = document.getElementById('version-info');
     
+    // Add click handler to db-status
+    const dbStatus = document.querySelector('.db-status');
+    if (dbStatus) {
+      dbStatus.addEventListener('click', () => {
+        window.location.href = '/system-info.html';
+      });
+    }
+    
     // Check database status
     this.checkDatabaseStatus();
   }

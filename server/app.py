@@ -1,8 +1,8 @@
 from flask import Flask, jsonify, request
 import logging
 from flasgger import Swagger
-from database import SessionLocal
-from models import Board
+from database import SessionLocal, engine
+from models import Board, BoardColumn, Card
 from sqlalchemy import text
 
 # Configure logging
@@ -141,6 +141,390 @@ def test_db():
             "boards_count": board_count
         })
     except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/stats")
+def get_stats():
+    """Get database statistics.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Database statistics
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            boards_count:
+              type: integer
+              example: 5
+            columns_count:
+              type: integer
+              example: 15
+            cards_count:
+              type: integer
+              example: 42
+      500:
+        description: Failed to get statistics
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        boards_count = db.query(Board).count()
+        columns_count = db.query(BoardColumn).count()
+        cards_count = db.query(Card).count()
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "boards_count": boards_count,
+            "columns_count": columns_count,
+            "cards_count": cards_count
+        })
+    except Exception as e:
+        logger.error(f"Error getting stats: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backup", methods=["GET"])
+def backup_database():
+    """Create a database backup with version information.
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: Database backup file
+        content:
+          application/sql:
+            schema:
+              type: string
+              format: binary
+      500:
+        description: Failed to create backup
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    import subprocess
+    import os
+    import tempfile
+    from datetime import datetime
+    from flask import send_file
+    
+    try:
+        # Get current Alembic version
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        db_version = row[0] if row else "unknown"
+        db.close()
+        
+        # Get database credentials from environment
+        db_user = os.environ.get('MYSQL_USER')
+        db_password = os.environ.get('MYSQL_PASSWORD')
+        db_name = os.environ.get('MYSQL_DATABASE')
+        db_host = 'db'
+        
+        # Create temporary file for backup
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"aft_backup_{timestamp}.sql"
+        temp_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.sql')
+        temp_path = temp_file.name
+        temp_file.close()
+        
+        # Write version comment to file
+        with open(temp_path, 'w') as f:
+            f.write(f"-- AFT Database Backup\n")
+            f.write(f"-- App Version: {APP_VERSION}\n")
+            f.write(f"-- Alembic Version: {db_version}\n")
+            f.write(f"-- Backup Date: {datetime.now().isoformat()}\n")
+            f.write(f"--\n\n")
+        
+        # Run mysqldump and append to file
+        mysqldump_cmd = [
+            'mysqldump',
+            '-h', db_host,
+            '-u', db_user,
+            f'-p{db_password}',
+            '--single-transaction',
+            '--routines',
+            '--triggers',
+            '--skip-ssl',
+            db_name
+        ]
+        
+        with open(temp_path, 'a') as f:
+            result = subprocess.run(
+                mysqldump_cmd,
+                stdout=f,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+        
+        if result.returncode != 0:
+            os.unlink(temp_path)
+            raise Exception(f"mysqldump failed: {result.stderr}")
+        
+        logger.info(f"Database backup created successfully: {backup_filename}")
+        
+        # Send file and delete after sending
+        return send_file(
+            temp_path,
+            mimetype='application/sql',
+            as_attachment=True,
+            download_name=backup_filename
+        )
+        
+    except Exception as e:
+        logger.error(f"Error creating backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/restore", methods=["POST"])
+def restore_database():
+    """Restore database from backup file with version checking.
+    ---
+    tags:
+      - Database
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: file
+        type: file
+        required: true
+        description: SQL backup file to restore
+    responses:
+      200:
+        description: Database restored successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+      400:
+        description: Invalid file or version mismatch
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Failed to restore database
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    import subprocess
+    import os
+    import tempfile
+    import re
+    
+    try:
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({"success": False, "message": "No file uploaded"}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"success": False, "message": "No file selected"}), 400
+        
+        # Save uploaded file to temporary location
+        temp_file = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.sql')
+        temp_path = temp_file.name
+        temp_file.close()
+        file.save(temp_path)
+        
+        # Read first few lines to get version info
+        backup_version = None
+        with open(temp_path, 'r') as f:
+            for line in f:
+                if line.startswith('-- Alembic Version:'):
+                    backup_version = line.split(':', 1)[1].strip()
+                    break
+                # Stop reading after comments section
+                if not line.startswith('--') and line.strip():
+                    break
+        
+        if not backup_version:
+            os.unlink(temp_path)
+            return jsonify({
+                "success": False, 
+                "message": "Invalid backup file: No Alembic version found"
+            }), 400
+        
+        # Get current Alembic version (what we would create on restore)
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        current_version = row[0] if row else "unknown"
+        db.close()
+        
+        # Check version compatibility
+        if backup_version > current_version:
+            os.unlink(temp_path)
+            return jsonify({
+                "success": False,
+                "message": f"Backup is from a newer database version ({backup_version}). Please update the application to at least database version {backup_version} before restoring."
+            }), 400
+        
+        # Get database credentials
+        db_user = os.environ.get('MYSQL_USER')
+        db_password = os.environ.get('MYSQL_PASSWORD')
+        db_name = os.environ.get('MYSQL_DATABASE')
+        db_host = 'db'
+        
+        # Drop all existing tables
+        db = SessionLocal()
+        from sqlalchemy import MetaData
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        metadata.drop_all(bind=engine)
+        db.close()
+        
+        logger.info(f"Restoring database from backup (version {backup_version})")
+        
+        # Restore from SQL file
+        mysql_cmd = [
+            'mysql',
+            '-h', db_host,
+            '-u', db_user,
+            f'-p{db_password}',
+            '--skip-ssl',
+            db_name
+        ]
+        
+        with open(temp_path, 'r') as f:
+            result = subprocess.run(
+                mysql_cmd,
+                stdin=f,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+        
+        os.unlink(temp_path)
+        
+        if result.returncode != 0:
+            raise Exception(f"MySQL restore failed: {result.stderr}")
+        
+        # If backup version is older than current, run migrations to upgrade
+        if backup_version < current_version:
+            logger.info(f"Upgrading database from {backup_version} to {current_version}")
+            upgrade_result = subprocess.run(
+                ['alembic', 'upgrade', 'head'],
+                cwd='/app',
+                capture_output=True,
+                text=True
+            )
+            
+            if upgrade_result.returncode != 0:
+                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+            
+            logger.info("Database restored and upgraded successfully")
+            return jsonify({
+                "success": True,
+                "message": f"Database restored and upgraded from version {backup_version} to {current_version}"
+            })
+        else:
+            logger.info("Database restored successfully")
+            return jsonify({
+                "success": True,
+                "message": "Database restored successfully"
+            })
+        
+    except Exception as e:
+        logger.error(f"Error restoring database: {str(e)}")
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database", methods=["DELETE"])
+def delete_database():
+    """Delete all data from the database.
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: Database deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Database deleted successfully"
+      500:
+        description: Failed to delete database
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        
+        # Drop all tables including alembic_version
+        from sqlalchemy import MetaData
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        metadata.drop_all(bind=engine)
+        db.close()
+        
+        # Run Alembic migrations to recreate database with proper version tracking
+        import subprocess
+        result = subprocess.run(
+            ['alembic', 'upgrade', 'head'],
+            cwd='/app',
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"Alembic migration failed: {result.stderr}")
+        
+        logger.info("Database deleted and recreated successfully via Alembic migrations")
+        return jsonify({
+            "success": True,
+            "message": "Database deleted successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error deleting database: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 

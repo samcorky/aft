@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Information - AFT</title>
+  <link rel="icon" href="/images/NotA.png" type="image/png">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/system-info.css">
+</head>
+<body>
+  <!-- Header will be inserted here -->
+  
+  <div class="container">
+    <div class="page-header">
+      <h1>System Information</h1>
+    </div>
+
+    <div class="info-grid">
+      <!-- Database Status Card -->
+      <div class="info-card">
+        <h2>Database Status</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Connection:</span>
+            <span class="status-value" id="db-connection">
+              <span class="status-icon connecting"></span>
+              <span>Checking...</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Version Information Card -->
+      <div class="info-card">
+        <h2>Version Information</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Application:</span>
+            <span class="status-value" id="app-version">Loading...</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Database Schema:</span>
+            <span class="status-value" id="db-version">Loading...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Database Statistics Card -->
+      <div class="info-card full-width">
+        <h2>Database Statistics</h2>
+        <div class="info-content">
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-label">Boards</div>
+              <div class="stat-value" id="boards-count">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Columns</div>
+              <div class="stat-value" id="columns-count">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Cards</div>
+              <div class="stat-value" id="cards-count">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup & Restore Card -->
+      <div class="info-card backup-card full-width">
+        <h2>💾 Backup & Restore</h2>
+        <div class="info-content">
+          <p class="backup-info">
+            Create a backup of your database or restore from a previous backup. 
+            Backups include version information for safe restoration.
+          </p>
+          <div class="backup-actions">
+            <button class="backup-btn" id="backup-btn">
+              <span>⬇️</span>
+              <span>Download Backup</span>
+            </button>
+            <div class="restore-section">
+              <input 
+                type="file" 
+                id="restore-file-input" 
+                accept=".sql"
+                style="display: none;"
+              >
+              <button class="restore-btn" id="restore-btn">
+                <span>⬆️</span>
+                <span>Restore from Backup</span>
+              </button>
+            </div>
+          </div>
+          <div class="backup-status" id="backup-status"></div>
+        </div>
+      </div>
+
+      <!-- Danger Zone Card -->
+      <div class="info-card danger-card full-width">
+        <h2>
+          ⚠️ Danger Zone 
+          <a href="https://youtu.be/siwpn14IE7E" target="_blank" rel="noopener noreferrer" class="plane-link" title="Highway to the Danger Zone">
+            ✈️
+          </a>
+        </h2>
+        <div class="info-content">
+          <p class="danger-warning">
+            Deleting the database will permanently remove all boards, columns, and cards. 
+            This action cannot be undone.
+          </p>
+          <button class="delete-db-btn" id="delete-db-btn">Delete Database</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div class="modal" id="delete-modal">
+    <div class="modal-content">
+      <h2>⚠️ Delete Database</h2>
+      <p class="modal-warning">
+        This will permanently delete all of your data including all boards, columns, and cards.
+        This action cannot be undone!
+      </p>
+      <p class="modal-instruction">
+        To confirm, please type: <strong>"Yes I am sure I want to delete all of my data!"</strong>
+      </p>
+      <input 
+        type="text" 
+        id="delete-confirmation-input" 
+        placeholder="Type confirmation text here..."
+        autocomplete="off"
+      >
+      <div class="error-message" id="delete-error"></div>
+      <div class="modal-actions">
+        <button class="cancel-btn" id="cancel-delete-btn">Cancel</button>
+        <button class="confirm-delete-btn" id="confirm-delete-btn">Delete Everything</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/header.js"></script>
+  <script src="/js/system-info.js"></script>
+</body>
+</html>

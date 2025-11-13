@@ -1,6 +1,6 @@
 /* Header Navigation Bar */
 .header {
-  background-color: #2c3e50;
+  background-color: var(--text-dark);
   color: white;
   padding: 15px 30px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -84,16 +84,16 @@
 }
 
 .status-icon.connecting {
-  background-color: #ffc107;
+  background-color: var(--warning-color);
 }
 
 .status-icon.success {
-  background-color: #28a745;
+  background-color: var(--success-color);
   animation: none;
 }
 
 .status-icon.error {
-  background-color: #dc3545;
+  background-color: var(--error-color);
   animation: none;
 }
 
@@ -111,7 +111,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background-color: #3498db;
+  background-color: var(--primary-color);
   color: white;
   text-decoration: none;
   border-radius: 5px;
@@ -121,7 +121,7 @@
 }
 
 .header-link:hover {
-  background-color: #2980b9;
+  background-color: var(--primary-hover);
 }
 
 /* Canvas/Content Area */

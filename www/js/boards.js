@@ -103,6 +103,14 @@ class BoardsManager {
           this.handleDeleteBoard(parseInt(e.target.dataset.boardId));
         });
       });
+      
+      // Add event listeners for board cards
+      listContainer.querySelectorAll('.board-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          const boardId = e.currentTarget.dataset.boardId;
+          window.location.href = `/board.html?id=${boardId}`;
+        });
+      });
     }
   }
 

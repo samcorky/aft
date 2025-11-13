@@ -11,7 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from database import Base, DATABASE_URL
-from models import Board, BoardColumn  # Import all models here so Alembic can detect them
+from models import Board, BoardColumn, Card  # Import all models here so Alembic can detect them
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

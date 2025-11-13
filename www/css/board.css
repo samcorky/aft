@@ -88,6 +88,12 @@
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 250px);
+  transition: opacity 0.2s;
+}
+
+.column.dragging-column {
+  opacity: 0.5;
+  cursor: grabbing;
 }
 
 .column-header {
@@ -97,6 +103,12 @@
   margin-bottom: 15px;
   padding-bottom: 10px;
   border-bottom: 2px solid var(--border-color);
+}
+
+.column-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .column-header h4 {
@@ -131,6 +143,50 @@
 .column-edit-btn:hover {
   transform: scale(1.2);
   color: var(--primary-hover);
+}
+
+.column-move-left-btn,
+.column-move-right-btn {
+  background: none;
+  border: none;
+  color: var(--secondary-color);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.column-move-left-btn:hover,
+.column-move-right-btn:hover {
+  transform: scale(1.2);
+  color: var(--text-dark);
+}
+
+.column-delete-cards-btn {
+  background: none;
+  border: none;
+  color: var(--warning-color);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.column-delete-cards-btn:hover {
+  transform: scale(1.2);
+  color: #e67e22;
 }
 
 .column-add-card-btn {
@@ -197,14 +253,29 @@
   border: 1px solid var(--border-color);
   border-radius: 5px;
   padding: 12px;
-  cursor: pointer;
+  cursor: grab;
   transition: all 0.2s;
   position: relative;
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+.card.dragging {
+  opacity: 0.5;
+  transform: rotate(2deg);
+  cursor: grabbing;
 }
 
 .card:hover {
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
   transform: translateY(-2px);
+}
+
+.card.dragging:hover {
+  box-shadow: none;
+  transform: rotate(2deg);
 }
 
 .card-delete-btn {

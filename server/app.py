@@ -525,7 +525,7 @@ def delete_column(column_id):
 
 @app.route("/api/columns/<int:column_id>", methods=["PATCH"])
 def update_column(column_id):
-    """Update a column's name.
+    """Update a column's name and/or order.
     ---
     tags:
       - Columns
@@ -540,13 +540,15 @@ def update_column(column_id):
         required: true
         schema:
           type: object
-          required:
-            - name
           properties:
             name:
               type: string
               example: "In Progress"
               description: The new name for the column
+            order:
+              type: integer
+              example: 1
+              description: The new order position (columns >= this order will be incremented)
     responses:
       200:
         description: Column updated successfully
@@ -572,7 +574,7 @@ def update_column(column_id):
                   type: integer
                   example: 0
       400:
-        description: Bad request - missing name
+        description: Bad request
         schema:
           type: object
           properties:
@@ -581,7 +583,6 @@ def update_column(column_id):
               example: false
             message:
               type: string
-              example: "Name is required"
       404:
         description: Column not found
         schema:
@@ -606,8 +607,8 @@ def update_column(column_id):
     """
     try:
         data = request.get_json()
-        if not data or "name" not in data:
-            return jsonify({"success": False, "message": "Name is required"}), 400
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
         
         db = SessionLocal()
         from models import BoardColumn
@@ -617,7 +618,39 @@ def update_column(column_id):
             db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
-        column.name = data["name"]
+        old_order = column.order
+        board_id = column.board_id
+        
+        # Update name if provided
+        if "name" in data:
+            column.name = data["name"]
+        
+        # Handle order change if provided
+        if "order" in data:
+            new_order = data["order"]
+            
+            if new_order != old_order:
+                if new_order < old_order:
+                    # Moving left: increment columns between new and old position
+                    columns_to_update = db.query(BoardColumn).filter(
+                        BoardColumn.board_id == board_id,
+                        BoardColumn.order >= new_order,
+                        BoardColumn.order < old_order
+                    ).all()
+                    for col in columns_to_update:
+                        col.order += 1
+                else:
+                    # Moving right: decrement columns between old and new position
+                    columns_to_update = db.query(BoardColumn).filter(
+                        BoardColumn.board_id == board_id,
+                        BoardColumn.order > old_order,
+                        BoardColumn.order <= new_order
+                    ).all()
+                    for col in columns_to_update:
+                        col.order -= 1
+                
+                column.order = new_order
+        
         db.commit()
         db.refresh(column)
         result = {"id": column.id, "board_id": column.board_id, "name": column.name, "order": column.order}
@@ -924,15 +957,26 @@ def create_card(column_id):
             db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
-        # Get next available order
-        max_order = db.query(Card).filter(Card.column_id == column_id).count()
+        # Get order from request or use max order
+        if "order" in data:
+            order = data["order"]
+            # Increment order of existing cards >= this order
+            existing_cards = db.query(Card).filter(
+                Card.column_id == column_id,
+                Card.order >= order
+            ).all()
+            for card_to_update in existing_cards:
+                card_to_update.order += 1
+        else:
+            # Add at the end
+            order = db.query(Card).filter(Card.column_id == column_id).count()
         
         # Create card
         card = Card(
             column_id=column_id,
             title=data["title"],
             description=data.get("description", ""),
-            order=max_order
+            order=order
         )
         db.add(card)
         db.commit()
@@ -951,9 +995,85 @@ def create_card(column_id):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/columns/<int:column_id>/cards", methods=["DELETE"])
+def delete_all_cards_in_column(column_id):
+    """Delete all cards in a column.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the column whose cards should be deleted
+    responses:
+      200:
+        description: All cards deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Deleted 5 cards"
+            deleted_count:
+              type: integer
+              example: 5
+      404:
+        description: Column not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Column not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        from models import BoardColumn, Card
+        
+        # Verify column exists
+        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+        if not column:
+            db.close()
+            return jsonify({"success": False, "message": "Column not found"}), 404
+        
+        # Delete all cards in the column
+        deleted_count = db.query(Card).filter(Card.column_id == column_id).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+        
+        return jsonify({
+            "success": True, 
+            "message": f"Deleted {deleted_count} cards",
+            "deleted_count": deleted_count
+        }), 200
+    except Exception as e:
+        if 'db' in locals():
+            db.close()
+        logger.error(f"Error deleting cards from column {column_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
 def update_card(card_id):
-    """Update a card's title and description.
+    """Update a card's title, description, column, and/or order.
     ---
     tags:
       - Cards
@@ -977,6 +1097,14 @@ def update_card(card_id):
               type: string
               example: "Updated task description"
               description: The new description for the card
+            column_id:
+              type: integer
+              example: 2
+              description: The new column ID if moving the card
+            order:
+              type: integer
+              example: 1
+              description: The new order position (cards >= this order will be incremented)
     responses:
       200:
         description: Card updated successfully
@@ -1032,18 +1160,69 @@ def update_card(card_id):
             return jsonify({"success": False, "message": "No data provided"}), 400
         
         db = SessionLocal()
-        from models import Card
+        from models import Card, BoardColumn
         card = db.query(Card).filter(Card.id == card_id).first()
         
         if not card:
             db.close()
             return jsonify({"success": False, "message": "Card not found"}), 404
         
-        # Update fields if provided
+        old_column_id = card.column_id
+        old_order = card.order
+        
+        # Update title and description if provided
         if "title" in data:
             card.title = data["title"]
         if "description" in data:
             card.description = data["description"]
+        
+        # Handle column and order changes
+        if "column_id" in data or "order" in data:
+            new_column_id = data.get("column_id", card.column_id)
+            new_order = data.get("order", card.order)
+            
+            # Verify new column exists if changing columns
+            if new_column_id != old_column_id:
+                column = db.query(BoardColumn).filter(BoardColumn.id == new_column_id).first()
+                if not column:
+                    db.close()
+                    return jsonify({"success": False, "message": "Target column not found"}), 404
+            
+            # If moving to a different column
+            if new_column_id != old_column_id:
+                # Decrement order of cards after old position in old column
+                db.query(Card).filter(
+                    Card.column_id == old_column_id,
+                    Card.order > old_order
+                ).update({Card.order: Card.order - 1})
+                
+                # Increment order of cards >= new position in new column
+                db.query(Card).filter(
+                    Card.column_id == new_column_id,
+                    Card.order >= new_order
+                ).update({Card.order: Card.order + 1})
+                
+                card.column_id = new_column_id
+                card.order = new_order
+                
+            # If reordering within the same column
+            elif new_order != old_order:
+                if new_order < old_order:
+                    # Moving up: increment cards between new and old position
+                    db.query(Card).filter(
+                        Card.column_id == old_column_id,
+                        Card.order >= new_order,
+                        Card.order < old_order
+                    ).update({Card.order: Card.order + 1})
+                else:
+                    # Moving down: decrement cards between old and new position
+                    db.query(Card).filter(
+                        Card.column_id == old_column_id,
+                        Card.order > old_order,
+                        Card.order <= new_order
+                    ).update({Card.order: Card.order - 1})
+                
+                card.order = new_order
         
         db.commit()
         db.refresh(card)

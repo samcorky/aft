@@ -79,19 +79,24 @@ class BoardManager {
       this.container.innerHTML = `
         <div class="columns-container">
           ${this.columns.map(column => `
-            <div class="column" data-column-id="${column.id}">
+            <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
               <div class="column-header">
-                <h4>${this.escapeHtml(column.name)}</h4>
-                <div class="column-actions">
+                <div class="column-title-group">
+                  <h4>${this.escapeHtml(column.name)}</h4>
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
+                </div>
+                <div class="column-actions">
                   <button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>
+                  <button class="column-delete-cards-btn" data-column-id="${column.id}" title="Delete all cards">🗑</button>
+                  <button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>
+                  <button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>
                   <button class="column-delete-btn" data-column-id="${column.id}" title="Delete column">×</button>
                 </div>
               </div>
-              <div class="column-cards">
+              <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card" data-card-id="${card.id}">
+                    <div class="card" draggable="true" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}">
                       <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
                       <h5 class="card-title">${this.escapeHtml(card.title)}</h5>
                       <p class="card-description">${this.escapeHtml(card.description)}</p>
@@ -121,10 +126,17 @@ class BoardManager {
       });
       
       // Add event listeners for add card buttons (header and empty state)
-      document.querySelectorAll('.column-add-card-btn, .add-card-btn').forEach(btn => {
+      document.querySelectorAll('.column-add-card-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
-          this.openAddCardModal(columnId);
+          this.openAddCardModal(columnId, 0); // Add at top (order 0)
+        });
+      });
+      
+      document.querySelectorAll('.add-card-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          this.openAddCardModal(columnId); // Add at bottom (default)
         });
       });
       
@@ -133,6 +145,36 @@ class BoardManager {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
           this.deleteColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for delete all cards buttons
+      document.querySelectorAll('.column-delete-cards-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          this.deleteAllCardsInColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for move column buttons
+      document.querySelectorAll('.column-move-left-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          const currentOrder = parseInt(e.target.getAttribute('data-order'));
+          if (currentOrder > 0) {
+            this.moveColumn(columnId, currentOrder - 1);
+          }
+        });
+      });
+      
+      document.querySelectorAll('.column-move-right-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          const currentOrder = parseInt(e.target.getAttribute('data-order'));
+          const maxOrder = this.columns.length - 1;
+          if (currentOrder < maxOrder) {
+            this.moveColumn(columnId, currentOrder + 1);
+          }
         });
       });
       
@@ -157,6 +199,155 @@ class BoardManager {
           this.deleteCard(cardId);
         });
       });
+      
+      // Add drag and drop event listeners for cards
+      this.setupDragAndDrop();
+    }
+  }
+
+  async moveColumn(columnId, newOrder) {
+    await this.updateColumnPosition(columnId, newOrder);
+  }
+
+  async updateColumnPosition(columnId, order) {
+    try {
+      const response = await fetch(`/api/columns/${columnId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ order: order })
+      });
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.error('Failed to update column position:', data.message);
+        // Reload board to restore correct state
+        await this.loadBoard();
+      } else {
+        // Reload board to get updated order for all columns
+        await this.loadBoard();
+      }
+    } catch (err) {
+      console.error('Error updating column position:', err);
+      // Reload board to restore correct state
+      await this.loadBoard();
+    }
+  }
+
+  setupDragAndDrop() {
+    const cards = document.querySelectorAll('.card');
+    const columnCards = document.querySelectorAll('.column-cards');
+    
+    let draggedCard = null;
+    
+    // Card drag events
+    cards.forEach(card => {
+      card.addEventListener('dragstart', (e) => {
+        e.stopPropagation(); // Prevent column from also starting to drag
+        draggedCard = card;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', card.innerHTML);
+      });
+      
+      card.addEventListener('dragend', (e) => {
+        card.classList.remove('dragging');
+        draggedCard = null;
+      });
+    });
+    
+    // Column drop zone events
+    columnCards.forEach(columnContainer => {
+      columnContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        const afterElement = this.getDragAfterElement(columnContainer, e.clientY);
+        const dragging = document.querySelector('.dragging');
+        
+        if (afterElement == null) {
+          // Append at the end (before the add card button)
+          const addCardBtn = columnContainer.querySelector('.add-card-btn');
+          if (addCardBtn && dragging) {
+            columnContainer.insertBefore(dragging, addCardBtn);
+          }
+        } else {
+          if (dragging) {
+            columnContainer.insertBefore(dragging, afterElement);
+          }
+        }
+      });
+      
+      columnContainer.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        
+        if (!draggedCard) return;
+        
+        const targetColumnId = parseInt(columnContainer.getAttribute('data-column-id'));
+        const cardId = parseInt(draggedCard.getAttribute('data-card-id'));
+        const oldColumnId = parseInt(draggedCard.getAttribute('data-column-id'));
+        
+        // Calculate new order based on position in DOM
+        const cardsInColumn = Array.from(columnContainer.querySelectorAll('.card'));
+        const newOrder = cardsInColumn.indexOf(draggedCard);
+        
+        // Only update if position or column changed
+        const oldOrder = parseInt(draggedCard.getAttribute('data-order'));
+        if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
+          await this.updateCardPosition(cardId, targetColumnId, newOrder);
+        }
+      });
+    });
+  }
+
+  getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.card:not(.dragging)')];
+    
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  async updateCardPosition(cardId, columnId, order) {
+    try {
+      const response = await fetch(`/api/cards/${cardId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          column_id: columnId,
+          order: order
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.error('Failed to update card position:', data.message);
+        // Reload board to restore correct state
+        await this.loadBoard();
+      } else {
+        // Update local data attributes
+        const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
+        if (cardElement) {
+          cardElement.setAttribute('data-column-id', columnId);
+          cardElement.setAttribute('data-order', order);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating card position:', err);
+      // Reload board to restore correct state
+      await this.loadBoard();
     }
   }
 
@@ -262,6 +453,29 @@ class BoardManager {
     }
   }
 
+  async deleteAllCardsInColumn(columnId) {
+    if (!confirm('Are you sure you want to delete all cards in this column? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/columns/${columnId}/cards`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to reflect deletion
+        await this.loadBoard();
+      } else {
+        alert('Failed to delete cards: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error deleting cards: ' + err.message);
+    }
+  }
+
   openEditColumnModal(columnId, currentName) {
     // Create modal HTML
     const modalHtml = `
@@ -342,7 +556,7 @@ class BoardManager {
     }
   }
 
-  openAddCardModal(columnId) {
+  openAddCardModal(columnId, order = null) {
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="add-card-modal">
@@ -390,7 +604,7 @@ class BoardManager {
       const description = document.getElementById('card-description').value.trim();
       
       if (title) {
-        await this.createCard(columnId, title, description);
+        await this.createCard(columnId, title, description, order);
         modal.remove();
       }
     });
@@ -403,14 +617,19 @@ class BoardManager {
     });
   }
 
-  async createCard(columnId, title, description) {
+  async createCard(columnId, title, description, order = null) {
     try {
+      const body = { title, description };
+      if (order !== null) {
+        body.order = order;
+      }
+      
       const response = await fetch(`/api/columns/${columnId}/cards`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title, description })
+        body: JSON.stringify(body)
       });
 
       const data = await response.json();

@@ -217,5 +217,68 @@ def create_board():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/boards/<int:board_id>", methods=["DELETE"])
+def delete_board(board_id):
+    """Delete a board by ID.
+    ---
+    tags:
+      - Boards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board to delete
+    responses:
+      200:
+        description: Board deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Board deleted successfully"
+      404:
+        description: Board not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Board not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        board = db.query(Board).filter(Board.id == board_id).first()
+        
+        if not board:
+            db.close()
+            return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        db.delete(board)
+        db.commit()
+        db.close()
+        
+        return jsonify({"success": True, "message": "Board deleted successfully"}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

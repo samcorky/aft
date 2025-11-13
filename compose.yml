@@ -28,7 +28,7 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: aft-nginx
+    container_name: aft-web
     restart: unless-stopped
     depends_on:
       - server

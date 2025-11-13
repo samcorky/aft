@@ -28,12 +28,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Make startup script executable
-RUN chmod +x startup.sh
-
 # Create non-root user for security
-RUN useradd --create-home --shell /bin/bash app \
+RUN useradd --create-home --shell /bin/bash app
+
+# Make startup script executable and set ownership and permissions
+RUN chmod +x startup.sh \
+    && chmod -R u+w /app \
     && chown -R app:app /app
+
 USER app
 
 # Expose the port Flask runs on

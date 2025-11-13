@@ -4,3 +4,5 @@ alembic
 pymysql
 cryptography
 gunicorn
+flask-swagger-ui
+flasgger

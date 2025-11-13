@@ -13,6 +13,7 @@ RUN for i in 1 2 3; do \
             default-libmysqlclient-dev \
             pkg-config \
             build-essential \
+            curl \
         && break || sleep 5; \
     done && \
     apt-get clean && \
@@ -27,6 +28,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Make startup script executable
+RUN chmod +x startup.sh
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app \
     && chown -R app:app /app
@@ -36,4 +40,4 @@ USER app
 EXPOSE 5000
 
 # Command to run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "app:app"]
+CMD ["./startup.sh"]

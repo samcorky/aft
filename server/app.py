@@ -3,10 +3,14 @@ import logging
 from flasgger import Swagger
 from database import SessionLocal
 from models import Board
+from sqlalchemy import text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Application version
+APP_VERSION = "0.1.0"
 
 app = Flask(__name__)
 
@@ -42,6 +46,56 @@ API documentation for AFT application
 }
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
+
+
+@app.route("/api/version")
+def get_version():
+    """Get application and database schema version.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Version information
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            app_version:
+              type: string
+              example: "1.0.0"
+            db_version:
+              type: string
+              example: "003"
+      500:
+        description: Failed to get version
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        # Get current Alembic revision from database
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        db_version = row[0] if row else "unknown"
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "app_version": APP_VERSION,
+            "db_version": db_version
+        })
+    except Exception as e:
+        logger.error(f"Error getting version: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 
 @app.route("/api/test")

@@ -3,6 +3,7 @@ class Header {
   constructor() {
     this.statusIcon = null;
     this.statusText = null;
+    this.versionInfo = null;
   }
 
   // Load the header HTML component
@@ -11,9 +12,10 @@ class Header {
     const html = await response.text();
     document.body.insertAdjacentHTML('afterbegin', html);
     
-    // Get references to status elements
+    // Get references to status elements after HTML is inserted
     this.statusIcon = document.getElementById('status-icon');
     this.statusText = document.getElementById('status-text');
+    this.versionInfo = document.getElementById('version-info');
     
     // Check database status
     this.checkDatabaseStatus();
@@ -46,7 +48,8 @@ class Header {
     this.statusIcon.className = `status-icon ${status}`;
     
     if (status === 'success' && count !== null) {
-      this.statusText.textContent = `DB connected: ${count} boards`;
+      const boardText = count === 1 ? 'board' : 'boards';
+      this.statusText.textContent = `DB connected: ${count} ${boardText}`;
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
       this.statusText.title = message; // Show full error on hover
@@ -58,16 +61,34 @@ class Header {
   // Check database connection status
   async checkDatabaseStatus() {
     try {
-      const response = await fetch('/api/test');
-      const data = await response.json();
+      const [testResponse, versionResponse] = await Promise.all([
+        fetch('/api/test'),
+        fetch('/api/version')
+      ]);
       
-      if (data.success) {
-        this.updateStatus('success', 'Connected', data.boards_count);
+      const testData = await testResponse.json();
+      const versionData = await versionResponse.json();
+      
+      if (testData.success) {
+        this.updateStatus('success', 'Connected', testData.boards_count);
       } else {
-        this.updateStatus('error', data.message);
+        this.updateStatus('error', testData.message);
+      }
+      
+      // Update version display
+      if (versionData.success) {
+        this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
       this.updateStatus('error', err.message);
+    }
+  }
+
+  // Update version display
+  updateVersion(appVersion, dbVersion) {
+    const versionElement = this.versionInfo || document.getElementById('version-info');
+    if (versionElement) {
+      versionElement.textContent = `v${appVersion} | DB:${dbVersion}`;
     }
   }
 }

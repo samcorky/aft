@@ -1,0 +1,33 @@
+services:
+  db:
+    image: mysql:latest
+    container_name: aft-db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    volumes:
+      - ./data:/var/lib/mysql
+    networks:
+      - aft
+
+  server:
+    build: ./server
+    container_name: aft-server
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - db
+    ports:
+      - "80:80"
+    volumes:
+      - ./www:/usr/share/nginx/html
+    networks:
+      - aft
+
+networks:
+  aft:
+    driver: bridge

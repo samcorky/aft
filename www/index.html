@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AFT</title>
+</head>
+<body>
+  <h1>AFT Web App</h1>
+  <div id="status">Connecting to database...</div>
+  <script>
+    fetch('/api/test')
+      .then(response => response.json())
+      .then(data => {
+        if(data.success) {
+          document.getElementById('status').innerText = "Database connection successful!";
+        } else {
+          document.getElementById('status').innerText = "Database connection failed: " + data.message;
+        }
+      })
+      .catch(err => {
+        document.getElementById('status').innerText = "API error: " + err;
+      });
+  </script>
+</body>
+</html>

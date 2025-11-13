@@ -55,10 +55,9 @@ class BoardManager {
     // Update page title
     document.title = `AFT - ${this.boardName}`;
     
-    // Update header title
-    const headerTitle = document.querySelector('.header-left h1');
-    if (headerTitle) {
-      headerTitle.innerHTML = `AFT <span class="board-name-separator">-</span> <span class="board-name">${this.escapeHtml(this.boardName)}</span>`;
+    // Update header navbar with board name
+    if (window.header) {
+      window.header.setBoardName(this.boardName);
     }
   }
 

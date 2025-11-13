@@ -157,9 +157,10 @@ class BoardsManager {
         this.closeModal();
         await this.loadBoards();
         
-        // Update header status if available
+        // Update header status and boards dropdown if available
         if (window.header) {
           window.header.checkDatabaseStatus();
+          window.header.loadBoardsDropdown();
         }
       } else {
         alert('Failed to create board: ' + data.message);
@@ -184,9 +185,10 @@ class BoardsManager {
       if (data.success) {
         await this.loadBoards();
         
-        // Update header status if available
+        // Update header status and boards dropdown if available
         if (window.header) {
           window.header.checkDatabaseStatus();
+          window.header.loadBoardsDropdown();
         }
       } else {
         alert('Failed to delete board: ' + data.message);

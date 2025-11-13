@@ -10,7 +10,13 @@
       </a>
     </div>
     <nav class="header-nav">
-      <a href="/" class="nav-link">Boards</a>
+      <div class="boards-dropdown">
+        <a href="/" class="nav-link">Boards</a>
+        <div class="boards-dropdown-menu" id="boards-dropdown-menu">
+          <div class="boards-dropdown-loading">Loading boards...</div>
+        </div>
+      </div>
+      <div class="nav-board-name" id="nav-board-name"></div>
     </nav>
     <div class="header-right">
       <a href="/about.html" class="nav-link">About</a>
@@ -21,7 +27,10 @@
       <div class="db-status">
         <span class="status-icon connecting" id="status-icon"></span>
         <span class="status-text" id="status-text">Connecting...</span>
-        <span class="version-info" id="version-info"></span>
+        <div class="version-line">
+          <span class="version-info" id="version-info"></span>
+          <span class="more-info-link">more info</span>
+        </div>
       </div>
     </div>
   </div>

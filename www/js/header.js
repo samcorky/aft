@@ -25,19 +25,23 @@ class Header {
       });
     }
     
+    // Load boards dropdown
+    this.loadBoardsDropdown();
+    
     // Check database status
     this.checkDatabaseStatus();
   }
 
   // Set the board name in the header
   setBoardName(boardName) {
-    const headerLeft = document.querySelector('.header-left h1');
-    if (headerLeft) {
+    const navBoardName = document.getElementById('nav-board-name');
+    if (navBoardName) {
       if (boardName) {
-        headerLeft.innerHTML = `AFT <span class="board-name-separator">-</span> <span class="board-name">${this.escapeHtml(boardName)}</span>`;
+        navBoardName.textContent = boardName;
         document.title = `AFT - ${boardName}`;
       } else {
-        headerLeft.textContent = 'AFT';
+        navBoardName.textContent = '';
+        document.title = 'AFT';
       }
     }
   }
@@ -97,6 +101,39 @@ class Header {
     const versionElement = this.versionInfo || document.getElementById('version-info');
     if (versionElement) {
       versionElement.textContent = `v${appVersion} | DB:${dbVersion}`;
+    }
+  }
+
+  // Load boards for dropdown menu
+  async loadBoardsDropdown() {
+    try {
+      const response = await fetch('/api/boards');
+      const data = await response.json();
+      
+      const dropdown = document.getElementById('boards-dropdown-menu');
+      if (!dropdown) return;
+      
+      if (data.success && data.boards && data.boards.length > 0) {
+        // Clear loading message
+        dropdown.innerHTML = '';
+        
+        // Add each board as a link
+        data.boards.forEach(board => {
+          const link = document.createElement('a');
+          link.href = `/board.html?id=${board.id}`;
+          link.className = 'boards-dropdown-item';
+          link.textContent = board.name;
+          dropdown.appendChild(link);
+        });
+      } else {
+        dropdown.innerHTML = '<div class="boards-dropdown-empty">No boards yet</div>';
+      }
+    } catch (error) {
+      console.error('Error loading boards dropdown:', error);
+      const dropdown = document.getElementById('boards-dropdown-menu');
+      if (dropdown) {
+        dropdown.innerHTML = '<div class="boards-dropdown-empty">Error loading boards</div>';
+      }
     }
   }
 }

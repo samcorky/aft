@@ -29,8 +29,9 @@ COPY . .
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app
 
-# Make startup script executable and set ownership and permissions
-RUN chmod +x startup.sh \
+# Fix line endings and make startup script executable
+RUN sed -i 's/\r$//' startup.sh \
+    && chmod +x startup.sh \
     && chmod -R u+w /app \
     && chown -R app:app /app
 

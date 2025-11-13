@@ -3,9 +3,9 @@ FROM nginx:alpine
 # Install openssl for generating self-signed certificates
 RUN apk add --no-cache openssl
 
-# Copy entrypoint script
+# Copy entrypoint script and fix line endings
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

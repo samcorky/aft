@@ -14,7 +14,6 @@ class BoardsManager {
     this.container.innerHTML = `
       <div class="boards-header">
         <h3>My Boards</h3>
-        <button class="btn btn-primary" id="new-board-btn">+ New Board</button>
       </div>
       <div id="boards-list" class="loading">
         Loading boards...
@@ -42,7 +41,6 @@ class BoardsManager {
     `;
 
     // Attach event listeners
-    document.getElementById('new-board-btn').addEventListener('click', () => this.openModal());
     document.getElementById('modal-close').addEventListener('click', () => this.closeModal());
     document.getElementById('cancel-btn').addEventListener('click', () => this.closeModal());
     document.getElementById('new-board-form').addEventListener('submit', (e) => this.handleCreateBoard(e));
@@ -94,7 +92,14 @@ class BoardsManager {
           <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
           <h4>${this.escapeHtml(board.name)}</h4>
         </div>
-      `).join('');
+      `).join('') + `
+        <div class="add-board-placeholder">
+          <button class="btn btn-primary" id="add-board-inline-btn">+ New Board</button>
+        </div>
+      `;
+      
+      // Add event listener for inline add board button
+      document.getElementById('add-board-inline-btn').addEventListener('click', () => this.openModal());
       
       // Add event listeners for delete buttons
       listContainer.querySelectorAll('.board-delete-btn').forEach(btn => {

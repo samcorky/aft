@@ -20,12 +20,47 @@
 
 .header-left {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.header-logo-link {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  text-decoration: none;
+  color: white;
+}
+
+.header-logo {
+  height: 50px;
+  width: auto;
+}
+
+.header-title-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .header-left h1 {
   margin: 0;
   font-size: 28px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.board-name-separator {
+  opacity: 0.5;
+  font-weight: 600;
+}
+
+.board-name {
+  font-weight: 600;
+  opacity: 0.9;
 }
 
 .header-left h2 {

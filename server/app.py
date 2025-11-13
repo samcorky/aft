@@ -33,7 +33,7 @@ swagger_template = {
         "description": """
 API documentation for AFT application
 
-[← Back to AFT Home](/)
+<a href="/" style="text-decoration: none;">← Back to AFT Home</a>
         """,
         "version": "1.0.0"
     },
@@ -624,6 +624,503 @@ def update_column(column_id):
         db.close()
         
         return jsonify({"success": True, "column": result}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/columns/<int:column_id>/cards", methods=["GET"])
+def get_column_cards(column_id):
+    """Get all cards for a specific column.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the column
+    responses:
+      200:
+        description: List of cards for the column
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            cards:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  column_id:
+                    type: integer
+                    example: 1
+                  title:
+                    type: string
+                    example: "Task title"
+                  description:
+                    type: string
+                    example: "Task description"
+                  order:
+                    type: integer
+                    example: 0
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        from models import Card
+        cards = db.query(Card).filter(Card.column_id == column_id).order_by(Card.order).all()
+        db.close()
+        return jsonify({
+            "success": True,
+            "cards": [{"id": c.id, "column_id": c.column_id, "title": c.title, "description": c.description, "order": c.order} for c in cards]
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/boards/<int:board_id>/cards", methods=["GET"])
+def get_board_cards(board_id):
+    """Get all cards for a board with nested structure (board -> columns -> cards).
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board
+    responses:
+      200:
+        description: Nested structure of board with columns and cards
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            board:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                name:
+                  type: string
+                  example: "My Board"
+                columns:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                        example: 1
+                      name:
+                        type: string
+                        example: "To Do"
+                      order:
+                        type: integer
+                        example: 0
+                      cards:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 1
+                            title:
+                              type: string
+                              example: "Task title"
+                            description:
+                              type: string
+                              example: "Task description"
+                            order:
+                              type: integer
+                              example: 0
+      404:
+        description: Board not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Board not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        from models import BoardColumn, Card
+        
+        # Get board
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            db.close()
+            return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Get columns for board
+        columns = db.query(BoardColumn).filter(BoardColumn.board_id == board_id).order_by(BoardColumn.order).all()
+        
+        # Build nested structure
+        result = {
+            "id": board.id,
+            "name": board.name,
+            "columns": []
+        }
+        
+        for column in columns:
+            # Get cards for this column
+            cards = db.query(Card).filter(Card.column_id == column.id).order_by(Card.order).all()
+            
+            column_data = {
+                "id": column.id,
+                "name": column.name,
+                "order": column.order,
+                "cards": [
+                    {
+                        "id": card.id,
+                        "title": card.title,
+                        "description": card.description,
+                        "order": card.order
+                    }
+                    for card in cards
+                ]
+            }
+            result["columns"].append(column_data)
+        
+        db.close()
+        return jsonify({"success": True, "board": result})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
+def create_card(column_id):
+    """Create a new card in a column.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the column
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - title
+          properties:
+            title:
+              type: string
+              example: "New task"
+              description: The title of the card
+            description:
+              type: string
+              example: "Task details"
+              description: The description of the card (optional)
+    responses:
+      201:
+        description: Card created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                column_id:
+                  type: integer
+                  example: 1
+                title:
+                  type: string
+                  example: "New task"
+                description:
+                  type: string
+                  example: "Task details"
+                order:
+                  type: integer
+                  example: 0
+      400:
+        description: Bad request - missing title
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Title is required"
+      404:
+        description: Column not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Column not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        data = request.get_json()
+        if not data or "title" not in data:
+            return jsonify({"success": False, "message": "Title is required"}), 400
+        
+        db = SessionLocal()
+        from models import BoardColumn, Card
+        
+        # Verify column exists
+        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+        if not column:
+            db.close()
+            return jsonify({"success": False, "message": "Column not found"}), 404
+        
+        # Get next available order
+        max_order = db.query(Card).filter(Card.column_id == column_id).count()
+        
+        # Create card
+        card = Card(
+            column_id=column_id,
+            title=data["title"],
+            description=data.get("description", ""),
+            order=max_order
+        )
+        db.add(card)
+        db.commit()
+        db.refresh(card)
+        result = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order
+        }
+        db.close()
+        
+        return jsonify({"success": True, "card": result}), 201
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/cards/<int:card_id>", methods=["PATCH"])
+def update_card(card_id):
+    """Update a card's title and description.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to update
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            title:
+              type: string
+              example: "Updated task title"
+              description: The new title for the card
+            description:
+              type: string
+              example: "Updated task description"
+              description: The new description for the card
+    responses:
+      200:
+        description: Card updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                column_id:
+                  type: integer
+                  example: 1
+                title:
+                  type: string
+                  example: "Updated task title"
+                description:
+                  type: string
+                  example: "Updated task description"
+                order:
+                  type: integer
+                  example: 0
+      404:
+        description: Card not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Card not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
+        
+        db = SessionLocal()
+        from models import Card
+        card = db.query(Card).filter(Card.id == card_id).first()
+        
+        if not card:
+            db.close()
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Update fields if provided
+        if "title" in data:
+            card.title = data["title"]
+        if "description" in data:
+            card.description = data["description"]
+        
+        db.commit()
+        db.refresh(card)
+        result = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order
+        }
+        db.close()
+        
+        return jsonify({"success": True, "card": result}), 200
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/cards/<int:card_id>", methods=["DELETE"])
+def delete_card(card_id):
+    """Delete a card by ID.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to delete
+    responses:
+      200:
+        description: Card deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card deleted successfully"
+      404:
+        description: Card not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Card not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        db = SessionLocal()
+        from models import Card
+        card = db.query(Card).filter(Card.id == card_id).first()
+        
+        if not card:
+            db.close()
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        db.delete(card)
+        db.commit()
+        db.close()
+        
+        return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 

@@ -29,47 +29,42 @@ class BoardManager {
 
   async loadBoard() {
     try {
-      // Load board details
-      const boardResponse = await fetch(`/api/boards`);
-      const boardData = await boardResponse.json();
+      // Load board with nested structure (board -> columns -> cards)
+      const response = await fetch(`/api/boards/${this.boardId}/cards`);
+      const data = await response.json();
       
-      if (!boardData.success) {
-        this.showError('Failed to load board');
+      if (!data.success) {
+        this.showError('Failed to load board: ' + data.message);
         return;
       }
 
-      const board = boardData.boards.find(b => b.id === parseInt(this.boardId));
-      if (!board) {
-        this.showError('Board not found');
-        return;
-      }
-
+      const board = data.board;
       this.boardName = board.name;
-
-      // Load columns for this board
-      const columnsResponse = await fetch(`/api/boards/${this.boardId}/columns`);
-      const columnsData = await columnsResponse.json();
-
-      if (columnsData.success) {
-        this.columns = columnsData.columns;
-        this.renderBoard();
-      } else {
-        this.showError('Failed to load columns: ' + columnsData.message);
-      }
+      this.columns = board.columns;
+      
+      // Update header with board name and page title
+      this.updateBoardTitle();
+      
+      this.renderBoard();
     } catch (err) {
       this.showError('Error loading board: ' + err.message);
+    }
+  }
+
+  updateBoardTitle() {
+    // Update page title
+    document.title = `AFT - ${this.boardName}`;
+    
+    // Update header title
+    const headerTitle = document.querySelector('.header-left h1');
+    if (headerTitle) {
+      headerTitle.innerHTML = `AFT <span class="board-name-separator">-</span> <span class="board-name">${this.escapeHtml(this.boardName)}</span>`;
     }
   }
 
   renderBoard() {
     if (this.columns.length === 0) {
       this.container.innerHTML = `
-        <div class="board-header">
-          <h3>${this.escapeHtml(this.boardName)}</h3>
-          <div class="board-actions">
-            <button class="btn btn-primary" id="add-column-btn">+ Add Column</button>
-          </div>
-        </div>
         <div class="empty-board">
           <div class="empty-board-icon">📋</div>
           <h3>No columns yet</h3>
@@ -78,17 +73,10 @@ class BoardManager {
         </div>
       `;
       
-      // Add event listeners for both add column buttons
-      document.getElementById('add-column-btn').addEventListener('click', () => this.openAddColumnModal());
+      // Add event listener for add column button
       document.getElementById('add-column-empty-btn').addEventListener('click', () => this.openAddColumnModal());
     } else {
       this.container.innerHTML = `
-        <div class="board-header">
-          <h3>${this.escapeHtml(this.boardName)}</h3>
-          <div class="board-actions">
-            <button class="btn btn-primary" id="add-column-btn">+ Add Column</button>
-          </div>
-        </div>
         <div class="columns-container">
           ${this.columns.map(column => `
             <div class="column" data-column-id="${column.id}">
@@ -96,21 +84,34 @@ class BoardManager {
                 <h4>${this.escapeHtml(column.name)}</h4>
                 <div class="column-actions">
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
+                  <button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>
                   <button class="column-delete-btn" data-column-id="${column.id}" title="Delete column">×</button>
                 </div>
               </div>
               <div class="column-cards">
-                <!-- Cards will go here -->
+                ${column.cards && column.cards.length > 0 ? 
+                  column.cards.map(card => `
+                    <div class="card" data-card-id="${card.id}">
+                      <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                      <h5 class="card-title">${this.escapeHtml(card.title)}</h5>
+                      <p class="card-description">${this.escapeHtml(card.description)}</p>
+                    </div>
+                  `).join('') : ''
+                }
+                <button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>
               </div>
             </div>
           `).join('')}
+          <div class="add-column-placeholder">
+            <button class="btn btn-primary" id="add-column-inline-btn">+ Add Column</button>
+          </div>
         </div>
       `;
       
-      // Add event listener for add column button
-      document.getElementById('add-column-btn').addEventListener('click', () => this.openAddColumnModal());
+      // Add event listener for add column button next to columns
+      document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());
       
-      // Add event listeners for edit buttons
+      // Add event listeners for edit column buttons
       document.querySelectorAll('.column-edit-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
@@ -119,11 +120,41 @@ class BoardManager {
         });
       });
       
-      // Add event listeners for delete buttons
+      // Add event listeners for add card buttons (header and empty state)
+      document.querySelectorAll('.column-add-card-btn, .add-card-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          this.openAddCardModal(columnId);
+        });
+      });
+      
+      // Add event listeners for delete column buttons
       document.querySelectorAll('.column-delete-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
           this.deleteColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for card clicks (open edit modal)
+      document.querySelectorAll('.card').forEach(card => {
+        card.addEventListener('click', (e) => {
+          // Don't trigger if clicking the delete button
+          if (e.target.classList.contains('card-delete-btn')) return;
+          
+          const cardId = parseInt(card.getAttribute('data-card-id'));
+          const cardTitle = card.querySelector('.card-title').textContent;
+          const cardDescription = card.querySelector('.card-description').textContent;
+          this.openEditCardModal(cardId, cardTitle, cardDescription);
+        });
+      });
+      
+      // Add event listeners for delete card buttons
+      document.querySelectorAll('.card-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          this.deleteCard(cardId);
         });
       });
     }
@@ -308,6 +339,198 @@ class BoardManager {
       }
     } catch (err) {
       alert('Error updating column: ' + err.message);
+    }
+  }
+
+  openAddCardModal(columnId) {
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="add-card-modal">
+        <div class="modal-content">
+          <h2>Add New Card</h2>
+          <form id="add-card-form">
+            <div class="form-group">
+              <label for="card-title">Title:</label>
+              <input type="text" id="card-title" name="card-title" required>
+            </div>
+            <div class="form-group">
+              <label for="card-description">Description:</label>
+              <textarea id="card-description" name="card-description" rows="4"></textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-card-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">Create Card</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('add-card-modal');
+    const form = document.getElementById('add-card-form');
+    const cancelBtn = document.getElementById('cancel-card-btn');
+    const titleInput = document.getElementById('card-title');
+
+    // Focus on input
+    titleInput.focus();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    // Handle form submit
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = titleInput.value.trim();
+      const description = document.getElementById('card-description').value.trim();
+      
+      if (title) {
+        await this.createCard(columnId, title, description);
+        modal.remove();
+      }
+    });
+
+    // Close modal on background click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  async createCard(columnId, title, description) {
+    try {
+      const response = await fetch(`/api/columns/${columnId}/cards`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title, description })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to show the new card
+        await this.loadBoard();
+      } else {
+        alert('Failed to create card: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error creating card: ' + err.message);
+    }
+  }
+
+  openEditCardModal(cardId, currentTitle, currentDescription) {
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="edit-card-modal">
+        <div class="modal-content">
+          <h2>Edit Card</h2>
+          <form id="edit-card-form">
+            <div class="form-group">
+              <label for="edit-card-title">Title:</label>
+              <input type="text" id="edit-card-title" name="edit-card-title" value="${this.escapeHtml(currentTitle)}" required>
+            </div>
+            <div class="form-group">
+              <label for="edit-card-description">Description:</label>
+              <textarea id="edit-card-description" name="edit-card-description" rows="4">${this.escapeHtml(currentDescription)}</textarea>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('edit-card-modal');
+    const form = document.getElementById('edit-card-form');
+    const cancelBtn = document.getElementById('cancel-edit-card-btn');
+    const titleInput = document.getElementById('edit-card-title');
+
+    // Focus on input and select text
+    titleInput.focus();
+    titleInput.select();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    // Handle form submit
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = titleInput.value.trim();
+      const description = document.getElementById('edit-card-description').value.trim();
+      
+      if (title) {
+        await this.updateCard(cardId, title, description);
+        modal.remove();
+      }
+    });
+
+    // Close modal on background click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  async updateCard(cardId, title, description) {
+    try {
+      const response = await fetch(`/api/cards/${cardId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title, description })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to show the updated card
+        await this.loadBoard();
+      } else {
+        alert('Failed to update card: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error updating card: ' + err.message);
+    }
+  }
+
+  async deleteCard(cardId) {
+    if (!confirm('Are you sure you want to delete this card?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/cards/${cardId}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to reflect deletion
+        await this.loadBoard();
+      } else {
+        alert('Failed to delete card: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error deleting card: ' + err.message);
     }
   }
 

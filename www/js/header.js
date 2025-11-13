@@ -19,6 +19,26 @@ class Header {
     this.checkDatabaseStatus();
   }
 
+  // Set the board name in the header
+  setBoardName(boardName) {
+    const headerLeft = document.querySelector('.header-left h1');
+    if (headerLeft) {
+      if (boardName) {
+        headerLeft.innerHTML = `AFT <span class="board-name-separator">-</span> <span class="board-name">${this.escapeHtml(boardName)}</span>`;
+        document.title = `AFT - ${boardName}`;
+      } else {
+        headerLeft.textContent = 'AFT';
+      }
+    }
+  }
+
+  // Escape HTML to prevent XSS
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
   // Update the database status indicator
   updateStatus(status, message, count = null) {
     if (!this.statusIcon || !this.statusText) return;

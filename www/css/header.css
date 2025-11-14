@@ -285,8 +285,7 @@
 
 /* Canvas/Content Area */
 .canvas {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 30px;
-  min-height: calc(100vh - 100px);
+  width: 100%;
+  padding: 20px;
+  min-height: calc(100vh - 80px);
 }

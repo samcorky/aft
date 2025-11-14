@@ -6,8 +6,32 @@ class BoardsManager {
   }
 
   async init() {
+    // Check for default board setting and redirect if set
+    await this.checkDefaultBoard();
+    
     this.render();
     await this.loadBoards();
+  }
+
+  async checkDefaultBoard() {
+    try {
+      const response = await fetch('/api/settings/default_board');
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success && data.value) {
+          // Redirect to default board
+          window.location.href = `/board.html?id=${data.value}`;
+          // Note: Code after redirect won't execute, but we don't await to allow
+          // the redirect to happen immediately
+        }
+      }
+      // If no default board or error, continue to boards list
+    } catch (err) {
+      // If error checking default board, continue to boards list
+      console.error('Error checking default board:', err);
+    }
   }
 
   render() {

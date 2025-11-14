@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 import logging
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card
+from models import Board, BoardColumn, Card, Setting
 from sqlalchemy import text
 
 # Configure logging
@@ -537,6 +537,196 @@ def delete_database():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/settings/<key>", methods=["GET"])
+def get_setting(key):
+    """Get a setting value by key with validation.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: key
+        in: path
+        type: string
+        required: true
+        description: The setting key to retrieve
+    responses:
+      200:
+        description: Setting value (validated)
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            key:
+              type: string
+              example: "default_board"
+            value:
+              description: JSON parsed value
+              example: null
+      404:
+        description: Setting not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    import json
+    try:
+        db = SessionLocal()
+        setting = db.query(Setting).filter(Setting.key == key).first()
+        
+        if not setting:
+            db.close()
+            return jsonify({"success": False, "message": f"Setting '{key}' not found"}), 404
+        
+        # Parse JSON value
+        try:
+            value = json.loads(setting.value) if setting.value else None
+        except json.JSONDecodeError:
+            value = setting.value
+        
+        # Special validation for default_board
+        if key == "default_board" and value is not None:
+            # Check if board exists
+            board = db.query(Board).filter(Board.id == value).first()
+            if not board:
+                # Board doesn't exist, auto-correct to null
+                logger.warning(f"Default board {value} not found, resetting to null")
+                setting.value = "null"
+                db.commit()
+                value = None
+        
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "key": key,
+            "value": value
+        })
+    except Exception as e:
+        logger.error(f"Error getting setting: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/<key>", methods=["PUT"])
+def set_setting(key):
+    """Create or update a setting (upsert).
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: key
+        in: path
+        type: string
+        required: true
+        description: The setting key to set
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - value
+          properties:
+            value:
+              description: The value to store (will be JSON stringified)
+              example: 123
+    responses:
+      200:
+        description: Setting updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Setting updated successfully"
+            key:
+              type: string
+            value:
+              description: The stored value
+      400:
+        description: Bad request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    import json
+    try:
+        data = request.get_json()
+        if data is None or 'value' not in data:
+            return jsonify({"success": False, "message": "Value is required"}), 400
+        
+        # Convert value to JSON string
+        value = json.dumps(data['value'])
+        
+        db = SessionLocal()
+        setting = db.query(Setting).filter(Setting.key == key).first()
+        
+        if setting:
+            # Update existing
+            setting.value = value
+            message = "Setting updated successfully"
+        else:
+            # Create new
+            setting = Setting(key=key, value=value)
+            db.add(setting)
+            message = "Setting created successfully"
+        
+        db.commit()
+        db.refresh(setting)
+        
+        # Parse back for response
+        try:
+            parsed_value = json.loads(value)
+        except json.JSONDecodeError:
+            parsed_value = value
+        
+        db.close()
+        
+        return jsonify({
+            "success": True,
+            "message": message,
+            "key": key,
+            "value": parsed_value
+        })
+    except Exception as e:
+        logger.error(f"Error setting setting: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/boards", methods=["GET"])
 def get_boards():
     """Get all boards.
@@ -709,6 +899,7 @@ def delete_board(board_id):
             message:
               type: string
     """
+    import json
     try:
         db = SessionLocal()
         board = db.query(Board).filter(Board.id == board_id).first()
@@ -716,6 +907,18 @@ def delete_board(board_id):
         if not board:
             db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Check if this board is set as default_board
+        default_board_setting = db.query(Setting).filter(Setting.key == "default_board").first()
+        if default_board_setting:
+            try:
+                default_board_id = json.loads(default_board_setting.value)
+                if default_board_id == board_id:
+                    # Reset to null since we're deleting the default board
+                    default_board_setting.value = "null"
+                    logger.info(f"Reset default_board setting because board {board_id} was deleted")
+            except (json.JSONDecodeError, ValueError):
+                pass
         
         db.delete(board)
         db.commit()

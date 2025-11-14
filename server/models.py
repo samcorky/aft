@@ -56,3 +56,16 @@ class Card(Base):
     
     def __repr__(self):
         return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order})>"
+
+
+class Setting(Base):
+    """Setting model for storing application settings."""
+    
+    __tablename__ = "settings"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    key = Column(String(255), nullable=False, unique=True, index=True)
+    value = Column(Text, nullable=True)
+    
+    def __repr__(self):
+        return f"<Setting(id={self.id}, key='{self.key}')>"

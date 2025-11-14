@@ -48,10 +48,21 @@ class Settings {
 
   async loadSettings() {
     try {
-      // For now, load from localStorage
-      // TODO: Later we'll load from API/database
-      const defaultBoardId = localStorage.getItem('defaultBoardId') || '';
-      this.defaultBoardSelect.value = defaultBoardId;
+      // Load from API
+      const response = await fetch('/api/settings/default_board');
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          const defaultBoardId = data.value || '';
+          this.defaultBoardSelect.value = defaultBoardId;
+        }
+      } else if (response.status === 404) {
+        // Setting doesn't exist yet, will be created on save
+        this.defaultBoardSelect.value = '';
+      } else {
+        console.error('Error loading settings:', response.statusText);
+      }
     } catch (err) {
       console.error('Error loading settings:', err);
     }
@@ -60,22 +71,31 @@ class Settings {
   async saveSettings() {
     try {
       const defaultBoardId = this.defaultBoardSelect.value;
+      
+      // Convert empty string to null for JSON
+      const value = defaultBoardId === '' ? null : parseInt(defaultBoardId);
 
-      // For now, save to localStorage
-      // TODO: Later we'll save to API/database
-      if (defaultBoardId) {
-        localStorage.setItem('defaultBoardId', defaultBoardId);
+      const response = await fetch('/api/settings/default_board', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.showStatus('Settings saved successfully', 'success');
+
+        // Clear status after 3 seconds
+        setTimeout(() => {
+          this.statusElement.textContent = '';
+          this.statusElement.className = 'settings-status';
+        }, 3000);
       } else {
-        localStorage.removeItem('defaultBoardId');
+        this.showStatus('Error saving settings: ' + data.message, 'error');
       }
-
-      this.showStatus('Settings saved successfully', 'success');
-
-      // Clear status after 3 seconds
-      setTimeout(() => {
-        this.statusElement.textContent = '';
-        this.statusElement.className = 'settings-status';
-      }, 3000);
 
     } catch (err) {
       this.showStatus('Error saving settings: ' + err.message, 'error');

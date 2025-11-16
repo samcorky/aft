@@ -73,7 +73,7 @@ class Settings {
       const defaultBoardId = this.defaultBoardSelect.value;
       
       // Convert empty string to null for JSON
-      const value = defaultBoardId === '' ? null : parseInt(defaultBoardId);
+      const value = defaultBoardId === '' ? null : parseInt(defaultBoardId, 10);
 
       const response = await fetch('/api/settings/default_board', {
         method: 'PUT',

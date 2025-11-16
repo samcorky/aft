@@ -7,6 +7,12 @@ import time
 # API base URL - tests hit the running Docker container
 API_BASE_URL = "http://localhost:5000"
 
+# Cleanup timing constants (in seconds)
+# These delays ensure async operations complete before proceeding
+CLEANUP_DELAY_SHORT = 0.1    # Standard delay after test cleanup
+CLEANUP_DELAY_MEDIUM = 0.15  # Delay for explicit clean operations
+CLEANUP_DELAY_LONG = 0.2     # Delay for session-level initialization
+
 
 @pytest.fixture(scope='session', autouse=True)
 def wait_for_api():
@@ -29,7 +35,7 @@ def cleanup_all_data(wait_for_api):
     """Clean up all test data before and after entire test session."""
     # Cleanup before all tests - ensure we start with clean state
     _delete_all_data()
-    time.sleep(0.2)  # Extra time to ensure cleanup completes
+    time.sleep(CLEANUP_DELAY_LONG)  # Extra time to ensure cleanup completes
     
     yield
     
@@ -41,10 +47,10 @@ def cleanup_all_data(wait_for_api):
 def clean_database():
     """Ensure database is clean before test runs. Use this for tests that need empty DB."""
     _delete_all_data()
-    time.sleep(0.15)
+    time.sleep(CLEANUP_DELAY_MEDIUM)
     yield
     # Cleanup after as well
-    time.sleep(0.1)
+    time.sleep(CLEANUP_DELAY_SHORT)
     _delete_all_data()
 
 
@@ -62,7 +68,7 @@ def cleanup_between_tests():
     yield
     
     # Cleanup after each test (important for isolation)
-    time.sleep(0.1)
+    time.sleep(CLEANUP_DELAY_SHORT)
     _delete_all_data()
     
 
@@ -70,7 +76,7 @@ def cleanup_between_tests():
 def isolated_test():
     """Fixture to ensure complete test isolation - cleans before the test."""
     _delete_all_data()
-    time.sleep(0.15)
+    time.sleep(CLEANUP_DELAY_MEDIUM)
     yield
 
 

@@ -1,8 +1,7 @@
 """Database configuration and session management."""
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Database URL from environment variables
 DATABASE_URL = f"mysql+pymysql://{os.environ.get('MYSQL_USER')}:{os.environ.get('MYSQL_PASSWORD')}@db/{os.environ.get('MYSQL_DATABASE')}"
@@ -11,7 +10,7 @@ DATABASE_URL = f"mysql+pymysql://{os.environ.get('MYSQL_USER')}:{os.environ.get(
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,  # Verify connections before using them
-    pool_recycle=3600,   # Recycle connections after 1 hour
+    pool_recycle=3600,  # Recycle connections after 1 hour
 )
 
 # Session factory

@@ -781,6 +781,16 @@ def set_setting(key):
         if not is_valid:
             return jsonify({"success": False, "message": error_message}), 400
         
+        # Additional validation for default_board: verify board exists
+        if key == "default_board" and data['value'] is not None:
+            db_check = SessionLocal()
+            try:
+                board_exists = db_check.query(Board).filter(Board.id == data['value']).first()
+                if not board_exists:
+                    return jsonify({"success": False, "message": f"Board with ID {data['value']} does not exist"}), 400
+            finally:
+                db_check.close()
+        
         # Convert value to JSON string
         value = json.dumps(data['value'])
         

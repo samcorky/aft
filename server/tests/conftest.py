@@ -14,9 +14,13 @@ CLEANUP_DELAY_MEDIUM = 0.15  # Delay for explicit clean operations
 CLEANUP_DELAY_LONG = 0.2     # Delay for session-level initialization
 
 
-@pytest.fixture(scope='session', autouse=True)
-def wait_for_api():
-    """Wait for API to be ready before running tests."""
+@pytest.fixture(scope='session')
+def wait_for_api(request):
+    """Wait for API to be ready before running tests (API tests only)."""
+    # Only run for API tests
+    if 'unit' in request.keywords:
+        return
+    
     max_retries = 30
     for i in range(max_retries):
         try:
@@ -30,9 +34,16 @@ def wait_for_api():
                 raise Exception("API not available after 30 seconds")
 
 
-@pytest.fixture(scope='session', autouse=True)
-def cleanup_all_data(wait_for_api):
-    """Clean up all test data before and after entire test session."""
+@pytest.fixture(scope='session')
+def cleanup_all_data(request):
+    """Clean up all test data before and after entire test session (API tests only)."""
+    # Only run for API tests
+    if 'unit' in request.keywords:
+        return
+    
+    # Need to ensure API is ready first
+    wait_for_api(request)
+    
     # Cleanup before all tests - ensure we start with clean state
     _delete_all_data()
     time.sleep(CLEANUP_DELAY_LONG)  # Extra time to ensure cleanup completes
@@ -43,9 +54,13 @@ def cleanup_all_data(wait_for_api):
     _delete_all_data()
 
 
-@pytest.fixture(scope='function')
-def clean_database():
-    """Ensure database is clean before test runs. Use this for tests that need empty DB."""
+@pytest.fixture
+def clean_database(request):
+    """Ensure database is clean before test runs. Use this for tests that need empty DB (API tests only)."""
+    # Only run for API tests
+    if 'unit' in request.keywords:
+        return
+    
     _delete_all_data()
     time.sleep(CLEANUP_DELAY_MEDIUM)
     yield
@@ -55,8 +70,8 @@ def clean_database():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_between_tests():
-    """Clean up data after each test to ensure isolation.
+def cleanup_between_tests(request):
+    """Clean up data after each test to ensure isolation (API tests only).
     
     Note: We don't clean BEFORE tests because:
     1. Session-level cleanup ensures the first test starts clean
@@ -67,9 +82,11 @@ def cleanup_between_tests():
     """
     yield
     
-    # Cleanup after each test (important for isolation)
-    time.sleep(CLEANUP_DELAY_SHORT)
-    _delete_all_data()
+    # Only cleanup for API tests
+    if 'unit' not in request.keywords:
+        # Cleanup after each test (important for isolation)
+        time.sleep(CLEANUP_DELAY_SHORT)
+        _delete_all_data()
     
 
 @pytest.fixture

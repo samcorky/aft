@@ -64,8 +64,8 @@ class Setting(Base):
     __tablename__ = "settings"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    key = Column(String(255), nullable=False, unique=True, index=True)
-    value = Column(Text, nullable=True)
+    key = Column("key", String(255), nullable=False, unique=True, index=True)  # 'key' is a MySQL reserved word
+    value = Column("value", Text, nullable=True)  # Quote for consistency
     
     def __repr__(self):
         return f"<Setting(id={self.id}, key='{self.key}')>"

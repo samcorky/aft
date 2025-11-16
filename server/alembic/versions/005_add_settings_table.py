@@ -38,12 +38,12 @@ def upgrade() -> None:
         op.create_index(op.f('ix_settings_id'), 'settings', ['id'], unique=False)
         op.create_index(op.f('ix_settings_key'), 'settings', ['key'], unique=True)
         
-        # Insert default settings
+        # Insert default settings using parameterized query for portability and security
         op.execute(
-            """
-            INSERT INTO settings (`key`, `value`) VALUES 
-            ('default_board', 'null')
-            """
+            sa.text("INSERT INTO settings (key, value) VALUES (:key, :value)").bindparams(
+                key='default_board',
+                value='null'
+            )
         )
     # ### end Alembic commands ###
 

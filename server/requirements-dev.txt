@@ -9,5 +9,5 @@ requests==2.32.4
 
 # Code quality tools (optional but recommended)
 pylint==4.0.3
-black==24.10.0
+black==25.11.0
 mypy==1.15.0

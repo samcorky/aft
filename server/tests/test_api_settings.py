@@ -32,9 +32,6 @@ class TestSettingsAPI:
         data = response.json()
         assert data['success'] is True
         assert data['value'] == sample_board['id']
-        
-        # Cleanup
-        requests.put(f'{api_client}/api/settings/default_board', json={'value': None})
     
     def test_create_setting_null_value(self, api_client):
         """Test creating a setting with null value."""
@@ -85,9 +82,6 @@ class TestSettingsAPI:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
-        
-        # Cleanup
-        requests.put(f'{api_client}/api/settings/default_board', json={'value': None})
     
     def test_get_setting_after_create(self, api_client, sample_board):
         """Test retrieving a setting after creating it."""
@@ -100,6 +94,3 @@ class TestSettingsAPI:
         data = response.json()
         assert data['success'] is True
         assert data['value'] == sample_board['id']
-        
-        # Cleanup
-        requests.put(f'{api_client}/api/settings/default_board', json={'value': None})

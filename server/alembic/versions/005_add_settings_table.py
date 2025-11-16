@@ -50,7 +50,14 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop settings table."""
-    op.drop_index(op.f('ix_settings_key'), table_name='settings')
-    op.drop_index(op.f('ix_settings_id'), table_name='settings')
-    op.drop_table('settings')
+    # Check if table exists before dropping
+    from sqlalchemy import inspect
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    tables = inspector.get_table_names()
+    
+    if 'settings' in tables:
+        op.drop_index(op.f('ix_settings_key'), table_name='settings')
+        op.drop_index(op.f('ix_settings_id'), table_name='settings')
+        op.drop_table('settings')
     # ### end Alembic commands ###

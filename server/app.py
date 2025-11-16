@@ -1012,6 +1012,7 @@ def delete_board(board_id):
                     default_board_setting.value = "null"
                     logger.info(f"Reset default_board setting because board {board_id} was deleted")
             except (json.JSONDecodeError, ValueError):
+                # Ignore if setting value is malformed - we're deleting the board anyway
                 pass
         
         db.delete(board)

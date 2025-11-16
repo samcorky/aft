@@ -50,9 +50,15 @@ def clean_database():
 
 @pytest.fixture(autouse=True)
 def cleanup_between_tests(request):
-    """Clean up data before and after each test to ensure complete isolation."""
-    # Always cleanup before test, but AFTER other fixtures run
-    # This is executed after request.addfinalizer callbacks
+    """Clean up data after each test to ensure isolation.
+    
+    Note: We don't clean BEFORE tests because:
+    1. Session-level cleanup ensures the first test starts clean
+    2. Each test's post-cleanup ensures the next test starts clean
+    3. Pre-test cleanup would delete fixture data (race condition)
+    
+    For tests that explicitly need empty DB, use clean_database or isolated_test fixtures.
+    """
     yield
     
     # Cleanup after each test (important for isolation)

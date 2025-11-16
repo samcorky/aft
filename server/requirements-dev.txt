@@ -8,6 +8,6 @@ pytest==8.3.4
 requests==2.32.4
 
 # Code quality tools (optional but recommended)
-pylint==3.3.4
+pylint==4.0.3
 black==24.10.0
 mypy==1.15.0

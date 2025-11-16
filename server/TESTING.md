@@ -2,7 +2,23 @@
 
 ## Overview
 
-This test suite performs **API integration testing** by making HTTP requests to the running Docker container. Tests validate the external behavior of the API endpoints rather than internal code coverage.
+This test suite includes both **unit tests** and **API integration tests**. 
+
+- **Unit Tests**: Test individual functions and utilities without requiring a running server
+- **API Integration Tests**: Make HTTP requests to validate the external behavior of API endpoints
+
+## Test Organization
+
+```
+server/tests/
+├── __init__.py                  # Test package
+├── conftest.py                  # Pytest fixtures and configuration
+├── test_utils.py                # Unit tests for validation utilities (25 tests)
+├── test_api_boards.py           # Board and column API tests
+├── test_api_cards.py            # Card API tests
+├── test_api_settings.py         # Settings API tests
+└── test_api_edge_cases.py       # Edge case and security tests (40+ tests)
+```
 
 ## Running Tests Locally (Recommended)
 
@@ -41,8 +57,14 @@ pip install -r requirements-dev.txt
 cd server
 .\venv\Scripts\Activate.ps1
 
-# Run all tests
+# Run all tests (both unit and integration)
 pytest
+
+# Run only unit tests (fast, no API required)
+pytest -m unit
+
+# Run only API integration tests (requires Docker)
+pytest -m api
 
 # Run with verbose output
 pytest -v
@@ -51,12 +73,16 @@ pytest -v
 pytest -v -x
 
 # Run specific test file
+pytest tests/test_utils.py -v
 pytest tests/test_api_boards.py -v
+pytest tests/test_api_edge_cases.py -v
 ```
 
 ### Note on Coverage
 
-**Coverage reporting is not applicable** for these tests because they make HTTP requests to an external server (Docker container). The tests validate API behavior, not internal code paths. This is the correct approach for API integration testing.
+**Coverage reporting is not applicable** for API integration tests because they make HTTP requests to an external server (Docker container). The tests validate API behavior, not internal code paths. 
+
+However, unit tests in `test_utils.py` do test internal code paths and provide code coverage for validation utilities.
 
 ### Run Specific Test Categories
 
@@ -118,11 +144,58 @@ Tests are configured to work with VS Code's Testing panel:
 
 ## Test Architecture
 
+The test suite includes two types of tests:
+
+### Unit Tests (`test_utils.py`)
+- **Fast**: No API server required
+- **Focused**: Test individual validation functions in isolation
+- **Comprehensive**: 25 tests covering edge cases, boundary conditions, and error handling
+- Tests for:
+  - String length validation
+  - Integer validation (including type checking, min/max constraints)
+  - String sanitization
+  - Validation constants
+
+### API Integration Tests
 These are **API integration tests** that:
 - Make real HTTP requests to `http://localhost:5000`
 - Test the running Docker container, not Python code directly
 - Validate API behavior, status codes, and response data
 - Automatically clean up test data between runs
+
+**Test Files**:
+- `test_api_boards.py` - Board and column CRUD operations
+- `test_api_cards.py` - Card CRUD operations  
+- `test_api_settings.py` - Settings management
+- `test_api_edge_cases.py` - Security and edge case validation (40+ tests)
+
+### Edge Case and Security Tests (`test_api_edge_cases.py`)
+
+This file contains comprehensive tests for:
+
+**Input Validation Tests**:
+- Malformed JSON handling
+- Oversized inputs (names, titles, descriptions)
+- Special characters and Unicode
+- Null and empty values
+- Wrong data types (integers as strings, arrays, etc.)
+- Negative, zero, and huge ID values
+
+**Security Tests**:
+- SQL injection attempts
+- XSS attack vectors (validated for storage safety)
+- Request size limits
+- Content-Type validation
+
+**Boundary Condition Tests**:
+- Maximum length strings
+- Many items (50 columns, 100 cards)
+- Edge values for integers
+
+**Concurrency Tests**:
+- Double deletion
+- Update after delete
+- Create in deleted parent
 
 ### Test Isolation Strategy
 
@@ -147,13 +220,30 @@ server/tests/
 Defined in `conftest.py`:
 
 - `api_client` - Base URL for API (`http://localhost:5000`)
-- `clean_database` - Ensures database is empty before test runs
-- `isolated_test` - Ensures database is clean before fixtures create data
+- `clean_database` - Ensures database is empty before test runs (API tests only)
+- `isolated_test` - Ensures database is clean before fixtures create data (API tests only)
 - `sample_board` - Creates a test board via API
 - `sample_column` - Creates a test column via API (requires `sample_board`)
 - `sample_card` - Creates a test card via API (requires `sample_column`)
 
+**Note**: Unit tests automatically skip API-related fixtures for faster execution.
+
 ## Writing New Tests
+
+### Example Unit Test
+
+```python
+import pytest
+from utils import validate_string_length, MAX_TITLE_LENGTH
+
+@pytest.mark.unit
+class TestMyValidation:
+    def test_valid_input(self):
+        """Test validation passes for valid input."""
+        is_valid, error = validate_string_length("Test", MAX_TITLE_LENGTH, "Name")
+        assert is_valid is True
+        assert error is None
+```
 
 ### Example API Test
 

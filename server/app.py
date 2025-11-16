@@ -1379,7 +1379,13 @@ def get_board_columns(board_id):
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
 def create_column(board_id):
-    """Create a new column for a board.
+    """Create a new column for a board with input validation.
+
+    This endpoint creates a new column after validating:
+    - Name is provided, is a string, and within length limits
+    - Order (if provided) is a valid non-negative integer
+    - Board exists
+
     ---
     tags:
       - Columns
@@ -1466,28 +1472,45 @@ def create_column(board_id):
     try:
         data = request.get_json()
         if not data or "name" not in data:
-            return jsonify({"success": False, "message": "Name is required"}), 400
+            return create_error_response("Name is required", 400)
 
         # Verify board exists
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
-            return jsonify({"success": False, "message": "Board not found"}), 404
+            return create_error_response("Board not found", 404)
+
+        # Validate and sanitize name
+        name = data.get("name")
+        if not isinstance(name, str):
+            return create_error_response("Name must be a string", 400)
+
+        name = sanitize_string(name)
+        if not name:
+            return create_error_response("Name cannot be empty", 400)
+
+        is_valid, error = validate_string_length(name, MAX_TITLE_LENGTH, "Name")
+        if not is_valid:
+            return create_error_response(error, 400)
 
         # If order not specified, add to end
         from models import BoardColumn
 
-        if "order" not in data:
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+        else:
             max_order = (
                 db.query(BoardColumn).filter(BoardColumn.board_id == board_id).count()
             )
             order = max_order
-        else:
-            order = data["order"]
 
-        column = BoardColumn(board_id=board_id, name=data["name"], order=order)
+        column = BoardColumn(board_id=board_id, name=name, order=order)
         db.add(column)
         db.commit()
         db.refresh(column)
+
         result = {
             "id": column.id,
             "board_id": column.board_id,
@@ -1495,10 +1518,12 @@ def create_column(board_id):
             "order": column.order,
         }
 
-        return jsonify({"success": True, "column": result}), 201
+        return create_success_response({"column": result}, status_code=201)
+
     except Exception as e:
         db.rollback()
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Error creating column for board {board_id}: {str(e)}")
+        return create_error_response("Failed to create column", 500)
     finally:
         db.close()
 
@@ -1941,7 +1966,14 @@ def get_board_cards(board_id):
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
 def create_card(column_id):
-    """Create a new card in a column.
+    """Create a new card in a column with input validation.
+
+    This endpoint creates a new card after validating:
+    - Title is provided, is a string, and within length limits
+    - Description (if provided) is a string and within length limits
+    - Order (if provided) is a valid non-negative integer
+    - Column exists
+
     ---
     tags:
       - Cards
@@ -1967,6 +1999,10 @@ def create_card(column_id):
               type: string
               example: "Task details"
               description: The description of the card (optional)
+            order:
+              type: integer
+              example: 0
+              description: The order position (optional, defaults to end)
     responses:
       201:
         description: Card created successfully
@@ -2031,18 +2067,48 @@ def create_card(column_id):
     try:
         data = request.get_json()
         if not data or "title" not in data:
-            return jsonify({"success": False, "message": "Title is required"}), 400
+            return create_error_response("Title is required", 400)
 
         from models import BoardColumn, Card
 
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
-            return jsonify({"success": False, "message": "Column not found"}), 404
+            return create_error_response("Column not found", 404)
 
-        # Get order from request or use max order
+        # Validate and sanitize title
+        title = data.get("title")
+        if not isinstance(title, str):
+            return create_error_response("Title must be a string", 400)
+
+        title = sanitize_string(title)
+        if not title:
+            return create_error_response("Title cannot be empty", 400)
+
+        is_valid, error = validate_string_length(title, MAX_TITLE_LENGTH, "Title")
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        # Validate and sanitize description if provided
+        description = data.get("description", "")
+        if description is not None:
+            if not isinstance(description, str):
+                return create_error_response("Description must be a string", 400)
+
+            description = sanitize_string(description)
+            is_valid, error = validate_string_length(
+                description, MAX_DESCRIPTION_LENGTH, "Description"
+            )
+            if not is_valid:
+                return create_error_response(error, 400)
+
+        # Validate order if provided
         if "order" in data:
             order = data["order"]
+            is_valid, error = validate_integer(order, "Order", min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+
             # Increment order of existing cards >= this order
             existing_cards = (
                 db.query(Card)
@@ -2057,14 +2123,12 @@ def create_card(column_id):
 
         # Create card
         card = Card(
-            column_id=column_id,
-            title=data["title"],
-            description=data.get("description", ""),
-            order=order,
+            column_id=column_id, title=title, description=description, order=order
         )
         db.add(card)
         db.commit()
         db.refresh(card)
+
         result = {
             "id": card.id,
             "column_id": card.column_id,
@@ -2073,10 +2137,12 @@ def create_card(column_id):
             "order": card.order,
         }
 
-        return jsonify({"success": True, "card": result}), 201
+        return create_success_response({"card": result}, status_code=201)
+
     except Exception as e:
         db.rollback()
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Error creating card in column {column_id}: {str(e)}")
+        return create_error_response("Failed to create card", 500)
     finally:
         db.close()
 

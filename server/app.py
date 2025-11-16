@@ -823,6 +823,9 @@ def set_setting(key):
                 "key": key,
                 "value": parsed_value
             })
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
     except Exception as e:
@@ -953,6 +956,9 @@ def create_board():
             result = {"id": board.id, "name": board.name, "description": board.description}
             
             return jsonify({"success": True, "board": result}), 201
+        except Exception:
+            db.rollback()
+            raise
         finally:
             db.close()
     except Exception as e:
@@ -1030,6 +1036,7 @@ def delete_board(board_id):
         
         return jsonify({"success": True, "message": "Board deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -1141,6 +1148,7 @@ def update_board(board_id):
         
         return jsonify({"success": True, "board": result, "message": "Board updated successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -1321,6 +1329,7 @@ def create_column(board_id):
         
         return jsonify({"success": True, "column": result}), 201
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -1385,6 +1394,7 @@ def delete_column(column_id):
         
         return jsonify({"success": True, "message": "Column deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -1523,6 +1533,7 @@ def update_column(column_id):
         
         return jsonify({"success": True, "column": result}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()

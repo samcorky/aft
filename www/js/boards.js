@@ -31,6 +31,7 @@ class BoardsManager {
         if (data.success && data.value) {
           // Redirect to default board
           window.location.href = `/board.html?id=${data.value}`;
+          return; // Stop execution to avoid unnecessary render/load work
         }
       }
       // If no default board or error, continue to boards list

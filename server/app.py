@@ -1857,6 +1857,7 @@ def create_card(column_id):
         
         return jsonify({"success": True, "card": result}), 201
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()

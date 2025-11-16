@@ -12,6 +12,44 @@ logger = logging.getLogger(__name__)
 # Application version
 APP_VERSION = "1.0.0"
 
+# Settings schema - defines allowed settings and their validation rules
+SETTINGS_SCHEMA = {
+    "default_board": {
+        "type": "integer",
+        "nullable": True,
+        "description": "ID of the board to load by default on application startup",
+        "validate": lambda value: value is None or (isinstance(value, int) and value > 0)
+    }
+}
+
+def validate_setting(key, value):
+    """Validate a setting key and value against the schema.
+    
+    Args:
+        key: The setting key
+        value: The setting value
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if key not in SETTINGS_SCHEMA:
+        return False, f"Setting '{key}' is not allowed. Allowed settings: {', '.join(SETTINGS_SCHEMA.keys())}"
+    
+    schema = SETTINGS_SCHEMA[key]
+    
+    # Check if null is allowed
+    if value is None:
+        if not schema.get("nullable", False):
+            return False, f"Setting '{key}' cannot be null"
+        return True, None
+    
+    # Validate using custom validator if provided
+    if "validate" in schema:
+        if not schema["validate"](value):
+            return False, f"Invalid value for setting '{key}'. {schema.get('description', '')}"
+    
+    return True, None
+
 app = Flask(__name__)
 
 # Configure Swagger
@@ -540,6 +578,54 @@ def delete_database():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/settings/schema", methods=["GET"])
+def get_settings_schema():
+    """Get the settings schema showing all allowed settings and their validation rules.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Settings schema
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            schema:
+              type: object
+              description: Map of setting keys to their schema definitions
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        # Build schema response without the validate functions (not JSON serializable)
+        schema_response = {}
+        for key, schema in SETTINGS_SCHEMA.items():
+            schema_response[key] = {
+                "type": schema["type"],
+                "nullable": schema.get("nullable", False),
+                "description": schema.get("description", "")
+            }
+        
+        return jsonify({
+            "success": True,
+            "schema": schema_response
+        })
+    except Exception as e:
+        logger.error(f"Error getting settings schema: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/settings/<key>", methods=["GET"])
 def get_setting(key):
     """Get a setting value by key with validation.
@@ -690,6 +776,11 @@ def set_setting(key):
         data = request.get_json()
         if data is None or 'value' not in data:
             return jsonify({"success": False, "message": "Value is required"}), 400
+        
+        # Validate setting key and value against schema
+        is_valid, error_message = validate_setting(key, data['value'])
+        if not is_valid:
+            return jsonify({"success": False, "message": error_message}), 400
         
         # Convert value to JSON string
         value = json.dumps(data['value'])

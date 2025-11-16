@@ -19,7 +19,7 @@ SETTINGS_SCHEMA = {
         "type": "integer",
         "nullable": True,
         "description": "ID of the board to load by default on application startup",
-        "validate": lambda value: value is None or (isinstance(value, int) and value > 0)
+        "validate": lambda value: value is None or (isinstance(value, int) and not isinstance(value, bool) and value > 0)
     }
 }
 

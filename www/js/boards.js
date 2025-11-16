@@ -7,7 +7,11 @@ class BoardsManager {
 
   async init() {
     // Check for default board setting and redirect if set
-    await this.checkDefaultBoard();
+    const shouldRedirect = await this.checkDefaultBoard();
+    if (shouldRedirect) {
+      // Redirecting to default board, skip rendering
+      return;
+    }
     
     this.render();
     await this.loadBoards();
@@ -20,7 +24,7 @@ class BoardsManager {
       const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.toString()) {
         // URL has parameters, skip default board redirect
-        return;
+        return false;
       }
       
       const response = await fetch('/api/settings/default_board');
@@ -31,13 +35,15 @@ class BoardsManager {
         if (data.success && data.value) {
           // Redirect to default board
           window.location.href = `/board.html?id=${data.value}`;
-          return; // Stop execution to avoid unnecessary render/load work
+          return true; // Indicate redirect is happening
         }
       }
       // If no default board or error, continue to boards list
+      return false;
     } catch (err) {
       // If error checking default board, continue to boards list
       console.error('Error checking default board:', err);
+      return false;
     }
   }
 

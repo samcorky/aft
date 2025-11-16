@@ -3,6 +3,7 @@ class Settings {
   constructor() {
     this.defaultBoardSelect = document.getElementById('default-board');
     this.statusElement = document.getElementById('settings-status');
+    this.saveTimeout = null;
   }
 
   async init() {
@@ -111,7 +112,20 @@ class Settings {
   }
 
   attachEventListeners() {
-    this.defaultBoardSelect.addEventListener('change', () => this.saveSettings());
+    this.defaultBoardSelect.addEventListener('change', () => {
+      // Clear any pending save
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout);
+      }
+      
+      // Show pending status immediately
+      this.showStatus('Pending...', 'info');
+      
+      // Debounce save by 500ms
+      this.saveTimeout = setTimeout(() => {
+        this.saveSettings();
+      }, 500);
+    });
   }
 
   showStatus(message, type = 'info') {

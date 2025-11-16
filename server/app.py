@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 import logging
+import json
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting
@@ -674,7 +675,6 @@ def get_setting(key):
             message:
               type: string
     """
-    import json
     db = SessionLocal()
     try:
         setting = db.query(Setting).filter(Setting.key == key).first()
@@ -771,7 +771,6 @@ def set_setting(key):
             message:
               type: string
     """
-    import json
     try:
         data = request.get_json()
         if data is None or 'value' not in data:
@@ -996,7 +995,6 @@ def delete_board(board_id):
             message:
               type: string
     """
-    import json
     db = SessionLocal()
     try:
         board = db.query(Board).filter(Board.id == board_id).first()

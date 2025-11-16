@@ -7,10 +7,6 @@
 pytest==8.3.4
 requests==2.32.3
 
-# Optional pytest plugins (can be removed if not needed)
-pytest-flask==1.3.0
-pytest-mock==3.14.0
-
 # Code quality tools (optional but recommended)
 pylint==3.3.4
 black==24.10.0

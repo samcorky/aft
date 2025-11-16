@@ -15,6 +15,14 @@ class BoardsManager {
 
   async checkDefaultBoard() {
     try {
+      // Skip redirect if any URL parameters are present (e.g., ?show_boards=1)
+      // This allows direct access to boards list when needed
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.toString()) {
+        // URL has parameters, skip default board redirect
+        return;
+      }
+      
       const response = await fetch('/api/settings/default_board');
       
       if (response.ok) {
@@ -23,8 +31,6 @@ class BoardsManager {
         if (data.success && data.value) {
           // Redirect to default board
           window.location.href = `/board.html?id=${data.value}`;
-          // Note: Code after redirect won't execute, but we don't await to allow
-          // the redirect to happen immediately
         }
       }
       // If no default board or error, continue to boards list

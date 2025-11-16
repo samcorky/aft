@@ -1,8 +1,9 @@
 from flask import Flask, jsonify, request
 import logging
+import json
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card
+from models import Board, BoardColumn, Card, Setting
 from sqlalchemy import text
 
 # Configure logging
@@ -11,6 +12,44 @@ logger = logging.getLogger(__name__)
 
 # Application version
 APP_VERSION = "1.0.0"
+
+# Settings schema - defines allowed settings and their validation rules
+SETTINGS_SCHEMA = {
+    "default_board": {
+        "type": "integer",
+        "nullable": True,
+        "description": "ID of the board to load by default on application startup",
+        "validate": lambda value: value is None or (isinstance(value, int) and not isinstance(value, bool) and value > 0)
+    }
+}
+
+def validate_setting(key, value):
+    """Validate a setting key and value against the schema.
+    
+    Args:
+        key: The setting key
+        value: The setting value
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if key not in SETTINGS_SCHEMA:
+        return False, f"Setting '{key}' is not allowed. Allowed settings: {', '.join(SETTINGS_SCHEMA.keys())}"
+    
+    schema = SETTINGS_SCHEMA[key]
+    
+    # Check if null is allowed
+    if value is None:
+        if not schema.get("nullable", False):
+            return False, f"Setting '{key}' cannot be null"
+        return True, None
+    
+    # Validate using custom validator if provided
+    if "validate" in schema:
+        if not schema["validate"](value):
+            return False, f"Invalid value for setting '{key}'. {schema.get('description', '')}"
+    
+    return True, None
 
 app = Flask(__name__)
 
@@ -80,13 +119,12 @@ def get_version():
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         # Get current Alembic revision from database
         result = db.execute(text("SELECT version_num FROM alembic_version"))
         row = result.fetchone()
         db_version = row[0] if row else "unknown"
-        db.close()
         
         return jsonify({
             "success": True,
@@ -96,6 +134,8 @@ def get_version():
     except Exception as e:
         logger.error(f"Error getting version: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/test")
@@ -130,11 +170,10 @@ def test_db():
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         # Test query
         board_count = db.query(Board).count()
-        db.close()
         return jsonify({
             "success": True, 
             "message": "Connected to database",
@@ -142,6 +181,8 @@ def test_db():
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/stats")
@@ -179,12 +220,11 @@ def get_stats():
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         boards_count = db.query(Board).count()
         columns_count = db.query(BoardColumn).count()
         cards_count = db.query(Card).count()
-        db.close()
         
         return jsonify({
             "success": True,
@@ -195,6 +235,8 @@ def get_stats():
     except Exception as e:
         logger.error(f"Error getting stats: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/database/backup", methods=["GET"])
@@ -415,6 +457,7 @@ def restore_database():
             db.execute(text("DROP TABLE IF EXISTS alembic_version"))
             db.commit()
         except Exception as e:
+            db.rollback()
             logger.warning(f"Could not drop alembic_version table: {e}")
         
         db.close()
@@ -537,6 +580,261 @@ def delete_database():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/settings/schema", methods=["GET"])
+def get_settings_schema():
+    """Get the settings schema showing all allowed settings and their validation rules.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Settings schema
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            schema:
+              type: object
+              description: Map of setting keys to their schema definitions
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        # Build schema response without the validate functions (not JSON serializable)
+        schema_response = {}
+        for key, schema in SETTINGS_SCHEMA.items():
+            schema_response[key] = {
+                "type": schema["type"],
+                "nullable": schema.get("nullable", False),
+                "description": schema.get("description", "")
+            }
+        
+        return jsonify({
+            "success": True,
+            "schema": schema_response
+        })
+    except Exception as e:
+        logger.error(f"Error getting settings schema: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/<key>", methods=["GET"])
+def get_setting(key):
+    """Get a setting value by key with validation.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: key
+        in: path
+        type: string
+        required: true
+        description: The setting key to retrieve
+    responses:
+      200:
+        description: Setting value (validated)
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            key:
+              type: string
+              example: "default_board"
+            value:
+              description: JSON parsed value
+              example: null
+      404:
+        description: Setting not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        setting = db.query(Setting).filter(Setting.key == key).first()
+        
+        if not setting:
+            return jsonify({"success": False, "message": f"Setting '{key}' not found"}), 404
+        
+        # Parse JSON value
+        try:
+            value = json.loads(setting.value) if setting.value else None
+        except json.JSONDecodeError:
+            value = setting.value
+        
+        # Special validation for default_board
+        if key == "default_board" and value is not None:
+            # Check if board exists
+            board = db.query(Board).filter(Board.id == value).first()
+            if not board:
+                # Board doesn't exist, auto-correct to null
+                logger.warning(f"Default board {value} not found, resetting to null")
+                setting.value = "null"
+                db.commit()
+                value = None
+        
+        return jsonify({
+            "success": True,
+            "key": key,
+            "value": value
+        })
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error getting setting: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/<key>", methods=["PUT"])
+def set_setting(key):
+    """Create or update a setting (upsert).
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: key
+        in: path
+        type: string
+        required: true
+        description: The setting key to set
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - value
+          properties:
+            value:
+              description: The value to store (will be JSON stringified)
+              example: 123
+    responses:
+      200:
+        description: Setting updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Setting updated successfully"
+            key:
+              type: string
+            value:
+              description: The stored value
+      400:
+        description: Bad request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    try:
+        data = request.get_json()
+        if data is None or 'value' not in data:
+            return jsonify({"success": False, "message": "Value is required"}), 400
+        
+        # Validate setting key and value against schema
+        is_valid, error_message = validate_setting(key, data['value'])
+        if not is_valid:
+            return jsonify({"success": False, "message": error_message}), 400
+        
+        # Additional validation for default_board: verify board exists
+        if key == "default_board" and data['value'] is not None:
+            db_check = SessionLocal()
+            try:
+                board_exists = db_check.query(Board).filter(Board.id == data['value']).first()
+                if not board_exists:
+                    return jsonify({"success": False, "message": f"Board with ID {data['value']} does not exist"}), 400
+            finally:
+                db_check.close()
+        
+        # Convert value to JSON string
+        value = json.dumps(data['value'])
+        
+        db = SessionLocal()
+        try:
+            setting = db.query(Setting).filter(Setting.key == key).first()
+            
+            if setting:
+                # Update existing
+                setting.value = value
+                message = "Setting updated successfully"
+            else:
+                # Create new
+                setting = Setting(key=key, value=value)
+                db.add(setting)
+                message = "Setting created successfully"
+            
+            db.commit()
+            db.refresh(setting)
+            
+            # Parse back for response
+            try:
+                parsed_value = json.loads(value)
+            except json.JSONDecodeError:
+                parsed_value = value
+            
+            return jsonify({
+                "success": True,
+                "message": message,
+                "key": key,
+                "value": parsed_value
+            })
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error setting setting: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/boards", methods=["GET"])
 def get_boards():
     """Get all boards.
@@ -574,16 +872,17 @@ def get_boards():
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         boards = db.query(Board).all()
-        db.close()
         return jsonify({
             "success": True,
             "boards": [{"id": b.id, "name": b.name, "description": b.description} for b in boards]
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards", methods=["POST"])
@@ -651,14 +950,19 @@ def create_board():
             return jsonify({"success": False, "message": "Name is required"}), 400
         
         db = SessionLocal()
-        board = Board(name=data["name"], description=data.get("description"))
-        db.add(board)
-        db.commit()
-        db.refresh(board)
-        result = {"id": board.id, "name": board.name, "description": board.description}
-        db.close()
-        
-        return jsonify({"success": True, "board": result}), 201
+        try:
+            board = Board(name=data["name"], description=data.get("description"))
+            db.add(board)
+            db.commit()
+            db.refresh(board)
+            result = {"id": board.id, "name": board.name, "description": board.description}
+            
+            return jsonify({"success": True, "board": result}), 201
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
 
@@ -709,21 +1013,35 @@ def delete_board(board_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         board = db.query(Board).filter(Board.id == board_id).first()
         
         if not board:
-            db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Check if this board is set as default_board
+        default_board_setting = db.query(Setting).filter(Setting.key == "default_board").first()
+        if default_board_setting:
+            try:
+                default_board_id = json.loads(default_board_setting.value)
+                if default_board_id == board_id:
+                    # Reset to null since we're deleting the default board
+                    default_board_setting.value = "null"
+                    logger.info(f"Reset default_board setting because board {board_id} was deleted")
+            except (json.JSONDecodeError, ValueError):
+                # Ignore if setting value is malformed - we're deleting the board anyway
+                pass
         
         db.delete(board)
         db.commit()
-        db.close()
         
         return jsonify({"success": True, "message": "Board deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards/<int:board_id>", methods=["PATCH"])
@@ -809,16 +1127,15 @@ def update_board(board_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
         data = request.get_json()
         if not data or ("name" not in data and "description" not in data):
             return jsonify({"success": False, "message": "At least one field (name or description) is required"}), 400
         
-        db = SessionLocal()
         board = db.query(Board).filter(Board.id == board_id).first()
         
         if not board:
-            db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
         
         # Update fields if provided
@@ -830,11 +1147,13 @@ def update_board(board_id):
         db.commit()
         db.refresh(board)
         result = {"id": board.id, "name": board.name, "description": board.description}
-        db.close()
         
         return jsonify({"success": True, "board": result, "message": "Board updated successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["GET"])
@@ -886,17 +1205,18 @@ def get_board_columns(board_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         from models import BoardColumn
         columns = db.query(BoardColumn).filter(BoardColumn.board_id == board_id).order_by(BoardColumn.order).all()
-        db.close()
         return jsonify({
             "success": True,
             "columns": [{"id": c.id, "board_id": c.board_id, "name": c.name, "order": c.order} for c in columns]
         })
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
@@ -984,17 +1304,15 @@ def create_column(board_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
         data = request.get_json()
         if not data or "name" not in data:
             return jsonify({"success": False, "message": "Name is required"}), 400
         
-        db = SessionLocal()
-        
         # Verify board exists
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
-            db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
         
         # If order not specified, add to end
@@ -1010,11 +1328,13 @@ def create_column(board_id):
         db.commit()
         db.refresh(column)
         result = {"id": column.id, "board_id": column.board_id, "name": column.name, "order": column.order}
-        db.close()
         
         return jsonify({"success": True, "column": result}), 201
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/columns/<int:column_id>", methods=["DELETE"])
@@ -1063,22 +1383,23 @@ def delete_column(column_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         from models import BoardColumn
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         
         if not column:
-            db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
         db.delete(column)
         db.commit()
-        db.close()
         
         return jsonify({"success": True, "message": "Column deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/columns/<int:column_id>", methods=["PATCH"])
@@ -1163,17 +1484,16 @@ def update_column(column_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
         data = request.get_json()
         if not data:
             return jsonify({"success": False, "message": "No data provided"}), 400
         
-        db = SessionLocal()
         from models import BoardColumn
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         
         if not column:
-            db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
         old_order = column.order
@@ -1212,11 +1532,13 @@ def update_column(column_id):
         db.commit()
         db.refresh(column)
         result = {"id": column.id, "board_id": column.board_id, "name": column.name, "order": column.order}
-        db.close()
         
         return jsonify({"success": True, "column": result}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["GET"])
@@ -1501,18 +1823,17 @@ def create_card(column_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
         data = request.get_json()
         if not data or "title" not in data:
             return jsonify({"success": False, "message": "Title is required"}), 400
         
-        db = SessionLocal()
         from models import BoardColumn, Card
         
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
-            db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
         # Get order from request or use max order
@@ -1546,11 +1867,13 @@ def create_card(column_id):
             "description": card.description,
             "order": card.order
         }
-        db.close()
         
         return jsonify({"success": True, "card": result}), 201
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["DELETE"])
@@ -1602,20 +1925,18 @@ def delete_all_cards_in_column(column_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         from models import BoardColumn, Card
         
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
-            db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
         # Delete all cards in the column
         deleted_count = db.query(Card).filter(Card.column_id == column_id).delete(synchronize_session=False)
         db.commit()
-        db.close()
         
         return jsonify({
             "success": True, 
@@ -1623,10 +1944,11 @@ def delete_all_cards_in_column(column_id):
             "deleted_count": deleted_count
         }), 200
     except Exception as e:
-        if 'db' in locals():
-            db.close()
+        db.rollback()
         logger.error(f"Error deleting cards from column {column_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
@@ -1795,6 +2117,7 @@ def update_card(card_id):
         
         return jsonify({"success": True, "card": result}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -1859,6 +2182,7 @@ def delete_card(card_id):
         
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
 

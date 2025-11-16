@@ -194,6 +194,28 @@
   flex: 0 0 auto;
 }
 
+.icon-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.icon-btn {
+  font-size: 24px;
+  opacity: 0.8;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-link:hover .icon-btn {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
 .db-status {
   display: flex;
   flex-direction: column;

@@ -11,7 +11,7 @@
     </div>
     <nav class="header-nav">
       <div class="boards-dropdown">
-        <a href="/" class="nav-link">Boards</a>
+        <a href="/?show_boards=1" class="nav-link">Boards</a>
         <div class="boards-dropdown-menu" id="boards-dropdown-menu">
           <div class="boards-dropdown-loading">Loading boards...</div>
         </div>
@@ -19,7 +19,12 @@
       <div class="nav-board-name" id="nav-board-name"></div>
     </nav>
     <div class="header-right">
-      <a href="/about.html" class="nav-link">About</a>
+      <a href="/about.html" class="icon-link" title="About" aria-label="About">
+        <span class="icon-btn">ℹ️</span>
+      </a>
+      <a href="/settings.html" class="icon-link" title="Settings" aria-label="Settings">
+        <span class="icon-btn">⚙️</span>
+      </a>
       <a href="/api/docs" class="header-link" target="_blank" rel="noopener noreferrer">
         <span>📚</span>
         <span>API Docs</span>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Settings - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <div class="settings-container">
+      <h2>Settings</h2>
+      
+      <div class="settings-section">
+        <div class="setting-item">
+          <label for="default-board">Default Board</label>
+          <p class="setting-help">Board to open on application startup. "None" will land on the boards page.</p>
+          <select id="default-board" class="setting-select">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="save-settings-btn">Save Settings</button>
+        <div id="settings-status" class="settings-status"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/header.js"></script>
+  <script src="/js/settings.js"></script>
+</body>
+</html>

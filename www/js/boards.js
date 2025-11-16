@@ -6,8 +6,45 @@ class BoardsManager {
   }
 
   async init() {
+    // Check for default board setting and redirect if set
+    const shouldRedirect = await this.checkDefaultBoard();
+    if (shouldRedirect) {
+      // Redirecting to default board, skip rendering
+      return;
+    }
+    
     this.render();
     await this.loadBoards();
+  }
+
+  async checkDefaultBoard() {
+    try {
+      // Skip redirect if any URL parameters are present (e.g., ?show_boards=1)
+      // This allows direct access to boards list when needed
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.toString()) {
+        // URL has parameters, skip default board redirect
+        return false;
+      }
+      
+      const response = await fetch('/api/settings/default_board');
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        if (data.success && data.value) {
+          // Redirect to default board
+          window.location.href = `/board.html?id=${data.value}`;
+          return true; // Indicate redirect is happening
+        }
+      }
+      // If no default board or error, continue to boards list
+      return false;
+    } catch (err) {
+      // If error checking default board, continue to boards list
+      console.error('Error checking default board:', err);
+      return false;
+    }
   }
 
   render() {

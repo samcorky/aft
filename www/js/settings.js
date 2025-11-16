@@ -83,11 +83,13 @@ class Settings {
         body: JSON.stringify({ value })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        // Extract error message from API response if available
+        const errorMessage = data.message || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
 
       if (data.success) {
         this.showStatus('Settings saved successfully', 'success');

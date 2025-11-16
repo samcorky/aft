@@ -1,2 +1,22 @@
 .vscode
 data
+
+# Python virtual environments
+venv/
+.venv/
+env/
+*.pyc
+__pycache__/
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~

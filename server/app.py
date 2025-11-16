@@ -457,6 +457,7 @@ def restore_database():
             db.execute(text("DROP TABLE IF EXISTS alembic_version"))
             db.commit()
         except Exception as e:
+            db.rollback()
             logger.warning(f"Could not drop alembic_version table: {e}")
         
         db.close()
@@ -705,6 +706,7 @@ def get_setting(key):
             "value": value
         })
     except Exception as e:
+        db.rollback()
         logger.error(f"Error getting setting: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
@@ -1923,20 +1925,18 @@ def delete_all_cards_in_column(column_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         from models import BoardColumn, Card
         
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
-            db.close()
             return jsonify({"success": False, "message": "Column not found"}), 404
         
         # Delete all cards in the column
         deleted_count = db.query(Card).filter(Card.column_id == column_id).delete(synchronize_session=False)
         db.commit()
-        db.close()
         
         return jsonify({
             "success": True, 
@@ -1944,10 +1944,11 @@ def delete_all_cards_in_column(column_id):
             "deleted_count": deleted_count
         }), 200
     except Exception as e:
-        if 'db' in locals():
-            db.close()
+        db.rollback()
         logger.error(f"Error deleting cards from column {column_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
@@ -2116,6 +2117,7 @@ def update_card(card_id):
         
         return jsonify({"success": True, "card": result}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -2180,6 +2182,7 @@ def delete_card(card_id):
         
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
+        db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
 
 

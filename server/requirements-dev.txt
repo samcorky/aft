@@ -5,9 +5,9 @@
 
 # Testing dependencies
 pytest==8.3.4
-requests==2.32.3
 sqlalchemy==2.0.44
 pymysql==1.1.2
+requests==2.32.4
 
 # Code quality tools (optional but recommended)
 pylint==3.3.4

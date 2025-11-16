@@ -830,7 +830,12 @@ def set_setting(key):
               type: string
     """
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if data is None or "value" not in data:
             return jsonify({"success": False, "message": "Value is required"}), 400
 
@@ -1020,7 +1025,12 @@ def create_board():
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data or "name" not in data:
             return create_error_response("Name is required", 400)
 
@@ -1240,7 +1250,12 @@ def update_board(board_id):
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data or ("name" not in data and "description" not in data):
             return create_error_response(
                 "At least one field (name or description) is required", 400
@@ -1470,7 +1485,12 @@ def create_column(board_id):
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data or "name" not in data:
             return create_error_response("Name is required", 400)
 
@@ -1678,7 +1698,12 @@ def update_column(column_id):
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data:
             return create_error_response("No data provided", 400)
 
@@ -2081,7 +2106,12 @@ def create_card(column_id):
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data or "title" not in data:
             return create_error_response("Title is required", 400)
 
@@ -2332,7 +2362,12 @@ def update_card(card_id):
     """
     db = SessionLocal()
     try:
-        data = request.get_json()
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
         if not data:
             return create_error_response("No data provided", 400)
 

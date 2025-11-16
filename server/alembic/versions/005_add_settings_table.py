@@ -39,8 +39,9 @@ def upgrade() -> None:
         op.create_index(op.f('ix_settings_key'), 'settings', ['key'], unique=True)
         
         # Insert default settings using parameterized query for portability and security
+        # Note: 'key' is a MySQL reserved word, so we quote it with backticks
         op.execute(
-            sa.text("INSERT INTO settings (key, value) VALUES (:key, :value)").bindparams(
+            sa.text("INSERT INTO settings (`key`, `value`) VALUES (:key, :value)").bindparams(
                 key='default_board',
                 value='null'
             )

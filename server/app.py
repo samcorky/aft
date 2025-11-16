@@ -1680,25 +1680,41 @@ def update_column(column_id):
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "message": "No data provided"}), 400
+            return create_error_response("No data provided", 400)
 
         from models import BoardColumn
 
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
 
         if not column:
-            return jsonify({"success": False, "message": "Column not found"}), 404
+            return create_error_response("Column not found", 404)
 
         old_order = column.order
         board_id = column.board_id
 
-        # Update name if provided
+        # Update and validate name if provided
         if "name" in data:
-            column.name = data["name"]
+            name = data["name"]
+            if not isinstance(name, str):
+                return create_error_response("Name must be a string", 400)
+
+            name = sanitize_string(name)
+            if not name:
+                return create_error_response("Name cannot be empty", 400)
+
+            is_valid, error = validate_string_length(name, MAX_TITLE_LENGTH, "Name")
+            if not is_valid:
+                return create_error_response(error, 400)
+
+            column.name = name
 
         # Handle order change if provided
         if "order" in data:
             new_order = data["order"]
+
+            is_valid, error = validate_integer(new_order, "Order", min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
 
             if new_order != old_order:
                 if new_order < old_order:
@@ -2314,33 +2330,72 @@ def update_card(card_id):
             message:
               type: string
     """
+    db = SessionLocal()
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"success": False, "message": "No data provided"}), 400
+            return create_error_response("No data provided", 400)
 
-        db = SessionLocal()
         from models import Card, BoardColumn
 
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
-            db.close()
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return create_error_response("Card not found", 404)
 
         old_column_id = card.column_id
         old_order = card.order
 
-        # Update title and description if provided
+        # Update and validate title if provided
         if "title" in data:
-            card.title = data["title"]
+            title = data["title"]
+            if not isinstance(title, str):
+                return create_error_response("Title must be a string", 400)
+
+            title = sanitize_string(title)
+            if not title:
+                return create_error_response("Title cannot be empty", 400)
+
+            is_valid, error = validate_string_length(title, MAX_TITLE_LENGTH, "Title")
+            if not is_valid:
+                return create_error_response(error, 400)
+
+            card.title = title
+
+        # Update and validate description if provided
         if "description" in data:
-            card.description = data["description"]
+            description = data["description"]
+            if description is not None:
+                if not isinstance(description, str):
+                    return create_error_response("Description must be a string", 400)
+
+                description = sanitize_string(description)
+                is_valid, error = validate_string_length(
+                    description, MAX_DESCRIPTION_LENGTH, "Description"
+                )
+                if not is_valid:
+                    return create_error_response(error, 400)
+
+            card.description = description
 
         # Handle column and order changes
         if "column_id" in data or "order" in data:
             new_column_id = data.get("column_id", card.column_id)
             new_order = data.get("order", card.order)
+
+            # Validate column_id if provided
+            if "column_id" in data:
+                is_valid, error = validate_integer(
+                    new_column_id, "Column ID", min_value=1
+                )
+                if not is_valid:
+                    return create_error_response(error, 400)
+
+            # Validate order if provided
+            if "order" in data:
+                is_valid, error = validate_integer(new_order, "Order", min_value=0)
+                if not is_valid:
+                    return create_error_response(error, 400)
 
             # Verify new column exists if changing columns
             if new_column_id != old_column_id:
@@ -2350,13 +2405,7 @@ def update_card(card_id):
                     .first()
                 )
                 if not column:
-                    db.close()
-                    return (
-                        jsonify(
-                            {"success": False, "message": "Target column not found"}
-                        ),
-                        404,
-                    )
+                    return create_error_response("Target column not found", 404)
 
             # If moving to a different column
             if new_column_id != old_column_id:
@@ -2394,6 +2443,7 @@ def update_card(card_id):
 
         db.commit()
         db.refresh(card)
+
         result = {
             "id": card.id,
             "column_id": card.column_id,
@@ -2401,12 +2451,15 @@ def update_card(card_id):
             "description": card.description,
             "order": card.order,
         }
-        db.close()
 
-        return jsonify({"success": True, "card": result}), 200
+        return create_success_response({"card": result})
+
     except Exception as e:
         db.rollback()
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Error updating card {card_id}: {str(e)}")
+        return create_error_response("Failed to update card", 500)
+    finally:
+        db.close()
 
 
 @app.route("/api/cards/<int:card_id>", methods=["DELETE"])

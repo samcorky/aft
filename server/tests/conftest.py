@@ -49,7 +49,7 @@ def clean_database():
 
 
 @pytest.fixture(autouse=True)
-def cleanup_between_tests(request):
+def cleanup_between_tests():
     """Clean up data after each test to ensure isolation.
     
     Note: We don't clean BEFORE tests because:

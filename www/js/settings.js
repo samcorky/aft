@@ -2,8 +2,8 @@
 class Settings {
   constructor() {
     this.defaultBoardSelect = document.getElementById('default-board');
-    this.saveButton = document.getElementById('save-settings-btn');
     this.statusElement = document.getElementById('settings-status');
+    this.saveTimeout = null;
   }
 
   async init() {
@@ -70,6 +70,9 @@ class Settings {
 
   async saveSettings() {
     try {
+      // Show saving status
+      this.showStatus('Saving...', 'info');
+      
       const defaultBoardId = this.defaultBoardSelect.value;
       
       // Convert empty string to null for JSON
@@ -92,24 +95,37 @@ class Settings {
       }
 
       if (data.success) {
-        this.showStatus('Settings saved successfully', 'success');
+        this.showStatus('Saved', 'success');
 
-        // Clear status after 3 seconds
+        // Clear status after 2 seconds
         setTimeout(() => {
           this.statusElement.textContent = '';
           this.statusElement.className = 'settings-status';
-        }, 3000);
+        }, 2000);
       } else {
-        this.showStatus('Error saving settings: ' + data.message, 'error');
+        this.showStatus('Error: ' + data.message, 'error');
       }
 
     } catch (err) {
-      this.showStatus('Error saving settings: ' + err.message, 'error');
+      this.showStatus('Error: ' + err.message, 'error');
     }
   }
 
   attachEventListeners() {
-    this.saveButton.addEventListener('click', () => this.saveSettings());
+    this.defaultBoardSelect.addEventListener('change', () => {
+      // Clear any pending save
+      if (this.saveTimeout) {
+        clearTimeout(this.saveTimeout);
+      }
+      
+      // Show pending status immediately
+      this.showStatus('Pending...', 'info');
+      
+      // Debounce save by 500ms
+      this.saveTimeout = setTimeout(() => {
+        this.saveSettings();
+      }, 500);
+    });
   }
 
   showStatus(message, type = 'info') {

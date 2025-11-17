@@ -584,6 +584,21 @@
   word-break: break-word;
 }
 
+.checklist-item-input {
+  flex-grow: 1;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.checklist-item-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
 .checklist-item input:checked + .checklist-item-name {
   text-decoration: line-through;
   color: var(--text-muted);

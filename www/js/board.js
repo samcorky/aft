@@ -593,6 +593,7 @@ class BoardManager {
   openAddCardModal(columnId, order = null) {
     // Track checklist items to be created
     let pendingChecklistItems = [];
+    let checklistVisible = false;
     
     // Create modal HTML
     const modalHtml = `
@@ -610,8 +611,17 @@ class BoardManager {
             </div>
             
             <div class="checklist-section">
-              <button type="button" class="btn btn-secondary" id="add-checklist-item-new-card-btn">+ Add Checklist</button>
-              <div class="checklist-items" id="new-card-checklist-items" style="display: none; margin-top: 15px;"></div>
+              <div id="checklist-header-container">
+                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
+              </div>
+              <div id="checklist-content-container" style="display: none;">
+                <div class="checklist-header">
+                  <h3>Checklist</h3>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
+                <div class="checklist-items" id="new-card-checklist-items"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
+              </div>
             </div>
             
             <div class="modal-actions">
@@ -631,68 +641,164 @@ class BoardManager {
     const form = document.getElementById('add-card-form');
     const cancelBtn = document.getElementById('cancel-card-btn');
     const titleInput = document.getElementById('card-title');
-    const addChecklistBtn = document.getElementById('add-checklist-item-new-card-btn');
+    const checklistHeaderContainer = document.getElementById('checklist-header-container');
+    const checklistContentContainer = document.getElementById('checklist-content-container');
     const checklistContainer = document.getElementById('new-card-checklist-items');
 
     // Focus on input
     titleInput.focus();
-
-    // Handle add checklist item
-    addChecklistBtn.addEventListener('click', () => {
-      const itemName = prompt('Enter checklist item name:');
-      if (itemName && itemName.trim()) {
-        const item = {
-          name: itemName.trim(),
-          checked: false,
-          tempId: Date.now() + Math.random() // Temporary ID for tracking
-        };
-        pendingChecklistItems.push(item);
+    
+    // Helper to commit pending input
+    const commitPendingInput = () => {
+      const pendingInput = checklistContainer.querySelector('.checklist-item-input');
+      if (pendingInput) {
+        const name = pendingInput.value.trim();
+        const tempId = parseFloat(pendingInput.getAttribute('data-temp-id'));
         
-        // Show container if first item
-        if (pendingChecklistItems.length === 1) {
-          checklistContainer.style.display = 'block';
-        }
-        
-        // Add item to UI
-        const itemHtml = `
-          <div class="checklist-item" data-temp-id="${item.tempId}" draggable="true">
-            <span class="drag-handle" title="Drag to reorder">☰</span>
-            <input type="checkbox" class="checklist-checkbox" data-temp-id="${item.tempId}">
-            <span class="checklist-item-name">${this.escapeHtml(item.name)}</span>
-            <div class="checklist-item-actions">
-              <button type="button" class="checklist-delete-btn-new" data-temp-id="${item.tempId}" title="Delete">🗑</button>
-            </div>
-          </div>
-        `;
-        checklistContainer.insertAdjacentHTML('beforeend', itemHtml);
-        
-        // Add checkbox listener
-        const checkbox = checklistContainer.querySelector(`[data-temp-id="${item.tempId}"].checklist-checkbox`);
-        checkbox.addEventListener('change', (e) => {
-          const tempId = parseFloat(e.target.getAttribute('data-temp-id'));
-          const checklistItem = pendingChecklistItems.find(i => i.tempId === tempId);
-          if (checklistItem) {
-            checklistItem.checked = e.target.checked;
+        if (name) {
+          // Find and update the pending item
+          const item = pendingChecklistItems.find(i => i.tempId === tempId);
+          if (item) {
+            item.name = name;
+            
+            // Replace input with display span
+            const itemElement = pendingInput.closest('.checklist-item');
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'checklist-item-name';
+            nameSpan.textContent = name;
+            pendingInput.replaceWith(nameSpan);
+            
+            // Re-enable dragging
+            itemElement.draggable = true;
           }
-        });
-        
-        // Add delete listener
-        const deleteBtn = checklistContainer.querySelector(`[data-temp-id="${item.tempId}"].checklist-delete-btn-new`);
-        deleteBtn.addEventListener('click', (e) => {
-          const tempId = parseFloat(e.target.getAttribute('data-temp-id'));
-          pendingChecklistItems = pendingChecklistItems.filter(i => i.tempId !== tempId);
-          e.target.closest('.checklist-item').remove();
+        } else {
+          // Remove empty item
+          const index = pendingChecklistItems.findIndex(i => i.tempId === tempId);
+          if (index > -1) {
+            pendingChecklistItems.splice(index, 1);
+          }
+          pendingInput.closest('.checklist-item').remove();
           
-          // Hide container if no items left
           if (pendingChecklistItems.length === 0) {
-            checklistContainer.style.display = 'none';
+            checklistVisible = false;
+            checklistHeaderContainer.style.display = 'block';
+            checklistContentContainer.style.display = 'none';
           }
-        });
-        
-        // Setup drag and drop for the new item
-        this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
+        }
       }
-    });
+    };
+    
+    // Show checklist UI with header and top/bottom buttons
+    const showChecklistUI = () => {
+      if (!checklistVisible) {
+        checklistVisible = true;
+        checklistHeaderContainer.style.display = 'none';
+        checklistContentContainer.style.display = 'block';
+      }
+    };
+
+    // Helper to add a checklist item with inline input
+    const addChecklistItemInline = (insertAtTop = false) => {
+      // Show full checklist UI if not visible
+      showChecklistUI();
+      
+      // Commit any pending input first
+      commitPendingInput();
+      
+      const tempId = Date.now() + Math.random();
+      const item = {
+        name: '',
+        checked: false,
+        tempId: tempId
+      };
+      
+      if (insertAtTop) {
+        pendingChecklistItems.unshift(item);
+      } else {
+        pendingChecklistItems.push(item);
+      }
+      
+      // Add item to UI with input field
+      const itemHtml = `
+        <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
+          <span class="drag-handle" title="Drag to reorder">☰</span>
+          <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
+          <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
+          <div class="checklist-item-actions">
+            <button type="button" class="checklist-delete-btn-new" data-temp-id="${tempId}" title="Delete">🗑</button>
+          </div>
+        </div>
+      `;
+      
+      if (insertAtTop) {
+        checklistContainer.insertAdjacentHTML('afterbegin', itemHtml);
+      } else {
+        checklistContainer.insertAdjacentHTML('beforeend', itemHtml);
+      }
+      
+      // Get the newly added elements
+      const newInput = checklistContainer.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
+      const checkbox = checklistContainer.querySelector(`input.checklist-checkbox[data-temp-id="${tempId}"]`);
+      const deleteBtn = checklistContainer.querySelector(`.checklist-delete-btn-new[data-temp-id="${tempId}"]`);
+      
+      // Focus the input
+      newInput.focus();
+      
+      // Handle blur to commit
+      newInput.addEventListener('blur', () => {
+        setTimeout(() => {
+          commitPendingInput();
+          this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
+        }, 100);
+      });
+      
+      // Handle Enter key
+      newInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          newInput.blur();
+        }
+      });
+      
+      // Add checkbox listener
+      checkbox.addEventListener('change', (e) => {
+        const checklistItem = pendingChecklistItems.find(i => i.tempId === tempId);
+        if (checklistItem) {
+          checklistItem.checked = e.target.checked;
+        }
+      });
+      
+      // Add delete listener
+      deleteBtn.addEventListener('click', (e) => {
+        const index = pendingChecklistItems.findIndex(i => i.tempId === tempId);
+        if (index > -1) {
+          pendingChecklistItems.splice(index, 1);
+        }
+        e.target.closest('.checklist-item').remove();
+        
+        // Hide checklist UI if no items left
+        if (pendingChecklistItems.length === 0) {
+          checklistVisible = false;
+          checklistHeaderContainer.style.display = 'block';
+          checklistContentContainer.style.display = 'none';
+        }
+      });
+    };
+
+    // Handle add checklist item buttons
+    const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
+    const addTopBtn = document.getElementById('add-checklist-item-top-btn');
+    const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
+    
+    if (addInitialBtn) {
+      addInitialBtn.addEventListener('click', () => addChecklistItemInline(false));
+    }
+    if (addTopBtn) {
+      addTopBtn.addEventListener('click', () => addChecklistItemInline(true));
+    }
+    if (addBottomBtn) {
+      addBottomBtn.addEventListener('click', () => addChecklistItemInline(false));
+    }
 
     // Handle cancel
     cancelBtn.addEventListener('click', () => {
@@ -702,11 +808,17 @@ class BoardManager {
     // Handle form submit
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      // Commit any pending input before submitting
+      commitPendingInput();
+      
       const title = titleInput.value.trim();
       const description = document.getElementById('card-description').value.trim();
       
       if (title) {
-        await this.createCard(columnId, title, description, order, pendingChecklistItems);
+        // Filter out empty checklist items
+        const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
+        await this.createCard(columnId, title, description, order, validChecklistItems);
         modal.remove();
       }
     });
@@ -824,7 +936,17 @@ class BoardManager {
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
               ` : `
-                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
+                <div id="checklist-header-container">
+                  <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
+                </div>
+                <div id="checklist-content-container" style="display: none;">
+                  <div class="checklist-header">
+                    <h3>Checklist</h3>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
+                  <div class="checklist-items" id="checklist-items"></div>
+                  <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
+                </div>
               `}
             </div>
             
@@ -882,40 +1004,111 @@ class BoardManager {
       });
     });
 
-    // Handle add checklist item buttons
-    const addChecklistAtTop = async () => {
-      const itemName = prompt('Enter checklist item name:');
-      if (itemName && itemName.trim()) {
-        await this.createChecklistItem(cardId, itemName.trim(), 0); // Add at order 0
-        modal.remove();
-        // Reopen modal with updated data
-        const updatedCard = await this.getCardData(cardId);
-        if (updatedCard) {
-          this.openEditCardModal(cardId, updatedCard);
-        }
+    // Handle add checklist item buttons with inline editing
+    let checklistVisible = hasChecklist;
+    let pendingNewItems = []; // Track new items not yet saved
+    
+    const showChecklistUI = () => {
+      if (!checklistVisible) {
+        checklistVisible = true;
+        const headerContainer = document.getElementById('checklist-header-container');
+        const contentContainer = document.getElementById('checklist-content-container');
+        if (headerContainer) headerContainer.style.display = 'none';
+        if (contentContainer) contentContainer.style.display = 'block';
       }
     };
-
-    const addChecklistAtBottom = async () => {
-      const itemName = prompt('Enter checklist item name:');
-      if (itemName && itemName.trim()) {
-        await this.createChecklistItem(cardId, itemName.trim()); // Add at bottom (no order specified)
-        modal.remove();
-        // Reopen modal with updated data
-        const updatedCard = await this.getCardData(cardId);
-        if (updatedCard) {
-          this.openEditCardModal(cardId, updatedCard);
-        }
+    
+    const addChecklistItemInline = async (insertAtTop = false) => {
+      showChecklistUI();
+      
+      const tempId = Date.now() + Math.random();
+      const checklistContainer = document.getElementById('checklist-items');
+      
+      // Add to pending list
+      pendingNewItems.push({ tempId, insertAtTop });
+      
+      // Add item to UI with input field
+      const itemHtml = `
+        <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
+          <span class="drag-handle" title="Drag to reorder">☰</span>
+          <input type="checkbox" class="checklist-checkbox-temp" data-temp-id="${tempId}">
+          <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
+          <div class="checklist-item-actions">
+            <button type="button" class="checklist-delete-btn-temp" data-temp-id="${tempId}" title="Delete">🗑</button>
+          </div>
+        </div>
+      `;
+      
+      if (insertAtTop) {
+        checklistContainer.insertAdjacentHTML('afterbegin', itemHtml);
+      } else {
+        checklistContainer.insertAdjacentHTML('beforeend', itemHtml);
       }
+      
+      const newInput = checklistContainer.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
+      const deleteBtn = checklistContainer.querySelector(`.checklist-delete-btn-temp[data-temp-id="${tempId}"]`);
+      
+      newInput.focus();
+      
+      // Handle blur to commit
+      newInput.addEventListener('blur', async () => {
+        setTimeout(async () => {
+          const name = newInput.value.trim();
+          if (name) {
+            // Find the pending item and update it
+            const pendingItem = pendingNewItems.find(i => i.tempId === tempId);
+            if (pendingItem) {
+              pendingItem.name = name;
+              
+              // Replace input with display span
+              const itemElement = newInput.closest('.checklist-item');
+              const nameSpan = document.createElement('span');
+              nameSpan.className = 'checklist-item-name';
+              nameSpan.textContent = name;
+              newInput.replaceWith(nameSpan);
+              
+              // Re-enable dragging
+              itemElement.draggable = true;
+              
+              // Mark as having unsaved changes
+              hasUnsavedChanges = true;
+            }
+          } else {
+            // Remove empty item
+            const index = pendingNewItems.findIndex(i => i.tempId === tempId);
+            if (index > -1) {
+              pendingNewItems.splice(index, 1);
+            }
+            newInput.closest('.checklist-item').remove();
+          }
+        }, 100);
+      });
+      
+      // Handle Enter key
+      newInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          newInput.blur();
+        }
+      });
+      
+      // Handle delete
+      deleteBtn.addEventListener('click', () => {
+        const index = pendingNewItems.findIndex(i => i.tempId === tempId);
+        if (index > -1) {
+          pendingNewItems.splice(index, 1);
+        }
+        newInput.closest('.checklist-item').remove();
+      });
     };
 
     const addTopBtn = document.getElementById('add-checklist-item-top-btn');
     const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
     const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
 
-    if (addTopBtn) addTopBtn.addEventListener('click', addChecklistAtTop);
-    if (addBottomBtn) addBottomBtn.addEventListener('click', addChecklistAtBottom);
-    if (addInitialBtn) addInitialBtn.addEventListener('click', addChecklistAtBottom);
+    if (addTopBtn) addTopBtn.addEventListener('click', () => addChecklistItemInline(true));
+    if (addBottomBtn) addBottomBtn.addEventListener('click', () => addChecklistItemInline(false));
+    if (addInitialBtn) addInitialBtn.addEventListener('click', () => addChecklistItemInline(false));
 
     // Handle drag and drop for reordering
     this.setupChecklistDragAndDrop(cardId, () => {
@@ -963,10 +1156,23 @@ class BoardManager {
       const description = document.getElementById('edit-card-description').value.trim();
       
       if (title) {
+        // First update the card
         await this.updateCard(cardId, title, description);
+        
+        // Then save any pending new checklist items
+        for (const pendingItem of pendingNewItems) {
+          if (pendingItem.name) {
+            const order = pendingItem.insertAtTop ? 0 : null;
+            await this.createChecklistItem(cardId, pendingItem.name, order);
+          }
+        }
+        
         hasUnsavedChanges = false;
         checklistOrderChanged = false;
         modal.remove();
+        
+        // Reload board to show updated data
+        await this.loadBoard();
       }
     });
 

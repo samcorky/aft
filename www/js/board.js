@@ -909,6 +909,9 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
+        // in a single request to avoid multiple sequential API calls and ensure atomicity.
+        // This would prevent race conditions and improve performance.
         // If there are checklist items, create them with their checked state
         if (checklistItems.length > 0) {
           const cardId = data.card.id;
@@ -1250,6 +1253,14 @@ class BoardManager {
       const description = document.getElementById('edit-card-description').value.trim();
       
       if (title) {
+        // TODO: Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
+        // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
+        // transaction. This would:
+        // - Reduce network overhead (1 request instead of N)
+        // - Ensure atomicity (all changes succeed or fail together)
+        // - Prevent race conditions from interleaved requests
+        // - Improve performance on slow connections
+        
         // 1. Update the card
         await this.updateCard(cardId, title, description);
         

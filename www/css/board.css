@@ -237,6 +237,7 @@
 .column-cards {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -268,6 +269,7 @@
   opacity: 0.5;
   transform: rotate(2deg);
   cursor: grabbing;
+  max-width: 270px;
 }
 
 .card:hover {

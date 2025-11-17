@@ -462,16 +462,18 @@ class BoardManager {
         const afterElement = this.getDragAfterElement(columnContainer, e.clientY);
         const dragging = document.querySelector('.dragging');
         
-        if (afterElement === null) {
-          // Append at the end (before the add card button)
+        if (!dragging) return;
+        
+        if (!afterElement) {
+          // Append at the end (before the add card button if it exists)
           const addCardBtn = columnContainer.querySelector('.add-card-btn');
-          if (addCardBtn && dragging) {
+          if (addCardBtn) {
             columnContainer.insertBefore(dragging, addCardBtn);
+          } else {
+            columnContainer.appendChild(dragging);
           }
         } else {
-          if (dragging) {
-            columnContainer.insertBefore(dragging, afterElement);
-          }
+          columnContainer.insertBefore(dragging, afterElement);
         }
       });
       
@@ -1497,7 +1499,7 @@ class BoardManager {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       
-      const afterElement = this.getDragAfterElement(container, e.clientY);
+      const afterElement = this.getChecklistDragAfterElement(container, e.clientY);
       
       if (draggedElement && afterElement === null) {
         container.appendChild(draggedElement);
@@ -1507,7 +1509,7 @@ class BoardManager {
     });
   }
 
-  getDragAfterElement(container, y) {
+  getChecklistDragAfterElement(container, y) {
     const draggableElements = [...container.querySelectorAll('.checklist-item:not(.dragging)')];
     
     return draggableElements.reduce((closest, child) => {

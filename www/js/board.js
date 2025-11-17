@@ -896,25 +896,17 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
-        // If there are checklist items, create them
+        // If there are checklist items, create them with their checked state
         if (checklistItems.length > 0) {
           const cardId = data.card.id;
           for (let i = 0; i < checklistItems.length; i++) {
             const item = checklistItems[i];
-            await this.createChecklistItem(cardId, item.name, i);
-            // Update the checked state if needed
-            if (item.checked) {
-              // We need to get the created item's ID first
-              const cardData = await this.getCardData(cardId);
-              const createdItem = cardData.checklist_items.find(ci => ci.name === item.name && ci.order === i);
-              if (createdItem) {
-                await this.updateChecklistItem(createdItem.id, { checked: true });
-              }
-            }
+            // Pass checked state directly to createChecklistItem
+            await this.createChecklistItem(cardId, item.name, i, item.checked || false);
           }
         }
         
-        // Reload board to show the new card
+        // Reload board once at the end to show the new card
         await this.loadBoard();
       } else {
         alert('Failed to create card: ' + data.message);

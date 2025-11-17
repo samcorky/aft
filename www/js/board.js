@@ -933,7 +933,6 @@ class BoardManager {
     // Store original values for change detection
     const originalTitle = cardData.title;
     const originalDescription = cardData.description || '';
-    const originalChecklistOrder = checklistItems.map(item => item.id);
     
     // Track changes
     let hasUnsavedChanges = false;

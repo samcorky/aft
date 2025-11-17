@@ -53,7 +53,8 @@ class ChecklistManager {
     // Single event listener for blur on inputs
     this.container.addEventListener('blur', (e) => {
       if (e.target.classList.contains('checklist-item-input')) {
-        setTimeout(() => this.commitInput(e.target), 100);
+        // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
+        setTimeout(() => this.commitInput(e.target), 0);
       }
     }, true); // Use capture to catch blur
 

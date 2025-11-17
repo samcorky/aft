@@ -119,7 +119,7 @@ class ChecklistManager {
     // Add item to UI with input field
     const itemHtml = `
       <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
-        <span class="drag-handle" title="Drag to reorder">☰</span>
+        <span class="drag-handle" title="Drag to reorder">&#9776;</span>
         <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
         <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
         <div class="checklist-item-actions">
@@ -979,7 +979,7 @@ class BoardManager {
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
                     <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true">
-                      <span class="drag-handle" title="Drag to reorder">☰</span>
+                      <span class="drag-handle" title="Drag to reorder">&#9776;</span>
                       <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
                       <span class="checklist-item-name">${this.escapeHtml(item.name)}</span>
                       <div class="checklist-item-actions">

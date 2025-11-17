@@ -224,86 +224,86 @@ class TestChecklistItemsAPI:
         )
         assert update_response.status_code == 404
 
-def test_create_checklist_item_at_specific_position(api_client, sample_card):
-    """Test creating checklist items at specific positions with proper order shifting."""
-    card_id = sample_card['id']
-    
-    # Create initial checklist items at positions 0, 1, 2
-    for i in range(3):
+    def test_create_checklist_item_at_specific_position(self, api_client, sample_card):
+        """Test creating checklist items at specific positions with proper order shifting."""
+        card_id = sample_card['id']
+        
+        # Create initial checklist items at positions 0, 1, 2
+        for i in range(3):
+            response = requests.post(
+                f'{api_client}/api/cards/{card_id}/checklist-items',
+                json={'name': f'Item {i}', 'order': i}
+            )
+            assert response.status_code == 201
+        
+        # Verify initial order
+        response = requests.get(f'{api_client}/api/cards/{card_id}')
+        card = response.json()['card']
+        items = sorted(card['checklist_items'], key=lambda x: x['order'])
+        assert len(items) == 3
+        assert [item['name'] for item in items] == ['Item 0', 'Item 1', 'Item 2']
+        assert [item['order'] for item in items] == [0, 1, 2]
+        
+        # Insert new item at position 1 (should shift Item 1 and Item 2)
         response = requests.post(
             f'{api_client}/api/cards/{card_id}/checklist-items',
-            json={'name': f'Item {i}', 'order': i}
+            json={'name': 'Inserted at 1', 'order': 1}
         )
         assert response.status_code == 201
-    
-    # Verify initial order
-    response = requests.get(f'{api_client}/api/cards/{card_id}')
-    card = response.json()['card']
-    items = sorted(card['checklist_items'], key=lambda x: x['order'])
-    assert len(items) == 3
-    assert [item['name'] for item in items] == ['Item 0', 'Item 1', 'Item 2']
-    assert [item['order'] for item in items] == [0, 1, 2]
-    
-    # Insert new item at position 1 (should shift Item 1 and Item 2)
-    response = requests.post(
-        f'{api_client}/api/cards/{card_id}/checklist-items',
-        json={'name': 'Inserted at 1', 'order': 1}
-    )
-    assert response.status_code == 201
-    
-    # Verify order after insertion at position 1
-    response = requests.get(f'{api_client}/api/cards/{card_id}')
-    card = response.json()['card']
-    items = sorted(card['checklist_items'], key=lambda x: x['order'])
-    assert len(items) == 4
-    assert [item['name'] for item in items] == ['Item 0', 'Inserted at 1', 'Item 1', 'Item 2']
-    assert [item['order'] for item in items] == [0, 1, 2, 3]
-    
-    # Insert another item at position 0 (should shift everything)
-    response = requests.post(
-        f'{api_client}/api/cards/{card_id}/checklist-items',
-        json={'name': 'Inserted at 0', 'order': 0}
-    )
-    assert response.status_code == 201
-    
-    # Verify order after insertion at position 0
-    response = requests.get(f'{api_client}/api/cards/{card_id}')
-    card = response.json()['card']
-    items = sorted(card['checklist_items'], key=lambda x: x['order'])
-    assert len(items) == 5
-    assert [item['name'] for item in items] == [
-        'Inserted at 0', 'Item 0', 'Inserted at 1', 'Item 1', 'Item 2'
-    ]
-    assert [item['order'] for item in items] == [0, 1, 2, 3, 4]
-    
-    # Insert at position 3 (middle of list)
-    response = requests.post(
-        f'{api_client}/api/cards/{card_id}/checklist-items',
-        json={'name': 'Inserted at 3', 'order': 3}
-    )
-    assert response.status_code == 201
-    
-    # Verify order after insertion at position 3
-    response = requests.get(f'{api_client}/api/cards/{card_id}')
-    card = response.json()['card']
-    items = sorted(card['checklist_items'], key=lambda x: x['order'])
-    assert len(items) == 6
-    assert [item['name'] for item in items] == [
-        'Inserted at 0', 'Item 0', 'Inserted at 1', 'Inserted at 3', 'Item 1', 'Item 2'
-    ]
-    assert [item['order'] for item in items] == [0, 1, 2, 3, 4, 5]
-    
-    # Insert at end without specifying order (should append)
-    response = requests.post(
-        f'{api_client}/api/cards/{card_id}/checklist-items',
-        json={'name': 'Appended'}
-    )
-    assert response.status_code == 201
-    
-    # Verify it was appended at the end
-    response = requests.get(f'{api_client}/api/cards/{card_id}')
-    card = response.json()['card']
-    items = sorted(card['checklist_items'], key=lambda x: x['order'])
-    assert len(items) == 7
-    assert items[-1]['name'] == 'Appended'
-    assert items[-1]['order'] == 6
+        
+        # Verify order after insertion at position 1
+        response = requests.get(f'{api_client}/api/cards/{card_id}')
+        card = response.json()['card']
+        items = sorted(card['checklist_items'], key=lambda x: x['order'])
+        assert len(items) == 4
+        assert [item['name'] for item in items] == ['Item 0', 'Inserted at 1', 'Item 1', 'Item 2']
+        assert [item['order'] for item in items] == [0, 1, 2, 3]
+        
+        # Insert another item at position 0 (should shift everything)
+        response = requests.post(
+            f'{api_client}/api/cards/{card_id}/checklist-items',
+            json={'name': 'Inserted at 0', 'order': 0}
+        )
+        assert response.status_code == 201
+        
+        # Verify order after insertion at position 0
+        response = requests.get(f'{api_client}/api/cards/{card_id}')
+        card = response.json()['card']
+        items = sorted(card['checklist_items'], key=lambda x: x['order'])
+        assert len(items) == 5
+        assert [item['name'] for item in items] == [
+            'Inserted at 0', 'Item 0', 'Inserted at 1', 'Item 1', 'Item 2'
+        ]
+        assert [item['order'] for item in items] == [0, 1, 2, 3, 4]
+        
+        # Insert at position 3 (middle of list)
+        response = requests.post(
+            f'{api_client}/api/cards/{card_id}/checklist-items',
+            json={'name': 'Inserted at 3', 'order': 3}
+        )
+        assert response.status_code == 201
+        
+        # Verify order after insertion at position 3
+        response = requests.get(f'{api_client}/api/cards/{card_id}')
+        card = response.json()['card']
+        items = sorted(card['checklist_items'], key=lambda x: x['order'])
+        assert len(items) == 6
+        assert [item['name'] for item in items] == [
+            'Inserted at 0', 'Item 0', 'Inserted at 1', 'Inserted at 3', 'Item 1', 'Item 2'
+        ]
+        assert [item['order'] for item in items] == [0, 1, 2, 3, 4, 5]
+        
+        # Insert at end without specifying order (should append)
+        response = requests.post(
+            f'{api_client}/api/cards/{card_id}/checklist-items',
+            json={'name': 'Appended'}
+        )
+        assert response.status_code == 201
+        
+        # Verify it was appended at the end
+        response = requests.get(f'{api_client}/api/cards/{card_id}')
+        card = response.json()['card']
+        items = sorted(card['checklist_items'], key=lambda x: x['order'])
+        assert len(items) == 7
+        assert items[-1]['name'] == 'Appended'
+        assert items[-1]['order'] == 6

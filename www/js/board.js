@@ -194,14 +194,14 @@ class BoardManager {
       
       // Add event listeners for card clicks (open edit modal)
       document.querySelectorAll('.card').forEach(card => {
-        card.addEventListener('click', (e) => {
+        card.addEventListener('click', async (e) => {
           // Don't trigger if clicking the delete button or checklist checkbox
           if (e.target.classList.contains('card-delete-btn')) return;
           if (e.target.classList.contains('card-checklist-checkbox')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
-          // Find the card data from this.columns
-          const cardData = this.findCardById(cardId);
+          // Reload card data to get latest state
+          const cardData = await this.getCardData(cardId);
           if (cardData) {
             this.openEditCardModal(cardId, cardData);
           }
@@ -693,6 +693,15 @@ class BoardManager {
     const checklistItems = cardData.checklist_items || [];
     const hasChecklist = checklistItems.length > 0;
     
+    // Store original values for change detection
+    const originalTitle = cardData.title;
+    const originalDescription = cardData.description || '';
+    const originalChecklistOrder = checklistItems.map(item => item.id);
+    
+    // Track changes
+    let hasUnsavedChanges = false;
+    let checklistOrderChanged = false;
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="edit-card-modal">
@@ -716,7 +725,8 @@ class BoardManager {
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
-                    <div class="checklist-item" data-item-id="${item.id}">
+                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true">
+                      <span class="drag-handle" title="Drag to reorder">☰</span>
                       <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
                       <span class="checklist-item-name">${this.escapeHtml(item.name)}</span>
                       <div class="checklist-item-actions">
@@ -754,10 +764,28 @@ class BoardManager {
     titleInput.focus();
     titleInput.select();
 
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
+    // Track changes in title and description
+    titleInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== originalTitle;
     });
+    
+    const descriptionInput = document.getElementById('edit-card-description');
+    descriptionInput.addEventListener('input', () => {
+      hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== originalDescription;
+    });
+
+    // Handle cancel with warning if there are unsaved changes
+    const handleCancel = () => {
+      if (hasUnsavedChanges || checklistOrderChanged) {
+        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+          modal.remove();
+        }
+      } else {
+        modal.remove();
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle checklist item checkbox changes
     document.querySelectorAll('.checklist-checkbox').forEach(checkbox => {
@@ -803,6 +831,12 @@ class BoardManager {
     if (addBottomBtn) addBottomBtn.addEventListener('click', addChecklistAtBottom);
     if (addInitialBtn) addInitialBtn.addEventListener('click', addChecklistAtBottom);
 
+    // Handle drag and drop for reordering
+    this.setupChecklistDragAndDrop(cardId, () => {
+      // Callback when order changes
+      checklistOrderChanged = true;
+    });
+
     // Handle edit checklist item buttons
     document.querySelectorAll('.checklist-edit-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -844,14 +878,16 @@ class BoardManager {
       
       if (title) {
         await this.updateCard(cardId, title, description);
+        hasUnsavedChanges = false;
+        checklistOrderChanged = false;
         modal.remove();
       }
     });
 
-    // Close modal on background click
+    // Close modal on background click with warning
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.remove();
+        handleCancel();
       }
     });
   }
@@ -967,6 +1003,74 @@ class BoardManager {
     } catch (err) {
       alert('Error deleting card: ' + err.message);
     }
+  }
+
+  setupChecklistDragAndDrop(cardId, onOrderChange) {
+    const checklistItems = document.querySelectorAll('.checklist-item');
+    let draggedElement = null;
+
+    checklistItems.forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        draggedElement = item;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      item.addEventListener('dragend', async (e) => {
+        item.classList.remove('dragging');
+        
+        // Get all items in current order
+        const container = document.getElementById('checklist-items');
+        const allItems = Array.from(container.querySelectorAll('.checklist-item'));
+        
+        // Update order for all items based on their new position
+        const updates = allItems.map((el, index) => ({
+          id: parseInt(el.getAttribute('data-item-id')),
+          order: index
+        }));
+        
+        // Notify that order changed
+        if (onOrderChange) {
+          onOrderChange();
+        }
+        
+        // Send updates to API
+        for (const update of updates) {
+          await this.updateChecklistItem(update.id, { order: update.order });
+        }
+        
+        draggedElement = null;
+      });
+
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        
+        const container = document.getElementById('checklist-items');
+        const afterElement = this.getDragAfterElement(container, e.clientY);
+        
+        if (afterElement == null) {
+          container.appendChild(draggedElement);
+        } else {
+          container.insertBefore(draggedElement, afterElement);
+        }
+      });
+    });
+  }
+
+  getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.checklist-item:not(.dragging)')];
+    
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
   showError(message) {

@@ -545,11 +545,30 @@
   border-radius: 5px;
   margin-bottom: 8px;
   transition: all 0.2s;
+  cursor: default;
 }
 
 .checklist-item:hover {
   border-color: var(--primary-color);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.checklist-item.dragging {
+  opacity: 0.5;
+  cursor: move;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 18px;
+  padding: 0 5px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .checklist-checkbox {

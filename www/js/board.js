@@ -1128,19 +1128,72 @@ class BoardManager {
       });
     }
 
-    // Handle edit checklist item buttons
+    // Handle edit checklist item buttons - inline editing
     document.querySelectorAll('.checklist-edit-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const itemId = parseInt(e.target.getAttribute('data-item-id'));
         const itemElement = e.target.closest('.checklist-item');
-        const currentName = itemElement.querySelector('.checklist-item-name').textContent;
-        const newName = prompt('Edit checklist item:', currentName);
-        if (newName && newName.trim() && newName.trim() !== currentName) {
-          await this.updateChecklistItem(itemId, { name: newName.trim() });
-          // Update in-place instead of closing modal
-          itemElement.querySelector('.checklist-item-name').textContent = newName.trim();
-          hasUnsavedChanges = false; // This action was already saved
-        }
+        const nameSpan = itemElement.querySelector('.checklist-item-name');
+        const currentName = nameSpan.textContent;
+        
+        // Replace span with input for inline editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'checklist-item-input';
+        input.value = currentName;
+        input.setAttribute('data-item-id', itemId);
+        nameSpan.replaceWith(input);
+        input.focus();
+        input.select();
+        
+        // Disable dragging while editing
+        itemElement.draggable = false;
+        
+        const saveEdit = async () => {
+          const newName = input.value.trim();
+          if (newName && newName !== currentName) {
+            await this.updateChecklistItem(itemId, { name: newName });
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = newName;
+            input.replaceWith(newNameSpan);
+            hasUnsavedChanges = false; // This action was already saved
+          } else if (newName) {
+            // No change, just restore
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+          } else {
+            // Empty name, restore original
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+          }
+          // Re-enable dragging
+          itemElement.draggable = true;
+        };
+        
+        // Save on blur
+        input.addEventListener('blur', () => {
+          setTimeout(saveEdit, 100);
+        });
+        
+        // Save on Enter
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+          } else if (e.key === 'Escape') {
+            // Cancel edit
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+            itemElement.draggable = true;
+          }
+        });
       });
     });
 

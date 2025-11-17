@@ -32,7 +32,7 @@ def upgrade() -> None:
             sa.Column('id', sa.Integer(), nullable=False, autoincrement=True),
             sa.Column('card_id', sa.Integer(), nullable=False),
             sa.Column('name', sa.String(length=500), nullable=False),
-            sa.Column('checked', sa.Boolean(), nullable=False, server_default='0'),
+            sa.Column('checked', sa.Boolean(), nullable=False, server_default=sa.false()),
             sa.Column('order', sa.Integer(), nullable=False, server_default='0'),
             sa.ForeignKeyConstraint(['card_id'], ['cards.id'], ondelete='CASCADE'),
             sa.PrimaryKeyConstraint('id')

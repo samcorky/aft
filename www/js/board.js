@@ -1137,11 +1137,9 @@ class BoardManager {
         const newName = prompt('Edit checklist item:', currentName);
         if (newName && newName.trim() && newName.trim() !== currentName) {
           await this.updateChecklistItem(itemId, { name: newName.trim() });
-          modal.remove();
-          const updatedCard = await this.getCardData(cardId);
-          if (updatedCard) {
-            this.openEditCardModal(cardId, updatedCard);
-          }
+          // Update in-place instead of closing modal
+          itemElement.querySelector('.checklist-item-name').textContent = newName.trim();
+          hasUnsavedChanges = false; // This action was already saved
         }
       });
     });
@@ -1152,11 +1150,12 @@ class BoardManager {
         if (confirm('Delete this checklist item?')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
           await this.deleteChecklistItem(itemId);
-          modal.remove();
-          const updatedCard = await this.getCardData(cardId);
-          if (updatedCard) {
-            this.openEditCardModal(cardId, updatedCard);
-          }
+          // Remove the item element in-place instead of closing modal
+          const itemElement = e.target.closest('.checklist-item');
+          itemElement.remove();
+          // Update summary after deletion
+          updateEditModalSummary();
+          hasUnsavedChanges = false; // This action was already saved
         }
       });
     });

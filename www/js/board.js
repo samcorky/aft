@@ -1211,9 +1211,21 @@ class BoardManager {
   }
 
   async getCardData(cardId) {
-    // Reload board data to get fresh card info
-    await this.loadBoard();
-    return this.findCardById(cardId);
+    // Fetch single card data from dedicated endpoint
+    try {
+      const response = await fetch(`/api/cards/${cardId}`);
+      const data = await response.json();
+      
+      if (data.success) {
+        return data.card;
+      } else {
+        console.error('Failed to get card data:', data.message);
+        return null;
+      }
+    } catch (err) {
+      console.error('Error getting card data:', err.message);
+      return null;
+    }
   }
 
   async createChecklistItem(cardId, name, order = null, checked = false) {

@@ -2323,6 +2323,81 @@ def delete_all_cards_in_column(column_id):
         db.close()
 
 
+@app.route("/api/cards/<int:card_id>", methods=["GET"])
+def get_card(card_id):
+    """Get a single card with its checklist items.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to retrieve
+    responses:
+      200:
+        description: Card data retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card:
+              type: object
+              properties:
+                id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                column_id:
+                  type: integer
+                order:
+                  type: integer
+                checklist_items:
+                  type: array
+                  items:
+                    type: object
+      404:
+        description: Card not found
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+        
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Serialize card with checklist items
+        card_data = {
+            "id": card.id,
+            "title": card.title,
+            "description": card.description,
+            "column_id": card.column_id,
+            "order": card.order,
+            "checklist_items": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "checked": item.checked,
+                    "order": item.order
+                }
+                for item in sorted(card.checklist_items, key=lambda x: x.order)
+            ]
+        }
+        
+        return jsonify({"success": True, "card": card_data})
+    except Exception as e:
+        logger.error(f"Error getting card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
 def update_card(card_id):
     """Update a card's title, description, column, and/or order.

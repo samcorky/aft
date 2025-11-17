@@ -1,5 +1,16 @@
 // Board detail page functionality
 
+/**
+ * Calculate the percentage of checked items in a checklist
+ * @param {Array} items - Array of checklist items with 'checked' property
+ * @returns {number} Percentage (0-100) of checked items
+ */
+function calculateChecklistPercentage(items) {
+  if (!items || items.length === 0) return 0;
+  const checkedCount = items.filter(i => i.checked).length;
+  return Math.round((checkedCount / items.length) * 100);
+}
+
 // Shared checklist management helper
 class ChecklistManager {
   constructor(container, pendingItems, options = {}) {
@@ -235,7 +246,7 @@ class BoardManager {
                       ${card.checklist_items && card.checklist_items.length > 0 ? `
                         <div class="card-checklist">
                           <div class="card-checklist-summary">
-                            ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${card.checklist_items.length > 0 ? Math.round((card.checklist_items.filter(i => i.checked).length / card.checklist_items.length) * 100) : 0}%)
+                            ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${calculateChecklistPercentage(card.checklist_items)}%)
                           </div>
                           ${card.checklist_items.map(item => `
                             <div class="card-checklist-item">
@@ -367,7 +378,8 @@ class BoardManager {
             const allCheckboxes = card.querySelectorAll('.card-checklist-checkbox');
             const total = allCheckboxes.length;
             const checkedCount = Array.from(allCheckboxes).filter(cb => cb.checked).length;
-            const percentage = total > 0 ? Math.round((checkedCount / total) * 100) : 0;
+            const items = Array.from(allCheckboxes).map(cb => ({ checked: cb.checked }));
+            const percentage = calculateChecklistPercentage(items);
             summaryElement.textContent = `${checkedCount}/${total} (${percentage}%)`;
           }
         });
@@ -803,7 +815,7 @@ class BoardManager {
       if (summaryElement) {
         const total = pendingChecklistItems.length;
         const checked = pendingChecklistItems.filter(i => i.checked).length;
-        const percentage = total > 0 ? Math.round((checked / total) * 100) : 0;
+        const percentage = calculateChecklistPercentage(pendingChecklistItems);
         summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
       }
     };
@@ -957,7 +969,7 @@ class BoardManager {
               ${hasChecklist ? `
                 <div class="checklist-header">
                   <h3>Checklist</h3>
-                  <span class="checklist-summary">${checklistItems.filter(i => i.checked).length}/${checklistItems.length} (${checklistItems.length > 0 ? Math.round((checklistItems.filter(i => i.checked).length / checklistItems.length) * 100) : 0}%)</span>
+                  <span class="checklist-summary">${checklistItems.filter(i => i.checked).length}/${checklistItems.length} (${calculateChecklistPercentage(checklistItems)}%)</span>
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
@@ -1042,7 +1054,8 @@ class BoardManager {
         const allCheckboxes = modal.querySelectorAll('.checklist-checkbox');
         const total = allCheckboxes.length;
         const checkedCount = Array.from(allCheckboxes).filter(cb => cb.checked).length;
-        const percentage = total > 0 ? Math.round((checkedCount / total) * 100) : 0;
+        const items = Array.from(allCheckboxes).map(cb => ({ checked: cb.checked }));
+        const percentage = calculateChecklistPercentage(items);
         summaryElement.textContent = `${checkedCount}/${total} (${percentage}%)`;
       }
     };

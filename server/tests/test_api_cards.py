@@ -24,6 +24,51 @@ class TestCardsAPI:
         assert len(data['cards']) == 1
         assert data['cards'][0]['title'] == "Test Card"
     
+    def test_get_single_card(self, api_client, sample_card):
+        """Test getting a single card by ID."""
+        response = requests.get(f'{api_client}/api/cards/{sample_card["id"]}')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['card']['id'] == sample_card['id']
+        assert data['card']['title'] == "Test Card"
+        assert data['card']['column_id'] == sample_card['column_id']
+        assert 'checklist_items' in data['card']
+        assert isinstance(data['card']['checklist_items'], list)
+    
+    def test_get_single_card_not_found(self, api_client):
+        """Test getting a non-existent card."""
+        response = requests.get(f'{api_client}/api/cards/9999')
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'not found' in data['message'].lower()
+    
+    def test_get_single_card_with_checklist(self, api_client, sample_card):
+        """Test getting a card with checklist items."""
+        # Add checklist items to the card
+        requests.post(f'{api_client}/api/cards/{sample_card["id"]}/checklist-items', json={
+            'name': 'First item',
+            'checked': False,
+            'order': 0
+        })
+        requests.post(f'{api_client}/api/cards/{sample_card["id"]}/checklist-items', json={
+            'name': 'Second item',
+            'checked': True,
+            'order': 1
+        })
+        
+        # Get the card
+        response = requests.get(f'{api_client}/api/cards/{sample_card["id"]}')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert len(data['card']['checklist_items']) == 2
+        assert data['card']['checklist_items'][0]['name'] == 'First item'
+        assert data['card']['checklist_items'][0]['checked'] is False
+        assert data['card']['checklist_items'][1]['name'] == 'Second item'
+        assert data['card']['checklist_items'][1]['checked'] is True
+    
     def test_create_card(self, api_client, sample_column):
         """Test creating a new card."""
         response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={

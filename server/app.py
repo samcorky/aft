@@ -257,6 +257,15 @@ def get_stats():
             cards_count:
               type: integer
               example: 42
+            checklist_items_total:
+              type: integer
+              example: 28
+            checklist_items_checked:
+              type: integer
+              example: 15
+            checklist_items_unchecked:
+              type: integer
+              example: 13
       500:
         description: Failed to get statistics
         schema:
@@ -270,9 +279,16 @@ def get_stats():
     """
     db = SessionLocal()
     try:
+        from models import ChecklistItem
+        
         boards_count = db.query(Board).count()
         columns_count = db.query(BoardColumn).count()
         cards_count = db.query(Card).count()
+        
+        # Get checklist item counts
+        checklist_items_total = db.query(ChecklistItem).count()
+        checklist_items_checked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(True)).count()
+        checklist_items_unchecked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(False)).count()
 
         return jsonify(
             {
@@ -280,6 +296,9 @@ def get_stats():
                 "boards_count": boards_count,
                 "columns_count": columns_count,
                 "cards_count": cards_count,
+                "checklist_items_total": checklist_items_total,
+                "checklist_items_checked": checklist_items_checked,
+                "checklist_items_unchecked": checklist_items_unchecked,
             }
         )
     except Exception as e:
@@ -1850,20 +1869,34 @@ def get_column_cards(column_id):
             .order_by(Card.order)
             .all()
         )
+        
+        # Serialize cards before closing session to access relationships
+        cards_data = [
+            {
+                "id": c.id,
+                "column_id": c.column_id,
+                "title": c.title,
+                "description": c.description,
+                "order": c.order,
+                "checklist_items": [
+                    {
+                        "id": item.id,
+                        "card_id": item.card_id,
+                        "name": item.name,
+                        "checked": item.checked,
+                        "order": item.order
+                    }
+                    for item in c.checklist_items
+                ]
+            }
+            for c in cards
+        ]
+        
         db.close()
         return jsonify(
             {
                 "success": True,
-                "cards": [
-                    {
-                        "id": c.id,
-                        "column_id": c.column_id,
-                        "title": c.title,
-                        "description": c.description,
-                        "order": c.order,
-                    }
-                    for c in cards
-                ],
+                "cards": cards_data
             }
         )
     except Exception as e:
@@ -1983,19 +2016,32 @@ def get_board_cards(board_id):
                 .all()
             )
 
+            # Serialize cards with checklist items while session is active
+            cards_data = [
+                {
+                    "id": card.id,
+                    "title": card.title,
+                    "description": card.description,
+                    "order": card.order,
+                    "checklist_items": [
+                        {
+                            "id": item.id,
+                            "card_id": item.card_id,
+                            "name": item.name,
+                            "checked": item.checked,
+                            "order": item.order
+                        }
+                        for item in card.checklist_items
+                    ]
+                }
+                for card in cards
+            ]
+
             column_data = {
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
-                "cards": [
-                    {
-                        "id": card.id,
-                        "title": card.title,
-                        "description": card.description,
-                        "order": card.order,
-                    }
-                    for card in cards
-                ],
+                "cards": cards_data,
             }
             result["columns"].append(column_data)
 
@@ -2272,6 +2318,81 @@ def delete_all_cards_in_column(column_id):
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting cards from column {column_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>", methods=["GET"])
+def get_card(card_id):
+    """Get a single card with its checklist items.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to retrieve
+    responses:
+      200:
+        description: Card data retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card:
+              type: object
+              properties:
+                id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                column_id:
+                  type: integer
+                order:
+                  type: integer
+                checklist_items:
+                  type: array
+                  items:
+                    type: object
+      404:
+        description: Card not found
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+        
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Serialize card with checklist items
+        card_data = {
+            "id": card.id,
+            "title": card.title,
+            "description": card.description,
+            "column_id": card.column_id,
+            "order": card.order,
+            "checklist_items": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "checked": item.checked,
+                    "order": item.order
+                }
+                for item in sorted(card.checklist_items, key=lambda x: x.order)
+            ]
+        }
+        
+        return jsonify({"success": True, "card": card_data})
+    except Exception as e:
+        logger.error(f"Error getting card {card_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -2561,6 +2682,305 @@ def delete_card(card_id):
     except Exception as e:
         db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+# Checklist Items API endpoints
+@app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
+def create_checklist_item(card_id):
+    """Create a new checklist item for a card.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              example: "Review documentation"
+              description: The name of the checklist item
+            checked:
+              type: boolean
+              example: false
+              description: Whether the item is checked
+            order:
+              type: integer
+              example: 0
+              description: The order position
+    responses:
+      201:
+        description: Checklist item created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            checklist_item:
+              type: object
+              properties:
+                id:
+                  type: integer
+                card_id:
+                  type: integer
+                name:
+                  type: string
+                checked:
+                  type: boolean
+                order:
+                  type: integer
+      400:
+        description: Bad request - missing name
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data or "name" not in data:
+            return create_error_response("Name is required", 400)
+
+        from models import Card, ChecklistItem
+
+        # Verify card exists
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found", 404)
+
+        # Validate name
+        name = data.get("name")
+        if not isinstance(name, str):
+            return create_error_response("Name must be a string", 400)
+
+        # Sanitize and validate length
+        name = sanitize_string(name)
+        if not name:
+            return create_error_response("Name cannot be empty", 400)
+
+        is_valid, error = validate_string_length(name, 500, "Name")
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        # Validate checked if provided
+        checked = data.get("checked", False)
+        if not isinstance(checked, bool):
+            return create_error_response("Checked must be a boolean", 400)
+
+        # Validate order if provided
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+            
+            # Increment order of existing items >= this order to make room
+            existing_items = (
+                db.query(ChecklistItem)
+                .filter(ChecklistItem.card_id == card_id, ChecklistItem.order >= order)
+                .all()
+            )
+            for item_to_update in existing_items:
+                item_to_update.order += 1
+        else:
+            # Add at the end
+            order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
+
+        # Create checklist item
+        checklist_item = ChecklistItem(
+            card_id=card_id,
+            name=name,
+            checked=checked,
+            order=order
+        )
+
+        db.add(checklist_item)
+        db.commit()
+        db.refresh(checklist_item)
+
+        return jsonify({
+            "success": True,
+            "checklist_item": {
+                "id": checklist_item.id,
+                "card_id": checklist_item.card_id,
+                "name": checklist_item.name,
+                "checked": checklist_item.checked,
+                "order": checklist_item.order
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating checklist item for card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/checklist-items/<int:item_id>", methods=["PATCH"])
+def update_checklist_item(item_id):
+    """Update a checklist item's name, checked status, and/or order.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: item_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the checklist item to update
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Updated item name"
+            checked:
+              type: boolean
+              example: true
+            order:
+              type: integer
+              example: 1
+    responses:
+      200:
+        description: Checklist item updated successfully
+      400:
+        description: Bad request - no data provided or validation error
+      404:
+        description: Checklist item not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data:
+            return create_error_response("No data provided", 400)
+
+        from models import ChecklistItem
+
+        checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+
+        if not checklist_item:
+            return create_error_response("Checklist item not found", 404)
+
+        # Update name if provided
+        if "name" in data:
+            name = data["name"]
+            if not isinstance(name, str):
+                return create_error_response("Name must be a string", 400)
+
+            name = sanitize_string(name)
+            if not name:
+                return create_error_response("Name cannot be empty", 400)
+
+            is_valid, error = validate_string_length(name, 500, "Name")
+            if not is_valid:
+                return create_error_response(error, 400)
+
+            checklist_item.name = name
+
+        # Update checked if provided
+        if "checked" in data:
+            checked = data["checked"]
+            if not isinstance(checked, bool):
+                return create_error_response("Checked must be a boolean", 400)
+            checklist_item.checked = checked
+
+        # Update order if provided
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", allow_none=False, min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+            checklist_item.order = order
+
+        db.commit()
+        db.refresh(checklist_item)
+
+        return jsonify({
+            "success": True,
+            "checklist_item": {
+                "id": checklist_item.id,
+                "card_id": checklist_item.card_id,
+                "name": checklist_item.name,
+                "checked": checklist_item.checked,
+                "order": checklist_item.order
+            }
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating checklist item {item_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/checklist-items/<int:item_id>", methods=["DELETE"])
+def delete_checklist_item(item_id):
+    """Delete a checklist item by ID.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: item_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the checklist item to delete
+    responses:
+      200:
+        description: Checklist item deleted successfully
+      404:
+        description: Checklist item not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import ChecklistItem
+
+        checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+
+        if not checklist_item:
+            return create_error_response("Checklist item not found", 404)
+
+        db.delete(checklist_item)
+        db.commit()
+
+        return jsonify({"success": True, "message": "Checklist item deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting checklist item {item_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

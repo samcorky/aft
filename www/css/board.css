@@ -317,7 +317,6 @@
   padding-right: 24px; /* Space for delete button */
   word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: break-word;
 }
 
 .card-description {
@@ -334,7 +333,6 @@
   max-height: 1.4em; /* 1 line * 1.4 line-height */
   word-wrap: break-word;
   overflow-wrap: break-word;
-  word-break: break-word;
 }
 
 /* Card Checklist Styles */
@@ -370,7 +368,7 @@
 .card-checklist-name {
   color: var(--text-dark);
   line-height: 1.3;
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .card-checklist-name.checked {
@@ -499,8 +497,6 @@
   border-radius: 5px;
   font-size: 16px;
   box-sizing: border-box;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
 }
 
 .form-group input:focus {
@@ -606,7 +602,7 @@
 .checklist-item-name {
   flex-grow: 1;
   color: var(--text-dark);
-  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .checklist-item-input {
@@ -617,8 +613,6 @@
   font-size: 14px;
   font-family: inherit;
   outline: none;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
 }
 
 .checklist-item-input:focus {

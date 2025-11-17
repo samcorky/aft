@@ -123,6 +123,9 @@ class SystemInfo {
         document.getElementById('boards-count').textContent = statsData.boards_count;
         document.getElementById('columns-count').textContent = statsData.columns_count;
         document.getElementById('cards-count').textContent = statsData.cards_count;
+        document.getElementById('checklist-items-total').textContent = statsData.checklist_items_total || 0;
+        document.getElementById('checklist-items-checked').textContent = statsData.checklist_items_checked || 0;
+        document.getElementById('checklist-items-unchecked').textContent = statsData.checklist_items_unchecked || 0;
       }
     } catch (error) {
       console.error('Error loading system info:', error);

@@ -99,6 +99,21 @@ class BoardManager {
                       <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
                       <h5 class="card-title">${this.escapeHtml(card.title)}</h5>
                       <p class="card-description">${this.escapeHtml(card.description)}</p>
+                      ${card.checklist_items && card.checklist_items.length > 0 ? `
+                        <div class="card-checklist">
+                          ${card.checklist_items.map(item => `
+                            <div class="card-checklist-item">
+                              <input 
+                                type="checkbox" 
+                                class="card-checklist-checkbox" 
+                                data-item-id="${item.id}"
+                                ${item.checked ? 'checked' : ''}
+                              >
+                              <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${this.escapeHtml(item.name)}</span>
+                            </div>
+                          `).join('')}
+                        </div>
+                      ` : ''}
                     </div>
                   `).join('') : ''
                 }
@@ -180,13 +195,33 @@ class BoardManager {
       // Add event listeners for card clicks (open edit modal)
       document.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', (e) => {
-          // Don't trigger if clicking the delete button
+          // Don't trigger if clicking the delete button or checklist checkbox
           if (e.target.classList.contains('card-delete-btn')) return;
+          if (e.target.classList.contains('card-checklist-checkbox')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
-          const cardTitle = card.querySelector('.card-title').textContent;
-          const cardDescription = card.querySelector('.card-description').textContent;
-          this.openEditCardModal(cardId, cardTitle, cardDescription);
+          // Find the card data from this.columns
+          const cardData = this.findCardById(cardId);
+          if (cardData) {
+            this.openEditCardModal(cardId, cardData);
+          }
+        });
+      });
+      
+      // Add event listeners for checklist checkboxes on cards
+      document.querySelectorAll('.card-checklist-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('click', async (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const itemId = parseInt(e.target.getAttribute('data-item-id'));
+          const checked = e.target.checked;
+          await this.updateChecklistItem(itemId, { checked });
+          // Update the visual state of the text
+          const label = e.target.nextElementSibling;
+          if (checked) {
+            label.classList.add('checked');
+          } else {
+            label.classList.remove('checked');
+          }
         });
       });
       
@@ -644,21 +679,60 @@ class BoardManager {
     }
   }
 
-  openEditCardModal(cardId, currentTitle, currentDescription) {
+  findCardById(cardId) {
+    for (const column of this.columns) {
+      if (column.cards) {
+        const card = column.cards.find(c => c.id === cardId);
+        if (card) return card;
+      }
+    }
+    return null;
+  }
+
+  openEditCardModal(cardId, cardData) {
+    const checklistItems = cardData.checklist_items || [];
+    const hasChecklist = checklistItems.length > 0;
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="edit-card-modal">
-        <div class="modal-content">
+        <div class="modal-content card-modal-content">
           <h2>Edit Card</h2>
           <form id="edit-card-form">
             <div class="form-group">
               <label for="edit-card-title">Title:</label>
-              <input type="text" id="edit-card-title" name="edit-card-title" value="${this.escapeHtml(currentTitle)}" required>
+              <input type="text" id="edit-card-title" name="edit-card-title" value="${this.escapeHtml(cardData.title)}" required>
             </div>
             <div class="form-group">
               <label for="edit-card-description">Description:</label>
-              <textarea id="edit-card-description" name="edit-card-description" rows="4">${this.escapeHtml(currentDescription)}</textarea>
+              <textarea id="edit-card-description" name="edit-card-description" rows="4">${this.escapeHtml(cardData.description || '')}</textarea>
             </div>
+            
+            <div class="checklist-section">
+              <div class="checklist-header">
+                <h3>Checklist</h3>
+                ${hasChecklist ? `<button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>` : ''}
+              </div>
+              
+              ${hasChecklist ? `
+                <div class="checklist-items" id="checklist-items">
+                  ${checklistItems.map(item => `
+                    <div class="checklist-item" data-item-id="${item.id}">
+                      <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
+                      <span class="checklist-item-name">${this.escapeHtml(item.name)}</span>
+                      <div class="checklist-item-actions">
+                        <button type="button" class="checklist-edit-btn" data-item-id="${item.id}" title="Edit">✎</button>
+                        <button type="button" class="checklist-delete-btn" data-item-id="${item.id}" title="Delete">🗑</button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
+              ` : `
+                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist Item</button>
+              `}
+            </div>
+            
             <div class="modal-actions">
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" class="btn btn-primary">Save</button>
@@ -686,6 +760,70 @@ class BoardManager {
       modal.remove();
     });
 
+    // Handle checklist item checkbox changes
+    document.querySelectorAll('.checklist-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', async (e) => {
+        const itemId = parseInt(e.target.getAttribute('data-item-id'));
+        const checked = e.target.checked;
+        await this.updateChecklistItem(itemId, { checked });
+      });
+    });
+
+    // Handle add checklist item buttons
+    const addChecklistHandlers = async () => {
+      const itemName = prompt('Enter checklist item name:');
+      if (itemName && itemName.trim()) {
+        await this.createChecklistItem(cardId, itemName.trim());
+        modal.remove();
+        // Reopen modal with updated data
+        const updatedCard = await this.getCardData(cardId);
+        if (updatedCard) {
+          this.openEditCardModal(cardId, updatedCard);
+        }
+      }
+    };
+
+    const addTopBtn = document.getElementById('add-checklist-item-top-btn');
+    const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
+    const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
+
+    if (addTopBtn) addTopBtn.addEventListener('click', addChecklistHandlers);
+    if (addBottomBtn) addBottomBtn.addEventListener('click', addChecklistHandlers);
+    if (addInitialBtn) addInitialBtn.addEventListener('click', addChecklistHandlers);
+
+    // Handle edit checklist item buttons
+    document.querySelectorAll('.checklist-edit-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const itemId = parseInt(e.target.getAttribute('data-item-id'));
+        const itemElement = e.target.closest('.checklist-item');
+        const currentName = itemElement.querySelector('.checklist-item-name').textContent;
+        const newName = prompt('Edit checklist item:', currentName);
+        if (newName && newName.trim() && newName.trim() !== currentName) {
+          await this.updateChecklistItem(itemId, { name: newName.trim() });
+          modal.remove();
+          const updatedCard = await this.getCardData(cardId);
+          if (updatedCard) {
+            this.openEditCardModal(cardId, updatedCard);
+          }
+        }
+      });
+    });
+
+    // Handle delete checklist item buttons
+    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        if (confirm('Delete this checklist item?')) {
+          const itemId = parseInt(e.target.getAttribute('data-item-id'));
+          await this.deleteChecklistItem(itemId);
+          modal.remove();
+          const updatedCard = await this.getCardData(cardId);
+          if (updatedCard) {
+            this.openEditCardModal(cardId, updatedCard);
+          }
+        }
+      });
+    });
+
     // Handle form submit
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -704,6 +842,68 @@ class BoardManager {
         modal.remove();
       }
     });
+  }
+
+  async getCardData(cardId) {
+    // Reload board data to get fresh card info
+    await this.loadBoard();
+    return this.findCardById(cardId);
+  }
+
+  async createChecklistItem(cardId, name) {
+    try {
+      const response = await fetch(`/api/cards/${cardId}/checklist-items`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        alert('Failed to create checklist item: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error creating checklist item: ' + err.message);
+    }
+  }
+
+  async updateChecklistItem(itemId, updates) {
+    try {
+      const response = await fetch(`/api/checklist-items/${itemId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updates)
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        alert('Failed to update checklist item: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error updating checklist item: ' + err.message);
+    }
+  }
+
+  async deleteChecklistItem(itemId) {
+    try {
+      const response = await fetch(`/api/checklist-items/${itemId}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        alert('Failed to delete checklist item: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error deleting checklist item: ' + err.message);
+    }
   }
 
   async updateCard(cardId, title, description) {

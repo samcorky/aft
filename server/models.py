@@ -1,5 +1,5 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -54,8 +54,29 @@ class Card(Base):
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")
     
+    # Relationship to checklist items
+    checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.order")
+    
     def __repr__(self):
         return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order})>"
+
+
+class ChecklistItem(Base):
+    """ChecklistItem model representing a checklist item within a card."""
+    
+    __tablename__ = "checklist_items"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    card_id = Column(Integer, ForeignKey('cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = Column(String(500), nullable=False)
+    checked = Column(Boolean, nullable=False, default=False)
+    order = Column(Integer, nullable=False, default=0)
+    
+    # Relationship to card
+    card = relationship("Card", back_populates="checklist_items")
+    
+    def __repr__(self):
+        return f"<ChecklistItem(id={self.id}, card_id={self.card_id}, name='{self.name}', checked={self.checked}, order={self.order})>"
 
 
 class Setting(Base):

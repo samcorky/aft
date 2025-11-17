@@ -461,7 +461,7 @@ class BoardManager {
         const afterElement = this.getDragAfterElement(columnContainer, e.clientY);
         const dragging = document.querySelector('.dragging');
         
-        if (afterElement == null) {
+        if (afterElement === null) {
           // Append at the end (before the add card button)
           const addCardBtn = columnContainer.querySelector('.add-card-btn');
           if (addCardBtn && dragging) {
@@ -1463,7 +1463,7 @@ class BoardManager {
       
       const afterElement = this.getDragAfterElement(container, e.clientY);
       
-      if (draggedElement && afterElement == null) {
+      if (draggedElement && afterElement === null) {
         container.appendChild(draggedElement);
       } else if (draggedElement) {
         container.insertBefore(draggedElement, afterElement);

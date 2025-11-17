@@ -82,6 +82,8 @@
 
 .column {
   flex: 0 0 300px;
+  min-width: 300px;
+  max-width: 300px;
   background: var(--background-light);
   border-radius: 8px;
   padding: 15px;
@@ -313,6 +315,9 @@
   font-weight: 600;
   color: var(--text-dark);
   padding-right: 24px; /* Space for delete button */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .card-description {
@@ -327,6 +332,9 @@
   text-overflow: ellipsis;
   line-height: 1.4;
   max-height: 1.4em; /* 1 line * 1.4 line-height */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Card Checklist Styles */
@@ -386,6 +394,8 @@
   font-family: inherit;
   box-sizing: border-box;
   resize: vertical;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .form-group textarea:focus {
@@ -489,6 +499,8 @@
   border-radius: 5px;
   font-size: 16px;
   box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .form-group input:focus {
@@ -605,6 +617,8 @@
   font-size: 14px;
   font-family: inherit;
   outline: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .checklist-item-input:focus {

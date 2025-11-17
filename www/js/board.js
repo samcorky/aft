@@ -699,6 +699,9 @@ class BoardManager {
             // Re-enable dragging
             itemElement.draggable = true;
             
+            // Set up drag and drop for all items
+            this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
+            
             // Update summary
             updateChecklistSummary();
           }
@@ -782,7 +785,6 @@ class BoardManager {
       newInput.addEventListener('blur', () => {
         setTimeout(() => {
           commitPendingInput();
-          this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
         }, 100);
       });
       
@@ -1050,12 +1052,15 @@ class BoardManager {
       }
     };
 
-    // Handle checklist item checkbox changes
+    // Handle checklist item checkbox changes (defer save until form submit)
+    let checklistCheckboxChanges = new Map(); // Track checkbox changes: itemId -> checked state
+    
     document.querySelectorAll('.checklist-checkbox').forEach(checkbox => {
-      checkbox.addEventListener('change', async (e) => {
+      checkbox.addEventListener('change', (e) => {
         const itemId = parseInt(e.target.getAttribute('data-item-id'));
         const checked = e.target.checked;
-        await this.updateChecklistItem(itemId, { checked });
+        checklistCheckboxChanges.set(itemId, checked);
+        hasUnsavedChanges = true;
         
         // Update the summary
         updateEditModalSummary();
@@ -1247,10 +1252,15 @@ class BoardManager {
       const description = document.getElementById('edit-card-description').value.trim();
       
       if (title) {
-        // First update the card
+        // 1. Update the card
         await this.updateCard(cardId, title, description);
         
-        // Then save any pending new checklist items in their current DOM order
+        // 2. Save checkbox changes for existing items
+        for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
+          await this.updateChecklistItem(itemId, { checked });
+        }
+        
+        // 3. Save any pending new checklist items in their current DOM order
         const checklistContainer = document.getElementById('checklist-items');
         const allItems = Array.from(checklistContainer.querySelectorAll('.checklist-item'));
         
@@ -1264,6 +1274,17 @@ class BoardManager {
             if (pendingItem && pendingItem.name) {
               // Save with the current position index and checked state
               await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+            }
+          }
+        }
+        
+        // 4. Update order for existing items if changed
+        if (checklistOrderChanged) {
+          for (let i = 0; i < allItems.length; i++) {
+            const el = allItems[i];
+            const itemId = el.getAttribute('data-item-id');
+            if (itemId && itemId !== 'null') {
+              await this.updateChecklistItem(parseInt(itemId), { order: i });
             }
           }
         }
@@ -1412,33 +1433,9 @@ class BoardManager {
       item.addEventListener('dragend', async (e) => {
         item.classList.remove('dragging');
         
-        // Get all items in current order
-        const container = document.getElementById('checklist-items');
-        const allItems = Array.from(container.querySelectorAll('.checklist-item'));
-        
-        // Update order for all items based on their new position
-        // Only update items that have been saved (have data-item-id)
-        const updates = allItems
-          .map((el, index) => {
-            const itemId = el.getAttribute('data-item-id');
-            if (itemId && itemId !== 'null') {
-              return {
-                id: parseInt(itemId),
-                order: index
-              };
-            }
-            return null;
-          })
-          .filter(update => update !== null);
-        
-        // Notify that order changed
+        // Notify that order changed (will be saved on form submit)
         if (onOrderChange) {
           onOrderChange();
-        }
-        
-        // Send updates to API
-        for (const update of updates) {
-          await this.updateChecklistItem(update.id, { order: update.order });
         }
         
         draggedElement = null;

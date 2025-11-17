@@ -932,16 +932,6 @@ class BoardManager {
     }
   }
 
-  findCardById(cardId) {
-    for (const column of this.columns) {
-      if (column.cards) {
-        const card = column.cards.find(c => c.id === cardId);
-        if (card) return card;
-      }
-    }
-    return null;
-  }
-
   openEditCardModal(cardId, cardData) {
     const checklistItems = cardData.checklist_items || [];
     const hasChecklist = checklistItems.length > 0;

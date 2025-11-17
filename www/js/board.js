@@ -101,6 +101,9 @@ class BoardManager {
                       <p class="card-description">${this.escapeHtml(card.description)}</p>
                       ${card.checklist_items && card.checklist_items.length > 0 ? `
                         <div class="card-checklist">
+                          <div class="card-checklist-summary">
+                            ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${card.checklist_items.length > 0 ? Math.round((card.checklist_items.filter(i => i.checked).length / card.checklist_items.length) * 100) : 0}%)
+                          </div>
                           ${card.checklist_items.map(item => `
                             <div class="card-checklist-item">
                               <input 
@@ -215,12 +218,24 @@ class BoardManager {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
           const checked = e.target.checked;
           await this.updateChecklistItem(itemId, { checked });
+          
           // Update the visual state of the text
           const label = e.target.nextElementSibling;
           if (checked) {
             label.classList.add('checked');
           } else {
             label.classList.remove('checked');
+          }
+          
+          // Update the summary
+          const card = e.target.closest('.card');
+          const summaryElement = card.querySelector('.card-checklist-summary');
+          if (summaryElement) {
+            const allCheckboxes = card.querySelectorAll('.card-checklist-checkbox');
+            const total = allCheckboxes.length;
+            const checkedCount = Array.from(allCheckboxes).filter(cb => cb.checked).length;
+            const percentage = total > 0 ? Math.round((checkedCount / total) * 100) : 0;
+            summaryElement.textContent = `${checkedCount}/${total} (${percentage}%)`;
           }
         });
       });
@@ -617,6 +632,7 @@ class BoardManager {
               <div id="checklist-content-container" style="display: none;">
                 <div class="checklist-header">
                   <h3>Checklist</h3>
+                  <span class="checklist-summary" id="checklist-summary">0/0 (0%)</span>
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="new-card-checklist-items"></div>
@@ -648,6 +664,18 @@ class BoardManager {
     // Focus on input
     titleInput.focus();
     
+    // Helper to update checklist summary
+    const updateChecklistSummary = () => {
+      const summaryElement = document.getElementById('checklist-summary');
+      if (summaryElement) {
+        // Count all items, including those being edited
+        const total = pendingChecklistItems.length;
+        const checked = pendingChecklistItems.filter(i => i.checked).length;
+        const percentage = total > 0 ? Math.round((checked / total) * 100) : 0;
+        summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+      }
+    };
+    
     // Helper to commit pending input
     const commitPendingInput = () => {
       const pendingInput = checklistContainer.querySelector('.checklist-item-input');
@@ -670,6 +698,9 @@ class BoardManager {
             
             // Re-enable dragging
             itemElement.draggable = true;
+            
+            // Update summary
+            updateChecklistSummary();
           }
         } else {
           // Remove empty item
@@ -684,6 +715,9 @@ class BoardManager {
             checklistHeaderContainer.style.display = 'block';
             checklistContentContainer.style.display = 'none';
           }
+          
+          // Update summary
+          updateChecklistSummary();
         }
       }
     };
@@ -765,6 +799,7 @@ class BoardManager {
         const checklistItem = pendingChecklistItems.find(i => i.tempId === tempId);
         if (checklistItem) {
           checklistItem.checked = e.target.checked;
+          updateChecklistSummary();
         }
       });
       
@@ -782,7 +817,13 @@ class BoardManager {
           checklistHeaderContainer.style.display = 'block';
           checklistContentContainer.style.display = 'none';
         }
+        
+        // Update summary
+        updateChecklistSummary();
       });
+      
+      // Update summary after adding new item
+      updateChecklistSummary();
     };
 
     // Handle add checklist item buttons
@@ -919,6 +960,7 @@ class BoardManager {
               ${hasChecklist ? `
                 <div class="checklist-header">
                   <h3>Checklist</h3>
+                  <span class="checklist-summary">${checklistItems.filter(i => i.checked).length}/${checklistItems.length} (${checklistItems.length > 0 ? Math.round((checklistItems.filter(i => i.checked).length / checklistItems.length) * 100) : 0}%)</span>
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
@@ -942,6 +984,7 @@ class BoardManager {
                 <div id="checklist-content-container" style="display: none;">
                   <div class="checklist-header">
                     <h3>Checklist</h3>
+                    <span class="checklist-summary">0/0 (0%)</span>
                   </div>
                   <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                   <div class="checklist-items" id="checklist-items"></div>
@@ -994,6 +1037,18 @@ class BoardManager {
     };
     
     cancelBtn.addEventListener('click', handleCancel);
+    
+    // Helper to update edit modal checklist summary
+    const updateEditModalSummary = () => {
+      const summaryElement = modal.querySelector('.checklist-summary');
+      if (summaryElement) {
+        const allCheckboxes = modal.querySelectorAll('.checklist-checkbox');
+        const total = allCheckboxes.length;
+        const checkedCount = Array.from(allCheckboxes).filter(cb => cb.checked).length;
+        const percentage = total > 0 ? Math.round((checkedCount / total) * 100) : 0;
+        summaryElement.textContent = `${checkedCount}/${total} (${percentage}%)`;
+      }
+    };
 
     // Handle checklist item checkbox changes
     document.querySelectorAll('.checklist-checkbox').forEach(checkbox => {
@@ -1001,6 +1056,9 @@ class BoardManager {
         const itemId = parseInt(e.target.getAttribute('data-item-id'));
         const checked = e.target.checked;
         await this.updateChecklistItem(itemId, { checked });
+        
+        // Update the summary
+        updateEditModalSummary();
       });
     });
 
@@ -1025,13 +1083,13 @@ class BoardManager {
       const checklistContainer = document.getElementById('checklist-items');
       
       // Add to pending list
-      pendingNewItems.push({ tempId, insertAtTop });
+      pendingNewItems.push({ tempId, insertAtTop, checked: false });
       
       // Add item to UI with input field
       const itemHtml = `
         <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
           <span class="drag-handle" title="Drag to reorder">☰</span>
-          <input type="checkbox" class="checklist-checkbox-temp" data-temp-id="${tempId}">
+          <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
           <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
           <div class="checklist-item-actions">
             <button type="button" class="checklist-delete-btn-temp" data-temp-id="${tempId}" title="Delete">🗑</button>
@@ -1046,9 +1104,22 @@ class BoardManager {
       }
       
       const newInput = checklistContainer.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
+      const checkbox = checklistContainer.querySelector(`input.checklist-checkbox[data-temp-id="${tempId}"]`);
       const deleteBtn = checklistContainer.querySelector(`.checklist-delete-btn-temp[data-temp-id="${tempId}"]`);
       
+      // Add checkbox listener to update summary
+      checkbox.addEventListener('change', (e) => {
+        const pendingItem = pendingNewItems.find(i => i.tempId === tempId);
+        if (pendingItem) {
+          pendingItem.checked = e.target.checked;
+          updateEditModalSummary();
+        }
+      });
+      
       newInput.focus();
+      
+      // Update summary immediately after adding item
+      updateEditModalSummary();
       
       // Handle blur to commit
       newInput.addEventListener('blur', async () => {
@@ -1070,6 +1141,23 @@ class BoardManager {
               // Re-enable dragging
               itemElement.draggable = true;
               
+              // Re-initialize drag and drop
+              this.setupChecklistDragAndDrop(cardId, () => {
+                checklistOrderChanged = true;
+              });
+              
+              // Re-attach checkbox listener for this temp item
+              const checkbox = itemElement.querySelector('.checklist-checkbox');
+              if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                  const pendingItem = pendingNewItems.find(i => i.tempId === tempId);
+                  if (pendingItem) {
+                    pendingItem.checked = e.target.checked;
+                    updateEditModalSummary();
+                  }
+                });
+              }
+              
               // Mark as having unsaved changes
               hasUnsavedChanges = true;
             }
@@ -1080,6 +1168,9 @@ class BoardManager {
               pendingNewItems.splice(index, 1);
             }
             newInput.closest('.checklist-item').remove();
+            
+            // Update summary after removal
+            updateEditModalSummary();
           }
         }, 100);
       });
@@ -1159,11 +1250,21 @@ class BoardManager {
         // First update the card
         await this.updateCard(cardId, title, description);
         
-        // Then save any pending new checklist items
-        for (const pendingItem of pendingNewItems) {
-          if (pendingItem.name) {
-            const order = pendingItem.insertAtTop ? 0 : null;
-            await this.createChecklistItem(cardId, pendingItem.name, order);
+        // Then save any pending new checklist items in their current DOM order
+        const checklistContainer = document.getElementById('checklist-items');
+        const allItems = Array.from(checklistContainer.querySelectorAll('.checklist-item'));
+        
+        for (let i = 0; i < allItems.length; i++) {
+          const el = allItems[i];
+          const tempId = el.getAttribute('data-temp-id');
+          
+          // Check if this is a pending new item
+          if (tempId) {
+            const pendingItem = pendingNewItems.find(item => item.tempId === parseFloat(tempId));
+            if (pendingItem && pendingItem.name) {
+              // Save with the current position index and checked state
+              await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+            }
           }
         }
         
@@ -1190,9 +1291,9 @@ class BoardManager {
     return this.findCardById(cardId);
   }
 
-  async createChecklistItem(cardId, name, order = null) {
+  async createChecklistItem(cardId, name, order = null, checked = false) {
     try {
-      const body = { name };
+      const body = { name, checked };
       if (order !== null) {
         body.order = order;
       }
@@ -1316,10 +1417,19 @@ class BoardManager {
         const allItems = Array.from(container.querySelectorAll('.checklist-item'));
         
         // Update order for all items based on their new position
-        const updates = allItems.map((el, index) => ({
-          id: parseInt(el.getAttribute('data-item-id')),
-          order: index
-        }));
+        // Only update items that have been saved (have data-item-id)
+        const updates = allItems
+          .map((el, index) => {
+            const itemId = el.getAttribute('data-item-id');
+            if (itemId && itemId !== 'null') {
+              return {
+                id: parseInt(itemId),
+                order: index
+              };
+            }
+            return null;
+          })
+          .filter(update => update !== null);
         
         // Notify that order changed
         if (onOrderChange) {
@@ -1420,6 +1530,14 @@ class BoardManager {
         const checklistItem = pendingChecklistItems.find(i => i.tempId === tempId);
         if (checklistItem) {
           checklistItem.checked = e.target.checked;
+          // Update summary in the modal
+          const summaryElement = document.getElementById('checklist-summary');
+          if (summaryElement) {
+            const total = pendingChecklistItems.length;
+            const checked = pendingChecklistItems.filter(i => i.checked).length;
+            const percentage = total > 0 ? Math.round((checked / total) * 100) : 0;
+            summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+          }
         }
       });
 

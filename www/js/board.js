@@ -1243,18 +1243,22 @@ class BoardManager {
       const description = document.getElementById('edit-card-description').value.trim();
       
       if (title) {
-        // TODO: Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
+        // TODO: PERFORMANCE - Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
         // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
         // transaction. This would:
         // - Reduce network overhead (1 request instead of N)
         // - Ensure atomicity (all changes succeed or fail together)
         // - Prevent race conditions from interleaved requests
         // - Improve performance on slow connections
+        // - Use database transactions for consistency
+        // - Support bulk updates (e.g., UPDATE checklist_items SET ... WHERE id IN (...))
+        // Current implementation: N sequential API calls (can be slow for cards with many checklist items)
         
         // 1. Update the card
         await this.updateCard(cardId, title, description);
         
         // 2. Save checkbox changes for existing items
+        // PERF: Sequential updates - could be batched
         for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
           await this.updateChecklistItem(itemId, { checked });
         }
@@ -1278,6 +1282,7 @@ class BoardManager {
         }
         
         // 4. Update order for existing items if changed
+        // PERF: Sequential updates - could use bulk update endpoint
         if (checklistOrderChanged) {
           for (let i = 0; i < allItems.length; i++) {
             const el = allItems[i];

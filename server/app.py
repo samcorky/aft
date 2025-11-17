@@ -2714,6 +2714,14 @@ def create_checklist_item(card_id):
             is_valid, error = validate_integer(order, "Order", allow_none=False, min_value=0)
             if not is_valid:
                 return create_error_response(error, 400)
+            
+            # If inserting at a specific position, shift existing items
+            if order == 0:
+                # Increment order of all existing items to make room at position 0
+                db.query(ChecklistItem).filter(
+                    ChecklistItem.card_id == card_id
+                ).update({ChecklistItem.order: ChecklistItem.order + 1})
+                db.flush()
         else:
             # Get the next order value
             max_order = db.query(ChecklistItem).filter(

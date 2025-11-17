@@ -709,12 +709,11 @@ class BoardManager {
             </div>
             
             <div class="checklist-section">
-              <div class="checklist-header">
-                <h3>Checklist</h3>
-                ${hasChecklist ? `<button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>` : ''}
-              </div>
-              
               ${hasChecklist ? `
+                <div class="checklist-header">
+                  <h3>Checklist</h3>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
                     <div class="checklist-item" data-item-id="${item.id}">
@@ -729,7 +728,7 @@ class BoardManager {
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
               ` : `
-                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist Item</button>
+                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
               `}
             </div>
             
@@ -770,10 +769,23 @@ class BoardManager {
     });
 
     // Handle add checklist item buttons
-    const addChecklistHandlers = async () => {
+    const addChecklistAtTop = async () => {
       const itemName = prompt('Enter checklist item name:');
       if (itemName && itemName.trim()) {
-        await this.createChecklistItem(cardId, itemName.trim());
+        await this.createChecklistItem(cardId, itemName.trim(), 0); // Add at order 0
+        modal.remove();
+        // Reopen modal with updated data
+        const updatedCard = await this.getCardData(cardId);
+        if (updatedCard) {
+          this.openEditCardModal(cardId, updatedCard);
+        }
+      }
+    };
+
+    const addChecklistAtBottom = async () => {
+      const itemName = prompt('Enter checklist item name:');
+      if (itemName && itemName.trim()) {
+        await this.createChecklistItem(cardId, itemName.trim()); // Add at bottom (no order specified)
         modal.remove();
         // Reopen modal with updated data
         const updatedCard = await this.getCardData(cardId);
@@ -787,9 +799,9 @@ class BoardManager {
     const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
     const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
 
-    if (addTopBtn) addTopBtn.addEventListener('click', addChecklistHandlers);
-    if (addBottomBtn) addBottomBtn.addEventListener('click', addChecklistHandlers);
-    if (addInitialBtn) addInitialBtn.addEventListener('click', addChecklistHandlers);
+    if (addTopBtn) addTopBtn.addEventListener('click', addChecklistAtTop);
+    if (addBottomBtn) addBottomBtn.addEventListener('click', addChecklistAtBottom);
+    if (addInitialBtn) addInitialBtn.addEventListener('click', addChecklistAtBottom);
 
     // Handle edit checklist item buttons
     document.querySelectorAll('.checklist-edit-btn').forEach(btn => {
@@ -850,14 +862,19 @@ class BoardManager {
     return this.findCardById(cardId);
   }
 
-  async createChecklistItem(cardId, name) {
+  async createChecklistItem(cardId, name, order = null) {
     try {
+      const body = { name };
+      if (order !== null) {
+        body.order = order;
+      }
+      
       const response = await fetch(`/api/cards/${cardId}/checklist-items`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ name })
+        body: JSON.stringify(body)
       });
 
       const data = await response.json();

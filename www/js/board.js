@@ -1210,6 +1210,35 @@ class BoardManager {
           // Update summary after deletion
           updateEditModalSummary();
           hasUnsavedChanges = false; // This action was already saved
+          
+          // Update the card in board view to reflect deletion
+          const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+          if (cardElement) {
+            const checklistElement = cardElement.querySelector('.card-checklist');
+            const remainingItems = modal.querySelectorAll('.checklist-item').length;
+            
+            // If no items left, remove the entire checklist section
+            if (remainingItems === 0 && checklistElement) {
+              checklistElement.remove();
+            } else if (checklistElement) {
+              // Update the checklist item count and remove this specific item from board view
+              const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
+              if (boardChecklistItem) {
+                boardChecklistItem.remove();
+              }
+              
+              // Update summary in board view
+              const summaryElement = checklistElement.querySelector('.card-checklist-summary');
+              if (summaryElement) {
+                const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
+                const total = boardCheckboxes.length;
+                const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
+                const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
+                const percentage = calculateChecklistPercentage(items);
+                summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+              }
+            }
+          }
         }
       });
     });

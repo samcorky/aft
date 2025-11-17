@@ -1337,6 +1337,21 @@ class BoardManager {
 
   setupChecklistDragAndDrop(cardId, onOrderChange) {
     const container = document.getElementById('checklist-items');
+    this._setupChecklistDragAndDropInternal(container, { onOrderChange });
+  }
+
+  setupNewCardChecklistDragAndDrop(container, pendingChecklistItems) {
+    this._setupChecklistDragAndDropInternal(container, { pendingChecklistItems });
+  }
+
+  /**
+   * Internal method to set up drag-and-drop for checklist items.
+   * Supports two modes:
+   * 1. Edit mode: Pass onOrderChange callback to be notified of reordering
+   * 2. New card mode: Pass pendingChecklistItems array to keep in sync with DOM order
+   */
+  _setupChecklistDragAndDropInternal(container, options = {}) {
+    const { onOrderChange, pendingChecklistItems } = options;
     
     // Use a flag to track if we've already set up listeners on this container
     if (container._dragListenersSetup) return;
@@ -1353,13 +1368,25 @@ class BoardManager {
       }
     });
 
-    container.addEventListener('dragend', async (e) => {
+    container.addEventListener('dragend', (e) => {
       if (e.target.classList.contains('checklist-item')) {
         e.target.classList.remove('dragging');
         
-        // Notify that order changed (will be saved on form submit)
+        // Handle order change based on mode
         if (onOrderChange) {
+          // Edit mode: notify that order changed (will be saved on form submit)
           onOrderChange();
+        } else if (pendingChecklistItems) {
+          // New card mode: update pendingChecklistItems array to match new DOM order
+          const allItems = Array.from(container.querySelectorAll('.checklist-item'));
+          const newOrder = allItems.map(el => {
+            const tempId = Number(el.getAttribute('data-temp-id'));
+            return pendingChecklistItems.find(i => i.tempId === tempId);
+          }).filter(Boolean);
+          
+          // Update the array in place
+          pendingChecklistItems.length = 0;
+          pendingChecklistItems.push(...newOrder);
         }
         
         draggedElement = null;
@@ -1393,55 +1420,6 @@ class BoardManager {
         return closest;
       }
     }, { offset: Number.NEGATIVE_INFINITY }).element;
-  }
-
-  setupNewCardChecklistDragAndDrop(container, pendingChecklistItems) {
-    // Use a flag to track if we've already set up listeners on this container
-    if (container._dragListenersSetup) return;
-    container._dragListenersSetup = true;
-
-    let draggedElement = null;
-
-    // Event delegation for drag events
-    container.addEventListener('dragstart', (e) => {
-      if (e.target.classList.contains('checklist-item')) {
-        draggedElement = e.target;
-        e.target.classList.add('dragging');
-        e.dataTransfer.effectAllowed = 'move';
-      }
-    });
-
-    container.addEventListener('dragend', (e) => {
-      if (e.target.classList.contains('checklist-item')) {
-        e.target.classList.remove('dragging');
-        
-        // Update pendingChecklistItems array to match new order
-        const allItems = Array.from(container.querySelectorAll('.checklist-item'));
-        const newOrder = allItems.map(el => {
-          const tempId = Number(el.getAttribute('data-temp-id'));
-          return pendingChecklistItems.find(i => i.tempId === tempId);
-        }).filter(Boolean);
-        
-        // Update the array in place
-        pendingChecklistItems.length = 0;
-        pendingChecklistItems.push(...newOrder);
-        
-        draggedElement = null;
-      }
-    });
-
-    container.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      
-      const afterElement = this.getDragAfterElement(container, e.clientY);
-      
-      if (draggedElement && afterElement == null) {
-        container.appendChild(draggedElement);
-      } else if (draggedElement) {
-        container.insertBefore(draggedElement, afterElement);
-      }
-    });
   }
 
   showError(message) {

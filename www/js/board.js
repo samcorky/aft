@@ -17,7 +17,7 @@ class ChecklistManager {
     // Single event listener on container for all checkboxes
     this.container.addEventListener('change', (e) => {
       if (e.target.classList.contains('checklist-checkbox')) {
-        const tempId = parseFloat(e.target.getAttribute('data-temp-id'));
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
         const item = this.pendingItems.find(i => i.tempId === tempId);
         if (item) {
           item.checked = e.target.checked;
@@ -29,7 +29,7 @@ class ChecklistManager {
     // Single event listener for delete buttons
     this.container.addEventListener('click', (e) => {
       if (e.target.matches(`.${this.deleteButtonClass}`)) {
-        const tempId = parseFloat(e.target.getAttribute('data-temp-id'));
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
         const index = this.pendingItems.findIndex(i => i.tempId === tempId);
         if (index > -1) {
           this.pendingItems.splice(index, 1);
@@ -59,7 +59,7 @@ class ChecklistManager {
     if (!inputElement || !inputElement.classList.contains('checklist-item-input')) return;
     
     const name = inputElement.value.trim();
-    const tempId = parseFloat(inputElement.getAttribute('data-temp-id'));
+    const tempId = Number(inputElement.getAttribute('data-temp-id'));
     
     if (name) {
       const item = this.pendingItems.find(i => i.tempId === tempId);
@@ -1182,7 +1182,7 @@ class BoardManager {
           
           // Check if this is a pending new item
           if (tempId) {
-            const pendingItem = pendingNewItems.find(item => item.tempId === parseFloat(tempId));
+            const pendingItem = pendingNewItems.find(item => item.tempId === Number(tempId));
             if (pendingItem && pendingItem.name) {
               // Save with the current position index and checked state
               await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
@@ -1414,7 +1414,7 @@ class BoardManager {
         // Update pendingChecklistItems array to match new order
         const allItems = Array.from(container.querySelectorAll('.checklist-item'));
         const newOrder = allItems.map(el => {
-          const tempId = parseFloat(el.getAttribute('data-temp-id'));
+          const tempId = Number(el.getAttribute('data-temp-id'));
           return pendingChecklistItems.find(i => i.tempId === tempId);
         }).filter(Boolean);
         

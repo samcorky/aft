@@ -2784,25 +2784,23 @@ def create_checklist_item(card_id):
             return create_error_response("Checked must be a boolean", 400)
 
         # Validate order if provided
-        order = data.get("order")
-        if order is not None:
-            is_valid, error = validate_integer(order, "Order", allow_none=False, min_value=0)
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", min_value=0)
             if not is_valid:
                 return create_error_response(error, 400)
             
-            # If inserting at a specific position, shift existing items
-            if order == 0:
-                # Increment order of all existing items to make room at position 0
-                db.query(ChecklistItem).filter(
-                    ChecklistItem.card_id == card_id
-                ).update({ChecklistItem.order: ChecklistItem.order + 1})
-                db.flush()
+            # Increment order of existing items >= this order to make room
+            existing_items = (
+                db.query(ChecklistItem)
+                .filter(ChecklistItem.card_id == card_id, ChecklistItem.order >= order)
+                .all()
+            )
+            for item_to_update in existing_items:
+                item_to_update.order += 1
         else:
-            # Get the next order value
-            max_order = db.query(ChecklistItem).filter(
-                ChecklistItem.card_id == card_id
-            ).count()
-            order = max_order
+            # Add at the end
+            order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
 
         # Create checklist item
         checklist_item = ChecklistItem(

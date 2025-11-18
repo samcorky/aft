@@ -936,7 +936,9 @@ class BoardManager {
 
   openEditCardModal(cardId, cardData) {
     const checklistItems = cardData.checklist_items || [];
+    const comments = cardData.comments || [];
     const hasChecklist = checklistItems.length > 0;
+    const hasComments = comments.length > 0;
     
     // Store original values for change detection
     const originalTitle = cardData.title;
@@ -950,7 +952,13 @@ class BoardManager {
     const modalHtml = `
       <div class="modal" id="edit-card-modal">
         <div class="modal-content card-modal-content">
-          <h2>Edit Card</h2>
+          <div class="modal-header">
+            <h2>Edit Card</h2>
+            <div class="modal-header-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
+              <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
+            </div>
+          </div>
           <form id="edit-card-form">
             <div class="form-group">
               <label for="edit-card-title">Title:</label>
@@ -998,9 +1006,29 @@ class BoardManager {
               `}
             </div>
             
-            <div class="modal-actions">
-              <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
-              <button type="submit" class="btn btn-primary">Save</button>
+            <div class="comments-section">
+              <div class="comments-header">
+                <h3>Comments</h3>
+              </div>
+              <div class="comment-input-container">
+                <textarea id="new-comment-input" placeholder="Add a comment..." rows="3" maxlength="50000"></textarea>
+                <button type="button" class="btn btn-primary btn-sm" id="post-comment-btn">Post Comment</button>
+              </div>
+              <div class="comments-list" id="comments-list">
+                ${hasComments ? comments.map(comment => {
+                  const isLongComment = comment.comment.split('\n').length > 10 || comment.comment.length > 500;
+                  return `
+                    <div class="comment-item" data-comment-id="${comment.id}">
+                      <div class="comment-header">
+                        <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
+                        <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete">🗑</button>
+                      </div>
+                      <div class="comment-text ${isLongComment ? 'collapsed' : ''}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
+                      ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}">Read more...</button>` : ''}
+                    </div>
+                  `;
+                }).join('') : '<p class="no-comments">No comments yet.</p>'}
+              </div>
             </div>
           </form>
         </div>
@@ -1030,8 +1058,19 @@ class BoardManager {
       hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== originalDescription;
     });
 
+    // Helper to check for unposted comment
+    const hasUnpostedComment = () => {
+      const commentInput = document.getElementById('new-comment-input');
+      return commentInput && commentInput.value.trim().length > 0;
+    };
+
     // Handle cancel with warning if there are unsaved changes
     const handleCancel = () => {
+      if (hasUnpostedComment()) {
+        if (!confirm('You have an unposted comment. Are you sure you want to cancel?')) {
+          return;
+        }
+      }
       if (hasUnsavedChanges || checklistOrderChanged) {
         if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
           modal.remove();
@@ -1238,9 +1277,110 @@ class BoardManager {
       });
     });
 
+    // Handle post comment button
+    const postCommentBtn = document.getElementById('post-comment-btn');
+    const newCommentInput = document.getElementById('new-comment-input');
+    
+    postCommentBtn.addEventListener('click', async () => {
+      const commentText = newCommentInput.value.trim();
+      if (!commentText) return;
+      
+      try {
+        const response = await fetch(`/api/cards/${cardId}/comments`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ comment: commentText })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          // Add the new comment to the UI at the top of the list
+          const commentsList = document.getElementById('comments-list');
+          const noCommentsMsg = commentsList.querySelector('.no-comments');
+          if (noCommentsMsg) {
+            noCommentsMsg.remove();
+          }
+          
+          const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
+          const newCommentHtml = `
+            <div class="comment-item" data-comment-id="${data.comment.id}">
+              <div class="comment-header">
+                <span class="comment-date">${this.formatCommentDate(data.comment.created_at)}</span>
+                <button type="button" class="comment-delete-btn" data-comment-id="${data.comment.id}" title="Delete">🗑</button>
+              </div>
+              <div class="comment-text ${isLongComment ? 'collapsed' : ''}" data-comment-id="${data.comment.id}">${this.escapeHtml(data.comment.comment)}</div>
+              ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${data.comment.id}">Read more...</button>` : ''}
+            </div>
+          `;
+          
+          commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
+          
+          // Attach delete handler to new comment
+          const newComment = commentsList.querySelector(`[data-comment-id="${data.comment.id}"]`);
+          const deleteBtn = newComment.querySelector('.comment-delete-btn');
+          deleteBtn.addEventListener('click', () => this.deleteCommentHandler(deleteBtn, cardId));
+          
+          // Attach read more handler if it's a long comment
+          if (isLongComment) {
+            const readMoreBtn = newComment.querySelector('.comment-read-more');
+            readMoreBtn.addEventListener('click', (e) => {
+              const commentText = newComment.querySelector('.comment-text');
+              if (commentText.classList.contains('collapsed')) {
+                commentText.classList.remove('collapsed');
+                e.target.textContent = 'Read less';
+              } else {
+                commentText.classList.add('collapsed');
+                e.target.textContent = 'Read more...';
+              }
+            });
+          }
+          
+          // Clear input
+          newCommentInput.value = '';
+        } else {
+          alert('Failed to post comment: ' + data.message);
+        }
+      } catch (err) {
+        console.error('Error posting comment:', err);
+        alert('Error posting comment');
+      }
+    });
+    
+    // Handle delete comment buttons
+    document.querySelectorAll('.comment-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => this.deleteCommentHandler(btn, cardId));
+    });
+    
+    // Handle read more buttons
+    document.querySelectorAll('.comment-read-more').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const commentId = e.target.getAttribute('data-comment-id');
+        const commentText = document.querySelector(`.comment-text[data-comment-id="${commentId}"]`);
+        
+        if (commentText.classList.contains('collapsed')) {
+          commentText.classList.remove('collapsed');
+          e.target.textContent = 'Read less';
+        } else {
+          commentText.classList.add('collapsed');
+          e.target.textContent = 'Read more...';
+        }
+      });
+    });
+
     // Handle form submit
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+      
+      // Check for unposted comment
+      if (hasUnpostedComment()) {
+        if (!confirm('You have an unposted comment. Are you sure you want to save without posting it?')) {
+          return;
+        }
+      }
+      
       const title = titleInput.value.trim();
       const description = document.getElementById('edit-card-description').value.trim();
       
@@ -1539,6 +1679,57 @@ class BoardManager {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  formatCommentDate(dateString) {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    
+    // Format as date for older comments
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  async deleteCommentHandler(deleteBtn, cardId) {
+    const commentId = parseInt(deleteBtn.getAttribute('data-comment-id'));
+    
+    if (!confirm('Are you sure you want to delete this comment?')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        // Remove comment from UI
+        const commentItem = deleteBtn.closest('.comment-item');
+        commentItem.remove();
+        
+        // If no comments left, show "no comments" message
+        const commentsList = document.getElementById('comments-list');
+        if (commentsList && commentsList.children.length === 0) {
+          commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
+        }
+      } else {
+        alert('Failed to delete comment: ' + data.message);
+      }
+    } catch (err) {
+      console.error('Error deleting comment:', err);
+      alert('Error deleting comment');
+    }
   }
 }
 

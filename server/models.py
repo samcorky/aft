@@ -1,6 +1,7 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from database import Base
 
 
@@ -57,6 +58,9 @@ class Card(Base):
     # Relationship to checklist items
     checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.order")
     
+    # Relationship to comments
+    comments = relationship("Comment", back_populates="card", cascade="all, delete-orphan", order_by="Comment.order")
+    
     def __repr__(self):
         return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order})>"
 
@@ -90,3 +94,21 @@ class Setting(Base):
     
     def __repr__(self):
         return f"<Setting(id={self.id}, key='{self.key}')>"
+
+
+class Comment(Base):
+    """Comment model representing a journal comment on a card."""
+    
+    __tablename__ = "comments"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    card_id = Column(Integer, ForeignKey('cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    comment = Column(Text, nullable=False)  # Large text field for comments
+    order = Column(Integer, nullable=False, index=True)  # Immutable order to preserve history
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    
+    # Relationship to card
+    card = relationship("Card", back_populates="comments")
+    
+    def __repr__(self):
+        return f"<Comment(id={self.id}, card_id={self.card_id}, order={self.order})>"

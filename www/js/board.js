@@ -1699,8 +1699,10 @@ class BoardManager {
     if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
     if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
     
-    // Format as localized date/time for older comments
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // Format as date/time for older comments (day/month/year format)
+    const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+    const timeOptions = { hour: '2-digit', minute: '2-digit' };
+    return date.toLocaleDateString('en-GB', dateOptions) + ' ' + date.toLocaleTimeString(undefined, timeOptions);
   }
 
   async deleteCommentHandler(deleteBtn, cardId) {

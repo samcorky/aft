@@ -3146,14 +3146,13 @@ def create_comment(card_id):
 
         # Get next order number (max + 1) with row-level locking to prevent race conditions
         # FOR UPDATE locks the row until the transaction commits, ensuring sequential order assignment
-        max_order_result = (
-            db.query(Comment)
+        max_order = (
+            db.query(func.max(Comment.order))
             .filter(Comment.card_id == card_id)
-            .order_by(Comment.order.desc())
             .with_for_update()
-            .first()
+            .scalar()
         )
-        next_order = (max_order_result.order + 1) if max_order_result else 0
+        next_order = (max_order + 1) if max_order is not None else 0
 
         # Create comment
         comment = Comment(

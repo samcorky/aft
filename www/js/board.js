@@ -1015,19 +1015,7 @@ class BoardManager {
                 <button type="button" class="btn btn-primary btn-sm" id="post-comment-btn">Post Comment</button>
               </div>
               <div class="comments-list" id="comments-list">
-                ${hasComments ? comments.map(comment => {
-                  const isLongComment = comment.comment.split('\n').length > 10 || comment.comment.length > 500;
-                  return `
-                    <div class="comment-item" data-comment-id="${comment.id}">
-                      <div class="comment-header">
-                        <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
-                        <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
-                      </div>
-                      <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
-                      ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
-                    </div>
-                  `;
-                }).join('') : '<p class="no-comments">No comments yet.</p>'}
+                ${hasComments ? comments.map(comment => this.generateCommentHtml(comment)).join('') : '<p class="no-comments">No comments yet.</p>'}
               </div>
             </div>
           </form>
@@ -1311,17 +1299,7 @@ class BoardManager {
             noCommentsMsg.remove();
           }
           
-          const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
-          const newCommentHtml = `
-            <div class="comment-item" data-comment-id="${data.comment.id}">
-              <div class="comment-header">
-                <span class="comment-date">${this.formatCommentDate(data.comment.created_at)}</span>
-                <button type="button" class="comment-delete-btn" data-comment-id="${data.comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
-              </div>
-              <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${data.comment.id}" data-comment-id="${data.comment.id}">${this.escapeHtml(data.comment.comment)}</div>
-              ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${data.comment.id}" aria-expanded="false" aria-controls="comment-text-${data.comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
-            </div>
-          `;
+          const newCommentHtml = this.generateCommentHtml(data.comment);
           
           commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
           
@@ -1712,6 +1690,20 @@ class BoardManager {
     const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
     const timeOptions = { hour: '2-digit', minute: '2-digit' };
     return date.toLocaleDateString('en-GB', dateOptions) + ' ' + date.toLocaleTimeString(undefined, timeOptions);
+  }
+
+  generateCommentHtml(comment) {
+    const isLongComment = comment.comment.split('\n').length > 10 || comment.comment.length > 500;
+    return `
+      <div class="comment-item" data-comment-id="${comment.id}">
+        <div class="comment-header">
+          <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
+          <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
+        </div>
+        <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
+        ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
+      </div>
+    `;
   }
 
   async deleteCommentHandler(deleteBtn, cardId) {

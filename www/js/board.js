@@ -1299,6 +1299,7 @@ class BoardManager {
             noCommentsMsg.remove();
           }
           
+          const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
           const newCommentHtml = this.generateCommentHtml(data.comment);
           
           commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);

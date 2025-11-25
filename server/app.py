@@ -4,7 +4,7 @@ import json
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting
-from sqlalchemy import text
+from sqlalchemy import text, func
 from utils import (
     validate_string_length,
     validate_integer,

@@ -1280,10 +1280,17 @@ class BoardManager {
     // Handle post comment button
     const postCommentBtn = document.getElementById('post-comment-btn');
     const newCommentInput = document.getElementById('new-comment-input');
+    const MAX_COMMENT_LENGTH = 50000;
     
     postCommentBtn.addEventListener('click', async () => {
       const commentText = newCommentInput.value.trim();
       if (!commentText) return;
+      
+      // Validate comment length on client side
+      if (commentText.length > MAX_COMMENT_LENGTH) {
+        alert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`);
+        return;
+      }
       
       try {
         const response = await fetch(`/api/cards/${cardId}/comments`, {

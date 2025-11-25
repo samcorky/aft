@@ -1023,8 +1023,8 @@ class BoardManager {
                         <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
                         <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete">🗑</button>
                       </div>
-                      <div class="comment-text ${isLongComment ? 'collapsed' : ''}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
-                      ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}">Read more...</button>` : ''}
+                      <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
+                      ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
                     </div>
                   `;
                 }).join('') : '<p class="no-comments">No comments yet.</p>'}
@@ -1311,8 +1311,8 @@ class BoardManager {
                 <span class="comment-date">${this.formatCommentDate(data.comment.created_at)}</span>
                 <button type="button" class="comment-delete-btn" data-comment-id="${data.comment.id}" title="Delete">🗑</button>
               </div>
-              <div class="comment-text ${isLongComment ? 'collapsed' : ''}" data-comment-id="${data.comment.id}">${this.escapeHtml(data.comment.comment)}</div>
-              ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${data.comment.id}">Read more...</button>` : ''}
+              <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${data.comment.id}" data-comment-id="${data.comment.id}">${this.escapeHtml(data.comment.comment)}</div>
+              ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${data.comment.id}" aria-expanded="false" aria-controls="comment-text-${data.comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
             </div>
           `;
           
@@ -1672,9 +1672,11 @@ class BoardManager {
     if (commentText.classList.contains('collapsed')) {
       commentText.classList.remove('collapsed');
       button.textContent = 'Read less';
+      button.setAttribute('aria-expanded', 'true');
     } else {
       commentText.classList.add('collapsed');
       button.textContent = 'Read more...';
+      button.setAttribute('aria-expanded', 'false');
     }
   }
 

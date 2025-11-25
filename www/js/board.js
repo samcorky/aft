@@ -1683,19 +1683,26 @@ class BoardManager {
 
   formatCommentDate(dateString) {
     if (!dateString) return '';
+    
+    // Parse the date string - assumes ISO 8601 format from server
+    // The Date constructor automatically handles timezone conversion to local time
     const date = new Date(dateString);
     const now = new Date();
+    
+    // Calculate difference in milliseconds
+    // Both dates are in local timezone, so comparison is accurate
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
     
+    // Return relative time for recent comments
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
     if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
     if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
     
-    // Format as date for older comments
+    // Format as localized date/time for older comments
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 

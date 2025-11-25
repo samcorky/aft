@@ -58,8 +58,8 @@ class Card(Base):
     # Relationship to checklist items
     checklist_items = relationship("ChecklistItem", back_populates="card", cascade="all, delete-orphan", order_by="ChecklistItem.order")
     
-    # Relationship to comments
-    comments = relationship("Comment", back_populates="card", cascade="all, delete-orphan", order_by="Comment.order")
+    # Relationship to comments (newest first)
+    comments = relationship("Comment", back_populates="card", cascade="all, delete-orphan", order_by="Comment.order.desc()")
     
     def __repr__(self):
         return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order})>"

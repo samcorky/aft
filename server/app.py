@@ -2407,7 +2407,7 @@ def get_card(card_id):
                     "order": comment.order,
                     "created_at": comment.created_at.isoformat() if comment.created_at else None
                 }
-                for comment in sorted(card.comments, key=lambda x: x.order, reverse=True)
+                for comment in card.comments
             ]
         }
         

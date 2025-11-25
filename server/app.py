@@ -3144,8 +3144,15 @@ def create_comment(card_id):
         if not is_valid:
             return create_error_response(error, 400)
 
-        # Get next order number (max + 1)
-        max_order_result = db.query(Comment).filter(Comment.card_id == card_id).order_by(Comment.order.desc()).first()
+        # Get next order number (max + 1) with row-level locking to prevent race conditions
+        # FOR UPDATE locks the row until the transaction commits, ensuring sequential order assignment
+        max_order_result = (
+            db.query(Comment)
+            .filter(Comment.card_id == card_id)
+            .order_by(Comment.order.desc())
+            .with_for_update()
+            .first()
+        )
         next_order = (max_order_result.order + 1) if max_order_result else 0
 
         # Create comment

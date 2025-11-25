@@ -1735,7 +1735,7 @@ class BoardManager {
         
         // If no comments left, show "no comments" message
         const commentsList = document.getElementById('comments-list');
-        if (commentsList && commentsList.children.length === 0) {
+        if (commentsList && commentsList.querySelectorAll('.comment-item').length === 0) {
           commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
         }
       } else {

@@ -1328,13 +1328,7 @@ class BoardManager {
             const readMoreBtn = newComment.querySelector('.comment-read-more');
             readMoreBtn.addEventListener('click', (e) => {
               const commentText = newComment.querySelector('.comment-text');
-              if (commentText.classList.contains('collapsed')) {
-                commentText.classList.remove('collapsed');
-                e.target.textContent = 'Read less';
-              } else {
-                commentText.classList.add('collapsed');
-                e.target.textContent = 'Read more...';
-              }
+              this.toggleCommentCollapse(commentText, e.target);
             });
           }
           
@@ -1359,14 +1353,7 @@ class BoardManager {
       btn.addEventListener('click', (e) => {
         const commentId = e.target.getAttribute('data-comment-id');
         const commentText = document.querySelector(`.comment-text[data-comment-id="${commentId}"]`);
-        
-        if (commentText.classList.contains('collapsed')) {
-          commentText.classList.remove('collapsed');
-          e.target.textContent = 'Read less';
-        } else {
-          commentText.classList.add('collapsed');
-          e.target.textContent = 'Read more...';
-        }
+        this.toggleCommentCollapse(commentText, e.target);
       });
     });
 
@@ -1679,6 +1666,16 @@ class BoardManager {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  toggleCommentCollapse(commentText, button) {
+    if (commentText.classList.contains('collapsed')) {
+      commentText.classList.remove('collapsed');
+      button.textContent = 'Read less';
+    } else {
+      commentText.classList.add('collapsed');
+      button.textContent = 'Read more...';
+    }
   }
 
   formatCommentDate(dateString) {

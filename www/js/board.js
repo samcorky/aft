@@ -1021,7 +1021,7 @@ class BoardManager {
                     <div class="comment-item" data-comment-id="${comment.id}">
                       <div class="comment-header">
                         <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
-                        <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete">🗑</button>
+                        <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
                       </div>
                       <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
                       ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
@@ -1316,7 +1316,7 @@ class BoardManager {
             <div class="comment-item" data-comment-id="${data.comment.id}">
               <div class="comment-header">
                 <span class="comment-date">${this.formatCommentDate(data.comment.created_at)}</span>
-                <button type="button" class="comment-delete-btn" data-comment-id="${data.comment.id}" title="Delete">🗑</button>
+                <button type="button" class="comment-delete-btn" data-comment-id="${data.comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
               </div>
               <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${data.comment.id}" data-comment-id="${data.comment.id}">${this.escapeHtml(data.comment.comment)}</div>
               ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${data.comment.id}" aria-expanded="false" aria-controls="comment-text-${data.comment.id}" aria-label="Expand comment">Read more...</button>` : ''}

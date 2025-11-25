@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 MAX_STRING_LENGTH = 10000  # Maximum length for any string input
 MAX_TITLE_LENGTH = 255  # Maximum length for titles (board/column/card)
 MAX_DESCRIPTION_LENGTH = 2000  # Maximum length for descriptions
+MAX_COMMENT_LENGTH = 50000  # Maximum length for comments (50K chars for large notes)
 MAX_REQUEST_SIZE = 10 * 1024 * 1024  # 10MB max request size
 
 

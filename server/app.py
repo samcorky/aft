@@ -4,7 +4,7 @@ import json
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting
-from sqlalchemy import text
+from sqlalchemy import text, func
 from utils import (
     validate_string_length,
     validate_integer,
@@ -13,6 +13,7 @@ from utils import (
     create_success_response,
     MAX_TITLE_LENGTH,
     MAX_DESCRIPTION_LENGTH,
+    MAX_COMMENT_LENGTH,
 )
 
 # Configure logging
@@ -2016,7 +2017,7 @@ def get_board_cards(board_id):
                 .all()
             )
 
-            # Serialize cards with checklist items while session is active
+            # Serialize cards with checklist items and comments while session is active
             cards_data = [
                 {
                     "id": card.id,
@@ -2032,6 +2033,16 @@ def get_board_cards(board_id):
                             "order": item.order
                         }
                         for item in card.checklist_items
+                    ],
+                    "comments": [
+                        {
+                            "id": comment.id,
+                            "card_id": comment.card_id,
+                            "comment": comment.comment,
+                            "order": comment.order,
+                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                        }
+                        for comment in card.comments
                     ]
                 }
                 for card in cards
@@ -2372,7 +2383,7 @@ def get_card(card_id):
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
         
-        # Serialize card with checklist items
+        # Serialize card with checklist items and comments
         card_data = {
             "id": card.id,
             "title": card.title,
@@ -2387,6 +2398,16 @@ def get_card(card_id):
                     "order": item.order
                 }
                 for item in sorted(card.checklist_items, key=lambda x: x.order)
+            ],
+            "comments": [
+                {
+                    "id": comment.id,
+                    "card_id": comment.card_id,
+                    "comment": comment.comment,
+                    "order": comment.order,
+                    "created_at": comment.created_at.isoformat() if comment.created_at else None
+                }
+                for comment in card.comments
             ]
         }
         
@@ -2978,6 +2999,229 @@ def delete_checklist_item(item_id):
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting checklist item {item_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/comments", methods=["GET"])
+def get_card_comments(card_id):
+    """Get all comments for a card.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+    responses:
+      200:
+        description: List of comments for the card
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            comments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  card_id:
+                    type: integer
+                  comment:
+                    type: string
+                  order:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Comment
+
+        comments = (
+            db.query(Comment)
+            .filter(Comment.card_id == card_id)
+            .order_by(Comment.order.desc())  # Newest first
+            .all()
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "comments": [
+                    {
+                        "id": c.id,
+                        "card_id": c.card_id,
+                        "comment": c.comment,
+                        "order": c.order,
+                        "created_at": c.created_at.isoformat() if c.created_at else None,
+                    }
+                    for c in comments
+                ],
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting comments for card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/comments", methods=["POST"])
+def create_comment(card_id):
+    """Create a new comment for a card.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - comment
+          properties:
+            comment:
+              type: string
+              example: "This is a journal entry for the card"
+              description: The comment text
+    responses:
+      201:
+        description: Comment created successfully
+      400:
+        description: Bad request - missing comment or validation error
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data or "comment" not in data:
+            return create_error_response("Comment text is required", 400)
+
+        # Verify card exists
+        from models import Card, Comment
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found", 404)
+
+        # Validate and sanitize comment
+        comment_text = data.get("comment")
+        if not isinstance(comment_text, str):
+            return create_error_response("Comment must be a string", 400)
+
+        comment_text = sanitize_string(comment_text)
+        if not comment_text:
+            return create_error_response("Comment cannot be empty", 400)
+
+        is_valid, error = validate_string_length(
+            comment_text, MAX_COMMENT_LENGTH, "Comment"
+        )
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        # Get next order number (max + 1) with row-level locking to prevent race conditions
+        # FOR UPDATE locks the row until the transaction commits, ensuring sequential order assignment
+        max_order = (
+            db.query(func.max(Comment.order))
+            .filter(Comment.card_id == card_id)
+            .with_for_update()
+            .scalar()
+        )
+        next_order = (max_order + 1) if max_order is not None else 0
+
+        # Create comment
+        comment = Comment(
+            card_id=card_id,
+            comment=comment_text,
+            order=next_order
+        )
+        db.add(comment)
+        db.commit()
+        db.refresh(comment)
+
+        result = {
+            "id": comment.id,
+            "card_id": comment.card_id,
+            "comment": comment.comment,
+            "order": comment.order,
+            "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        }
+
+        return create_success_response({"comment": result}, status_code=201)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating comment for card {card_id}: {str(e)}")
+        return create_error_response("Failed to create comment", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/comments/<int:comment_id>", methods=["DELETE"])
+def delete_comment(comment_id):
+    """Delete a comment by ID.
+    
+    Note: The order field is preserved in the database to maintain conversation history.
+    Deleted comments leave gaps in the order sequence.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: comment_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the comment to delete
+    responses:
+      200:
+        description: Comment deleted successfully
+      404:
+        description: Comment not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Comment
+
+        comment = db.query(Comment).filter(Comment.id == comment_id).first()
+
+        if not comment:
+            return create_error_response("Comment not found", 404)
+
+        db.delete(comment)
+        db.commit()
+
+        return jsonify({"success": True, "message": "Comment deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting comment {comment_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()

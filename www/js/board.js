@@ -23,7 +23,11 @@ function linkifyUrls(text) {
   const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/gi;
   
   return text.replace(urlRegex, (url) => {
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${url}</a>`;
+    // Escape the URL for use in HTML attribute to prevent XSS
+    const escapedUrl = url.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    // Escape the display text for HTML context
+    const displayUrl = url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${displayUrl}</a>`;
   });
 }
 

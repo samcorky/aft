@@ -251,8 +251,13 @@ class BoardManager {
   }
 
   handleKeydown(e) {
-    // Don't trigger shortcuts if user is typing in an input/textarea or if a modal is open
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || document.querySelector('.modal')) {
+    // Don't trigger shortcuts if user is typing in an input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      return;
+    }
+
+    // Don't trigger if inside a modal
+    if (e.target.closest('.modal')) {
       return;
     }
 

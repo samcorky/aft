@@ -21,16 +21,23 @@ function linkifyUrls(text) {
   
   // More robust URL regex that handles parentheses and various URL formats
   // Matches: protocol, domain, path with balanced parentheses, query strings, fragments
-  const urlRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/gi;
+  const urlRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_\+.~#?&\/=]*/gi;
   
   return text.replace(urlRegex, (url) => {
-    // Remove trailing punctuation that's likely not part of the URL
-    // but keep it if the URL has balanced parentheses
+    // Clean up trailing punctuation, but preserve closing parentheses if there's a matching opening one
     let cleanUrl = url;
-    const trailingPunctuation = /[.,;!?]$/;
-    if (trailingPunctuation.test(url)) {
-      cleanUrl = url.replace(trailingPunctuation, '');
+    
+    // Count parentheses in the URL
+    const openParens = (cleanUrl.match(/\(/g) || []).length;
+    const closeParens = (cleanUrl.match(/\)/g) || []).length;
+    
+    // If unbalanced closing parens at the end, remove them
+    while (cleanUrl.endsWith(')') && (cleanUrl.match(/\)/g) || []).length > (cleanUrl.match(/\(/g) || []).length) {
+      cleanUrl = cleanUrl.slice(0, -1);
     }
+    
+    // Remove other trailing punctuation
+    cleanUrl = cleanUrl.replace(/[.,;!?]+$/, '');
     
     // Escape the URL for use in HTML attribute to prevent XSS
     const escapedUrl = cleanUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');

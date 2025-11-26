@@ -322,6 +322,21 @@
   overflow-wrap: break-word;
 }
 
+.card-title a,
+.card-description a,
+.card-checklist-name a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.card-title a:hover,
+.card-description a:hover,
+.card-checklist-name a:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
 .card-description {
   margin: 0;
   font-size: 13px;
@@ -634,6 +649,16 @@
   overflow-wrap: break-word;
 }
 
+.checklist-item-name a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.checklist-item-name a:hover {
+  color: var(--primary-hover);
+}
+
 .checklist-item-input {
   flex-grow: 1;
   border: 1px solid var(--border-color);
@@ -772,6 +797,16 @@
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.comment-text a {
+  color: var(--primary-color);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.comment-text a:hover {
+  color: var(--primary-hover);
 }
 
 .comment-text.collapsed {

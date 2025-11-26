@@ -11,6 +11,42 @@ function calculateChecklistPercentage(items) {
   return Math.round((checkedCount / items.length) * 100);
 }
 
+/**
+ * Convert URLs in text to clickable hyperlinks
+ * @param {string} text - Text that may contain URLs
+ * @returns {string} HTML with URLs converted to links
+ */
+function linkifyUrls(text) {
+  if (!text) return '';
+  
+  // More robust URL regex that handles parentheses and various URL formats
+  // Matches: protocol, domain, path with balanced parentheses, query strings, fragments
+  const urlRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_\+.~#?&\/=]*/gi;
+  
+  return text.replace(urlRegex, (url) => {
+    // Clean up trailing punctuation, but preserve closing parentheses if there's a matching opening one
+    let cleanUrl = url;
+    
+    // Count parentheses in the URL
+    const openParens = (cleanUrl.match(/\(/g) || []).length;
+    const closeParens = (cleanUrl.match(/\)/g) || []).length;
+    
+    // If unbalanced closing parens at the end, remove them
+    while (cleanUrl.endsWith(')') && (cleanUrl.match(/\)/g) || []).length > (cleanUrl.match(/\(/g) || []).length) {
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+    
+    // Remove other trailing punctuation
+    cleanUrl = cleanUrl.replace(/[.,;!?]+$/, '');
+    
+    // Escape the URL for use in HTML attribute to prevent XSS
+    const escapedUrl = cleanUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    // Escape the display text for HTML context
+    const displayUrl = cleanUrl.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${displayUrl}</a>`;
+  });
+}
+
 // Shared checklist management helper
 class ChecklistManager {
   constructor(container, pendingItems, options = {}) {
@@ -242,8 +278,8 @@ class BoardManager {
                   column.cards.map(card => `
                     <div class="card" draggable="true" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}">
                       <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
-                      <h5 class="card-title">${this.escapeHtml(card.title)}</h5>
-                      <p class="card-description">${this.escapeHtml(card.description)}</p>
+                      <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
+                      <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
                       ${card.checklist_items && card.checklist_items.length > 0 ? `
                         <div class="card-checklist">
                           <div class="card-checklist-summary">
@@ -257,7 +293,7 @@ class BoardManager {
                                 data-item-id="${item.id}"
                                 ${item.checked ? 'checked' : ''}
                               >
-                              <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${this.escapeHtml(item.name)}</span>
+                              <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
                             </div>
                           `).join('')}
                         </div>
@@ -981,7 +1017,7 @@ class BoardManager {
                     <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true">
                       <span class="drag-handle" title="Drag to reorder">&#9776;</span>
                       <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
-                      <span class="checklist-item-name">${this.escapeHtml(item.name)}</span>
+                      <span class="checklist-item-name">${linkifyUrls(this.escapeHtml(item.name))}</span>
                       <div class="checklist-item-actions">
                         <button type="button" class="checklist-edit-btn" data-item-id="${item.id}" title="Edit">✎</button>
                         <button type="button" class="checklist-delete-btn" data-item-id="${item.id}" title="Delete">🗑</button>
@@ -1701,7 +1737,7 @@ class BoardManager {
           <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
           <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
         </div>
-        <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${this.escapeHtml(comment.comment)}</div>
+        <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${linkifyUrls(this.escapeHtml(comment.comment))}</div>
         ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
       </div>
     `;

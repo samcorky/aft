@@ -360,7 +360,10 @@ class BoardManager {
       // Add hover listeners for columns to track which column is hovered
       document.querySelectorAll('.column').forEach(column => {
         column.addEventListener('mouseenter', (e) => {
-          this.hoveredColumnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          if (!isNaN(columnId)) {
+            this.hoveredColumnId = columnId;
+          }
         });
         column.addEventListener('mouseleave', () => {
           this.hoveredColumnId = null;

@@ -19,14 +19,23 @@ function calculateChecklistPercentage(items) {
 function linkifyUrls(text) {
   if (!text) return '';
   
-  // Regular expression to match URLs
-  const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/gi;
+  // More robust URL regex that handles parentheses and various URL formats
+  // Matches: protocol, domain, path with balanced parentheses, query strings, fragments
+  const urlRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)/gi;
   
   return text.replace(urlRegex, (url) => {
+    // Remove trailing punctuation that's likely not part of the URL
+    // but keep it if the URL has balanced parentheses
+    let cleanUrl = url;
+    const trailingPunctuation = /[.,;!?]$/;
+    if (trailingPunctuation.test(url)) {
+      cleanUrl = url.replace(trailingPunctuation, '');
+    }
+    
     // Escape the URL for use in HTML attribute to prevent XSS
-    const escapedUrl = url.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const escapedUrl = cleanUrl.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     // Escape the display text for HTML context
-    const displayUrl = url.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const displayUrl = cleanUrl.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${displayUrl}</a>`;
   });
 }

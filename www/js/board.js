@@ -186,6 +186,9 @@ class BoardManager {
     this.boardId = null;
     this.boardName = '';
     this.columns = [];
+    this.hoveredColumnId = null;
+    this.lastUsedColumnId = null;
+    this.keyboardHandler = this.handleKeydown.bind(this);
   }
 
   async init() {
@@ -200,6 +203,7 @@ class BoardManager {
 
     this.render();
     await this.loadBoard();
+    this.setupKeyboardShortcuts();
   }
 
   render() {
@@ -240,6 +244,45 @@ class BoardManager {
     if (window.header) {
       window.header.setBoardName(this.boardName);
     }
+  }
+
+  setupKeyboardShortcuts() {
+    document.addEventListener('keydown', this.keyboardHandler);
+  }
+
+  handleKeydown(e) {
+    // Don't trigger shortcuts if user is typing in an input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+      return;
+    }
+
+    // Don't trigger if inside a modal
+    if (e.target.closest('.modal')) {
+      return;
+    }
+
+    // 'n' key - add card at top of column
+    if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      const columnId = this.hoveredColumnId || this.lastUsedColumnId;
+      if (columnId) {
+        this.openAddCardModal(columnId, 0); // 0 = top
+      }
+    }
+
+    // 'm' key - add card at bottom of column
+    if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      const columnId = this.hoveredColumnId || this.lastUsedColumnId;
+      if (columnId) {
+        this.openAddCardModal(columnId); // default = bottom
+      }
+    }
+  }
+
+  cleanup() {
+    // Remove event listener to prevent memory leaks
+    document.removeEventListener('keydown', this.keyboardHandler);
   }
 
   renderBoard() {
@@ -313,6 +356,19 @@ class BoardManager {
       
       // Add event listener for add column button next to columns
       document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());
+      
+      // Add hover listeners for columns to track which column is hovered
+      document.querySelectorAll('.column').forEach(column => {
+        column.addEventListener('mouseenter', (e) => {
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          if (!isNaN(columnId)) {
+            this.hoveredColumnId = columnId;
+          }
+        });
+        column.addEventListener('mouseleave', () => {
+          this.hoveredColumnId = null;
+        });
+      });
       
       // Add event listeners for edit column buttons
       document.querySelectorAll('.column-edit-btn').forEach(btn => {
@@ -792,6 +848,9 @@ class BoardManager {
   }
 
   openAddCardModal(columnId, order = null) {
+    // Track the last used column for keyboard shortcuts
+    this.lastUsedColumnId = columnId;
+    
     // Track checklist items to be created
     let pendingChecklistItems = [];
     let checklistVisible = false;

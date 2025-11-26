@@ -576,6 +576,8 @@ class BoardManager {
           cardElement.setAttribute('data-column-id', columnId);
           cardElement.setAttribute('data-order', order);
         }
+        // Reload board to update card counts
+        await this.loadBoard();
       }
     } catch (err) {
       console.error('Error updating card position:', err);

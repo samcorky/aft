@@ -121,6 +121,13 @@
   color: var(--text-dark);
 }
 
+.card-count {
+  font-size: 14px;
+  font-weight: normal;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
 .column-actions {
   display: flex;
   gap: 8px;

@@ -262,7 +262,7 @@ class BoardManager {
             <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
               <div class="column-header">
                 <div class="column-title-group">
-                  <h4>${this.escapeHtml(column.name)}</h4>
+                  <h4>${this.escapeHtml(column.name)} <span class="card-count">(${column.cards ? column.cards.length : 0})</span></h4>
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
                 </div>
                 <div class="column-actions">
@@ -576,6 +576,8 @@ class BoardManager {
           cardElement.setAttribute('data-column-id', columnId);
           cardElement.setAttribute('data-order', order);
         }
+        // Reload board to update card counts
+        await this.loadBoard();
       }
     } catch (err) {
       console.error('Error updating card position:', err);

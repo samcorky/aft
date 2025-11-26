@@ -188,6 +188,7 @@ class BoardManager {
     this.columns = [];
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
+    this.keyboardHandler = this.handleKeydown.bind(this);
   }
 
   async init() {
@@ -246,30 +247,37 @@ class BoardManager {
   }
 
   setupKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-      // Don't trigger shortcuts if user is typing in an input/textarea or if a modal is open
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || document.querySelector('.modal')) {
-        return;
-      }
+    document.addEventListener('keydown', this.keyboardHandler);
+  }
 
-      // 'n' key - add card at top of column
-      if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault();
-        const columnId = this.hoveredColumnId || this.lastUsedColumnId;
-        if (columnId) {
-          this.openAddCardModal(columnId, 0); // 0 = top
-        }
-      }
+  handleKeydown(e) {
+    // Don't trigger shortcuts if user is typing in an input/textarea or if a modal is open
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || document.querySelector('.modal')) {
+      return;
+    }
 
-      // 'm' key - add card at bottom of column
-      if (e.key === 'm' || e.key === 'M') {
-        e.preventDefault();
-        const columnId = this.hoveredColumnId || this.lastUsedColumnId;
-        if (columnId) {
-          this.openAddCardModal(columnId); // default = bottom
-        }
+    // 'n' key - add card at top of column
+    if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      const columnId = this.hoveredColumnId || this.lastUsedColumnId;
+      if (columnId) {
+        this.openAddCardModal(columnId, 0); // 0 = top
       }
-    });
+    }
+
+    // 'm' key - add card at bottom of column
+    if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault();
+      const columnId = this.hoveredColumnId || this.lastUsedColumnId;
+      if (columnId) {
+        this.openAddCardModal(columnId); // default = bottom
+      }
+    }
+  }
+
+  cleanup() {
+    // Remove event listener to prevent memory leaks
+    document.removeEventListener('keydown', this.keyboardHandler);
   }
 
   renderBoard() {

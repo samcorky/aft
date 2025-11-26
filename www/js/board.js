@@ -262,7 +262,7 @@ class BoardManager {
             <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
               <div class="column-header">
                 <div class="column-title-group">
-                  <h4>${this.escapeHtml(column.name)}</h4>
+                  <h4>${this.escapeHtml(column.name)} <span class="card-count">(${column.cards ? column.cards.length : 0})</span></h4>
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
                 </div>
                 <div class="column-actions">

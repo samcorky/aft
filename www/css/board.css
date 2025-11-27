@@ -352,7 +352,7 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-dark);
-  padding-right: 24px; /* Space for delete button */
+  padding-right: 60px; /* Space for archive + delete buttons */
   word-wrap: break-word;
   overflow-wrap: break-word;
 }

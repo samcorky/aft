@@ -999,66 +999,36 @@ class BoardManager {
       return;
     }
 
-    // Sort cards by order
-    const cards = [...sourceColumn.cards].sort((a, b) => a.order - b.order);
-    
-    // For adding to top, we need to reverse the order and insert each at position 0
-    // This ensures the original order is maintained at the top
-    // For adding to bottom, we keep the order and get the max order from target column
-    const cardsToMove = position === 'top' ? cards.reverse() : cards;
-    
     try {
-      // Show progress
-      const totalCards = cardsToMove.length;
-      let movedCards = 0;
-      
-      // For bottom position, calculate starting order (max order in target + 1)
-      let nextBottomOrder = 0;
-      if (position === 'bottom' && targetColumn.cards && targetColumn.cards.length > 0) {
-        const maxOrder = Math.max(...targetColumn.cards.map(c => c.order));
-        nextBottomOrder = maxOrder + 1;
-      }
-      
-      // Move cards one by one
-      for (const card of cardsToMove) {
-        let targetOrder;
-        if (position === 'top') {
-          targetOrder = 0; // Always insert at top
-        } else {
-          targetOrder = nextBottomOrder;
-          nextBottomOrder++; // Increment for next card
-        }
-        
-        const response = await fetch(`/api/cards/${card.id}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            column_id: targetColumnId,
-            order: targetOrder
-          })
-        });
+      // Use batch move endpoint for atomic operation
+      const response = await fetch(`/api/columns/${sourceColumnId}/cards/move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          target_column_id: targetColumnId,
+          position: position
+        })
+      });
 
-        const data = await response.json();
-        
-        if (!data.success) {
-          alert(`Failed to move card "${card.title}": ${data.message}`);
-          break;
-        }
-        
-        movedCards++;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: `HTTP error! status: ${response.status}` }));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to move cards');
       }
       
       // Reload board to reflect changes
       await this.loadBoard();
       
-      if (movedCards === totalCards) {
-        alert(`Successfully moved ${movedCards} card(s)`);
-      } else {
-        alert(`Moved ${movedCards} of ${totalCards} card(s)`);
-      }
+      alert(`Successfully moved ${data.moved_count} card(s)`);
     } catch (err) {
+      console.error('Error moving cards:', err);
       alert('Error moving cards: ' + err.message);
     }
   }

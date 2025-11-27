@@ -460,7 +460,7 @@ class BoardManager {
       document.querySelectorAll('.column-menu-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
-          const columnId = e.target.getAttribute('data-column-id');
+          const columnId = e.currentTarget.getAttribute('data-column-id');
           const dropdown = document.querySelector(`.column-menu-dropdown[data-column-id="${columnId}"]`);
           
           // Close all other dropdowns

@@ -296,7 +296,14 @@ class BoardManager {
   }
 
   renderBoard() {
+    // Hide archive toggle in header when there are no columns
+    const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
+    
     if (this.columns.length === 0) {
+      if (archiveToggleWrapper) {
+        archiveToggleWrapper.style.display = 'none';
+      }
+      
       this.container.innerHTML = `
         <div class="empty-board">
           <div class="empty-board-icon">📋</div>
@@ -310,11 +317,6 @@ class BoardManager {
       document.getElementById('add-column-empty-btn').addEventListener('click', () => this.openAddColumnModal());
     } else {
       this.container.innerHTML = `
-        <div class="board-controls">
-          <button class="btn btn-secondary" id="archive-toggle-btn" title="Toggle between active and archived cards">
-            ${this.showArchived ? '📂 Show Active Cards' : '🗄️ Show Archived Cards'}
-          </button>
-        </div>
         <div class="columns-container">
           ${this.columns.map(column => `
             <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
@@ -375,8 +377,27 @@ class BoardManager {
         </div>
       `;
       
-      // Add event listener for archive toggle button
-      document.getElementById('archive-toggle-btn').addEventListener('click', () => this.toggleArchiveView());
+      // Show and set up archive toggle in header
+      const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
+      const archiveToggleCheckbox = document.getElementById('archive-toggle-checkbox');
+      
+      if (archiveToggleWrapper && archiveToggleCheckbox) {
+        // Show the toggle
+        archiveToggleWrapper.style.display = 'flex';
+        
+        // Set initial state
+        archiveToggleCheckbox.checked = this.showArchived;
+        
+        // Remove any existing listener by cloning and replacing the element
+        const newCheckbox = archiveToggleCheckbox.cloneNode(true);
+        archiveToggleCheckbox.parentNode.replaceChild(newCheckbox, archiveToggleCheckbox);
+        
+        // Set initial state on the new checkbox
+        newCheckbox.checked = this.showArchived;
+        
+        // Add event listener to the new checkbox
+        newCheckbox.addEventListener('change', () => this.toggleArchiveView());
+      }
       
       // Add event listener for add column button next to columns
       document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());

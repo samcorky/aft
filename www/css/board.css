@@ -1,12 +1,4 @@
 /* Board Page Styles */
-.board-controls {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  margin-bottom: 20px;
-  padding: 10px 0;
-}
-
 .board-header {
   display: flex;
   justify-content: space-between;

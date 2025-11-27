@@ -590,10 +590,11 @@ class TestCardsAPI:
         # Archive second card
         requests.patch(f'{api_client}/api/cards/{card2["id"]}/archive')
         
-        # Move all cards
+        # Move all cards (including archived)
         response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
             'target_column_id': col2['id'],
-            'position': 'bottom'
+            'position': 'bottom',
+            'include_archived': True
         })
         assert response.status_code == 200
         assert response.json()['moved_count'] == 2
@@ -606,6 +607,94 @@ class TestCardsAPI:
         assert card2_result['archived'] is True
         assert card1_result['column_id'] == col2['id']
         assert card2_result['column_id'] == col2['id']
+
+    def test_move_all_cards_excludes_archived_by_default(self, api_client, sample_board):
+        """Test that moving cards excludes archived cards by default."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        card1 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card 1'
+        }).json()['card']
+        
+        card2 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card 2'
+        }).json()['card']
+        
+        card3 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        
+        # Archive third card
+        requests.patch(f'{api_client}/api/cards/{card3["id"]}/archive')
+        
+        # Move all cards without include_archived flag (should exclude archived)
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 200
+        assert response.json()['moved_count'] == 2  # Only active cards
+        
+        # Verify active cards moved to target
+        card1_result = requests.get(f'{api_client}/api/cards/{card1["id"]}').json()['card']
+        card2_result = requests.get(f'{api_client}/api/cards/{card2["id"]}').json()['card']
+        assert card1_result['column_id'] == col2['id']
+        assert card2_result['column_id'] == col2['id']
+        
+        # Verify archived card stayed in source column
+        card3_result = requests.get(f'{api_client}/api/cards/{card3["id"]}').json()['card']
+        assert card3_result['column_id'] == col1['id']
+        assert card3_result['archived'] is True
+
+    def test_move_all_cards_with_include_archived_true(self, api_client, sample_board):
+        """Test that moving cards with include_archived=true moves all cards."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        card1 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card'
+        }).json()['card']
+        
+        card2 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        
+        # Archive second card
+        requests.patch(f'{api_client}/api/cards/{card2["id"]}/archive')
+        
+        # Move all cards with include_archived=true
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom',
+            'include_archived': True
+        })
+        assert response.status_code == 200
+        assert response.json()['moved_count'] == 2  # Both cards
+        
+        # Verify both cards moved to target
+        card1_result = requests.get(f'{api_client}/api/cards/{card1["id"]}').json()['card']
+        card2_result = requests.get(f'{api_client}/api/cards/{card2["id"]}').json()['card']
+        assert card1_result['column_id'] == col2['id']
+        assert card2_result['column_id'] == col2['id']
+        
+        # Verify archived status is preserved
+        assert card1_result['archived'] is False
+        assert card2_result['archived'] is True
 
 
 

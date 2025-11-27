@@ -694,6 +694,16 @@
   border-color: #999;
 }
 
+.form-group label input[type="checkbox"] {
+  width: auto;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.form-group label {
+  cursor: pointer;
+}
+
 .modal-actions {
   display: flex;
   gap: 10px;

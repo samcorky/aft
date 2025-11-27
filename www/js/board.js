@@ -948,6 +948,12 @@ class BoardManager {
                 <option value="bottom">Bottom of column</option>
               </select>
             </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="include-archived-checkbox" name="include-archived">
+                Include archived cards
+              </label>
+            </div>
             <div class="modal-actions">
               <button type="button" class="btn btn-secondary" id="cancel-move-all-btn">Cancel</button>
               <button type="submit" class="btn btn-primary">Move Cards</button>
@@ -966,6 +972,7 @@ class BoardManager {
     const cancelBtn = document.getElementById('cancel-move-all-btn');
     const targetSelect = document.getElementById('target-column-select');
     const positionSelect = document.getElementById('position-select');
+    const includeArchivedCheckbox = document.getElementById('include-archived-checkbox');
 
     // Focus on select
     targetSelect.focus();
@@ -980,10 +987,11 @@ class BoardManager {
       e.preventDefault();
       const targetColumnId = parseInt(targetSelect.value);
       const position = positionSelect.value;
+      const includeArchived = includeArchivedCheckbox.checked;
       
       if (targetColumnId && position) {
         modal.remove();
-        await this.moveAllCards(sourceColumnId, targetColumnId, position);
+        await this.moveAllCards(sourceColumnId, targetColumnId, position, includeArchived);
       }
     });
 
@@ -995,7 +1003,7 @@ class BoardManager {
     });
   }
 
-  async moveAllCards(sourceColumnId, targetColumnId, position) {
+  async moveAllCards(sourceColumnId, targetColumnId, position, includeArchived = false) {
     // Get source column's cards
     const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
     if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
@@ -1018,7 +1026,8 @@ class BoardManager {
         },
         body: JSON.stringify({
           target_column_id: targetColumnId,
-          position: position
+          position: position,
+          include_archived: includeArchived
         })
       });
 

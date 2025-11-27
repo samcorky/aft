@@ -2399,6 +2399,11 @@ def move_all_cards_in_column(source_column_id):
               enum: [top, bottom]
               description: Where to place cards in target column
               example: "bottom"
+            include_archived:
+              type: boolean
+              description: Whether to include archived cards in the move
+              example: false
+              default: false
     responses:
       200:
         description: All cards moved successfully
@@ -2454,6 +2459,7 @@ def move_all_cards_in_column(source_column_id):
         data = request.get_json()
         target_column_id = data.get("target_column_id")
         position = data.get("position", "bottom")
+        include_archived = data.get("include_archived", False)
 
         # Validate inputs
         if not target_column_id:
@@ -2472,13 +2478,11 @@ def move_all_cards_in_column(source_column_id):
         if not target_column:
             return jsonify({"success": False, "message": "Target column not found"}), 404
 
-        # Get all cards from source column, ordered by their current order
-        source_cards = (
-            db.query(Card)
-            .filter(Card.column_id == source_column_id)
-            .order_by(Card.order)
-            .all()
-        )
+        # Get cards from source column, optionally filtering out archived cards
+        source_query = db.query(Card).filter(Card.column_id == source_column_id)
+        if not include_archived:
+            source_query = source_query.filter(Card.archived.is_(False))
+        source_cards = source_query.order_by(Card.order).all()
 
         if not source_cards:
             return jsonify({"success": True, "message": "No cards to move", "moved_count": 0}), 200

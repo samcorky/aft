@@ -193,6 +193,22 @@ class BoardManager {
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
   }
 
+  /**
+   * Safely parse JSON response, handling non-JSON errors
+   * @param {Response} response - Fetch response object
+   * @returns {Promise<Object>} Parsed JSON data or error object
+   */
+  async parseResponse(response) {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ 
+        success: false, 
+        message: `HTTP error! status: ${response.status}` 
+      }));
+      return errorData;
+    }
+    return await response.json();
+  }
+
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -220,7 +236,7 @@ class BoardManager {
       // Add archived parameter to filter cards based on showArchived state
       const archivedParam = this.showArchived ? 'true' : 'false';
       const response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         this.showError('Failed to load board: ' + data.message);
@@ -630,7 +646,7 @@ class BoardManager {
         body: JSON.stringify({ order: order })
       });
       
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update column position:', data.message);
@@ -743,7 +759,7 @@ class BoardManager {
         })
       });
       
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
@@ -832,7 +848,7 @@ class BoardManager {
         body: JSON.stringify({ name })
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to show the new one
@@ -855,7 +871,7 @@ class BoardManager {
         method: 'DELETE'
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to reflect deletion
@@ -880,13 +896,7 @@ class BoardManager {
         method: 'DELETE'
       });
 
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Error response:', text);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload board to reflect deletion
@@ -1012,12 +1022,7 @@ class BoardManager {
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: `HTTP error! status: ${response.status}` }));
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         throw new Error(data.message || 'Failed to move cards');
@@ -1100,7 +1105,7 @@ class BoardManager {
         body: JSON.stringify({ name })
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to show the updated name

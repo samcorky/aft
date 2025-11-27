@@ -696,5 +696,188 @@ class TestCardsAPI:
         assert card1_result['archived'] is False
         assert card2_result['archived'] is True
 
+    def test_batch_archive_cards(self, api_client, sample_column):
+        """Test archiving multiple cards in a batch."""
+        # Create multiple cards
+        card_ids = []
+        for i in range(3):
+            card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+                'title': f'Card {i}'
+            }).json()['card']
+            card_ids.append(card['id'])
+        
+        # Batch archive the cards
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': card_ids
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['archived_count'] == 3
+        
+        # Verify all cards are archived
+        for card_id in card_ids:
+            card_response = requests.get(f'{api_client}/api/cards/{card_id}')
+            assert card_response.json()['card']['archived'] is True
+    
+    def test_batch_archive_cards_empty_list(self, api_client):
+        """Test batch archive with empty card_ids list."""
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': []
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids is required' in data['message']
+    
+    def test_batch_archive_cards_missing_card_ids(self, api_client):
+        """Test batch archive without card_ids parameter."""
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={})
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids is required' in data['message']
+    
+    def test_batch_archive_cards_invalid_type(self, api_client):
+        """Test batch archive with invalid card_ids type."""
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': 'not-an-array'
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids must be an array' in data['message']
+    
+    def test_batch_archive_cards_nonexistent_ids(self, api_client):
+        """Test batch archive with non-existent card IDs."""
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': [9999, 9998, 9997]
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['archived_count'] == 0  # No cards found to archive
+    
+    def test_batch_archive_cards_partial_valid_ids(self, api_client, sample_column):
+        """Test batch archive with mix of valid and invalid IDs."""
+        # Create one card
+        card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Valid Card'
+        }).json()['card']
+        
+        # Attempt to archive valid card and non-existent cards
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': [card['id'], 9999, 9998]
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['archived_count'] == 1  # Only the valid card
+        
+        # Verify the valid card is archived
+        card_response = requests.get(f'{api_client}/api/cards/{card["id"]}')
+        assert card_response.json()['card']['archived'] is True
+    
+    def test_batch_unarchive_cards(self, api_client, sample_column):
+        """Test unarchiving multiple cards in a batch."""
+        # Create and archive multiple cards
+        card_ids = []
+        for i in range(3):
+            card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+                'title': f'Card {i}'
+            }).json()['card']
+            requests.patch(f'{api_client}/api/cards/{card["id"]}/archive')
+            card_ids.append(card['id'])
+        
+        # Batch unarchive the cards
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': card_ids
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['unarchived_count'] == 3
+        
+        # Verify all cards are unarchived
+        for card_id in card_ids:
+            card_response = requests.get(f'{api_client}/api/cards/{card_id}')
+            assert card_response.json()['card']['archived'] is False
+    
+    def test_batch_unarchive_cards_empty_list(self, api_client):
+        """Test batch unarchive with empty card_ids list."""
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': []
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids is required' in data['message']
+    
+    def test_batch_unarchive_cards_missing_card_ids(self, api_client):
+        """Test batch unarchive without card_ids parameter."""
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={})
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids is required' in data['message']
+    
+    def test_batch_unarchive_cards_invalid_type(self, api_client):
+        """Test batch unarchive with invalid card_ids type."""
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': 123
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'card_ids must be an array' in data['message']
+    
+    def test_batch_unarchive_already_active_cards(self, api_client, sample_column):
+        """Test batch unarchive on already active cards."""
+        # Create active cards (not archived)
+        card_ids = []
+        for i in range(2):
+            card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+                'title': f'Active Card {i}'
+            }).json()['card']
+            card_ids.append(card['id'])
+        
+        # Attempt to unarchive already active cards
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': card_ids
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['unarchived_count'] == 2  # Operation succeeds but cards were already active
+        
+        # Verify cards remain unarchived
+        for card_id in card_ids:
+            card_response = requests.get(f'{api_client}/api/cards/{card_id}')
+            assert card_response.json()['card']['archived'] is False
+    
+    def test_batch_operations_are_atomic(self, api_client, sample_column):
+        """Test that batch operations work correctly with mixed states."""
+        # Create cards: some archived, some not
+        archived_card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Already Archived'
+        }).json()['card']
+        requests.patch(f'{api_client}/api/cards/{archived_card["id"]}/archive')
+        
+        active_card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Active Card'
+        }).json()['card']
+        
+        # Batch archive both cards
+        response = requests.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': [archived_card['id'], active_card['id']]
+        })
+        assert response.status_code == 200
+        assert response.json()['archived_count'] == 2
+        
+        # Verify both are archived
+        for card_id in [archived_card['id'], active_card['id']]:
+            card_response = requests.get(f'{api_client}/api/cards/{card_id}')
+            assert card_response.json()['card']['archived'] is True
+
 
 

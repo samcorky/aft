@@ -376,6 +376,17 @@ class BoardManager {
                         <span>🔀</span>
                         <span>Move all cards...</span>
                       </button>
+                      ${this.showArchived ? `
+                        <button class="column-menu-item column-unarchive-all-cards-btn" data-column-id="${column.id}">
+                          <span>📤</span>
+                          <span>Unarchive all cards</span>
+                        </button>
+                      ` : `
+                        <button class="column-menu-item column-archive-all-cards-btn" data-column-id="${column.id}">
+                          <span>📥</span>
+                          <span>Archive all cards</span>
+                        </button>
+                      `}
                       <button class="column-menu-item column-delete-cards-btn" data-column-id="${column.id}">
                         <span>🗑</span>
                         <span>Delete all cards</span>
@@ -538,6 +549,26 @@ class BoardManager {
           // Close the dropdown
           document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
           this.openMoveAllCardsModal(columnId);
+        });
+      });
+      
+      // Add event listeners for archive all cards buttons
+      document.querySelectorAll('.column-archive-all-cards-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
+          this.archiveAllCardsInColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for unarchive all cards buttons
+      document.querySelectorAll('.column-unarchive-all-cards-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
+          this.unarchiveAllCardsInColumn(columnId);
         });
       });
       
@@ -916,6 +947,90 @@ class BoardManager {
     } catch (err) {
       console.error('Error deleting cards:', err);
       alert('Error deleting cards: ' + err.message);
+    }
+  }
+
+  async archiveAllCardsInColumn(columnId) {
+    const column = this.columns.find(c => c.id === columnId);
+    if (!column || !column.cards) {
+      alert('No cards found in this column');
+      return;
+    }
+
+    // Get all unarchived cards
+    const unarchivedCards = column.cards.filter(c => !c.archived);
+    if (unarchivedCards.length === 0) {
+      alert('No active cards to archive in this column');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to archive all ${unarchivedCards.length} active card(s) in this column?`)) {
+      return;
+    }
+
+    try {
+      const cardIds = unarchivedCards.map(c => c.id);
+      const response = await fetch('/api/cards/batch/archive', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ card_ids: cardIds })
+      });
+
+      const data = await this.parseResponse(response);
+
+      if (data.success) {
+        await this.loadBoard();
+        alert(`Successfully archived ${data.archived_count} card(s)`);
+      } else {
+        alert('Failed to archive cards: ' + data.message);
+      }
+    } catch (err) {
+      console.error('Error archiving cards:', err);
+      alert('Error archiving cards: ' + err.message);
+    }
+  }
+
+  async unarchiveAllCardsInColumn(columnId) {
+    const column = this.columns.find(c => c.id === columnId);
+    if (!column || !column.cards) {
+      alert('No cards found in this column');
+      return;
+    }
+
+    // Get all archived cards
+    const archivedCards = column.cards.filter(c => c.archived);
+    if (archivedCards.length === 0) {
+      alert('No archived cards to unarchive in this column');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to unarchive all ${archivedCards.length} archived card(s) in this column?`)) {
+      return;
+    }
+
+    try {
+      const cardIds = archivedCards.map(c => c.id);
+      const response = await fetch('/api/cards/batch/unarchive', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ card_ids: cardIds })
+      });
+
+      const data = await this.parseResponse(response);
+
+      if (data.success) {
+        await this.loadBoard();
+        alert(`Successfully unarchived ${data.unarchived_count} card(s)`);
+      } else {
+        alert('Failed to unarchive cards: ' + data.message);
+      }
+    } catch (err) {
+      console.error('Error unarchiving cards:', err);
+      alert('Error unarchiving cards: ' + err.message);
     }
   }
 

@@ -3047,6 +3047,192 @@ def unarchive_card(card_id):
         db.close()
 
 
+@app.route("/api/cards/batch/archive", methods=["POST"])
+def batch_archive_cards():
+    """Archive multiple cards in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_ids
+          properties:
+            card_ids:
+              type: array
+              items:
+                type: integer
+              description: List of card IDs to archive
+              example: [1, 2, 3]
+    responses:
+      200:
+        description: Cards archived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Archived 3 cards"
+            archived_count:
+              type: integer
+              example: 3
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "card_ids is required"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        data = request.get_json()
+        card_ids = data.get("card_ids", [])
+
+        if not card_ids:
+            return jsonify({"success": False, "message": "card_ids is required"}), 400
+
+        if not isinstance(card_ids, list):
+            return jsonify({"success": False, "message": "card_ids must be an array"}), 400
+
+        # Archive all cards with the given IDs
+        archived_count = (
+            db.query(Card)
+            .filter(Card.id.in_(card_ids))
+            .update({Card.archived: True}, synchronize_session=False)
+        )
+        
+        db.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Archived {archived_count} cards",
+            "archived_count": archived_count
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch archiving cards: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/batch/unarchive", methods=["POST"])
+def batch_unarchive_cards():
+    """Unarchive multiple cards in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_ids
+          properties:
+            card_ids:
+              type: array
+              items:
+                type: integer
+              description: List of card IDs to unarchive
+              example: [1, 2, 3]
+    responses:
+      200:
+        description: Cards unarchived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Unarchived 3 cards"
+            unarchived_count:
+              type: integer
+              example: 3
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "card_ids is required"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        data = request.get_json()
+        card_ids = data.get("card_ids", [])
+
+        if not card_ids:
+            return jsonify({"success": False, "message": "card_ids is required"}), 400
+
+        if not isinstance(card_ids, list):
+            return jsonify({"success": False, "message": "card_ids must be an array"}), 400
+
+        # Unarchive all cards with the given IDs
+        unarchived_count = (
+            db.query(Card)
+            .filter(Card.id.in_(card_ids))
+            .update({Card.archived: False}, synchronize_session=False)
+        )
+        
+        db.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Unarchived {unarchived_count} cards",
+            "unarchived_count": unarchived_count
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch unarchiving cards: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 # Checklist Items API endpoints
 @app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
 def create_checklist_item(card_id):

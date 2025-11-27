@@ -34,6 +34,12 @@ Use at your own risk.
 - **Flexible Columns** - Create custom columns for your workflow (e.g., To Do, In Progress, Done)
 - **Reorder Columns** - Drag and rearrange columns to match your process
 - **Column Operations** - Add, edit, or delete columns as your workflow evolves
+- **Column Menu** - Access column actions via three-dots menu:
+  - **Move All Cards** - Batch move all cards from one column to another (top or bottom position)
+  - **Archive All Cards** - Archive all active cards in a column at once
+  - **Unarchive All Cards** - Unarchive all archived cards in a column (visible in archive view)
+  - **Delete All Cards** - Remove all cards from a column
+  - **Delete Column** - Remove the entire column
 
 ![Kanban Board](images/board.png)
 
@@ -46,6 +52,7 @@ Use at your own risk.
 - **Archive Cards** - Archive completed cards to declutter your board while preserving history
 - **Unarchive Cards** - Restore archived cards back to active view when needed
 - **Toggle Archive View** - Switch between active and archived cards using the header toggle
+- **Batch Operations** - Archive or unarchive multiple cards at once via column menu
 
 ![Card Detail](images/card_detail.png)
 ![Archive View](images/archive_screen.png)

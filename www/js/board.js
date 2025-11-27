@@ -190,6 +190,7 @@ class BoardManager {
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
     this.keyboardHandler = this.handleKeydown.bind(this);
+    this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
   }
 
   async init() {
@@ -284,8 +285,17 @@ class BoardManager {
   }
 
   cleanup() {
-    // Remove event listener to prevent memory leaks
+    // Remove event listeners to prevent memory leaks
     document.removeEventListener('keydown', this.keyboardHandler);
+    document.removeEventListener('click', this.closeDropdownHandler);
+  }
+
+  handleCloseDropdown(e) {
+    if (!e.target.closest('.column-menu-wrapper')) {
+      document.querySelectorAll('.column-menu-dropdown').forEach(d => {
+        d.classList.remove('show');
+      });
+    }
   }
 
   async toggleArchiveView() {
@@ -449,13 +459,9 @@ class BoardManager {
       });
       
       // Close dropdowns when clicking outside
-      document.addEventListener('click', (e) => {
-        if (!e.target.closest('.column-menu-wrapper')) {
-          document.querySelectorAll('.column-menu-dropdown').forEach(d => {
-            d.classList.remove('show');
-          });
-        }
-      });
+      // Remove old listener first to prevent duplicates
+      document.removeEventListener('click', this.closeDropdownHandler);
+      document.addEventListener('click', this.closeDropdownHandler);
       
       // Add event listeners for edit column buttons
       document.querySelectorAll('.column-edit-btn').forEach(btn => {

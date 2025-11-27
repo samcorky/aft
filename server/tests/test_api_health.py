@@ -1,8 +1,10 @@
 """Tests for health and statistics API endpoints."""
 
+import pytest
 import requests
 
 
+@pytest.mark.api
 class TestHealthEndpoints:
     """Tests for /api/test and /api/stats endpoints."""
 

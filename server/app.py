@@ -3211,19 +3211,55 @@ def batch_unarchive_cards():
         if not isinstance(card_ids, list):
             return jsonify({"success": False, "message": "card_ids must be an array"}), 400
 
-        # Unarchive all cards with the given IDs
-        unarchived_count = (
+        # Get all cards to unarchive with their column and order information
+        cards_to_unarchive = (
             db.query(Card)
             .filter(Card.id.in_(card_ids))
-            .update({Card.archived: False}, synchronize_session=False)
+            .order_by(Card.column_id, Card.order)
+            .all()
         )
+        
+        if not cards_to_unarchive:
+            return jsonify({
+                "success": True,
+                "message": "No cards found to unarchive",
+                "unarchived_count": 0
+            }), 200
+        
+        # Group cards by column for efficient order management
+        cards_by_column = {}
+        for card in cards_to_unarchive:
+            if card.column_id not in cards_by_column:
+                cards_by_column[card.column_id] = []
+            cards_by_column[card.column_id].append(card)
+        
+        # Process each column separately to handle order conflicts
+        for column_id, column_cards in cards_by_column.items():
+            # Sort cards by their order
+            column_cards.sort(key=lambda c: c.order)
+            
+            # For each card being unarchived, shift active cards to make room
+            for card in column_cards:
+                card_order = card.order
+                
+                # Increment order of all active cards at this position and above
+                # This ensures the unarchived card can be inserted at its order position
+                db.query(Card).filter(
+                    Card.column_id == column_id,
+                    Card.order >= card_order,
+                    Card.id != card.id,
+                    Card.archived.is_(False)
+                ).update({Card.order: Card.order + 1}, synchronize_session=False)
+                
+                # Unarchive the card
+                card.archived = False
         
         db.commit()
 
         return jsonify({
             "success": True,
-            "message": f"Unarchived {unarchived_count} cards",
-            "unarchived_count": unarchived_count
+            "message": f"Unarchived {len(cards_to_unarchive)} cards",
+            "unarchived_count": len(cards_to_unarchive)
         }), 200
     except Exception as e:
         db.rollback()

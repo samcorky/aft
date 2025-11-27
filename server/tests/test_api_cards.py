@@ -879,5 +879,89 @@ class TestCardsAPI:
             card_response = requests.get(f'{api_client}/api/cards/{card_id}')
             assert card_response.json()['card']['archived'] is True
 
+    def test_batch_unarchive_handles_order_conflicts(self, api_client, sample_column):
+        """Test that batch unarchiving properly manages card ordering."""
+        # Create several active cards
+        active_cards = []
+        for i in range(3):
+            card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+                'title': f'Active Card {i}'
+            }).json()['card']
+            active_cards.append(card)
+        
+        # Create and archive several cards that will have order conflicts
+        archived_cards = []
+        for i in range(2):
+            card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+                'title': f'To Archive Card {i}'
+            }).json()['card']
+            requests.patch(f'{api_client}/api/cards/{card["id"]}/archive')
+            archived_cards.append(card)
+        
+        # Batch unarchive the archived cards
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': [c['id'] for c in archived_cards]
+        })
+        assert response.status_code == 200
+        assert response.json()['unarchived_count'] == 2
+        
+        # Get all active cards and verify ordering
+        column_response = requests.get(f'{api_client}/api/columns/{sample_column["id"]}/cards?archived=false')
+        all_cards = column_response.json()['cards']
+        
+        # Should have 5 total cards now (3 original active + 2 unarchived)
+        assert len(all_cards) == 5
+        
+        # Verify no duplicate order values
+        orders = [c['order'] for c in all_cards]
+        assert len(orders) == len(set(orders)), "Found duplicate order values"
+        
+        # Verify orders are sequential starting from 0
+        orders.sort()
+        assert orders == list(range(5)), f"Expected [0, 1, 2, 3, 4], got {orders}"
+        
+        # Verify all cards are unarchived
+        for card_id in [c['id'] for c in archived_cards]:
+            card_response = requests.get(f'{api_client}/api/cards/{card_id}')
+            assert card_response.json()['card']['archived'] is False
+
+    def test_batch_unarchive_multiple_columns(self, api_client, sample_board):
+        """Test batch unarchiving cards from multiple columns."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Column 1'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Column 2'
+        }).json()['column']
+        
+        # Create and archive cards in both columns
+        card_ids = []
+        for col in [col1, col2]:
+            for i in range(2):
+                card = requests.post(f'{api_client}/api/columns/{col["id"]}/cards', json={
+                    'title': f'Card in {col["name"]} - {i}'
+                }).json()['card']
+                requests.patch(f'{api_client}/api/cards/{card["id"]}/archive')
+                card_ids.append(card['id'])
+        
+        # Batch unarchive all cards
+        response = requests.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': card_ids
+        })
+        assert response.status_code == 200
+        assert response.json()['unarchived_count'] == 4
+        
+        # Verify cards in each column have proper ordering
+        for col in [col1, col2]:
+            col_response = requests.get(f'{api_client}/api/columns/{col["id"]}/cards?archived=false')
+            cards = col_response.json()['cards']
+            assert len(cards) == 2
+            
+            # Check for duplicate orders within the column
+            orders = [c['order'] for c in cards]
+            assert len(orders) == len(set(orders)), f"Found duplicate order values in {col['name']}"
+
 
 

@@ -2369,6 +2369,170 @@ def delete_all_cards_in_column(column_id):
         db.close()
 
 
+@app.route("/api/columns/<int:source_column_id>/cards/move", methods=["POST"])
+def move_all_cards_in_column(source_column_id):
+    """Move all cards from one column to another in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: source_column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the source column
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - target_column_id
+            - position
+          properties:
+            target_column_id:
+              type: integer
+              description: The ID of the target column
+              example: 2
+            position:
+              type: string
+              enum: [top, bottom]
+              description: Where to place cards in target column
+              example: "bottom"
+            include_archived:
+              type: boolean
+              description: Whether to include archived cards in the move
+              example: false
+              default: false
+    responses:
+      200:
+        description: All cards moved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Moved 5 cards"
+            moved_count:
+              type: integer
+              example: 5
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Invalid position value"
+      404:
+        description: Column not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Source column not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import BoardColumn, Card
+
+        data = request.get_json()
+        target_column_id = data.get("target_column_id")
+        position = data.get("position", "bottom")
+        include_archived = data.get("include_archived", False)
+
+        # Validate inputs
+        if not target_column_id:
+            return jsonify({"success": False, "message": "target_column_id is required"}), 400
+        
+        if position not in ["top", "bottom"]:
+            return jsonify({"success": False, "message": "Invalid position value. Must be 'top' or 'bottom'"}), 400
+
+        # Verify source column exists
+        source_column = db.query(BoardColumn).filter(BoardColumn.id == source_column_id).first()
+        if not source_column:
+            return jsonify({"success": False, "message": "Source column not found"}), 404
+
+        # Verify target column exists
+        target_column = db.query(BoardColumn).filter(BoardColumn.id == target_column_id).first()
+        if not target_column:
+            return jsonify({"success": False, "message": "Target column not found"}), 404
+
+        # Get cards from source column, optionally filtering out archived cards
+        source_query = db.query(Card).filter(Card.column_id == source_column_id)
+        if not include_archived:
+            source_query = source_query.filter(Card.archived.is_(False))
+        source_cards = source_query.order_by(Card.order).all()
+
+        if not source_cards:
+            return jsonify({"success": True, "message": "No cards to move", "moved_count": 0}), 200
+
+        # Get cards in target column to calculate new order values
+        target_cards = (
+            db.query(Card)
+            .filter(Card.column_id == target_column_id)
+            .order_by(Card.order)
+            .all()
+        )
+
+        # Calculate new order values based on position
+        if position == "top":
+            # Move existing target cards down to make room
+            for i, card in enumerate(target_cards):
+                card.order = i + len(source_cards)
+            
+            # Place source cards at top (maintain original order)
+            for i, card in enumerate(source_cards):
+                card.column_id = target_column_id
+                card.order = i
+        else:  # bottom
+            # Target cards keep their order
+            # Source cards go after target cards
+            start_order = len(target_cards)
+            for i, card in enumerate(source_cards):
+                card.column_id = target_column_id
+                card.order = start_order + i
+
+        db.commit()
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": f"Moved {len(source_cards)} cards",
+                    "moved_count": len(source_cards),
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error moving cards from column {source_column_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/cards/<int:card_id>", methods=["GET"])
 def get_card(card_id):
     """Get a single card with its checklist items.

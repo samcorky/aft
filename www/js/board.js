@@ -190,6 +190,31 @@ class BoardManager {
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
     this.keyboardHandler = this.handleKeydown.bind(this);
+    this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
+  }
+
+  /**
+   * Safely parse JSON response, handling non-JSON errors
+   * @param {Response} response - Fetch response object
+   * @returns {Promise<Object>} Parsed JSON data or error object
+   */
+  async parseResponse(response) {
+    try {
+      const data = await response.json();
+      if (!response.ok) {
+        // Response parsed successfully but HTTP status indicates error
+        return data;
+      }
+      return data;
+    } catch (error) {
+      // JSON parsing failed
+      return {
+        success: false,
+        message: response.ok 
+          ? `Invalid JSON response from server` 
+          : `HTTP error! status: ${response.status}`
+      };
+    }
   }
 
   async init() {
@@ -205,6 +230,12 @@ class BoardManager {
     this.render();
     await this.loadBoard();
     this.setupKeyboardShortcuts();
+    this.setupDropdownClickOutside();
+  }
+
+  setupDropdownClickOutside() {
+    // Add click-outside handler once for all dropdowns
+    document.addEventListener('click', this.closeDropdownHandler);
   }
 
   render() {
@@ -219,7 +250,7 @@ class BoardManager {
       // Add archived parameter to filter cards based on showArchived state
       const archivedParam = this.showArchived ? 'true' : 'false';
       const response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         this.showError('Failed to load board: ' + data.message);
@@ -284,8 +315,17 @@ class BoardManager {
   }
 
   cleanup() {
-    // Remove event listener to prevent memory leaks
+    // Remove event listeners to prevent memory leaks
     document.removeEventListener('keydown', this.keyboardHandler);
+    document.removeEventListener('click', this.closeDropdownHandler);
+  }
+
+  handleCloseDropdown(e) {
+    if (!e.target.closest('.column-menu-wrapper')) {
+      document.querySelectorAll('.column-menu-dropdown').forEach(d => {
+        d.classList.remove('show');
+      });
+    }
   }
 
   async toggleArchiveView() {
@@ -327,10 +367,25 @@ class BoardManager {
                 </div>
                 <div class="column-actions">
                   <button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>
-                  <button class="column-delete-cards-btn" data-column-id="${column.id}" title="Delete all cards">🗑</button>
                   <button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>
                   <button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>
-                  <button class="column-delete-btn" data-column-id="${column.id}" title="Delete column">×</button>
+                  <div class="column-menu-wrapper">
+                    <button class="column-menu-btn" data-column-id="${column.id}" title="Column menu">⋮</button>
+                    <div class="column-menu-dropdown" data-column-id="${column.id}">
+                      <button class="column-menu-item column-move-all-cards-btn" data-column-id="${column.id}">
+                        <span>🔀</span>
+                        <span>Move all cards...</span>
+                      </button>
+                      <button class="column-menu-item column-delete-cards-btn" data-column-id="${column.id}">
+                        <span>🗑</span>
+                        <span>Delete all cards</span>
+                      </button>
+                      <button class="column-menu-item column-delete-btn" data-column-id="${column.id}">
+                        <span>×</span>
+                        <span>Delete column</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="column-cards" data-column-id="${column.id}">
@@ -415,6 +470,23 @@ class BoardManager {
         });
       });
       
+      // Add event listeners for column menu buttons
+      document.querySelectorAll('.column-menu-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const columnId = e.currentTarget.getAttribute('data-column-id');
+          const dropdown = document.querySelector(`.column-menu-dropdown[data-column-id="${columnId}"]`);
+          
+          // Close all other dropdowns
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => {
+            if (d !== dropdown) d.classList.remove('show');
+          });
+          
+          // Toggle this dropdown
+          dropdown.classList.toggle('show');
+        });
+      });
+      
       // Add event listeners for edit column buttons
       document.querySelectorAll('.column-edit-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -442,7 +514,9 @@ class BoardManager {
       // Add event listeners for delete column buttons
       document.querySelectorAll('.column-delete-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
           this.deleteColumn(columnId);
         });
       });
@@ -450,8 +524,20 @@ class BoardManager {
       // Add event listeners for delete all cards buttons
       document.querySelectorAll('.column-delete-cards-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-          const columnId = parseInt(e.target.getAttribute('data-column-id'));
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
           this.deleteAllCardsInColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for move all cards buttons
+      document.querySelectorAll('.column-move-all-cards-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
+          this.openMoveAllCardsModal(columnId);
         });
       });
       
@@ -569,7 +655,7 @@ class BoardManager {
         body: JSON.stringify({ order: order })
       });
       
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update column position:', data.message);
@@ -682,7 +768,7 @@ class BoardManager {
         })
       });
       
-      const data = await response.json();
+      const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
@@ -771,7 +857,7 @@ class BoardManager {
         body: JSON.stringify({ name })
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to show the new one
@@ -794,7 +880,7 @@ class BoardManager {
         method: 'DELETE'
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to reflect deletion
@@ -813,11 +899,13 @@ class BoardManager {
     }
 
     try {
-      const response = await fetch(`/api/columns/${columnId}/cards`, {
+      const url = `/api/columns/${columnId}/cards`;
+      
+      const response = await fetch(url, {
         method: 'DELETE'
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload board to reflect deletion
@@ -826,7 +914,160 @@ class BoardManager {
         alert('Failed to delete cards: ' + data.message);
       }
     } catch (err) {
+      console.error('Error deleting cards:', err);
       alert('Error deleting cards: ' + err.message);
+    }
+  }
+
+  openMoveAllCardsModal(sourceColumnId) {
+    // Get source column and its cards
+    const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
+    if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
+      alert('No cards to move in this column');
+      return;
+    }
+
+    // Get target columns (exclude source column)
+    const targetColumns = this.columns.filter(c => c.id !== sourceColumnId);
+    if (targetColumns.length === 0) {
+      alert('No other columns available to move cards to');
+      return;
+    }
+
+    // Count active cards (excluding archived) for display
+    const activeCardCount = sourceColumn.cards.filter(c => !c.archived).length;
+    const archivedCardCount = sourceColumn.cards.filter(c => c.archived).length;
+    
+    // Build card count message
+    let cardCountMessage;
+    if (archivedCardCount > 0) {
+      cardCountMessage = `${activeCardCount} active card(s)`;
+      if (archivedCardCount > 0) {
+        cardCountMessage += ` (${archivedCardCount} archived)`;
+      }
+    } else {
+      cardCountMessage = `${activeCardCount} card(s)`;
+    }
+
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="move-all-cards-modal">
+        <div class="modal-content">
+          <h2>Move All Cards</h2>
+          <p>Move ${cardCountMessage} from <strong>${this.escapeHtml(sourceColumn.name)}</strong> to:</p>
+          <form id="move-all-cards-form">
+            <div class="form-group">
+              <label for="target-column-select">Target Column:</label>
+              <select id="target-column-select" name="target-column" required>
+                <option value="">-- Select Column --</option>
+                ${targetColumns.map(col => `
+                  <option value="${col.id}">${this.escapeHtml(col.name)}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="position-select">Position:</label>
+              <select id="position-select" name="position" required>
+                <option value="top">Top of column</option>
+                <option value="bottom">Bottom of column</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>
+                <input type="checkbox" id="include-archived-checkbox" name="include-archived">
+                Include archived cards
+              </label>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-move-all-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">Move Cards</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('move-all-cards-modal');
+    const form = document.getElementById('move-all-cards-form');
+    const cancelBtn = document.getElementById('cancel-move-all-btn');
+    const targetSelect = document.getElementById('target-column-select');
+    const positionSelect = document.getElementById('position-select');
+    const includeArchivedCheckbox = document.getElementById('include-archived-checkbox');
+
+    // Focus on select
+    targetSelect.focus();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    // Handle form submit
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const targetColumnId = parseInt(targetSelect.value);
+      const position = positionSelect.value;
+      const includeArchived = includeArchivedCheckbox.checked;
+      
+      if (targetColumnId && position) {
+        modal.remove();
+        await this.moveAllCards(sourceColumnId, targetColumnId, position, includeArchived);
+      }
+    });
+
+    // Close modal on background click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  async moveAllCards(sourceColumnId, targetColumnId, position, includeArchived = false) {
+    // Get source column's cards
+    const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
+    if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
+      return;
+    }
+
+    // Get target column to determine starting order for bottom position
+    const targetColumn = this.columns.find(c => c.id === targetColumnId);
+    if (!targetColumn) {
+      alert('Target column not found');
+      return;
+    }
+
+    try {
+      // Use batch move endpoint for atomic operation
+      const response = await fetch(`/api/columns/${sourceColumnId}/cards/move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          target_column_id: targetColumnId,
+          position: position,
+          include_archived: includeArchived
+        })
+      });
+
+      const data = await this.parseResponse(response);
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to move cards');
+      }
+      
+      // Reload board to reflect changes
+      await this.loadBoard();
+      
+      alert(`Successfully moved ${data.moved_count} card(s)`);
+    } catch (err) {
+      console.error('Error moving cards:', err);
+      alert('Error moving cards: ' + err.message);
     }
   }
 
@@ -897,7 +1138,7 @@ class BoardManager {
         body: JSON.stringify({ name })
       });
 
-      const data = await response.json();
+      const data = await this.parseResponse(response);
 
       if (data.success) {
         // Reload columns to show the updated name

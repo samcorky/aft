@@ -351,4 +351,350 @@ class TestCardsAPI:
         # Card 3 should now be at position 3 (pushed up from 2)
         assert card3_result['order'] == 3
 
+    def test_move_all_cards_to_bottom(self, api_client, sample_board):
+        """Test moving all cards from one column to the bottom of another."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        source_cards = []
+        for i in range(3):
+            card = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+                'title': f'Source Card {i}'
+            }).json()['card']
+            source_cards.append(card)
+        
+        # Create cards in target column
+        target_cards = []
+        for i in range(2):
+            card = requests.post(f'{api_client}/api/columns/{col2["id"]}/cards', json={
+                'title': f'Target Card {i}'
+            }).json()['card']
+            target_cards.append(card)
+        
+        # Move all cards from source to bottom of target
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['moved_count'] == 3
+        
+        # Verify source column is empty
+        source_response = requests.get(f'{api_client}/api/columns/{col1["id"]}/cards')
+        assert len(source_response.json()['cards']) == 0
+        
+        # Verify target column has all cards in correct order
+        target_response = requests.get(f'{api_client}/api/columns/{col2["id"]}/cards')
+        target_result = target_response.json()['cards']
+        assert len(target_result) == 5
+        
+        # Original target cards should be at positions 0 and 1
+        assert target_result[0]['title'] == 'Target Card 0'
+        assert target_result[0]['order'] == 0
+        assert target_result[1]['title'] == 'Target Card 1'
+        assert target_result[1]['order'] == 1
+        
+        # Moved cards should be at positions 2, 3, 4 in original order
+        assert target_result[2]['title'] == 'Source Card 0'
+        assert target_result[2]['order'] == 2
+        assert target_result[3]['title'] == 'Source Card 1'
+        assert target_result[3]['order'] == 3
+        assert target_result[4]['title'] == 'Source Card 2'
+        assert target_result[4]['order'] == 4
+    
+    def test_move_all_cards_to_top(self, api_client, sample_board):
+        """Test moving all cards from one column to the top of another."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        for i in range(3):
+            requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+                'title': f'Source Card {i}'
+            })
+        
+        # Create cards in target column
+        for i in range(2):
+            requests.post(f'{api_client}/api/columns/{col2["id"]}/cards', json={
+                'title': f'Target Card {i}'
+            })
+        
+        # Move all cards from source to top of target
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'top'
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['moved_count'] == 3
+        
+        # Verify source column is empty
+        source_response = requests.get(f'{api_client}/api/columns/{col1["id"]}/cards')
+        assert len(source_response.json()['cards']) == 0
+        
+        # Verify target column has all cards in correct order
+        target_response = requests.get(f'{api_client}/api/columns/{col2["id"]}/cards')
+        target_result = target_response.json()['cards']
+        assert len(target_result) == 5
+        
+        # Moved cards should be at top (positions 0, 1, 2) in original order
+        assert target_result[0]['title'] == 'Source Card 0'
+        assert target_result[0]['order'] == 0
+        assert target_result[1]['title'] == 'Source Card 1'
+        assert target_result[1]['order'] == 1
+        assert target_result[2]['title'] == 'Source Card 2'
+        assert target_result[2]['order'] == 2
+        
+        # Original target cards should be pushed down to positions 3 and 4
+        assert target_result[3]['title'] == 'Target Card 0'
+        assert target_result[3]['order'] == 3
+        assert target_result[4]['title'] == 'Target Card 1'
+        assert target_result[4]['order'] == 4
+    
+    def test_move_all_cards_empty_source(self, api_client, sample_board):
+        """Test moving cards when source column is empty."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Empty Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Move all cards (should handle empty source gracefully)
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['moved_count'] == 0
+        assert 'No cards to move' in data['message']
+    
+    def test_move_all_cards_to_empty_target(self, api_client, sample_board):
+        """Test moving cards to an empty target column."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Empty Target'
+        }).json()['column']
+        
+        # Create cards in source column
+        for i in range(3):
+            requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+                'title': f'Card {i}'
+            })
+        
+        # Move all cards to empty target
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['moved_count'] == 3
+        
+        # Verify cards are in target with correct order
+        target_response = requests.get(f'{api_client}/api/columns/{col2["id"]}/cards')
+        target_result = target_response.json()['cards']
+        assert len(target_result) == 3
+        assert target_result[0]['order'] == 0
+        assert target_result[1]['order'] == 1
+        assert target_result[2]['order'] == 2
+    
+    def test_move_all_cards_invalid_position(self, api_client, sample_column):
+        """Test move all cards with invalid position parameter."""
+        response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards/move', json={
+            'target_column_id': sample_column['id'],
+            'position': 'middle'  # Invalid position
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert "Invalid position value. Must be 'top' or 'bottom'" in data['message']
+    
+    def test_move_all_cards_missing_target_column(self, api_client, sample_column):
+        """Test move all cards without target_column_id."""
+        response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards/move', json={
+            'position': 'bottom'
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'target_column_id is required' in data['message']
+    
+    def test_move_all_cards_nonexistent_source(self, api_client, sample_column):
+        """Test move all cards with non-existent source column."""
+        response = requests.post(f'{api_client}/api/columns/9999/cards/move', json={
+            'target_column_id': sample_column['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'Source column not found' in data['message']
+    
+    def test_move_all_cards_nonexistent_target(self, api_client, sample_column):
+        """Test move all cards with non-existent target column."""
+        response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards/move', json={
+            'target_column_id': 9999,
+            'position': 'bottom'
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'Target column not found' in data['message']
+    
+    def test_move_all_cards_maintains_archived_status(self, api_client, sample_board):
+        """Test that moving cards preserves their archived status."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        card1 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card'
+        }).json()['card']
+        
+        card2 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        
+        # Archive second card
+        requests.patch(f'{api_client}/api/cards/{card2["id"]}/archive')
+        
+        # Move all cards (including archived)
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom',
+            'include_archived': True
+        })
+        assert response.status_code == 200
+        assert response.json()['moved_count'] == 2
+        
+        # Verify archived status is preserved
+        card1_result = requests.get(f'{api_client}/api/cards/{card1["id"]}').json()['card']
+        card2_result = requests.get(f'{api_client}/api/cards/{card2["id"]}').json()['card']
+        
+        assert card1_result['archived'] is False
+        assert card2_result['archived'] is True
+        assert card1_result['column_id'] == col2['id']
+        assert card2_result['column_id'] == col2['id']
+
+    def test_move_all_cards_excludes_archived_by_default(self, api_client, sample_board):
+        """Test that moving cards excludes archived cards by default."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        card1 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card 1'
+        }).json()['card']
+        
+        card2 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card 2'
+        }).json()['card']
+        
+        card3 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        
+        # Archive third card
+        requests.patch(f'{api_client}/api/cards/{card3["id"]}/archive')
+        
+        # Move all cards without include_archived flag (should exclude archived)
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom'
+        })
+        assert response.status_code == 200
+        assert response.json()['moved_count'] == 2  # Only active cards
+        
+        # Verify active cards moved to target
+        card1_result = requests.get(f'{api_client}/api/cards/{card1["id"]}').json()['card']
+        card2_result = requests.get(f'{api_client}/api/cards/{card2["id"]}').json()['card']
+        assert card1_result['column_id'] == col2['id']
+        assert card2_result['column_id'] == col2['id']
+        
+        # Verify archived card stayed in source column
+        card3_result = requests.get(f'{api_client}/api/cards/{card3["id"]}').json()['card']
+        assert card3_result['column_id'] == col1['id']
+        assert card3_result['archived'] is True
+
+    def test_move_all_cards_with_include_archived_true(self, api_client, sample_board):
+        """Test that moving cards with include_archived=true moves all cards."""
+        # Create two columns
+        col1 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Source Column'
+        }).json()['column']
+        
+        col2 = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+            'name': 'Target Column'
+        }).json()['column']
+        
+        # Create cards in source column
+        card1 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Active Card'
+        }).json()['card']
+        
+        card2 = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        
+        # Archive second card
+        requests.patch(f'{api_client}/api/cards/{card2["id"]}/archive')
+        
+        # Move all cards with include_archived=true
+        response = requests.post(f'{api_client}/api/columns/{col1["id"]}/cards/move', json={
+            'target_column_id': col2['id'],
+            'position': 'bottom',
+            'include_archived': True
+        })
+        assert response.status_code == 200
+        assert response.json()['moved_count'] == 2  # Both cards
+        
+        # Verify both cards moved to target
+        card1_result = requests.get(f'{api_client}/api/cards/{card1["id"]}').json()['card']
+        card2_result = requests.get(f'{api_client}/api/cards/{card2["id"]}').json()['card']
+        assert card1_result['column_id'] == col2['id']
+        assert card2_result['column_id'] == col2['id']
+        
+        # Verify archived status is preserved
+        assert card1_result['archived'] is False
+        assert card2_result['archived'] is True
+
+
 

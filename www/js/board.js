@@ -874,15 +874,11 @@ class BoardManager {
     }
 
     try {
-      console.log('Deleting cards from column:', columnId);
       const url = `/api/columns/${columnId}/cards`;
-      console.log('DELETE URL:', url);
       
       const response = await fetch(url, {
         method: 'DELETE'
       });
-
-      console.log('Response status:', response.status);
 
       if (!response.ok) {
         const text = await response.text();

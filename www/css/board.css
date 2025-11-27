@@ -323,10 +323,6 @@
   justify-content: center;
 }
 
-.column-menu-divider {
-  display: none;
-}
-
 /* Delete column button - only applies when NOT in menu */
 .column-header > .column-actions > .column-delete-btn {
   background: none;

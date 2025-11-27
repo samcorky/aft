@@ -350,7 +350,6 @@ class BoardManager {
                         <span>🗑</span>
                         <span>Delete all cards</span>
                       </button>
-                      <hr class="column-menu-divider">
                       <button class="column-menu-item column-delete-btn" data-column-id="${column.id}">
                         <span>×</span>
                         <span>Delete column</span>

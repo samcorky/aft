@@ -533,7 +533,7 @@ class TestCardsAPI:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
-        assert 'Invalid position' in data['message']
+        assert "Invalid position value. Must be 'top' or 'bottom'" in data['message']
     
     def test_move_all_cards_missing_target_column(self, api_client, sample_column):
         """Test move all cards without target_column_id."""

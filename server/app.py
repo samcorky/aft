@@ -2796,13 +2796,11 @@ def archive_card(card_id):
 
         return jsonify({"success": True, "message": "Card archived successfully", "card": card_dict}), 200
     except Exception as e:
-      import traceback
-      db.rollback()
-      print("ARCHIVE ERROR:", e)
-      print(traceback.format_exc())
-      return jsonify({"success": False, "message": str(e), "trace": traceback.format_exc()}), 500
+        db.rollback()
+        logger.error(f"Error archiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to archive card"}), 500
     finally:
-      db.close()
+        db.close()
 
 @app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
 def unarchive_card(card_id):
@@ -2873,13 +2871,11 @@ def unarchive_card(card_id):
 
         return jsonify({"success": True, "message": "Card unarchived successfully", "card": card_dict}), 200
     except Exception as e:
-      import traceback
-      db.rollback()
-      print("UNARCHIVE ERROR:", e)
-      print(traceback.format_exc())
-      return jsonify({"success": False, "message": str(e), "trace": traceback.format_exc()}), 500
+        db.rollback()
+        logger.error(f"Error unarchiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to unarchive card"}), 500
     finally:
-      db.close()
+        db.close()
 
 
 # Checklist Items API endpoints

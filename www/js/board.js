@@ -926,12 +926,27 @@ class BoardManager {
       return;
     }
 
+    // Count active cards (excluding archived) for display
+    const activeCardCount = sourceColumn.cards.filter(c => !c.archived).length;
+    const archivedCardCount = sourceColumn.cards.filter(c => c.archived).length;
+    
+    // Build card count message
+    let cardCountMessage;
+    if (archivedCardCount > 0) {
+      cardCountMessage = `${activeCardCount} active card(s)`;
+      if (archivedCardCount > 0) {
+        cardCountMessage += ` (${archivedCardCount} archived)`;
+      }
+    } else {
+      cardCountMessage = `${activeCardCount} card(s)`;
+    }
+
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="move-all-cards-modal">
         <div class="modal-content">
           <h2>Move All Cards</h2>
-          <p>Move all ${sourceColumn.cards.length} card(s) from <strong>${this.escapeHtml(sourceColumn.name)}</strong> to:</p>
+          <p>Move ${cardCountMessage} from <strong>${this.escapeHtml(sourceColumn.name)}</strong> to:</p>
           <form id="move-all-cards-form">
             <div class="form-group">
               <label for="target-column-select">Target Column:</label>

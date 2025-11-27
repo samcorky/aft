@@ -258,6 +258,9 @@ def get_stats():
             cards_count:
               type: integer
               example: 42
+            cards_archived_count:
+              type: integer
+              example: 8
             checklist_items_total:
               type: integer
               example: 28
@@ -285,6 +288,7 @@ def get_stats():
         boards_count = db.query(Board).count()
         columns_count = db.query(BoardColumn).count()
         cards_count = db.query(Card).count()
+        cards_archived_count = db.query(Card).filter(Card.archived.is_(True)).count()
         
         # Get checklist item counts
         checklist_items_total = db.query(ChecklistItem).count()
@@ -297,6 +301,7 @@ def get_stats():
                 "boards_count": boards_count,
                 "columns_count": columns_count,
                 "cards_count": cards_count,
+                "cards_archived_count": cards_archived_count,
                 "checklist_items_total": checklist_items_total,
                 "checklist_items_checked": checklist_items_checked,
                 "checklist_items_unchecked": checklist_items_unchecked,

@@ -222,6 +222,12 @@ class BoardManager {
     this.render();
     await this.loadBoard();
     this.setupKeyboardShortcuts();
+    this.setupDropdownClickOutside();
+  }
+
+  setupDropdownClickOutside() {
+    // Add click-outside handler once for all dropdowns
+    document.addEventListener('click', this.closeDropdownHandler);
   }
 
   render() {
@@ -472,11 +478,6 @@ class BoardManager {
           dropdown.classList.toggle('show');
         });
       });
-      
-      // Close dropdowns when clicking outside
-      // Remove old listener first to prevent duplicates
-      document.removeEventListener('click', this.closeDropdownHandler);
-      document.addEventListener('click', this.closeDropdownHandler);
       
       // Add event listeners for edit column buttons
       document.querySelectorAll('.column-edit-btn').forEach(btn => {

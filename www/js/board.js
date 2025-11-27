@@ -336,7 +336,7 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''}" draggable="true" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
+                    <div class="card ${card.archived ? 'archived-card' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
                       <div class="card-action-buttons">
                         ${card.archived ? 
                           `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :

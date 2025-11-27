@@ -199,14 +199,22 @@ class BoardManager {
    * @returns {Promise<Object>} Parsed JSON data or error object
    */
   async parseResponse(response) {
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ 
-        success: false, 
-        message: `HTTP error! status: ${response.status}` 
-      }));
-      return errorData;
+    try {
+      const data = await response.json();
+      if (!response.ok) {
+        // Response parsed successfully but HTTP status indicates error
+        return data;
+      }
+      return data;
+    } catch (error) {
+      // JSON parsing failed
+      return {
+        success: false,
+        message: response.ok 
+          ? `Invalid JSON response from server` 
+          : `HTTP error! status: ${response.status}`
+      };
     }
-    return await response.json();
   }
 
   async init() {

@@ -51,6 +51,7 @@ class Card(Base):
     title = Column(String(255), nullable=False)
     description = Column(String(2000), nullable=True)
     order = Column(Integer, nullable=False, default=0)
+    archived = Column(Boolean, nullable=False, default=False, index=True)
     
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")

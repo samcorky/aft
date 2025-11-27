@@ -290,14 +290,31 @@
   transform: rotate(2deg);
 }
 
-.card-delete-btn {
+.card.archived-card {
+  opacity: 0.7;
+  background: #f5f5f5;
+}
+
+.card-action-buttons {
   position: absolute;
   top: 8px;
   right: 8px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.card:hover .card-action-buttons {
+  opacity: 1;
+}
+
+.card-delete-btn,
+.card-archive-btn,
+.card-unarchive-btn {
   background: none;
   border: none;
-  color: var(--error-color);
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
@@ -306,12 +323,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
   transition: all 0.2s;
 }
 
-.card:hover .card-delete-btn {
-  opacity: 1;
+.card-delete-btn {
+  color: var(--error-color);
+  font-size: 20px;
 }
 
 .card-delete-btn:hover {
@@ -319,12 +336,23 @@
   color: var(--error-hover);
 }
 
+.card-archive-btn,
+.card-unarchive-btn {
+  color: var(--text-muted);
+}
+
+.card-archive-btn:hover,
+.card-unarchive-btn:hover {
+  transform: scale(1.2);
+  color: var(--text-dark);
+}
+
 .card-title {
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-dark);
-  padding-right: 24px; /* Space for delete button */
+  padding-right: 60px; /* Space for archive + delete buttons */
   word-wrap: break-word;
   overflow-wrap: break-word;
 }

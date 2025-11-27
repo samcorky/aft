@@ -188,6 +188,7 @@ class BoardManager {
     this.columns = [];
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
+    this.showArchived = false; // Track whether to show archived or active cards
     this.keyboardHandler = this.handleKeydown.bind(this);
   }
 
@@ -215,7 +216,9 @@ class BoardManager {
   async loadBoard() {
     try {
       // Load board with nested structure (board -> columns -> cards)
-      const response = await fetch(`/api/boards/${this.boardId}/cards`);
+      // Add archived parameter to filter cards based on showArchived state
+      const archivedParam = this.showArchived ? 'true' : 'false';
+      const response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
       const data = await response.json();
       
       if (!data.success) {
@@ -285,8 +288,22 @@ class BoardManager {
     document.removeEventListener('keydown', this.keyboardHandler);
   }
 
+  async toggleArchiveView() {
+    // Toggle the showArchived state
+    this.showArchived = !this.showArchived;
+    // Reload board with new archived parameter
+    await this.loadBoard();
+  }
+
   renderBoard() {
+    // Hide archive toggle in header when there are no columns
+    const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
+    
     if (this.columns.length === 0) {
+      if (archiveToggleWrapper) {
+        archiveToggleWrapper.style.display = 'none';
+      }
+      
       this.container.innerHTML = `
         <div class="empty-board">
           <div class="empty-board-icon">📋</div>
@@ -319,8 +336,14 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card" draggable="true" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}">
-                      <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                    <div class="card ${card.archived ? 'archived-card' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
+                      <div class="card-action-buttons">
+                        ${card.archived ? 
+                          `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
+                          `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
+                        }
+                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                      </div>
                       <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
                       <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
                       ${card.checklist_items && card.checklist_items.length > 0 ? `
@@ -353,6 +376,28 @@ class BoardManager {
           </div>
         </div>
       `;
+      
+      // Show and set up archive toggle in header
+      const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
+      const archiveToggleCheckbox = document.getElementById('archive-toggle-checkbox');
+      
+      if (archiveToggleWrapper && archiveToggleCheckbox) {
+        // Show the toggle
+        archiveToggleWrapper.style.display = 'flex';
+        
+        // Set initial state
+        archiveToggleCheckbox.checked = this.showArchived;
+        
+        // Remove any existing listener by cloning and replacing the element
+        const newCheckbox = archiveToggleCheckbox.cloneNode(true);
+        archiveToggleCheckbox.parentNode.replaceChild(newCheckbox, archiveToggleCheckbox);
+        
+        // Set initial state on the new checkbox
+        newCheckbox.checked = this.showArchived;
+        
+        // Add event listener to the new checkbox
+        newCheckbox.addEventListener('change', () => this.toggleArchiveView());
+      }
       
       // Add event listener for add column button next to columns
       document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());
@@ -484,6 +529,24 @@ class BoardManager {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.target.getAttribute('data-card-id'));
           this.deleteCard(cardId);
+        });
+      });
+      
+      // Add event listeners for archive card buttons
+      document.querySelectorAll('.card-archive-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          this.archiveCard(cardId);
+        });
+      });
+      
+      // Add event listeners for unarchive card buttons
+      document.querySelectorAll('.card-unarchive-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          this.unarchiveCard(cardId);
         });
       });
       
@@ -1052,6 +1115,10 @@ class BoardManager {
           <div class="modal-header">
             <h2>Edit Card</h2>
             <div class="modal-header-actions">
+              ${cardData.archived ? 
+                `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` :
+                `<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
+              }
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
             </div>
@@ -1127,6 +1194,8 @@ class BoardManager {
     const modal = document.getElementById('edit-card-modal');
     const form = document.getElementById('edit-card-form');
     const cancelBtn = document.getElementById('cancel-edit-card-btn');
+    const archiveBtn = document.getElementById('archive-card-detail-btn');
+    const unarchiveBtn = document.getElementById('unarchive-card-detail-btn');
     const titleInput = document.getElementById('edit-card-title');
 
     // Focus on input and select text
@@ -1148,6 +1217,22 @@ class BoardManager {
       const commentInput = document.getElementById('new-comment-input');
       return commentInput && commentInput.value.trim().length > 0;
     };
+
+    // Handle archive button
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', async () => {
+        modal.remove();
+        await this.archiveCard(cardId);
+      });
+    }
+
+    // Handle unarchive button
+    if (unarchiveBtn) {
+      unarchiveBtn.addEventListener('click', async () => {
+        modal.remove();
+        await this.unarchiveCard(cardId);
+      });
+    }
 
     // Handle cancel with warning if there are unsaved changes
     const handleCancel = () => {
@@ -1644,6 +1729,44 @@ class BoardManager {
       }
     } catch (err) {
       alert('Error deleting card: ' + err.message);
+    }
+  }
+
+  async archiveCard(cardId) {
+    try {
+      const response = await fetch(`/api/cards/${cardId}/archive`, {
+        method: 'PATCH'
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to reflect archiving
+        await this.loadBoard();
+      } else {
+        alert('Failed to archive card: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error archiving card: ' + err.message);
+    }
+  }
+
+  async unarchiveCard(cardId) {
+    try {
+      const response = await fetch(`/api/cards/${cardId}/unarchive`, {
+        method: 'PATCH'
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Reload board to reflect unarchiving
+        await this.loadBoard();
+      } else {
+        alert('Failed to unarchive card: ' + data.message);
+      }
+    } catch (err) {
+      alert('Error unarchiving card: ' + err.message);
     }
   }
 

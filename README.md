@@ -43,8 +43,12 @@ Use at your own risk.
 - **Update Cards** - Edit card details, titles, and descriptions
 - **Delete Cards** - Remove completed or cancelled tasks
 - **Card Filtering** - View cards by column or across entire boards
+- **Archive Cards** - Archive completed cards to declutter your board while preserving history
+- **Unarchive Cards** - Restore archived cards back to active view when needed
+- **Toggle Archive View** - Switch between active and archived cards using the header toggle
 
 ![Card Detail](images/card_detail.png)
+![Archive View](images/archive_screen.png)
 
 ### ✅ Checklist Items
 - **Task Breakdown** - Add checklist items to cards for subtasks

@@ -1820,6 +1820,13 @@ def get_column_cards(column_id):
         type: integer
         required: true
         description: The ID of the column
+      - name: archived
+        in: query
+        type: string
+        required: false
+        description: Filter by archived status - 'true' for archived, 'false' for unarchived, 'both' for all (default is 'false')
+        enum: ['true', 'false', 'both']
+        default: 'false'
     responses:
       200:
         description: List of cards for the column
@@ -1864,12 +1871,19 @@ def get_column_cards(column_id):
         db = SessionLocal()
         from models import Card
 
-        cards = (
-            db.query(Card)
-            .filter(Card.column_id == column_id)
-            .order_by(Card.order)
-            .all()
-        )
+        # Get archived filter from query parameter (default to false - unarchived only)
+        archived_param = request.args.get('archived', 'false').lower()
+
+        cards_query = db.query(Card).filter(Card.column_id == column_id)
+        
+        # Apply archived filter
+        if archived_param == 'true':
+            cards_query = cards_query.filter(Card.archived == True)
+        elif archived_param == 'false':
+            cards_query = cards_query.filter(Card.archived == False)
+        # If 'both', don't add archived filter
+        
+        cards = cards_query.order_by(Card.order).all()
         
         # Serialize cards before closing session to access relationships
         cards_data = [
@@ -1879,6 +1893,7 @@ def get_column_cards(column_id):
                 "title": c.title,
                 "description": c.description,
                 "order": c.order,
+                "archived": c.archived,
                 "checklist_items": [
                     {
                         "id": item.id,
@@ -1916,6 +1931,13 @@ def get_board_cards(board_id):
         type: integer
         required: true
         description: The ID of the board
+      - name: archived
+        in: query
+        type: string
+        required: false
+        description: Filter by archived status - 'true' for archived, 'false' for unarchived, 'both' for all (default is 'false')
+        enum: ['true', 'false', 'both']
+        default: 'false'
     responses:
       200:
         description: Nested structure of board with columns and cards
@@ -1991,6 +2013,9 @@ def get_board_cards(board_id):
         db = SessionLocal()
         from models import BoardColumn, Card
 
+        # Get archived filter from query parameter (default to false - unarchived only)
+        archived_param = request.args.get('archived', 'false').lower()
+
         # Get board
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
@@ -2009,13 +2034,17 @@ def get_board_cards(board_id):
         result = {"id": board.id, "name": board.name, "columns": []}
 
         for column in columns:
-            # Get cards for this column
-            cards = (
-                db.query(Card)
-                .filter(Card.column_id == column.id)
-                .order_by(Card.order)
-                .all()
-            )
+            # Get cards for this column with archived filter
+            cards_query = db.query(Card).filter(Card.column_id == column.id)
+            
+            # Apply archived filter
+            if archived_param == 'true':
+                cards_query = cards_query.filter(Card.archived == True)
+            elif archived_param == 'false':
+                cards_query = cards_query.filter(Card.archived == False)
+            # If 'both', don't add archived filter
+            
+            cards = cards_query.order_by(Card.order).all()
 
             # Serialize cards with checklist items and comments while session is active
             cards_data = [
@@ -2024,6 +2053,7 @@ def get_board_cards(board_id):
                     "title": card.title,
                     "description": card.description,
                     "order": card.order,
+                    "archived": card.archived,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -2390,6 +2420,7 @@ def get_card(card_id):
             "description": card.description,
             "column_id": card.column_id,
             "order": card.order,
+            "archived": card.archived,
             "checklist_items": [
                 {
                     "id": item.id,
@@ -2586,14 +2617,18 @@ def update_card(card_id):
 
             # If moving to a different column
             if new_column_id != old_column_id:
-                # Decrement order of cards after old position in old column
+                # Decrement order of cards after old position in old column (excluding archived)
                 db.query(Card).filter(
-                    Card.column_id == old_column_id, Card.order > old_order
+                    Card.column_id == old_column_id, 
+                    Card.order > old_order,
+                    Card.archived == False
                 ).update({Card.order: Card.order - 1})
 
-                # Increment order of cards >= new position in new column
+                # Increment order of cards >= new position in new column (excluding archived)
                 db.query(Card).filter(
-                    Card.column_id == new_column_id, Card.order >= new_order
+                    Card.column_id == new_column_id, 
+                    Card.order >= new_order,
+                    Card.archived == False
                 ).update({Card.order: Card.order + 1})
 
                 card.column_id = new_column_id
@@ -2602,18 +2637,20 @@ def update_card(card_id):
             # If reordering within the same column
             elif new_order != old_order:
                 if new_order < old_order:
-                    # Moving up: increment cards between new and old position
+                    # Moving up: increment cards between new and old position (excluding archived)
                     db.query(Card).filter(
                         Card.column_id == old_column_id,
                         Card.order >= new_order,
                         Card.order < old_order,
+                        Card.archived == False
                     ).update({Card.order: Card.order + 1})
                 else:
-                    # Moving down: decrement cards between old and new position
+                    # Moving down: decrement cards between old and new position (excluding archived)
                     db.query(Card).filter(
                         Card.column_id == old_column_id,
                         Card.order > old_order,
                         Card.order <= new_order,
+                        Card.archived == False
                     ).update({Card.order: Card.order - 1})
 
                 card.order = new_order
@@ -2703,6 +2740,142 @@ def delete_card(card_id):
     except Exception as e:
         db.rollback()
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
+def archive_card(card_id):
+    """Archive a card by ID.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to archive
+    responses:
+      200:
+        description: Card archived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card archived successfully"
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+
+        card.archived = True
+        db.commit()
+        
+        # Refresh and serialize the card
+        db.refresh(card)
+        card_dict = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order,
+            "archived": card.archived
+        }
+
+        return jsonify({"success": True, "message": "Card archived successfully", "card": card_dict}), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error archiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to archive card"}), 500
+    finally:
+        db.close()
+
+@app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
+def unarchive_card(card_id):
+    """Unarchive a card by ID.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to unarchive
+    responses:
+      200:
+        description: Card unarchived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card unarchived successfully"
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+
+        # Get the card's current order and column
+        card_order = card.order
+        column_id = card.column_id
+
+        # Unarchive the card first
+        card.archived = False
+
+        # Increment order of all active cards at this position and above
+        # This ensures the unarchived card is inserted at its order position
+        db.query(Card).filter(
+            Card.column_id == column_id,
+            Card.order >= card_order,
+            Card.id != card_id,
+            Card.archived == False
+        ).update({Card.order: Card.order + 1}, synchronize_session=False)
+
+        db.commit()
+        
+        # Refresh and serialize the card
+        db.refresh(card)
+        card_dict = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order,
+            "archived": card.archived
+        }
+
+        return jsonify({"success": True, "message": "Card unarchived successfully", "card": card_dict}), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error unarchiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to unarchive card"}), 500
+    finally:
+        db.close()
 
 
 # Checklist Items API endpoints

@@ -126,6 +126,35 @@ class BackupScheduler:
         self.thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.thread.start()
         logger.info("Backup scheduler started")
+    
+    def retry_start_if_permission_fixed(self):
+        """Attempt to restart scheduler if it failed due to permission errors.
+        
+        This method can be called periodically (e.g., from API status endpoint)
+        to check if permissions have been fixed and restart the scheduler.
+        """
+        # Only retry if scheduler is not running and there's a permission error
+        if self.running or not self.permission_error:
+            return False
+        
+        # Check if permissions are now OK
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            
+            # Permissions are fixed! Clear error and try to start
+            logger.info("Backup directory permissions have been fixed, attempting to restart scheduler")
+            self.permission_error = None
+            
+            # Try to start the scheduler
+            self.start()
+            return True
+            
+        except (PermissionError, OSError) as e:
+            # Still have permission issues
+            return False
         
     def stop(self):
         """Stop the backup scheduler thread."""
@@ -468,6 +497,35 @@ class BackupScheduler:
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
+                # Recheck permissions periodically to detect if they've been fixed or broken
+                try:
+                    self.backup_dir.mkdir(parents=True, exist_ok=True)
+                    test_file = self.backup_dir / ".write_test"
+                    test_file.touch()
+                    test_file.unlink()
+                    # Permissions are OK, clear any previous error
+                    if self.permission_error is not None:
+                        logger.info("Backup directory permissions have been fixed")
+                    self.permission_error = None
+                except PermissionError as e:
+                    error_msg = (
+                        f"Backup directory '{self.backup_dir}' is not writable. "
+                        f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
+                    )
+                    if self.permission_error != error_msg:
+                        logger.error(error_msg)
+                    self.permission_error = error_msg
+                    # Skip backup if we can't write
+                    time.sleep(60)
+                    continue
+                except Exception as e:
+                    error_msg = f"Error checking backup directory permissions: {str(e)}"
+                    if self.permission_error != error_msg:
+                        logger.error(error_msg)
+                    self.permission_error = error_msg
+                    time.sleep(60)
+                    continue
+                
                 settings = self._get_settings()
                 
                 should_run = self._should_run_backup(settings)

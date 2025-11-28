@@ -1221,6 +1221,10 @@ def get_backup_status():
     try:
         from backup_scheduler import get_scheduler
         scheduler = get_scheduler()
+        
+        # Attempt to restart scheduler if it failed due to permissions that were fixed
+        scheduler.retry_start_if_permission_fixed()
+        
         status = scheduler.get_status()
         return jsonify({"success": True, "status": status})
     except Exception as e:

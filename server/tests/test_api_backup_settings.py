@@ -266,16 +266,7 @@ class TestBackupSettingsAPI:
     
     def test_cannot_enable_with_missing_settings(self, api_client):
         """Test that enabling backups requires all settings to be configured."""
-        # Try to enable without setting required fields first
-        response = requests.put(
-            f'{api_client}/api/settings/backup/config',
-            json={'enabled': True}
-        )
-        # Should fail because other required settings might not be set
-        # (or succeed if defaults are valid - depends on state)
-        # Let's explicitly test with invalid existing settings
-        
-        # First set an invalid frequency_value
+        # First set valid settings
         requests.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 1, 'frequency_unit': 'hours'}

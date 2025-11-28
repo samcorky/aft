@@ -97,12 +97,18 @@ class BackupScheduler:
             )
             logger.error(error_msg)
             self.permission_error = error_msg
+            # Clean up lock file before returning
+            if self.lock_file.exists():
+                self.lock_file.unlink()
             # Don't start scheduler if we can't write backups
             return
         except Exception as e:
             error_msg = f"Error checking backup directory permissions: {str(e)}"
             logger.error(error_msg)
             self.permission_error = error_msg
+            # Clean up lock file before returning
+            if self.lock_file.exists():
+                self.lock_file.unlink()
             return
         
         # Validate settings on startup

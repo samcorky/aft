@@ -226,6 +226,7 @@ class BackupScheduler:
             elif unit == "days":
                 return timedelta(days=val)
         except (ValueError, TypeError):
+            # Invalid value or unit, fall through to default
             pass
         
         # Default to 24 hours
@@ -263,6 +264,7 @@ class BackupScheduler:
                     try:
                         self.last_backup_time = datetime.fromisoformat(last_run)
                     except ValueError:
+                        # Invalid timestamp format, leave last_backup_time as None
                         pass
             finally:
                 db.close()

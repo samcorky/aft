@@ -44,6 +44,7 @@ class BackupScheduler:
         self.last_backup_time: Optional[datetime] = None
         self.backup_dir = Path("/app/backups")
         self.lock_file = Path("/tmp/aft_backup_scheduler.lock")
+        self.permission_error = None  # Stores permission error message if directory not writable
         
     def start(self):
         """Start the backup scheduler thread."""
@@ -79,6 +80,29 @@ class BackupScheduler:
             return
         except Exception as e:
             logger.error(f"Error creating scheduler lock file: {str(e)}")
+            return
+        
+        # Check if backup directory is writable
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            # Test write permissions
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            self.permission_error = None
+        except PermissionError as e:
+            error_msg = (
+                f"Backup directory '{self.backup_dir}' is not writable. "
+                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
+            )
+            logger.error(error_msg)
+            self.permission_error = error_msg
+            # Don't start scheduler if we can't write backups
+            return
+        except Exception as e:
+            error_msg = f"Error checking backup directory permissions: {str(e)}"
+            logger.error(error_msg)
+            self.permission_error = error_msg
             return
         
         # Validate settings on startup
@@ -520,7 +544,8 @@ class BackupScheduler:
             "start_time": settings.get("backup_start_time", "00:00"),
             "latest_backup_file": latest_backup_path,
             "latest_backup_date": latest_backup_date.isoformat() if latest_backup_date else None,
-            "backup_within_window": within_window
+            "backup_within_window": within_window,
+            "permission_error": self.permission_error
         }
     
     def _get_latest_backup_info(self) -> dict:

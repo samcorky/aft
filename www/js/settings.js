@@ -292,6 +292,15 @@ class Settings {
         } else {
           this.backupWindowStatus.textContent = 'Disabled';
         }
+        
+        // Display permission error if present
+        if (status.permission_error) {
+          const errorDiv = document.getElementById('backupPermissionError');
+          if (errorDiv) {
+            errorDiv.textContent = status.permission_error;
+            errorDiv.style.display = 'block';
+          }
+        }
       }
     } catch (err) {
       console.error('Error loading backup status:', err);

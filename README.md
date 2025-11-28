@@ -16,6 +16,12 @@ Trello was great, then Atlassian bought it.
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
 
+**Permission Requirements**: The container runs as a non-root user (UID 1000). If the `./backups/` directory is not writable, backups will fail with a permission error displayed in the UI. To fix this, run:
+```bash
+sudo chown -R 1000:1000 ./backups
+sudo chmod -R 755 ./backups
+```
+
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.

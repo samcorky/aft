@@ -31,8 +31,62 @@ SETTINGS_SCHEMA = {
         "description": "ID of the board to load by default on application startup",
         "validate": lambda value: value is None
         or (isinstance(value, int) and not isinstance(value, bool) and value > 0),
-    }
+    },
+    "backup_enabled": {
+        "type": "boolean",
+        "nullable": False,
+        "description": "Enable or disable automatic database backups",
+        "validate": lambda value: isinstance(value, bool),
+    },
+    "backup_frequency_value": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Numeric value for backup frequency (1-99)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 99,
+    },
+    "backup_frequency_unit": {
+        "type": "string",
+        "nullable": False,
+        "description": "Unit for backup frequency (minutes, hours, days)",
+        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "days"],
+    },
+    "backup_start_time": {
+        "type": "string",
+        "nullable": False,
+        "description": "Time when daily backups should run (HH:MM format)",
+        "validate": lambda value: isinstance(value, str) and _validate_time_format(value),
+    },
+    "backup_retention_count": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Number of backup files to retain (1-100)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 100,
+    },
+    "backup_last_run": {
+        "type": "string",
+        "nullable": True,
+        "description": "ISO timestamp of the last backup run",
+        "validate": lambda value: value is None or isinstance(value, str),
+    },
 }
+
+
+def _validate_time_format(time_str):
+    """Validate HH:MM time format."""
+    try:
+        parts = time_str.split(":")
+        if len(parts) != 2:
+            return False
+        hours_str, minutes_str = parts[0], parts[1]
+        
+        # Minutes must be exactly 2 digits
+        if len(minutes_str) != 2:
+            return False
+        
+        hours, minutes = int(hours_str), int(minutes_str)
+        return 0 <= hours <= 23 and 0 <= minutes <= 59
+    except (ValueError, AttributeError):
+        return False
 
 
 def validate_setting(key, value):
@@ -925,6 +979,252 @@ def set_setting(key):
             db.close()
     except Exception as e:
         logger.error(f"Error setting setting: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/backup/config", methods=["GET"])
+def get_backup_config():
+    """Get all backup configuration settings.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Backup configuration retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            config:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                frequency_value:
+                  type: integer
+                frequency_unit:
+                  type: string
+                start_time:
+                  type: string
+                retention_count:
+                  type: integer
+                last_run:
+                  type: string
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        keys = [
+            "backup_enabled",
+            "backup_frequency_value",
+            "backup_frequency_unit",
+            "backup_start_time",
+            "backup_retention_count",
+            "backup_last_run"
+        ]
+        
+        config = {}
+        for key in keys:
+            setting = db.query(Setting).filter(Setting.key == key).first()
+            if setting:
+                # Try to parse JSON, otherwise use raw value
+                try:
+                    config[key.replace("backup_", "")] = json.loads(setting.value)
+                except (json.JSONDecodeError, TypeError):
+                    config[key.replace("backup_", "")] = setting.value
+            else:
+                # Default values
+                defaults = {
+                    "backup_enabled": False,
+                    "backup_frequency_value": 1,
+                    "backup_frequency_unit": "days",
+                    "backup_start_time": "00:00",
+                    "backup_retention_count": 7,
+                    "backup_last_run": None
+                }
+                config[key.replace("backup_", "")] = defaults.get(key)
+        
+        return jsonify({"success": True, "config": config})
+    except Exception as e:
+        logger.error(f"Error getting backup config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/backup/config", methods=["PUT"])
+def update_backup_config():
+    """Update backup configuration settings.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: true
+            frequency_value:
+              type: integer
+              example: 1
+              minimum: 1
+              maximum: 99
+            frequency_unit:
+              type: string
+              example: "days"
+              enum: ["minutes", "hours", "days"]
+            start_time:
+              type: string
+              example: "02:00"
+              pattern: "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            retention_count:
+              type: integer
+              example: 7
+              minimum: 1
+              maximum: 100
+    responses:
+      200:
+        description: Backup configuration updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+      400:
+        description: Invalid input
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Allow empty body - just return success without updating anything
+        if not data:
+            return jsonify({"success": True, "message": "No settings to update"})
+        
+        # Map frontend field names to setting keys
+        mapping = {
+            "enabled": "backup_enabled",
+            "frequency_value": "backup_frequency_value",
+            "frequency_unit": "backup_frequency_unit",
+            "start_time": "backup_start_time",
+            "retention_count": "backup_retention_count"
+        }
+        
+        # Validate all provided fields using the settings schema
+        errors = []
+        for field, key in mapping.items():
+            if field in data:
+                is_valid, error_msg = validate_setting(key, data[field])
+                if not is_valid:
+                    errors.append(error_msg)
+        
+        if errors:
+            return jsonify({"success": False, "message": "; ".join(errors)}), 400
+        
+        # Additional validation: Cannot enable backups if required settings are invalid or missing
+        if data.get("enabled") is True:
+            # Get current settings for fields not being updated
+            current_settings = {}
+            for field, key in mapping.items():
+                if field not in data:
+                    setting = db.query(Setting).filter(Setting.key == key).first()
+                    if setting:
+                        try:
+                            current_settings[field] = json.loads(setting.value)
+                        except (json.JSONDecodeError, TypeError):
+                            current_settings[field] = None
+            
+            # Merge with new data
+            final_settings = {**current_settings, **data}
+            
+            # Validate all required settings are present and valid
+            required_errors = []
+            for field in ["frequency_value", "frequency_unit", "start_time", "retention_count"]:
+                key = mapping[field]
+                value = final_settings.get(field)
+                if value is None:
+                    required_errors.append(f"{field} must be set before enabling backups")
+                else:
+                    is_valid, error_msg = validate_setting(key, value)
+                    if not is_valid:
+                        required_errors.append(error_msg)
+            
+            if required_errors:
+                return jsonify({
+                    "success": False,
+                    "message": "Cannot enable backups with invalid settings: " + "; ".join(required_errors)
+                }), 400
+        
+        # Update settings
+        for field, key in mapping.items():
+            if field in data:
+                value = json.dumps(data[field])
+                setting = db.query(Setting).filter(Setting.key == key).first()
+                
+                if setting:
+                    setting.value = value
+                else:
+                    setting = Setting(key=key, value=value)
+                    db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Backup configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating backup config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/backup/status", methods=["GET"])
+def get_backup_status():
+    """Get backup scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Backup scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        status = scheduler.get_status()
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting backup status: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -3790,6 +4090,20 @@ def delete_comment(comment_id):
     finally:
         db.close()
 
+
+# Initialize backup scheduler on app startup
+def init_backup_scheduler():
+    """Initialize and start the backup scheduler."""
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.start()
+        logger.info("Backup scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize backup scheduler: {str(e)}")
+
+# Start scheduler when module is loaded
+init_backup_scheduler()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/header.css">
   <link rel="stylesheet" href="/css/system-info.css">
+  <link rel="stylesheet" href="/css/settings.css">
 </head>
 <body>
   <!-- Header will be inserted here -->
@@ -43,6 +44,30 @@
           <div class="status-row">
             <span class="status-label">Database Schema:</span>
             <span class="status-value" id="db-version">Loading...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup Module Card -->
+      <div class="info-card">
+        <h2>Backup Module</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Status:</span>
+            <span class="status-value">
+              <span id="backup-module-health" class="status-badge">Loading...</span>
+            </span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Enabled:</span>
+            <span class="status-value">
+              <div class="backup-toggle-wrapper">
+                <label class="backup-toggle-label">
+                  <input type="checkbox" id="backupToggle" class="backup-toggle-input">
+                  <span class="backup-toggle-slider"></span>
+                </label>
+              </div>
+            </span>
           </div>
         </div>
       </div>

@@ -94,3 +94,205 @@
 .settings-status.info {
   color: var(--primary-color);
 }
+
+/* Backup Settings Styles */
+.settings-section h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-dark);
+}
+
+.status-info {
+  margin: 20px 0;
+  padding: 15px;
+  background: var(--bg-light);
+  border: 1px solid #e0e0e0;
+  border-radius: 5px;
+}
+
+.status-info dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 15px;
+}
+
+.status-info dt {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.status-info dd {
+  margin: 0;
+  color: var(--text-dark);
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-healthy {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-unhealthy {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-running {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-stopped {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* Backup Toggle Switch */
+.backup-toggle-wrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+.backup-toggle-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.backup-toggle-input {
+  display: none;
+}
+
+.backup-toggle-slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background-color: #dc3545;
+  border-radius: 24px;
+  transition: background-color 0.3s;
+}
+
+.backup-toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 2px;
+  top: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.backup-toggle-input:checked + .backup-toggle-slider {
+  background-color: #28a745;
+}
+
+.backup-toggle-input:checked + .backup-toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.checkbox-group label {
+  margin: 0;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 25px;
+}
+
+.form-row .setting-item {
+  margin-bottom: 0;
+}
+
+.setting-item input[type="number"],
+.setting-item input[type="time"] {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+  background-color: white;
+  color: var(--text-dark);
+  transition: all 0.2s;
+}
+
+.setting-item input[type="number"]:hover,
+.setting-item input[type="time"]:hover {
+  border-color: var(--primary-color);
+}
+
+.setting-item input[type="number"]:focus,
+.setting-item input[type="time"]:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 25px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-primary {
+  background: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: white;
+  color: var(--text-dark);
+  border: 1px solid #ddd;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-light);
+}

@@ -294,11 +294,13 @@ class Settings {
         }
         
         // Display permission error if present
-        if (status.permission_error) {
-          const errorDiv = document.getElementById('backupPermissionError');
-          if (errorDiv) {
+        const errorDiv = document.getElementById('backupPermissionError');
+        if (errorDiv) {
+          if (status.permission_error) {
             errorDiv.textContent = status.permission_error;
             errorDiv.style.display = 'block';
+          } else {
+            errorDiv.style.display = 'none';
           }
         }
       }

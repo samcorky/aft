@@ -13,6 +13,9 @@ Trello was great, then Atlassian bought it.
 - `docker compose up -d`
 - Navigate to http(s)://{docker-host-ip}
 
+### Backup Storage
+Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
+
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.
@@ -69,12 +72,24 @@ Use at your own risk.
 - **Delete Comments** - Remove outdated or incorrect comments
 
 ### ⚙️ Settings & Configuration
-- **Customizable Settings** - Configure application preferences
+- **Customizable Settings** - Configure application preferences including default board
+- **Automatic Database Backups** - Schedule recurring backups to protect your data
+  - Configurable frequency (minutes, hours, or days)
+  - Flexible start time alignment for backup scheduling
+  - Automatic retention management (keep 1-100 most recent backups)
+  - Backup health monitoring with status indicators
+  - Overdue backup detection
+  - Backups saved to host filesystem via bind mount (`./backups/`)
 - **Settings Schema** - View available settings and validation rules
 - **Persistent Configuration** - Settings saved to database
 
+![Settings](images/settings.png)
+
 ### 🔧 Database Management
-- **Backup Database** - Download complete database backups
+- **Manual Backup** - Download on-demand database backups
+- **Automatic Backups** - Scheduled backups running in the background
+  - Files saved to `./backups/` directory on host
+  - Viewable backup module status on system information page
 - **Restore Database** - Upload and restore from backup files
 - **Reset Database** - Clear all data for fresh start
 - **Version Tracking** - Monitor application and database schema versions

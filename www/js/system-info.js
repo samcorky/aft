@@ -12,6 +12,7 @@ class SystemInfo {
     this.restoreBtn = null;
     this.restoreFileInput = null;
     this.backupStatus = null;
+    this.backupToggle = null;
   }
 
   async init() {
@@ -24,6 +25,7 @@ class SystemInfo {
     this.restoreBtn = document.getElementById('restore-btn');
     this.restoreFileInput = document.getElementById('restore-file-input');
     this.backupStatus = document.getElementById('backup-status');
+    this.backupToggle = document.getElementById('backupToggle');
     
     // Set up event listeners
     this.setupEventListeners();
@@ -83,20 +85,27 @@ class SystemInfo {
         this.closeDeleteModal();
       }
     });
+
+    // Backup toggle
+    this.backupToggle.addEventListener('change', async (e) => {
+      await this.toggleBackup(e.target.checked);
+    });
   }
 
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse] = await Promise.all([
+      const [testResponse, versionResponse, statsResponse, backupStatusResponse] = await Promise.all([
         fetch('/api/test'),
         fetch('/api/version'),
-        fetch('/api/stats')
+        fetch('/api/stats'),
+        fetch('/api/settings/backup/status')
       ]);
 
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
       const statsData = await statsResponse.json();
+      const backupStatusData = await backupStatusResponse.json();
 
       // Update connection status
       const connectionElement = document.getElementById('db-connection');
@@ -127,6 +136,24 @@ class SystemInfo {
         document.getElementById('checklist-items-total').textContent = statsData.checklist_items_total || 0;
         document.getElementById('checklist-items-checked').textContent = statsData.checklist_items_checked || 0;
         document.getElementById('checklist-items-unchecked').textContent = statsData.checklist_items_unchecked || 0;
+      }
+
+      // Update backup module status
+      if (backupStatusData.success && backupStatusData.status) {
+        const status = backupStatusData.status;
+        const healthBadge = document.getElementById('backup-module-health');
+        
+        // Update health status
+        if (status.running) {
+          healthBadge.textContent = 'Healthy';
+          healthBadge.className = 'status-badge status-healthy';
+        } else {
+          healthBadge.textContent = 'Unhealthy';
+          healthBadge.className = 'status-badge status-unhealthy';
+        }
+        
+        // Update toggle state
+        this.backupToggle.checked = status.enabled;
       }
     } catch (error) {
       console.error('Error loading system info:', error);
@@ -299,6 +326,31 @@ class SystemInfo {
       this.restoreBtn.disabled = false;
     } finally {
       this.restoreFileInput.value = '';
+    }
+  }
+
+  async toggleBackup(enabled) {
+    try {
+      const response = await fetch('/api/settings/backup/config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        // Revert toggle on error
+        this.backupToggle.checked = !enabled;
+        alert(`Error: ${data.message}`);
+      }
+    } catch (error) {
+      console.error('Error toggling backup:', error);
+      // Revert toggle on error
+      this.backupToggle.checked = !enabled;
+      alert(`Error: ${error.message}`);
     }
   }
 }

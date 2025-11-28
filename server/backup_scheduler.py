@@ -149,6 +149,7 @@ class BackupScheduler:
         
         # Only retry if scheduler is not actually running
         if is_actually_running:
+            logger.debug("Scheduler is already running, no retry needed")
             return False
         
         # Check if permissions are now OK
@@ -167,8 +168,13 @@ class BackupScheduler:
             self.start()
             return True
             
-        except (PermissionError, OSError) as e:
+        except PermissionError as e:
             # Still have permission issues
+            logger.debug(f"Permission check failed during retry: {e}")
+            return False
+        except Exception as e:
+            # Other errors
+            logger.debug(f"Unexpected error during retry permission check: {e}")
             return False
         
     def stop(self):
@@ -587,7 +593,7 @@ class BackupScheduler:
             test_file.unlink()
             # Permissions are OK, clear any previous error
             if self.permission_error is not None:
-                logger.info("Backup directory permissions are now OK")
+                logger.info("Backup directory permissions are now OK, clearing error")
             self.permission_error = None
         except PermissionError as e:
             error_msg = (
@@ -595,7 +601,7 @@ class BackupScheduler:
                 f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
             )
             if self.permission_error != error_msg:
-                logger.error(error_msg)
+                logger.error(f"{error_msg} (Error: {e})")
             self.permission_error = error_msg
         except Exception as e:
             error_msg = f"Error checking backup directory permissions: {str(e)}"

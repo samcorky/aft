@@ -133,8 +133,22 @@ class BackupScheduler:
         This method can be called periodically (e.g., from API status endpoint)
         to check if permissions have been fixed and restart the scheduler.
         """
-        # Only retry if scheduler is not running and there's a permission error
-        if self.running or not self.permission_error:
+        # Check if scheduler is actually running by checking lock file
+        is_actually_running = False
+        if self.lock_file.exists():
+            try:
+                with open(self.lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                try:
+                    os.kill(pid, 0)
+                    is_actually_running = True
+                except OSError:
+                    pass
+            except (ValueError, FileNotFoundError):
+                pass
+        
+        # Only retry if scheduler is not actually running
+        if is_actually_running:
             return False
         
         # Check if permissions are now OK
@@ -148,7 +162,8 @@ class BackupScheduler:
             logger.info("Backup directory permissions have been fixed, attempting to restart scheduler")
             self.permission_error = None
             
-            # Try to start the scheduler
+            # Reset running flag and try to start the scheduler
+            self.running = False
             self.start()
             return True
             
@@ -563,6 +578,30 @@ class BackupScheduler:
         freq_value = settings.get("backup_frequency_value", 1)
         freq_unit = settings.get("backup_frequency_unit", "days")
         retention = settings.get("backup_retention_count", 7)
+        
+        # Check permissions EVERY time status is requested
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            # Permissions are OK, clear any previous error
+            if self.permission_error is not None:
+                logger.info("Backup directory permissions are now OK")
+            self.permission_error = None
+        except PermissionError as e:
+            error_msg = (
+                f"Backup directory '{self.backup_dir}' is not writable. "
+                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
+            )
+            if self.permission_error != error_msg:
+                logger.error(error_msg)
+            self.permission_error = error_msg
+        except Exception as e:
+            error_msg = f"Error checking backup directory permissions: {str(e)}"
+            if self.permission_error != error_msg:
+                logger.error(error_msg)
+            self.permission_error = error_msg
         
         # Check if scheduler is actually running by checking lock file and process
         is_running = False

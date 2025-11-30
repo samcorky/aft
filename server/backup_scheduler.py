@@ -45,27 +45,44 @@ class BackupScheduler:
         self.backup_dir = Path("/app/backups")
         self.lock_file = Path("/tmp/aft_backup_scheduler.lock")
         self.permission_error = None  # Stores permission error message if directory not writable
+        self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
+        self.permission_check_ttl = 30  # Cache permission check for 30 seconds
     
-    def _check_backup_directory_permissions(self) -> tuple[bool, Optional[str]]:
+    def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
         """Check if backup directory is writable.
         
+        Args:
+            force_check: If True, bypass cache and always perform check.
+            
         Returns:
             Tuple of (is_writable, error_message). error_message is None if writable.
         """
+        # Use cached result if within TTL and not forcing check
+        now = datetime.now()
+        if not force_check and self.last_permission_check is not None:
+            elapsed = (now - self.last_permission_check).total_seconds()
+            if elapsed < self.permission_check_ttl:
+                # Return cached result
+                return (self.permission_error is None, self.permission_error)
+        
+        # Perform actual permission check
         try:
             self.backup_dir.mkdir(parents=True, exist_ok=True)
             test_file = self.backup_dir / ".write_test"
             test_file.touch()
             test_file.unlink()
+            self.last_permission_check = now
             return True, None
-        except PermissionError as e:
+        except PermissionError:
             error_msg = (
                 f"Backup directory '{self.backup_dir}' is not writable. "
                 f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
             )
+            self.last_permission_check = now
             return False, error_msg
         except Exception as e:
             error_msg = f"Error checking backup directory permissions: {str(e)}"
+            self.last_permission_check = now
             return False, error_msg
         
     def start(self):
@@ -104,8 +121,8 @@ class BackupScheduler:
             logger.error(f"Error creating scheduler lock file: {str(e)}")
             return
         
-        # Check if backup directory is writable
-        is_writable, error_msg = self._check_backup_directory_permissions()
+        # Check if backup directory is writable (force check on startup)
+        is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
         if not is_writable:
             logger.error(error_msg)
             self.permission_error = error_msg
@@ -523,8 +540,8 @@ class BackupScheduler:
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
-                # Recheck permissions periodically to detect if they've been fixed or broken
-                is_writable, error_msg = self._check_backup_directory_permissions()
+                # Recheck permissions periodically to detect if they've been fixed or broken (force check)
+                is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
                 if not is_writable:
                     if self.permission_error != error_msg:
                         logger.error(error_msg)
@@ -576,8 +593,8 @@ class BackupScheduler:
         freq_unit = settings.get("backup_frequency_unit", "days")
         retention = settings.get("backup_retention_count", 7)
         
-        # Check permissions EVERY time status is requested
-        is_writable, error_msg = self._check_backup_directory_permissions()
+        # Check permissions with caching (uses TTL to avoid expensive file ops on frequent polling)
+        is_writable, error_msg = self._check_backup_directory_permissions(force_check=False)
         if not is_writable:
             if self.permission_error != error_msg:
                 logger.error(error_msg)

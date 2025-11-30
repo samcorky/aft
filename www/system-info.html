@@ -130,10 +130,10 @@
   </div>
 
   <!-- Delete Confirmation Modal -->
-  <div class="modal" id="delete-modal">
+  <div class="modal" id="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-warning">
     <div class="modal-content">
-      <h2>⚠️ Delete Database</h2>
-      <p class="modal-warning">
+      <h2 id="delete-modal-title">⚠️ Delete Database</h2>
+      <p id="delete-modal-warning" class="modal-warning">
         This will permanently delete all of your data including all boards, columns, and cards.
         This action cannot be undone!
       </p>

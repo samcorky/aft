@@ -657,16 +657,12 @@ def restore_database():
         db.close()
 
         # Check version compatibility
-        if backup_version > current_version:
-            os.unlink(temp_path)
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "message": f"Backup is from a newer database version ({backup_version}). Please update the application to at least database version {backup_version} before restoring.",
-                    }
-                ),
-                400,
+        # Note: Alembic versions are revision IDs, not semantic versions
+        # We can only reliably check equality; different versions require migration
+        if backup_version != current_version:
+            logger.warning(
+                f"Backup version ({backup_version}) differs from current version ({current_version}). "
+                "Will attempt to restore and upgrade."
             )
 
         # Get database credentials
@@ -718,10 +714,10 @@ def restore_database():
         if result.returncode != 0:
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
-        # If backup version is older than current, run migrations to upgrade
-        if backup_version < current_version:
+        # If backup version differs from current, run migrations to upgrade
+        if backup_version != current_version:
             logger.info(
-                f"Upgrading database from {backup_version} to {current_version}"
+                f"Migrating database from {backup_version} to {current_version}"
             )
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
@@ -878,11 +874,13 @@ def restore_automatic_backup(filename):
         db.close()
         
         # Check version compatibility
-        if backup_version > current_version:
-            return jsonify({
-                "success": False,
-                "message": f"Backup is from a newer database version ({backup_version}). Please update the application first."
-            }), 400
+        # Note: Alembic versions are revision IDs, not semantic versions
+        # We can only reliably check equality; different versions require migration
+        if backup_version != current_version:
+            logger.warning(
+                f"Backup version ({backup_version}) differs from current version ({current_version}). "
+                "Will attempt to restore and upgrade."
+            )
         
         # Get database credentials
         db_user = os.environ.get("MYSQL_USER")
@@ -927,8 +925,8 @@ def restore_automatic_backup(filename):
             raise Exception(f"MySQL restore failed: {result.stderr}")
         
         # Run migrations if needed
-        if backup_version < current_version:
-            logger.info(f"Upgrading database from {backup_version} to {current_version}")
+        if backup_version != current_version:
+            logger.info(f"Migrating database from {backup_version} to {current_version}")
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 cwd="/app",

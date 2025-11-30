@@ -45,6 +45,28 @@ class BackupScheduler:
         self.backup_dir = Path("/app/backups")
         self.lock_file = Path("/tmp/aft_backup_scheduler.lock")
         self.permission_error = None  # Stores permission error message if directory not writable
+    
+    def _check_backup_directory_permissions(self) -> tuple[bool, Optional[str]]:
+        """Check if backup directory is writable.
+        
+        Returns:
+            Tuple of (is_writable, error_message). error_message is None if writable.
+        """
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            return True, None
+        except PermissionError as e:
+            error_msg = (
+                f"Backup directory '{self.backup_dir}' is not writable. "
+                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
+            )
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Error checking backup directory permissions: {str(e)}"
+            return False, error_msg
         
     def start(self):
         """Start the backup scheduler thread."""
@@ -83,18 +105,8 @@ class BackupScheduler:
             return
         
         # Check if backup directory is writable
-        try:
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
-            # Test write permissions
-            test_file = self.backup_dir / ".write_test"
-            test_file.touch()
-            test_file.unlink()
-            self.permission_error = None
-        except PermissionError as e:
-            error_msg = (
-                f"Backup directory '{self.backup_dir}' is not writable. "
-                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
-            )
+        is_writable, error_msg = self._check_backup_directory_permissions()
+        if not is_writable:
             logger.error(error_msg)
             self.permission_error = error_msg
             # Clean up lock file before returning
@@ -102,14 +114,7 @@ class BackupScheduler:
                 self.lock_file.unlink()
             # Don't start scheduler if we can't write backups
             return
-        except Exception as e:
-            error_msg = f"Error checking backup directory permissions: {str(e)}"
-            logger.error(error_msg)
-            self.permission_error = error_msg
-            # Clean up lock file before returning
-            if self.lock_file.exists():
-                self.lock_file.unlink()
-            return
+        self.permission_error = None
         
         # Validate settings on startup
         try:
@@ -519,33 +524,19 @@ class BackupScheduler:
             logger.info("Backup scheduler loop iteration starting")
             try:
                 # Recheck permissions periodically to detect if they've been fixed or broken
-                try:
-                    self.backup_dir.mkdir(parents=True, exist_ok=True)
-                    test_file = self.backup_dir / ".write_test"
-                    test_file.touch()
-                    test_file.unlink()
-                    # Permissions are OK, clear any previous error
-                    if self.permission_error is not None:
-                        logger.info("Backup directory permissions have been fixed")
-                    self.permission_error = None
-                except PermissionError as e:
-                    error_msg = (
-                        f"Backup directory '{self.backup_dir}' is not writable. "
-                        f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
-                    )
+                is_writable, error_msg = self._check_backup_directory_permissions()
+                if not is_writable:
                     if self.permission_error != error_msg:
                         logger.error(error_msg)
                     self.permission_error = error_msg
                     # Skip backup if we can't write
                     time.sleep(60)
                     continue
-                except Exception as e:
-                    error_msg = f"Error checking backup directory permissions: {str(e)}"
-                    if self.permission_error != error_msg:
-                        logger.error(error_msg)
-                    self.permission_error = error_msg
-                    time.sleep(60)
-                    continue
+                
+                # Permissions are OK, clear any previous error
+                if self.permission_error is not None:
+                    logger.info("Backup directory permissions have been fixed")
+                self.permission_error = None
                 
                 settings = self._get_settings()
                 
@@ -586,28 +577,16 @@ class BackupScheduler:
         retention = settings.get("backup_retention_count", 7)
         
         # Check permissions EVERY time status is requested
-        try:
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
-            test_file = self.backup_dir / ".write_test"
-            test_file.touch()
-            test_file.unlink()
+        is_writable, error_msg = self._check_backup_directory_permissions()
+        if not is_writable:
+            if self.permission_error != error_msg:
+                logger.error(error_msg)
+            self.permission_error = error_msg
+        else:
             # Permissions are OK, clear any previous error
             if self.permission_error is not None:
                 logger.info("Backup directory permissions are now OK, clearing error")
             self.permission_error = None
-        except PermissionError as e:
-            error_msg = (
-                f"Backup directory '{self.backup_dir}' is not writable. "
-                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
-            )
-            if self.permission_error != error_msg:
-                logger.error(f"{error_msg} (Error: {e})")
-            self.permission_error = error_msg
-        except Exception as e:
-            error_msg = f"Error checking backup directory permissions: {str(e)}"
-            if self.permission_error != error_msg:
-                logger.error(error_msg)
-            self.permission_error = error_msg
         
         # Check if scheduler is actually running by checking lock file and process
         is_running = False

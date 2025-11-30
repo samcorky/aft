@@ -236,16 +236,51 @@ def validate_backup_file_security(file_path):
 
     try:
         line_num = 0
+        in_multiline_comment = False
+        
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 line_num += 1
-                # Skip comment lines
-                if line.strip().startswith('--') or line.strip().startswith('/*'):
+                stripped = line.strip()
+                
+                # Handle multi-line comment state
+                if in_multiline_comment:
+                    # Check if multi-line comment ends on this line
+                    if '*/' in line:
+                        in_multiline_comment = False
+                        # Check content after the closing */ if any
+                        after_comment = line.split('*/', 1)[1].strip()
+                        if not after_comment or after_comment.startswith('--'):
+                            continue
+                        # Continue to check the rest of the line
+                        stripped = after_comment
+                    else:
+                        # Still inside multi-line comment, skip entire line
+                        continue
+                
+                # Check if multi-line comment starts on this line
+                if '/*' in stripped:
+                    # Get content before the comment
+                    before_comment = stripped.split('/*', 1)[0].strip()
+                    
+                    # Check if comment closes on same line
+                    if '*/' in line:
+                        # Extract any content after the closing */
+                        after_comment = line.split('*/', 1)[1].strip()
+                        # Only check non-comment parts
+                        stripped = before_comment + ' ' + after_comment
+                    else:
+                        # Multi-line comment starts but doesn't end
+                        in_multiline_comment = True
+                        stripped = before_comment
+                
+                # Skip single-line comments and empty lines
+                if not stripped or stripped.startswith('--'):
                     continue
 
                 # Check each dangerous pattern
                 for pattern, description in dangerous_patterns:
-                    if re.search(pattern, line, re.IGNORECASE):
+                    if re.search(pattern, stripped, re.IGNORECASE):
                         return (
                             False,
                             f"Dangerous SQL pattern detected on line {line_num}: {description}"

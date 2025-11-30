@@ -660,6 +660,198 @@ def restore_database():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/database/backups/list", methods=["GET"])
+def list_automatic_backups():
+    """List all available automatic backup files.
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: List of available backups
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            backups:
+              type: array
+              items:
+                type: object
+                properties:
+                  filename:
+                    type: string
+                  created:
+                    type: string
+                  size:
+                    type: integer
+      500:
+        description: Failed to list backups
+    """
+    try:
+        from pathlib import Path
+        from datetime import datetime
+        
+        backup_dir = Path("/app/backups")
+        
+        if not backup_dir.exists():
+            return jsonify({"success": True, "backups": []})
+        
+        backups = []
+        for backup_file in sorted(backup_dir.glob("auto_backup_*.sql"), reverse=True):
+            stat = backup_file.stat()
+            backups.append({
+                "filename": backup_file.name,
+                "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "size": stat.st_size
+            })
+        
+        return jsonify({"success": True, "backups": backups})
+        
+    except Exception as e:
+        logger.error(f"Error listing backups: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backups/restore/<filename>", methods=["POST"])
+def restore_automatic_backup(filename):
+    """Restore from a specific automatic backup file.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: The backup filename to restore from
+    responses:
+      200:
+        description: Database restored successfully
+      400:
+        description: Invalid backup file
+      404:
+        description: Backup file not found
+      500:
+        description: Failed to restore backup
+    """
+    try:
+        from pathlib import Path
+        import re
+        import os
+        import subprocess
+        
+        # Validate filename to prevent path traversal
+        if not re.match(r'^auto_backup_\d{8}_\d{6}\.sql$', filename):
+            return jsonify({"success": False, "message": "Invalid backup filename"}), 400
+        
+        backup_dir = Path("/app/backups")
+        backup_path = backup_dir / filename
+        
+        if not backup_path.exists():
+            return jsonify({"success": False, "message": "Backup file not found"}), 404
+        
+        # Read and validate the backup file
+        with open(backup_path, 'r') as f:
+            content = f.read(10000)  # Read first 10KB to find version
+            
+        # Extract Alembic version from backup
+        import re
+        version_match = re.search(r"-- Alembic Version: (\S+)", content)
+        if not version_match:
+            return jsonify({
+                "success": False,
+                "message": "Invalid backup file: No Alembic version found"
+            }), 400
+            
+        backup_version = version_match.group(1)
+        
+        # Get current Alembic version
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        current_version = row[0] if row else "unknown"
+        db.close()
+        
+        # Check version compatibility
+        if backup_version > current_version:
+            return jsonify({
+                "success": False,
+                "message": f"Backup is from a newer database version ({backup_version}). Please update the application first."
+            }), 400
+        
+        # Get database credentials
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_host = "db"
+        
+        # Drop all existing tables
+        db = SessionLocal()
+        from sqlalchemy import MetaData
+        
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        metadata.drop_all(bind=engine)
+        
+        # Drop alembic_version table
+        try:
+            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Could not drop alembic_version table: {e}")
+        finally:
+            db.close()
+        
+        # Restore from backup file
+        mysql_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            db_name,
+        ]
+        
+        with open(backup_path, 'r') as f:
+            result = subprocess.run(
+                mysql_cmd, stdin=f, stderr=subprocess.PIPE, text=True
+            )
+        
+        if result.returncode != 0:
+            raise Exception(f"MySQL restore failed: {result.stderr}")
+        
+        # Run migrations if needed
+        if backup_version < current_version:
+            logger.info(f"Upgrading database from {backup_version} to {current_version}")
+            upgrade_result = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                cwd="/app",
+                capture_output=True,
+                text=True,
+            )
+            
+            if upgrade_result.returncode != 0:
+                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+            
+            logger.info("Database restored and upgraded successfully")
+            return jsonify({
+                "success": True,
+                "message": f"Database restored from {filename} and upgraded to version {current_version}"
+            })
+        else:
+            logger.info(f"Database restored successfully from {filename}")
+            return jsonify({
+                "success": True,
+                "message": f"Database restored successfully from {filename}"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error restoring from automatic backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/database", methods=["DELETE"])
 def delete_database():
     """Delete all data from the database.

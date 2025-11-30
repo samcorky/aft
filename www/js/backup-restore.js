@@ -23,11 +23,18 @@ class BackupRestore {
     this.backupWindowStatus = document.getElementById('backupWindowStatus');
     this.saveBackupButton = document.getElementById('saveBackupButton');
     this.resetBackupButton = document.getElementById('resetBackupButton');
+    
+    // Available backups elements
+    this.backupsLoading = document.getElementById('backupsLoading');
+    this.backupsEmpty = document.getElementById('backupsEmpty');
+    this.backupsList = document.getElementById('backupsList');
+    this.restoreStatus = document.getElementById('restoreStatus');
   }
 
   async init() {
     await this.loadBackupConfig();
     await this.loadBackupStatus();
+    await this.loadAvailableBackups();
     this.attachEventListeners();
   }
 
@@ -331,6 +338,196 @@ class BackupRestore {
       this.schedulerStatus.textContent = 'Error';
       this.schedulerStatus.className = 'status-badge';
     }
+  }
+
+  async loadAvailableBackups() {
+    try {
+      this.backupsLoading.style.display = 'block';
+      this.backupsEmpty.style.display = 'none';
+      this.backupsList.style.display = 'none';
+      
+      const response = await fetch('/api/database/backups/list');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (data.success && data.backups) {
+        this.backupsLoading.style.display = 'none';
+        
+        if (data.backups.length === 0) {
+          this.backupsEmpty.style.display = 'block';
+        } else {
+          this.backupsList.style.display = 'flex';
+          this.renderBackupsList(data.backups);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading available backups:', err);
+      this.backupsLoading.textContent = 'Error loading backups';
+    }
+  }
+
+  renderBackupsList(backups) {
+    this.backupsList.innerHTML = '';
+    
+    backups.forEach(backup => {
+      const backupItem = document.createElement('div');
+      backupItem.className = 'backup-item';
+      
+      // Format date
+      const date = new Date(backup.created);
+      const formattedDate = date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+      
+      // Format size
+      const size = backup.size;
+      let formattedSize;
+      if (size < 1024) {
+        formattedSize = `${size} B`;
+      } else if (size < 1024 * 1024) {
+        formattedSize = `${(size / 1024).toFixed(2)} KB`;
+      } else {
+        formattedSize = `${(size / (1024 * 1024)).toFixed(2)} MB`;
+      }
+      
+      backupItem.innerHTML = `
+        <div class="backup-info">
+          <div class="backup-filename">${backup.filename}</div>
+          <div class="backup-date">${formattedDate}</div>
+        </div>
+        <div class="backup-size">${formattedSize}</div>
+        <button class="backup-restore-btn" data-filename="${backup.filename}">
+          Restore
+        </button>
+      `;
+      
+      const restoreBtn = backupItem.querySelector('.backup-restore-btn');
+      restoreBtn.addEventListener('click', () => {
+        this.restoreFromAutoBackup(backup.filename);
+      });
+      
+      this.backupsList.appendChild(backupItem);
+    });
+  }
+
+  async restoreFromAutoBackup(filename) {
+    // Show confirmation modal
+    this.showRestoreConfirmModal(filename);
+  }
+
+  showRestoreConfirmModal(filename) {
+    const modal = document.getElementById('restoreModal');
+    const titleElement = document.getElementById('restoreModalTitle');
+    const messageElement = document.getElementById('restoreModalMessage');
+    const confirmBtn = document.getElementById('restoreModalConfirmBtn');
+    const cancelBtn = document.getElementById('restoreModalCancelBtn');
+
+    // Set confirmation content
+    titleElement.textContent = 'Confirm Restore';
+    titleElement.style.color = 'var(--warning-color, #f59e0b)';
+    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${filename}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
+    
+    confirmBtn.textContent = 'Restore';
+    confirmBtn.style.display = 'inline-block';
+    cancelBtn.style.display = 'inline-block';
+
+    modal.classList.add('active');
+
+    // Handle cancel
+    const handleCancel = () => {
+      modal.classList.remove('active');
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+    };
+
+    // Handle confirm
+    const handleConfirm = async () => {
+      // Remove event listeners
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+      
+      // Update modal to show progress
+      titleElement.textContent = 'Restoring Database';
+      titleElement.style.color = 'var(--primary-color)';
+      messageElement.textContent = 'Restoring database... This may take a minute.';
+      confirmBtn.style.display = 'none';
+      cancelBtn.style.display = 'none';
+
+      // Disable all restore buttons
+      const restoreButtons = document.querySelectorAll('.backup-restore-btn');
+      restoreButtons.forEach(btn => btn.disabled = true);
+
+      try {
+        const response = await fetch(`/api/database/backups/restore/${filename}`, {
+          method: 'POST'
+        });
+
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Show success in modal
+          this.showRestoreResultInModal('Restore Successful', data.message, true);
+        } else {
+          // Show error in modal and re-enable buttons
+          this.showRestoreResultInModal('Restore Failed', data.message, false);
+          restoreButtons.forEach(btn => btn.disabled = false);
+        }
+
+      } catch (error) {
+        console.error('Error restoring from automatic backup:', error);
+        
+        // Show error in modal
+        this.showRestoreResultInModal('Restore Failed', error.message, false);
+        
+        // Re-enable buttons on error
+        restoreButtons.forEach(btn => btn.disabled = false);
+      }
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm);
+    cancelBtn.addEventListener('click', handleCancel);
+  }
+
+  showRestoreResultInModal(title, message, success) {
+    const modal = document.getElementById('restoreModal');
+    const titleElement = document.getElementById('restoreModalTitle');
+    const messageElement = document.getElementById('restoreModalMessage');
+    const confirmBtn = document.getElementById('restoreModalConfirmBtn');
+    const cancelBtn = document.getElementById('restoreModalCancelBtn');
+
+    titleElement.textContent = title;
+    titleElement.style.color = success ? 'var(--success-color)' : 'var(--error-color)';
+    messageElement.textContent = message;
+
+    confirmBtn.textContent = 'OK';
+    confirmBtn.style.display = 'inline-block';
+    cancelBtn.style.display = 'none';
+
+    // OK button handler
+    const handleOk = () => {
+      modal.classList.remove('active');
+      confirmBtn.removeEventListener('click', handleOk);
+      
+      // Reload page after successful restore
+      if (success) {
+        window.location.reload();
+      }
+    };
+
+    confirmBtn.addEventListener('click', handleOk);
   }
 
   showStatus(message, type = 'info') {

@@ -120,11 +120,41 @@
         </form>
       </div>
 
+      <!-- Available Backups Section -->
+      <div class="settings-section">
+        <h3>📋 Available Automatic Backups</h3>
+        <p class="setting-help">Restore from any of the automatic backups listed below.</p>
+        
+        <div id="backupsListContainer">
+          <div id="backupsLoading" class="backups-loading">Loading backups...</div>
+          <div id="backupsEmpty" class="backups-empty" style="display: none;">No automatic backups available</div>
+          <div id="backupsList" class="backups-list" style="display: none;"></div>
+        </div>
+        
+        <div id="restoreStatus" class="backup-status"></div>
+      </div>
+
       <div class="settings-actions">
         <div id="settings-status" class="settings-status"></div>
       </div>
     </div>
   </main>
+
+  <!-- Restore Modal -->
+  <div id="restoreModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="restoreModalTitle"></h2>
+      </div>
+      <div class="modal-body">
+        <p id="restoreModalMessage"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="restoreModalCancelBtn" style="display: none;">Cancel</button>
+        <button class="btn btn-primary" id="restoreModalConfirmBtn"></button>
+      </div>
+    </div>
+  </div>
 
   <script src="/js/header.js"></script>
   <script src="/js/backup-restore.js"></script>

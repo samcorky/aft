@@ -32,6 +32,13 @@ class BackupRestore {
     this.restoreStatus = document.getElementById('restoreStatus');
   }
 
+  // Helper function to escape HTML and prevent XSS
+  escapeHtml(unsafe) {
+    const div = document.createElement('div');
+    div.textContent = unsafe;
+    return div.innerHTML;
+  }
+
   async init() {
     await this.loadBackupConfig();
     await this.loadBackupStatus();
@@ -187,7 +194,7 @@ class BackupRestore {
     // Set confirmation content
     titleElement.textContent = 'Confirm Restore';
     titleElement.style.color = 'var(--warning-color, #f59e0b)';
-    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${file.name}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
+    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${this.escapeHtml(filename)}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
     
     confirmBtn.textContent = 'Restore';
     confirmBtn.style.display = 'inline-block';
@@ -474,7 +481,7 @@ class BackupRestore {
       }
       
       // Create filename with badge if manual
-      let filenameHtml = backup.filename;
+      let filenameHtml = this.escapeHtml(backup.filename);
       if (backup.is_manual) {
         filenameHtml += ' <span class="backup-manual-badge">Manual</span>';
       }
@@ -486,10 +493,10 @@ class BackupRestore {
         </div>
         <div class="backup-size">${formattedSize}</div>
         <div class="backup-actions">
-          <button class="backup-restore-btn" data-filename="${backup.filename}">
+          <button class="backup-restore-btn" data-filename="${this.escapeHtml(backup.filename)}">
             Restore
           </button>
-          <button class="backup-delete-btn" data-filename="${backup.filename}">
+          <button class="backup-delete-btn" data-filename="${this.escapeHtml(backup.filename)}">
             Delete
           </button>
         </div>
@@ -524,7 +531,7 @@ class BackupRestore {
     // Set confirmation content
     titleElement.textContent = 'Confirm Restore';
     titleElement.style.color = 'var(--warning-color, #f59e0b)';
-    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${filename}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
+    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${this.escapeHtml(filename)}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
     
     confirmBtn.textContent = 'Restore';
     confirmBtn.style.display = 'inline-block';
@@ -633,7 +640,7 @@ class BackupRestore {
     // Set confirmation content
     titleElement.textContent = 'Confirm Delete';
     titleElement.style.color = 'var(--error-color)';
-    messageElement.innerHTML = `Are you sure you want to delete <strong>"${filename}"</strong>?<br><br>This action cannot be undone.`;
+    messageElement.innerHTML = `Are you sure you want to delete <strong>"${this.escapeHtml(filename)}"</strong>?<br><br>This action cannot be undone.`;
     
     confirmBtn.textContent = 'Delete';
     confirmBtn.style.display = 'inline-block';

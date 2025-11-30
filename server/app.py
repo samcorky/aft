@@ -328,7 +328,8 @@ def validate_schema_integrity(file_path, expected_tables=None):
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             for line in f:
                 # Look for CREATE TABLE statements
-                match = re.match(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?', line, re.IGNORECASE)
+                # Pattern matches: CREATE TABLE [IF NOT EXISTS] [`tablename`] or "tablename" or tablename
+                match = re.match(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?([^`"\s(]+)[`"]?', line, re.IGNORECASE)
                 if match:
                     table_name = match.group(1)
                     found_tables.add(table_name)

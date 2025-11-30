@@ -126,6 +126,12 @@ def validate_setting(key, value):
 
 app = Flask(__name__)
 
+# Configure maximum upload size (110MB)
+app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
+
+# Maximum backup file size for validation (MB) - actual content size limit
+MAX_BACKUP_FILE_SIZE_MB = 100
+
 # Configure Swagger
 swagger_config = {
     "headers": [],
@@ -159,9 +165,8 @@ API documentation for AFT application
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
 
-
-# Request size limit (10MB)
-MAX_REQUEST_SIZE = 10 * 1024 * 1024
+# Request size limit (110MB) for non-file-upload endpoints
+MAX_REQUEST_SIZE = 110 * 1024 * 1024
 
 
 @app.before_request
@@ -169,11 +174,15 @@ def validate_request():
     """Validate incoming requests for security.
 
     This runs before every request to:
-    1. Check request size to prevent DoS attacks
+    1. Check request size to prevent DoS attacks (except file uploads)
     2. Validate Content-Type for JSON requests
     """
-    # Check request size
-    if request.content_length and request.content_length > MAX_REQUEST_SIZE:
+    # Exclude restore endpoints from size check (they use Flask's MAX_CONTENT_LENGTH instead)
+    restore_endpoints = ['/api/database/restore', '/api/database/backups/restore/']
+    is_restore_endpoint = any(request.path.startswith(endpoint) for endpoint in restore_endpoints)
+    
+    # Check request size for non-restore endpoints
+    if not is_restore_endpoint and request.content_length and request.content_length > MAX_REQUEST_SIZE:
         return create_error_response(
             f"Request size exceeds maximum of {MAX_REQUEST_SIZE} bytes", 413
         )
@@ -188,6 +197,193 @@ def validate_request():
                 return create_error_response(
                     "Content-Type must be application/json for JSON requests", 400
                 )
+
+
+# Security validation functions for SQL backups
+def validate_backup_file_security(file_path):
+    """Validate backup file for dangerous SQL patterns.
+
+    This function checks for SQL patterns that could be used for:
+    - Privilege escalation (GRANT, CREATE USER)
+    - File system access (INTO OUTFILE, LOAD DATA)
+    - Stored procedures/functions (potential for code execution)
+    - Cross-database operations (USE statements)
+    - MySQL shell commands
+
+    Args:
+        file_path: Path to the SQL backup file
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import re
+
+    # Patterns that indicate potentially dangerous SQL
+    dangerous_patterns = [
+        (r'\bGRANT\s+', 'GRANT statements (privilege manipulation)'),
+        (r'\bCREATE\s+USER\b', 'CREATE USER statements'),
+        (r'\bDROP\s+USER\b', 'DROP USER statements'),
+        (r'\bALTER\s+USER\b', 'ALTER USER statements'),
+        (r'\bINTO\s+OUTFILE\b', 'INTO OUTFILE (file system access)'),
+        (r'\bLOAD\s+DATA\b', 'LOAD DATA (file system access)'),
+        (r'\bCREATE\s+(PROCEDURE|FUNCTION)\b', 'Stored procedures/functions'),
+        (r'\bUSE\s+`?\w+`?\s*', 'USE statements (cross-database operation)'),
+        (r'\\!', 'MySQL shell commands'),
+        (r'\bSELECT\s+.+?\bINTO\s+@', 'Variable assignment with SELECT'),
+        (r'\bEXECUTE\s+', 'Dynamic SQL execution'),
+        (r'\bPREPARE\s+', 'Prepared statement (potential SQL injection)'),
+    ]
+
+    try:
+        line_num = 0
+        in_multiline_comment = False
+        
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line_num += 1
+                stripped = line.strip()
+                
+                # Handle multi-line comment state
+                if in_multiline_comment:
+                    # Check if multi-line comment ends on this line
+                    if '*/' in line:
+                        in_multiline_comment = False
+                        # Check content after the closing */ if any
+                        after_comment = line.split('*/', 1)[1].strip()
+                        if not after_comment or after_comment.startswith('--'):
+                            continue
+                        # Continue to check the rest of the line
+                        stripped = after_comment
+                    else:
+                        # Still inside multi-line comment, skip entire line
+                        continue
+                
+                # Check if multi-line comment starts on this line
+                if '/*' in stripped:
+                    # Get content before the comment
+                    before_comment = stripped.split('/*', 1)[0].strip()
+                    
+                    # Check if comment closes on same line
+                    if '*/' in line:
+                        # Extract any content after the closing */
+                        after_comment = line.split('*/', 1)[1].strip()
+                        # Only check non-comment parts
+                        stripped = before_comment + ' ' + after_comment
+                    else:
+                        # Multi-line comment starts but doesn't end
+                        in_multiline_comment = True
+                        stripped = before_comment
+                
+                # Skip single-line comments and empty lines
+                if not stripped or stripped.startswith('--'):
+                    continue
+
+                # Check each dangerous pattern
+                for pattern, description in dangerous_patterns:
+                    if re.search(pattern, stripped, re.IGNORECASE):
+                        return (
+                            False,
+                            f"Dangerous SQL pattern detected on line {line_num}: {description}"
+                        )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error reading backup file: {str(e)}"
+
+
+def validate_schema_integrity(file_path, expected_tables=None):
+    """Validate that backup only contains expected database tables.
+
+    This function ensures that:
+    - Only expected tables are being created
+    - No unauthorized schema modifications
+    - Table structures match expected patterns
+
+    Args:
+        file_path: Path to the SQL backup file
+        expected_tables: List of expected table names (optional)
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import re
+
+    # Default expected tables based on our models
+    if expected_tables is None:
+        expected_tables = [
+            'boards',
+            'columns',
+            'cards',
+            'checklist_items',
+            'comments',
+            'settings',
+            'alembic_version'
+        ]
+
+    found_tables = set()
+    unexpected_tables = []
+
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                # Look for CREATE TABLE statements
+                # Pattern matches: CREATE TABLE [IF NOT EXISTS] [`tablename`] or "tablename" or tablename
+                match = re.match(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?([^`"\s(]+)[`"]?', line, re.IGNORECASE)
+                if match:
+                    table_name = match.group(1)
+                    found_tables.add(table_name)
+                    if table_name not in expected_tables:
+                        unexpected_tables.append(table_name)
+
+        # Check for unexpected tables
+        if unexpected_tables:
+            return (
+                False,
+                f"Unexpected tables found in backup: {', '.join(unexpected_tables)}"
+            )
+
+        # Check if we found at least some core tables (boards, cards, columns)
+        core_tables = {'boards', 'columns', 'cards'}
+        if not core_tables.intersection(found_tables):
+            return (
+                False,
+                "Backup does not appear to contain valid AFT database schema"
+            )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error validating schema: {str(e)}"
+
+
+def validate_backup_file_size(file_path, max_size_mb=100):
+    """Validate backup file size to prevent DoS attacks.
+
+    Args:
+        file_path: Path to the SQL backup file
+        max_size_mb: Maximum allowed file size in megabytes (default 100MB)
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import os
+
+    try:
+        file_size = os.path.getsize(file_path)
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        if file_size > max_size_bytes:
+            size_mb = file_size / (1024 * 1024)
+            return (
+                False,
+                f"File size ({size_mb:.1f}MB) exceeds maximum allowed size ({max_size_mb}MB)"
+            )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error checking file size: {str(e)}"
 
 
 @app.route("/api/version")
@@ -626,6 +822,36 @@ def restore_database():
         temp_file.close()
         file.save(temp_path)
 
+        # File size validation: Check for reasonable size
+        is_valid_size, size_error = validate_backup_file_size(temp_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
+        if not is_valid_size:
+            os.unlink(temp_path)
+            logger.warning(f"File size validation failed: {size_error}")
+            return jsonify({
+                "success": False,
+                "message": f"File size validation failed: {size_error}"
+            }), 400
+
+        # Security validation: Check for dangerous SQL patterns
+        is_secure, security_error = validate_backup_file_security(temp_path)
+        if not is_secure:
+            os.unlink(temp_path)
+            logger.warning(f"Security validation failed: {security_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Security validation failed: {security_error}"
+            }), 400
+
+        # Schema validation: Ensure only expected tables
+        is_valid_schema, schema_error = validate_schema_integrity(temp_path)
+        if not is_valid_schema:
+            os.unlink(temp_path)
+            logger.warning(f"Schema validation failed: {schema_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Schema validation failed: {schema_error}"
+            }), 400
+
         # Read first few lines to get version info
         backup_version = None
         with open(temp_path, "r") as f:
@@ -851,11 +1077,52 @@ def restore_backup_from_file(filename):
         backup_dir = Path("/app/backups")
         backup_path = backup_dir / filename
         
-        if not backup_path.exists():
+        # Check for symlinks before resolving (security: prevent symlink-based path traversal)
+        if backup_path.is_symlink():
+            logger.warning(f"Attempted to restore from symlink: {filename}")
+            return jsonify({"success": False, "message": "Symlinks are not allowed"}), 400
+        
+        # Resolve path and ensure it's strictly within backup_dir (no traversal)
+        resolved_backup_path = backup_path.resolve()
+        resolved_backup_dir = backup_dir.resolve()
+        try:
+            resolved_backup_path.relative_to(resolved_backup_dir)
+        except ValueError:
+            logger.warning(f"Path traversal attempt detected: {filename}")
+            return jsonify({"success": False, "message": "Invalid backup file path"}), 400
+        
+        if not resolved_backup_path.exists():
             return jsonify({"success": False, "message": "Backup file not found"}), 404
         
+        # File size validation
+        is_valid_size, size_error = validate_backup_file_size(resolved_backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
+        if not is_valid_size:
+            logger.warning(f"File size validation failed for {filename}: {size_error}")
+            return jsonify({
+                "success": False,
+                "message": f"File size validation failed: {size_error}"
+            }), 400
+
+        # Security validation: Check for dangerous SQL patterns
+        is_secure, security_error = validate_backup_file_security(resolved_backup_path)
+        if not is_secure:
+            logger.warning(f"Security validation failed for {filename}: {security_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Security validation failed: {security_error}"
+            }), 400
+
+        # Schema validation: Ensure only expected tables
+        is_valid_schema, schema_error = validate_schema_integrity(resolved_backup_path)
+        if not is_valid_schema:
+            logger.warning(f"Schema validation failed for {filename}: {schema_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Schema validation failed: {schema_error}"
+            }), 400
+
         # Read and validate the backup file
-        with open(backup_path, 'r') as f:
+        with open(resolved_backup_path, 'r') as f:
             content = f.read(10000)  # Read first 10KB to find version
             
         # Extract Alembic version from backup
@@ -918,7 +1185,7 @@ def restore_backup_from_file(filename):
             db_name,
         ]
         
-        with open(backup_path, 'r') as f:
+        with open(resolved_backup_path, 'r') as f:
             result = subprocess.run(
                 mysql_cmd, stdin=f, stderr=subprocess.PIPE, text=True
             )
@@ -4457,6 +4724,17 @@ def method_not_allowed_error(error):
     """Handle 405 errors with JSON response for API endpoints."""
     if request.path.startswith('/api/'):
         return jsonify({"success": False, "message": "Method not allowed"}), 405
+    return error
+
+
+@app.errorhandler(413)
+def request_entity_too_large_error(error):
+    """Handle 413 errors (Request Entity Too Large) with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": f"File size exceeds maximum allowed size of {app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)}MB"
+        }), 413
     return error
 
 

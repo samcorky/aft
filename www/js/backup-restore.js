@@ -131,61 +131,90 @@ class BackupRestore {
   }
 
   async restoreFromFile(file) {
-    try {
-      // Confirm restore action
-      const confirmed = confirm(
-        `Are you sure you want to restore from "${file.name}"?\n\n` +
-        'This will replace all current data with the backup. This action cannot be undone.'
-      );
+    // Show confirmation modal
+    this.showManualRestoreConfirmModal(file);
+  }
 
-      if (!confirmed) {
-        this.restoreFileInput.value = '';
-        return;
-      }
+  showManualRestoreConfirmModal(file) {
+    const modal = document.getElementById('restoreModal');
+    const titleElement = document.getElementById('restoreModalTitle');
+    const messageElement = document.getElementById('restoreModalMessage');
+    const confirmBtn = document.getElementById('restoreModalConfirmBtn');
+    const cancelBtn = document.getElementById('restoreModalCancelBtn');
 
-      this.backupStatus.textContent = 'Restoring database... This may take a minute.';
-      this.backupStatus.className = 'backup-status info';
+    // Set confirmation content
+    titleElement.textContent = 'Confirm Restore';
+    titleElement.style.color = 'var(--warning-color, #f59e0b)';
+    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${file.name}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
+    
+    confirmBtn.textContent = 'Restore';
+    confirmBtn.style.display = 'inline-block';
+    cancelBtn.style.display = 'inline-block';
+
+    modal.classList.add('active');
+
+    // Handle cancel
+    const handleCancel = () => {
+      modal.classList.remove('active');
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+      this.restoreFileInput.value = '';
+    };
+
+    // Handle confirm
+    const handleConfirm = async () => {
+      // Remove event listeners
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+      
+      // Update modal to show progress
+      titleElement.textContent = 'Restoring Database';
+      titleElement.style.color = 'var(--primary-color)';
+      messageElement.textContent = 'Restoring database... This may take a minute.';
+      confirmBtn.style.display = 'none';
+      cancelBtn.style.display = 'none';
+
       this.restoreBtn.disabled = true;
 
-      const formData = new FormData();
-      formData.append('file', file);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
 
-      const response = await fetch('/api/database/restore', {
-        method: 'POST',
-        body: formData
-      });
+        const response = await fetch('/api/database/restore', {
+          method: 'POST',
+          body: formData
+        });
 
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
-      }
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
+        }
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (data.success) {
-        this.backupStatus.textContent = data.message;
-        this.backupStatus.className = 'backup-status success';
+        if (data.success) {
+          // Show success in modal
+          this.showRestoreResultInModal('Restore Successful', data.message, true);
+        } else {
+          // Show error in modal
+          this.showRestoreResultInModal('Restore Failed', data.message, false);
+          this.restoreBtn.disabled = false;
+        }
+
+      } catch (error) {
+        console.error('Error restoring database:', error);
         
-        // Reload page after successful restore
-        setTimeout(() => {
-          alert('Database restored successfully. The page will now reload.');
-          window.location.reload();
-        }, 2000);
-      } else {
-        this.backupStatus.textContent = `Error: ${data.message}`;
-        this.backupStatus.className = 'backup-status error';
+        // Show error in modal
+        this.showRestoreResultInModal('Restore Failed', error.message, false);
         this.restoreBtn.disabled = false;
+      } finally {
+        this.restoreFileInput.value = '';
       }
+    };
 
-    } catch (error) {
-      console.error('Error restoring database:', error);
-      this.backupStatus.textContent = `Error: ${error.message}`;
-      this.backupStatus.className = 'backup-status error';
-      this.restoreBtn.disabled = false;
-    } finally {
-      this.restoreFileInput.value = '';
-    }
+    confirmBtn.addEventListener('click', handleConfirm);
+    cancelBtn.addEventListener('click', handleCancel);
   }
 
   async loadBackupConfig() {

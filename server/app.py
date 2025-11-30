@@ -1074,18 +1074,27 @@ def restore_backup_from_file(filename):
             return jsonify({"success": False, "message": "Invalid backup filename"}), 400
         
         backup_dir = Path("/app/backups")
-        backup_path = (backup_dir / filename).resolve()
-        # Ensure the resolved backup_path is strictly within backup_dir (no traversal/symlink escape)
+        backup_path = backup_dir / filename
+        
+        # Check for symlinks before resolving (security: prevent symlink-based path traversal)
+        if backup_path.is_symlink():
+            logger.warning(f"Attempted to restore from symlink: {filename}")
+            return jsonify({"success": False, "message": "Symlinks are not allowed"}), 400
+        
+        # Resolve path and ensure it's strictly within backup_dir (no traversal)
+        resolved_backup_path = backup_path.resolve()
+        resolved_backup_dir = backup_dir.resolve()
         try:
-            backup_path.relative_to(backup_dir.resolve())
+            resolved_backup_path.relative_to(resolved_backup_dir)
         except ValueError:
+            logger.warning(f"Path traversal attempt detected: {filename}")
             return jsonify({"success": False, "message": "Invalid backup file path"}), 400
         
-        if not backup_path.exists():
+        if not resolved_backup_path.exists():
             return jsonify({"success": False, "message": "Backup file not found"}), 404
         
         # File size validation
-        is_valid_size, size_error = validate_backup_file_size(backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
+        is_valid_size, size_error = validate_backup_file_size(resolved_backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
         if not is_valid_size:
             logger.warning(f"File size validation failed for {filename}: {size_error}")
             return jsonify({
@@ -1094,7 +1103,7 @@ def restore_backup_from_file(filename):
             }), 400
 
         # Security validation: Check for dangerous SQL patterns
-        is_secure, security_error = validate_backup_file_security(backup_path)
+        is_secure, security_error = validate_backup_file_security(resolved_backup_path)
         if not is_secure:
             logger.warning(f"Security validation failed for {filename}: {security_error}")
             return jsonify({
@@ -1103,7 +1112,7 @@ def restore_backup_from_file(filename):
             }), 400
 
         # Schema validation: Ensure only expected tables
-        is_valid_schema, schema_error = validate_schema_integrity(backup_path)
+        is_valid_schema, schema_error = validate_schema_integrity(resolved_backup_path)
         if not is_valid_schema:
             logger.warning(f"Schema validation failed for {filename}: {schema_error}")
             return jsonify({
@@ -1112,7 +1121,7 @@ def restore_backup_from_file(filename):
             }), 400
 
         # Read and validate the backup file
-        with open(backup_path, 'r') as f:
+        with open(resolved_backup_path, 'r') as f:
             content = f.read(10000)  # Read first 10KB to find version
             
         # Extract Alembic version from backup
@@ -1175,7 +1184,7 @@ def restore_backup_from_file(filename):
             db_name,
         ]
         
-        with open(backup_path, 'r') as f:
+        with open(resolved_backup_path, 'r') as f:
             result = subprocess.run(
                 mysql_cmd, stdin=f, stderr=subprocess.PIPE, text=True
             )

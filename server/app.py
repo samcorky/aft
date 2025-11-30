@@ -856,7 +856,6 @@ def restore_automatic_backup(filename):
             content = f.read(10000)  # Read first 10KB to find version
             
         # Extract Alembic version from backup
-        import re
         version_match = re.search(r"-- Alembic Version: (\S+)", content)
         if not version_match:
             return jsonify({

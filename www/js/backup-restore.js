@@ -190,6 +190,11 @@ class BackupRestore {
         method: 'POST'
       });
       
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
       
       if (!data.success) {
@@ -277,6 +282,11 @@ class BackupRestore {
           throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
         }
 
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.success) {
@@ -347,12 +357,13 @@ class BackupRestore {
         body: JSON.stringify(config)
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
+        const data = await response.json();
         const errorMessage = data.message || `HTTP error! status: ${response.status}`;
         throw new Error(errorMessage);
       }
+
+      const data = await response.json();
 
       if (data.success) {
         this.safeSetText(this.backupSettingsStatus, 'Backup settings saved successfully!');
@@ -615,6 +626,11 @@ class BackupRestore {
           throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
         }
 
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.success) {
@@ -722,6 +738,11 @@ class BackupRestore {
           throw new Error('Server returned an invalid response.');
         }
 
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.success) {
@@ -792,6 +813,13 @@ class BackupRestore {
         },
         body: JSON.stringify({ enabled })
       });
+
+      if (!response.ok) {
+        const data = await response.json();
+        if (this.backupEnabled) this.backupEnabled.checked = !enabled;
+        this.showStatus(`Error: ${data.message || 'Failed to update backup settings'}`, 'error');
+        return;
+      }
 
       const data = await response.json();
 

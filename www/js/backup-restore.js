@@ -39,6 +39,34 @@ class BackupRestore {
     return div.innerHTML;
   }
 
+  // Helper function to safely update element text content
+  safeSetText(element, text) {
+    if (element) {
+      element.textContent = text;
+    }
+  }
+
+  // Helper function to safely update element class
+  safeSetClass(element, className) {
+    if (element) {
+      element.className = className;
+    }
+  }
+
+  // Helper function to safely update element HTML
+  safeSetHTML(element, html) {
+    if (element) {
+      element.innerHTML = html;
+    }
+  }
+
+  // Helper function to safely disable/enable element
+  safeSetDisabled(element, disabled) {
+    if (element) {
+      element.disabled = disabled;
+    }
+  }
+
   async init() {
     await this.loadBackupConfig();
     await this.loadBackupStatus();
@@ -48,26 +76,34 @@ class BackupRestore {
 
   attachEventListeners() {
     // Manual backup to server button
-    this.manualBackupBtn.addEventListener('click', () => {
-      this.createManualBackup();
-    });
+    if (this.manualBackupBtn) {
+      this.manualBackupBtn.addEventListener('click', () => {
+        this.createManualBackup();
+      });
+    }
 
     // Download backup button
-    this.backupBtn.addEventListener('click', () => {
-      this.downloadBackup();
-    });
+    if (this.backupBtn) {
+      this.backupBtn.addEventListener('click', () => {
+        this.downloadBackup();
+      });
+    }
 
     // Restore button opens file picker
-    this.restoreBtn.addEventListener('click', () => {
-      this.restoreFileInput.click();
-    });
+    if (this.restoreBtn) {
+      this.restoreBtn.addEventListener('click', () => {
+        this.restoreFileInput.click();
+      });
+    }
 
     // File input change triggers restore
-    this.restoreFileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        this.restoreFromFile(e.target.files[0]);
-      }
-    });
+    if (this.restoreFileInput) {
+      this.restoreFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          this.restoreFromFile(e.target.files[0]);
+        }
+      });
+    }
 
     // Automatic backup settings event listeners
     if (this.backupForm) {
@@ -94,9 +130,9 @@ class BackupRestore {
 
   async downloadBackup() {
     try {
-      this.backupStatus.textContent = 'Creating backup...';
-      this.backupStatus.className = 'backup-status info';
-      this.backupBtn.disabled = true;
+      this.safeSetText(this.backupStatus, 'Creating backup...');
+      this.safeSetClass(this.backupStatus, 'backup-status info');
+      this.safeSetDisabled(this.backupBtn, true);
 
       const response = await fetch('/api/database/backup');
       
@@ -126,28 +162,28 @@ class BackupRestore {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      this.backupStatus.textContent = 'Backup downloaded successfully!';
-      this.backupStatus.className = 'backup-status success';
+      this.safeSetText(this.backupStatus, 'Backup downloaded successfully!');
+      this.safeSetClass(this.backupStatus, 'backup-status success');
       
       setTimeout(() => {
-        this.backupStatus.textContent = '';
-        this.backupStatus.className = 'backup-status';
+        this.safeSetText(this.backupStatus, '');
+        this.safeSetClass(this.backupStatus, 'backup-status');
       }, 5000);
 
     } catch (error) {
       console.error('Error creating backup:', error);
-      this.backupStatus.textContent = `Error: ${error.message}`;
-      this.backupStatus.className = 'backup-status error';
+      this.safeSetText(this.backupStatus, `Error: ${error.message}`);
+      this.safeSetClass(this.backupStatus, 'backup-status error');
     } finally {
-      this.backupBtn.disabled = false;
+      this.safeSetDisabled(this.backupBtn, false);
     }
   }
 
   async createManualBackup() {
     try {
-      this.backupStatus.textContent = 'Creating backup...';
-      this.backupStatus.className = 'backup-status info';
-      this.manualBackupBtn.disabled = true;
+      this.safeSetText(this.backupStatus, 'Creating backup...');
+      this.safeSetClass(this.backupStatus, 'backup-status info');
+      this.safeSetDisabled(this.manualBackupBtn, true);
 
       const response = await fetch('/api/database/backup/manual', {
         method: 'POST'
@@ -159,23 +195,23 @@ class BackupRestore {
         throw new Error(data.message || 'Failed to create backup');
       }
 
-      this.backupStatus.textContent = data.message;
-      this.backupStatus.className = 'backup-status success';
+      this.safeSetText(this.backupStatus, data.message);
+      this.safeSetClass(this.backupStatus, 'backup-status success');
       
       // Reload the available backups list
       await this.loadAvailableBackups();
       
       setTimeout(() => {
-        this.backupStatus.textContent = '';
-        this.backupStatus.className = 'backup-status';
+        this.safeSetText(this.backupStatus, '');
+        this.safeSetClass(this.backupStatus, 'backup-status');
       }, 5000);
 
     } catch (error) {
       console.error('Error creating manual backup:', error);
-      this.backupStatus.textContent = `Error: ${error.message}`;
-      this.backupStatus.className = 'backup-status error';
+      this.safeSetText(this.backupStatus, `Error: ${error.message}`);
+      this.safeSetClass(this.backupStatus, 'backup-status error');
     } finally {
-      this.manualBackupBtn.disabled = false;
+      this.safeSetDisabled(this.manualBackupBtn, false);
     }
   }
 
@@ -276,11 +312,11 @@ class BackupRestore {
       const data = await response.json();
       if (data.success && data.config) {
         const config = data.config;
-        this.backupEnabled.checked = config.enabled || false;
-        this.frequencyValue.value = config.frequency_value || 24;
-        this.frequencyUnit.value = config.frequency_unit || 'hours';
-        this.startTime.value = config.start_time || '02:00';
-        this.retentionCount.value = config.retention_count || 7;
+        if (this.backupEnabled) this.backupEnabled.checked = config.enabled || false;
+        if (this.frequencyValue) this.frequencyValue.value = config.frequency_value || 24;
+        if (this.frequencyUnit) this.frequencyUnit.value = config.frequency_unit || 'hours';
+        if (this.startTime) this.startTime.value = config.start_time || '02:00';
+        if (this.retentionCount) this.retentionCount.value = config.retention_count || 7;
       }
     } catch (err) {
       console.error('Error loading backup config:', err);
@@ -290,15 +326,15 @@ class BackupRestore {
 
   async saveBackupConfig() {
     try {
-      this.saveBackupButton.disabled = true;
+      this.safeSetDisabled(this.saveBackupButton, true);
       this.showStatus('Saving backup settings...', 'info');
 
       const config = {
-        enabled: this.backupEnabled.checked,
-        frequency_value: parseInt(this.frequencyValue.value, 10),
-        frequency_unit: this.frequencyUnit.value,
-        start_time: this.startTime.value,
-        retention_count: parseInt(this.retentionCount.value, 10)
+        enabled: this.backupEnabled ? this.backupEnabled.checked : false,
+        frequency_value: this.frequencyValue ? parseInt(this.frequencyValue.value, 10) : 24,
+        frequency_unit: this.frequencyUnit ? this.frequencyUnit.value : 'hours',
+        start_time: this.startTime ? this.startTime.value : '02:00',
+        retention_count: this.retentionCount ? parseInt(this.retentionCount.value, 10) : 7
       };
 
       const response = await fetch('/api/settings/backup/config', {
@@ -333,7 +369,7 @@ class BackupRestore {
     } catch (err) {
       this.showStatus('Error: ' + err.message, 'error');
     } finally {
-      this.saveBackupButton.disabled = false;
+      this.safeSetDisabled(this.saveBackupButton, false);
     }
   }
 
@@ -350,20 +386,20 @@ class BackupRestore {
         
         // Update status badge - use healthy/unhealthy instead of running/stopped
         if (status.running) {
-          this.schedulerStatus.textContent = 'Healthy';
-          this.schedulerStatus.className = 'status-badge status-healthy';
+          this.safeSetText(this.schedulerStatus, 'Healthy');
+          this.safeSetClass(this.schedulerStatus, 'status-badge status-healthy');
         } else {
-          this.schedulerStatus.textContent = 'Unhealthy';
-          this.schedulerStatus.className = 'status-badge status-unhealthy';
+          this.safeSetText(this.schedulerStatus, 'Unhealthy');
+          this.safeSetClass(this.schedulerStatus, 'status-badge status-unhealthy');
         }
         
         // Update frequency display
-        this.currentFrequency.textContent = status.enabled 
+        this.safeSetText(this.currentFrequency, status.enabled 
           ? status.frequency 
-          : 'Disabled';
+          : 'Disabled');
         
         // Update retention display
-        this.currentRetention.textContent = `${status.retention_count} backup${status.retention_count !== 1 ? 's' : ''}`;
+        this.safeSetText(this.currentRetention, `${status.retention_count} backup${status.retention_count !== 1 ? 's' : ''}`);
         
         // Update latest backup info
         if (status.latest_backup_date) {
@@ -383,21 +419,21 @@ class BackupRestore {
             timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
           }
           
-          this.latestBackup.textContent = timeAgo;
+          this.safeSetText(this.latestBackup, timeAgo);
         } else {
-          this.latestBackup.textContent = 'No backups found';
+          this.safeSetText(this.latestBackup, 'No backups found');
         }
         
         // Update backup window status
         if (status.enabled) {
           if (status.latest_backup_date && status.backup_within_window) {
-            this.backupWindowStatus.innerHTML = '<span class="status-badge status-healthy">Current</span>';
+            this.safeSetHTML(this.backupWindowStatus, '<span class="status-badge status-healthy">Current</span>');
           } else {
             // Overdue if enabled but either no backup exists or backup is outside window
-            this.backupWindowStatus.innerHTML = '<span class="status-badge status-unhealthy">Overdue</span>';
+            this.safeSetHTML(this.backupWindowStatus, '<span class="status-badge status-unhealthy">Overdue</span>');
           }
         } else {
-          this.backupWindowStatus.textContent = 'Disabled';
+          this.safeSetText(this.backupWindowStatus, 'Disabled');
         }
         
         // Display permission error if present
@@ -413,15 +449,15 @@ class BackupRestore {
       }
     } catch (err) {
       console.error('Error loading backup status:', err);
-      this.schedulerStatus.textContent = 'Error';
-      this.schedulerStatus.className = 'status-badge';
+      this.safeSetText(this.schedulerStatus, 'Error');
+      this.safeSetClass(this.schedulerStatus, 'status-badge');
     }
   }
 
   async loadAvailableBackups() {
     try {
-      this.backupsLoading.style.display = 'block';
-      this.backupsEmpty.style.display = 'none';
+      if (this.backupsLoading) this.backupsLoading.style.display = 'block';
+      if (this.backupsEmpty) this.backupsEmpty.style.display = 'none';
       this.backupsList.style.display = 'none';
       
       const response = await fetch('/api/database/backups/list');
@@ -756,7 +792,7 @@ class BackupRestore {
 
       if (!data.success) {
         // Revert toggle on error
-        this.backupEnabled.checked = !enabled;
+        if (this.backupEnabled) this.backupEnabled.checked = !enabled;
         this.showStatus(`Error: ${data.message}`, 'error');
       } else {
         // Reload status to show updated info
@@ -765,14 +801,14 @@ class BackupRestore {
     } catch (error) {
       console.error('Error toggling backup:', error);
       // Revert toggle on error
-      this.backupEnabled.checked = !enabled;
+      if (this.backupEnabled) this.backupEnabled.checked = !enabled;
       this.showStatus(`Error: ${error.message}`, 'error');
     }
   }
 
   showStatus(message, type = 'info') {
-    this.statusElement.textContent = message;
-    this.statusElement.className = `settings-status ${type}`;
+    this.safeSetText(this.statusElement, message);
+    this.safeSetClass(this.statusElement, `settings-status ${type}`);
   }
 }
 

@@ -161,9 +161,9 @@ class TestDeleteBackupAPI:
         assert data['success'] is False
         assert 'not found' in data['message'].lower()
     
-    def test_delete_auto_backup_success(self, api_client):
-        """Test deleting an automatic backup."""
-        # Create a manual backup via API (we can't create auto backups via API)
+    def test_delete_manual_backup_success(self, api_client):
+        """Test deleting a manual backup."""
+        # Create a manual backup via API
         create_response = requests.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         filename = create_response.json()['filename']

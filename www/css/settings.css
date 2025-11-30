@@ -89,6 +89,7 @@
 
 .settings-status.error {
   color: var(--error-color);
+  margin-top: 15px;
 }
 
 .settings-status.info {

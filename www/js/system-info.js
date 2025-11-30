@@ -154,6 +154,17 @@ class SystemInfo {
         
         // Update toggle state
         this.backupToggle.checked = status.enabled;
+        
+        // Display permission error if present
+        const errorDiv = document.getElementById('backupPermissionError');
+        if (errorDiv) {
+          if (status.permission_error) {
+            errorDiv.textContent = status.permission_error;
+            errorDiv.style.display = 'block';
+          } else {
+            errorDiv.style.display = 'none';
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading system info:', error);

@@ -44,6 +44,46 @@ class BackupScheduler:
         self.last_backup_time: Optional[datetime] = None
         self.backup_dir = Path("/app/backups")
         self.lock_file = Path("/tmp/aft_backup_scheduler.lock")
+        self.permission_error = None  # Stores permission error message if directory not writable
+        self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
+        self.permission_check_ttl = 30  # Cache permission check for 30 seconds
+    
+    def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
+        """Check if backup directory is writable.
+        
+        Args:
+            force_check: If True, bypass cache and always perform check.
+            
+        Returns:
+            Tuple of (is_writable, error_message). error_message is None if writable.
+        """
+        # Use cached result if within TTL and not forcing check
+        now = datetime.now()
+        if not force_check and self.last_permission_check is not None:
+            elapsed = (now - self.last_permission_check).total_seconds()
+            if elapsed < self.permission_check_ttl:
+                # Return cached result
+                return (self.permission_error is None, self.permission_error)
+        
+        # Perform actual permission check
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            self.last_permission_check = now
+            return True, None
+        except PermissionError:
+            error_msg = (
+                f"Backup directory '{self.backup_dir}' is not writable. "
+                f"On the Docker host, run: sudo chown -R 1000:1000 ./backups && sudo chmod -R 755 ./backups"
+            )
+            self.last_permission_check = now
+            return False, error_msg
+        except Exception as e:
+            error_msg = f"Error checking backup directory permissions: {str(e)}"
+            self.last_permission_check = now
+            return False, error_msg
         
     def start(self):
         """Start the backup scheduler thread."""
@@ -81,6 +121,18 @@ class BackupScheduler:
             logger.error(f"Error creating scheduler lock file: {str(e)}")
             return
         
+        # Check if backup directory is writable (force check on startup)
+        is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
+        if not is_writable:
+            logger.error(error_msg)
+            self.permission_error = error_msg
+            # Clean up lock file before returning
+            if self.lock_file.exists():
+                self.lock_file.unlink()
+            # Don't start scheduler if we can't write backups
+            return
+        self.permission_error = None
+        
         # Validate settings on startup
         try:
             settings = self._get_settings()
@@ -96,6 +148,58 @@ class BackupScheduler:
         self.thread = threading.Thread(target=self._run_scheduler, daemon=True)
         self.thread.start()
         logger.info("Backup scheduler started")
+    
+    def retry_start_if_permission_fixed(self):
+        """Attempt to restart scheduler if it failed due to permission errors.
+        
+        This method can be called periodically (e.g., from API status endpoint)
+        to check if permissions have been fixed and restart the scheduler.
+        """
+        # Check if scheduler is actually running by checking lock file
+        is_actually_running = False
+        if self.lock_file.exists():
+            try:
+                with open(self.lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+                try:
+                    os.kill(pid, 0)
+                    is_actually_running = True
+                except OSError:
+                    # Process doesn't exist, lock file is stale
+                    pass
+            except (ValueError, FileNotFoundError):
+                # Invalid lock file or file disappeared
+                pass
+        
+        # Only retry if scheduler is not actually running
+        if is_actually_running:
+            logger.debug("Scheduler is already running, no retry needed")
+            return False
+        
+        # Check if permissions are now OK
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            test_file = self.backup_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            
+            # Permissions are fixed! Clear error and try to start
+            logger.info("Backup directory permissions have been fixed, attempting to restart scheduler")
+            self.permission_error = None
+            
+            # Stop first to ensure clean shutdown, then start
+            self.stop()
+            self.start()
+            return True
+            
+        except PermissionError as e:
+            # Still have permission issues
+            logger.debug(f"Permission check failed during retry: {e}")
+            return False
+        except Exception as e:
+            # Other errors
+            logger.debug(f"Unexpected error during retry permission check: {e}")
+            return False
         
     def stop(self):
         """Stop the backup scheduler thread."""
@@ -438,6 +542,21 @@ class BackupScheduler:
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
+                # Recheck permissions periodically to detect if they've been fixed or broken (force check)
+                is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
+                if not is_writable:
+                    if self.permission_error != error_msg:
+                        logger.error(error_msg)
+                    self.permission_error = error_msg
+                    # Skip backup if we can't write
+                    time.sleep(60)
+                    continue
+                
+                # Permissions are OK, clear any previous error
+                if self.permission_error is not None:
+                    logger.info("Backup directory permissions have been fixed")
+                self.permission_error = None
+                
                 settings = self._get_settings()
                 
                 should_run = self._should_run_backup(settings)
@@ -475,6 +594,18 @@ class BackupScheduler:
         freq_value = settings.get("backup_frequency_value", 1)
         freq_unit = settings.get("backup_frequency_unit", "days")
         retention = settings.get("backup_retention_count", 7)
+        
+        # Check permissions with caching (uses TTL to avoid expensive file ops on frequent polling)
+        is_writable, error_msg = self._check_backup_directory_permissions(force_check=False)
+        if not is_writable:
+            if self.permission_error != error_msg:
+                logger.error(error_msg)
+            self.permission_error = error_msg
+        else:
+            # Permissions are OK, clear any previous error
+            if self.permission_error is not None:
+                logger.info("Backup directory permissions are now OK, clearing error")
+            self.permission_error = None
         
         # Check if scheduler is actually running by checking lock file and process
         is_running = False
@@ -520,7 +651,8 @@ class BackupScheduler:
             "start_time": settings.get("backup_start_time", "00:00"),
             "latest_backup_file": latest_backup_path,
             "latest_backup_date": latest_backup_date.isoformat() if latest_backup_date else None,
-            "backup_within_window": within_window
+            "backup_within_window": within_window,
+            "permission_error": self.permission_error
         }
     
     def _get_latest_backup_info(self) -> dict:

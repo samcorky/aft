@@ -209,11 +209,15 @@ class TestBackupSettingsAPI:
         assert 'latest_backup_file' in status
         assert 'latest_backup_date' in status
         assert 'backup_within_window' in status
+        assert 'permission_error' in status
         
         # These can be None if no backups exist
         assert status['latest_backup_file'] is None or isinstance(status['latest_backup_file'], str)
         assert status['latest_backup_date'] is None or isinstance(status['latest_backup_date'], str)
         assert isinstance(status['backup_within_window'], bool)
+        
+        # permission_error can be None or a string with error details
+        assert status['permission_error'] is None or isinstance(status['permission_error'], str)
     
     def test_backup_config_persistence(self, api_client):
         """Test that backup configuration persists across requests."""

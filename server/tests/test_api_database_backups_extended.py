@@ -36,6 +36,7 @@ class TestManualBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_manual_backup_appears_in_list(self, api_client):
@@ -66,6 +67,7 @@ class TestManualBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_manual_backup_contains_version_info(self, api_client):
@@ -95,6 +97,7 @@ class TestManualBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
 
 
@@ -129,6 +132,7 @@ class TestDeleteBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_delete_backup_invalid_filename(self, api_client):
@@ -186,6 +190,7 @@ class TestDeleteBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_delete_removes_from_list(self, api_client):
@@ -218,6 +223,7 @@ class TestDeleteBackupAPI:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
 
 
@@ -282,6 +288,7 @@ class TestBackupWorkflow:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_multiple_manual_backups_independent(self, api_client):
@@ -328,6 +335,7 @@ class TestBackupWorkflow:
                 try:
                     requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
                 except Exception:
+                    # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
     def test_manual_backup_not_affected_by_auto_retention(self, api_client):
@@ -362,6 +370,7 @@ class TestBackupWorkflow:
             try:
                 requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
+                # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
     def test_backup_list_mixed_auto_and_manual(self, api_client):
@@ -399,6 +408,7 @@ class TestBackupWorkflow:
                 try:
                     requests.delete(f'{api_client}/api/database/backups/delete/{manual_filename}')
                 except Exception:
+                    # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
     def test_cannot_delete_with_path_traversal(self, api_client):

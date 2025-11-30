@@ -24,6 +24,7 @@ class BackupRestore {
     this.backupWindowStatus = document.getElementById('backupWindowStatus');
     this.saveBackupButton = document.getElementById('saveBackupButton');
     this.resetBackupButton = document.getElementById('resetBackupButton');
+    this.backupSettingsStatus = document.getElementById('backup-settings-status');
     
     // Available backups elements
     this.backupsLoading = document.getElementById('backupsLoading');
@@ -327,7 +328,8 @@ class BackupRestore {
   async saveBackupConfig() {
     try {
       this.safeSetDisabled(this.saveBackupButton, true);
-      this.showStatus('Saving backup settings...', 'info');
+      this.safeSetText(this.backupSettingsStatus, 'Saving backup settings...');
+      this.safeSetClass(this.backupSettingsStatus, 'backup-status info');
 
       const config = {
         enabled: this.backupEnabled ? this.backupEnabled.checked : false,
@@ -353,21 +355,24 @@ class BackupRestore {
       }
 
       if (data.success) {
-        this.showStatus('Backup settings saved successfully', 'success');
+        this.safeSetText(this.backupSettingsStatus, 'Backup settings saved successfully!');
+        this.safeSetClass(this.backupSettingsStatus, 'backup-status success');
         
         // Reload status to show updated info
         await this.loadBackupStatus();
 
         // Clear status after 3 seconds
         setTimeout(() => {
-          this.statusElement.textContent = '';
-          this.statusElement.className = 'settings-status';
+          this.safeSetText(this.backupSettingsStatus, '');
+          this.safeSetClass(this.backupSettingsStatus, 'backup-status');
         }, 3000);
       } else {
-        this.showStatus('Error: ' + data.message, 'error');
+        this.safeSetText(this.backupSettingsStatus, 'Error: ' + data.message);
+        this.safeSetClass(this.backupSettingsStatus, 'backup-status error');
       }
     } catch (err) {
-      this.showStatus('Error: ' + err.message, 'error');
+      this.safeSetText(this.backupSettingsStatus, 'Error: ' + err.message);
+      this.safeSetClass(this.backupSettingsStatus, 'backup-status error');
     } finally {
       this.safeSetDisabled(this.saveBackupButton, false);
     }

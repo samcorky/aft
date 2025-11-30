@@ -4442,6 +4442,33 @@ def delete_comment(comment_id):
         db.close()
 
 
+# Error handlers to ensure API endpoints return JSON
+@app.errorhandler(404)
+def not_found_error(error):
+    """Handle 404 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "message": "Endpoint not found"}), 404
+    # For non-API routes, return default Flask 404
+    return error
+
+
+@app.errorhandler(405)
+def method_not_allowed_error(error):
+    """Handle 405 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "message": "Method not allowed"}), 405
+    return error
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        logger.error(f"Internal server error: {str(error)}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+    return error
+
+
 # Initialize backup scheduler on app startup
 def init_backup_scheduler():
     """Initialize and start the backup scheduler."""

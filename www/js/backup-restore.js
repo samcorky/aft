@@ -79,8 +79,8 @@ class BackupRestore {
     // Backup enabled toggle
     if (this.backupEnabled) {
       this.backupEnabled.addEventListener('change', async (e) => {
-        // Auto-save when toggle changes
-        await this.saveBackupConfig();
+        // Auto-save only the enabled state (like system-info toggle)
+        await this.toggleBackupEnabled(e.target.checked);
       });
     }
   }
@@ -733,6 +733,34 @@ class BackupRestore {
 
     confirmBtn.addEventListener('click', handleConfirm);
     cancelBtn.addEventListener('click', handleCancel);
+  }
+
+  async toggleBackupEnabled(enabled) {
+    try {
+      const response = await fetch('/api/settings/backup/config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        // Revert toggle on error
+        this.backupEnabled.checked = !enabled;
+        this.showStatus(`Error: ${data.message}`, 'error');
+      } else {
+        // Reload status to show updated info
+        await this.loadBackupStatus();
+      }
+    } catch (error) {
+      console.error('Error toggling backup:', error);
+      // Revert toggle on error
+      this.backupEnabled.checked = !enabled;
+      this.showStatus(`Error: ${error.message}`, 'error');
+    }
   }
 
   showStatus(message, type = 'info') {

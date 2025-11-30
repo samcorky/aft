@@ -111,11 +111,10 @@ class TestDatabaseBackupsAPI:
             )
             # Should be rejected with 400 (invalid) or 404 (file not found after validation)
             assert response.status_code in [400, 404], f"Failed for filename: {filename}"
-            # Only check JSON if content-type is JSON
-            if 'application/json' in response.headers.get('content-type', ''):
-                data = response.json()
-                assert data['success'] is False
-                assert 'message' in data
+            # API should always return JSON
+            data = response.json()
+            assert data['success'] is False
+            assert 'message' in data
     
     def test_restore_backup_path_traversal_prevention(self, api_client):
         """Test that path traversal attacks are prevented."""
@@ -133,10 +132,9 @@ class TestDatabaseBackupsAPI:
             )
             # Should be rejected (400 invalid format or 404 not found)
             assert response.status_code in [400, 404], f"Failed for attempt: {attempt}"
-            # Only check JSON if content-type is JSON
-            if 'application/json' in response.headers.get('content-type', ''):
-                data = response.json()
-                assert data['success'] is False
+            # API should always return JSON
+            data = response.json()
+            assert data['success'] is False
     
     def test_restore_backup_file_not_found(self, api_client):
         """Test restoring a backup that doesn't exist."""

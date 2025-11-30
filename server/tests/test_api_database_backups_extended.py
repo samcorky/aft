@@ -146,12 +146,10 @@ class TestDeleteBackupAPI:
             )
             # Accept both 400 (invalid format) and 404 (not found after URL encoding)
             assert response.status_code in [400, 404]
-            
-            # Only check JSON if response has JSON content type
-            if 'application/json' in response.headers.get('content-type', ''):
-                data = response.json()
-                assert data['success'] is False
-                assert 'invalid' in data['message'].lower() or 'not found' in data['message'].lower()
+            # API should always return JSON
+            data = response.json()
+            assert data['success'] is False
+            assert 'invalid' in data['message'].lower() or 'not found' in data['message'].lower()
     
     def test_delete_backup_not_found(self, api_client):
         """Test deleting a backup that doesn't exist."""

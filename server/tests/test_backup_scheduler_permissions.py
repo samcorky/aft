@@ -2,7 +2,7 @@
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 from backup_scheduler import BackupScheduler
 
 

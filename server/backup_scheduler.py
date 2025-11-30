@@ -165,8 +165,10 @@ class BackupScheduler:
                     os.kill(pid, 0)
                     is_actually_running = True
                 except OSError:
+                    # Process doesn't exist, lock file is stale
                     pass
             except (ValueError, FileNotFoundError):
+                # Invalid lock file or file disappeared
                 pass
         
         # Only retry if scheduler is not actually running

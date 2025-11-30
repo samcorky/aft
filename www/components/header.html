@@ -29,9 +29,15 @@
       <a href="/about.html" class="icon-link" title="About" aria-label="About">
         <span class="icon-btn">ℹ️</span>
       </a>
-      <a href="/settings.html" class="icon-link" title="Settings" aria-label="Settings">
-        <span class="icon-btn">⚙️</span>
-      </a>
+      <div class="settings-dropdown">
+        <a href="#" class="icon-link" title="Settings" aria-label="Settings">
+          <span class="icon-btn">⚙️</span>
+        </a>
+        <div class="settings-dropdown-menu" id="settings-dropdown-menu">
+          <a href="/settings.html" class="settings-dropdown-item">General Settings</a>
+          <a href="/backup-restore.html" class="settings-dropdown-item">Backup & Restore</a>
+        </div>
+      </div>
       <a href="/api/docs" class="header-link" target="_blank" rel="noopener noreferrer">
         <span>📚</span>
         <span>API Docs</span>

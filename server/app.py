@@ -956,6 +956,57 @@ def restore_automatic_backup(filename):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/database/backups/delete/<filename>", methods=["DELETE"])
+def delete_backup(filename):
+    """Delete a specific backup file.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: The backup filename to delete
+    responses:
+      200:
+        description: Backup deleted successfully
+      400:
+        description: Invalid backup file
+      404:
+        description: Backup file not found
+      500:
+        description: Failed to delete backup
+    """
+    try:
+        from pathlib import Path
+        import re
+        
+        # Validate filename to prevent path traversal
+        # Allow both auto_backup and manual backup filenames (aft_backup)
+        if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+            return jsonify({"success": False, "message": "Invalid backup filename"}), 400
+        
+        backup_dir = Path("/app/backups")
+        backup_path = backup_dir / filename
+        
+        if not backup_path.exists():
+            return jsonify({"success": False, "message": "Backup file not found"}), 404
+        
+        # Delete the backup file
+        backup_path.unlink()
+        
+        logger.info(f"Backup deleted successfully: {filename}")
+        return jsonify({
+            "success": True,
+            "message": f"Backup {filename} deleted successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/database", methods=["DELETE"])
 def delete_database():
     """Delete all data from the database.

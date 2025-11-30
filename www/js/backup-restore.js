@@ -485,14 +485,24 @@ class BackupRestore {
           <div class="backup-date">${formattedDate}</div>
         </div>
         <div class="backup-size">${formattedSize}</div>
-        <button class="backup-restore-btn" data-filename="${backup.filename}">
-          Restore
-        </button>
+        <div class="backup-actions">
+          <button class="backup-restore-btn" data-filename="${backup.filename}">
+            Restore
+          </button>
+          <button class="backup-delete-btn" data-filename="${backup.filename}">
+            Delete
+          </button>
+        </div>
       `;
       
       const restoreBtn = backupItem.querySelector('.backup-restore-btn');
       restoreBtn.addEventListener('click', () => {
         this.restoreFromAutoBackup(backup.filename);
+      });
+      
+      const deleteBtn = backupItem.querySelector('.backup-delete-btn');
+      deleteBtn.addEventListener('click', () => {
+        this.deleteBackup(backup.filename);
       });
       
       this.backupsList.appendChild(backupItem);
@@ -610,6 +620,119 @@ class BackupRestore {
     };
 
     confirmBtn.addEventListener('click', handleOk);
+  }
+
+  deleteBackup(filename) {
+    // Show confirmation modal
+    const modal = document.getElementById('restoreModal');
+    const titleElement = document.getElementById('restoreModalTitle');
+    const messageElement = document.getElementById('restoreModalMessage');
+    const confirmBtn = document.getElementById('restoreModalConfirmBtn');
+    const cancelBtn = document.getElementById('restoreModalCancelBtn');
+
+    // Set confirmation content
+    titleElement.textContent = 'Confirm Delete';
+    titleElement.style.color = 'var(--error-color)';
+    messageElement.innerHTML = `Are you sure you want to delete <strong>"${filename}"</strong>?<br><br>This action cannot be undone.`;
+    
+    confirmBtn.textContent = 'Delete';
+    confirmBtn.style.display = 'inline-block';
+    confirmBtn.style.background = 'var(--error-color)';
+    cancelBtn.style.display = 'inline-block';
+
+    modal.classList.add('active');
+
+    // Handle cancel
+    const handleCancel = () => {
+      modal.classList.remove('active');
+      confirmBtn.style.background = '';
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+    };
+
+    // Handle confirm
+    const handleConfirm = async () => {
+      // Remove event listeners
+      confirmBtn.removeEventListener('click', handleConfirm);
+      cancelBtn.removeEventListener('click', handleCancel);
+      
+      // Update modal to show progress
+      titleElement.textContent = 'Deleting Backup';
+      titleElement.style.color = 'var(--primary-color)';
+      messageElement.textContent = 'Deleting backup file...';
+      confirmBtn.style.display = 'none';
+      confirmBtn.style.background = '';
+      cancelBtn.style.display = 'none';
+
+      try {
+        const response = await fetch(`/api/database/backups/delete/${filename}`, {
+          method: 'DELETE'
+        });
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Server returned an invalid response.');
+        }
+
+        const data = await response.json();
+
+        if (data.success) {
+          // Show success in modal
+          titleElement.textContent = 'Delete Successful';
+          titleElement.style.color = 'var(--success-color)';
+          messageElement.textContent = data.message;
+          
+          confirmBtn.textContent = 'OK';
+          confirmBtn.style.display = 'inline-block';
+          
+          const handleOk = async () => {
+            modal.classList.remove('active');
+            confirmBtn.removeEventListener('click', handleOk);
+            
+            // Reload the backups list
+            await this.loadAvailableBackups();
+          };
+          
+          confirmBtn.addEventListener('click', handleOk);
+        } else {
+          // Show error in modal
+          titleElement.textContent = 'Delete Failed';
+          titleElement.style.color = 'var(--error-color)';
+          messageElement.textContent = data.message;
+          
+          confirmBtn.textContent = 'OK';
+          confirmBtn.style.display = 'inline-block';
+          
+          const handleOk = () => {
+            modal.classList.remove('active');
+            confirmBtn.removeEventListener('click', handleOk);
+          };
+          
+          confirmBtn.addEventListener('click', handleOk);
+        }
+
+      } catch (error) {
+        console.error('Error deleting backup:', error);
+        
+        // Show error in modal
+        titleElement.textContent = 'Delete Failed';
+        titleElement.style.color = 'var(--error-color)';
+        messageElement.textContent = error.message;
+        
+        confirmBtn.textContent = 'OK';
+        confirmBtn.style.display = 'inline-block';
+        
+        const handleOk = () => {
+          modal.classList.remove('active');
+          confirmBtn.removeEventListener('click', handleOk);
+        };
+        
+        confirmBtn.addEventListener('click', handleOk);
+      }
+    };
+
+    confirmBtn.addEventListener('click', handleConfirm);
+    cancelBtn.addEventListener('click', handleCancel);
   }
 
   showStatus(message, type = 'info') {

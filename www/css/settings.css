@@ -377,6 +377,34 @@
   cursor: not-allowed;
 }
 
+.backup-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.backup-delete-btn {
+  padding: 8px 16px;
+  background: var(--error-color, #ef4444);
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.backup-delete-btn:hover {
+  background: #dc2626;
+}
+
+.backup-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .backup-item.backup-manual {
   border-left: 4px solid var(--warning-color, #f59e0b);
   background: rgba(245, 158, 11, 0.05);

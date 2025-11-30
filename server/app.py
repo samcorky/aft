@@ -750,8 +750,8 @@ def restore_database():
 
 
 @app.route("/api/database/backups/list", methods=["GET"])
-def list_automatic_backups():
-    """List all available automatic backup files.
+def list_backups():
+    """List all available backup files (both automatic and manual).
     ---
     tags:
       - Database

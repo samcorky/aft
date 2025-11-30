@@ -227,9 +227,9 @@ def validate_backup_file_security(file_path):
         (r'\bINTO\s+OUTFILE\b', 'INTO OUTFILE (file system access)'),
         (r'\bLOAD\s+DATA\b', 'LOAD DATA (file system access)'),
         (r'\bCREATE\s+(PROCEDURE|FUNCTION)\b', 'Stored procedures/functions'),
-        (r'\bUSE\s+`?\w+`?\s*;', 'USE statements (cross-database operation)'),
+        (r'\bUSE\s+`?\w+`?\s*', 'USE statements (cross-database operation)'),
         (r'\\!', 'MySQL shell commands'),
-        (r'\bSELECT\s+.*\bINTO\s+@', 'Variable assignment with SELECT'),
+        (r'\bSELECT\s+.+?\bINTO\s+@', 'Variable assignment with SELECT'),
         (r'\bEXECUTE\s+', 'Dynamic SQL execution'),
         (r'\bPREPARE\s+', 'Prepared statement (potential SQL injection)'),
     ]

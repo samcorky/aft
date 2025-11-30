@@ -236,7 +236,7 @@ class BackupRestore {
     // Set confirmation content
     titleElement.textContent = 'Confirm Restore';
     titleElement.style.color = 'var(--warning-color, #f59e0b)';
-    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${this.escapeHtml(filename)}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
+    messageElement.innerHTML = `Are you sure you want to restore from <strong>"${this.escapeHtml(file.name)}"</strong>?<br><br>This will replace all current data with the backup. This action cannot be undone.`;
     
     confirmBtn.textContent = 'Restore';
     confirmBtn.style.display = 'inline-block';

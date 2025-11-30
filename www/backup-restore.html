@@ -24,6 +24,10 @@
           Backups include version information for safe restoration.
         </p>
         <div class="backup-actions">
+          <button class="backup-btn" id="manual-backup-btn">
+            <span>💾</span>
+            <span>Manual Backup</span>
+          </button>
           <button class="backup-btn" id="backup-btn">
             <span>⬇️</span>
             <span>Download Backup</span>
@@ -122,8 +126,8 @@
 
       <!-- Available Backups Section -->
       <div class="settings-section">
-        <h3>📋 Available Automatic Backups</h3>
-        <p class="setting-help">Restore from any of the automatic backups listed below.</p>
+        <h3>📋 Available Backups</h3>
+        <p class="setting-help">Restore from any of the backups listed below. Manual backups are highlighted.</p>
         
         <div id="backupsListContainer">
           <div id="backupsLoading" class="backups-loading">Loading backups...</div>

@@ -467,6 +467,99 @@ def backup_database():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/database/backup/manual", methods=["POST"])
+def create_manual_backup():
+    """Create a manual backup and save to backups folder.
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: Backup created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            filename:
+              type: string
+      500:
+        description: Failed to create backup
+    """
+    import subprocess
+    import os
+    from pathlib import Path
+    from datetime import datetime
+
+    try:
+        # Get current Alembic version
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        db_version = row[0] if row else "unknown"
+        db.close()
+
+        # Get database credentials from environment
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_host = "db"
+
+        # Create backup in the backups folder
+        backup_dir = Path("/app/backups")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"aft_backup_{timestamp}.sql"
+        backup_path = backup_dir / backup_filename
+
+        # Write version comment to file
+        with open(backup_path, "w") as f:
+            f.write(f"-- AFT Database Backup\n")
+            f.write(f"-- App Version: {APP_VERSION}\n")
+            f.write(f"-- Alembic Version: {db_version}\n")
+            f.write(f"-- Backup Date: {datetime.now().isoformat()}\n")
+            f.write(f"--\n\n")
+
+        # Run mysqldump and append to file
+        mysqldump_cmd = [
+            "mysqldump",
+            "-h",
+            db_host,
+            "-u",
+            db_user,
+            f"-p{db_password}",
+            "--single-transaction",
+            "--routines",
+            "--triggers",
+            "--skip-ssl",
+            db_name,
+        ]
+
+        with open(backup_path, "a") as f:
+            result = subprocess.run(
+                mysqldump_cmd, stdout=f, stderr=subprocess.PIPE, text=True
+            )
+
+        if result.returncode != 0:
+            backup_path.unlink()
+            raise Exception(f"mysqldump failed: {result.stderr}")
+
+        logger.info(f"Manual database backup created successfully: {backup_filename}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Backup created successfully: {backup_filename}",
+            "filename": backup_filename
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating manual backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/database/restore", methods=["POST"])
 def restore_database():
     """Restore database from backup file with version checking.
@@ -698,13 +791,23 @@ def list_automatic_backups():
             return jsonify({"success": True, "backups": []})
         
         backups = []
-        for backup_file in sorted(backup_dir.glob("auto_backup_*.sql"), reverse=True):
+        for backup_file in backup_dir.glob("*.sql"):
             stat = backup_file.stat()
+            is_manual = not backup_file.name.startswith("auto_backup_")
             backups.append({
                 "filename": backup_file.name,
                 "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "size": stat.st_size
+                "size": stat.st_size,
+                "is_manual": is_manual,
+                "mtime": stat.st_mtime  # For sorting
             })
+        
+        # Sort by modification time, newest first
+        backups.sort(key=lambda x: x["mtime"], reverse=True)
+        
+        # Remove mtime from response
+        for backup in backups:
+            del backup["mtime"]
         
         return jsonify({"success": True, "backups": backups})
         
@@ -742,7 +845,8 @@ def restore_automatic_backup(filename):
         import subprocess
         
         # Validate filename to prevent path traversal
-        if not re.match(r'^auto_backup_\d{8}_\d{6}\.sql$', filename):
+        # Allow both auto_backup and manual backup filenames (aft_backup)
+        if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
             return jsonify({"success": False, "message": "Invalid backup filename"}), 400
         
         backup_dir = Path("/app/backups")

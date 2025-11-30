@@ -4,6 +4,7 @@ class BackupRestore {
     this.statusElement = document.getElementById('settings-status');
     
     // Manual backup/restore elements
+    this.manualBackupBtn = document.getElementById('manual-backup-btn');
     this.backupBtn = document.getElementById('backup-btn');
     this.restoreBtn = document.getElementById('restore-btn');
     this.restoreFileInput = document.getElementById('restore-file-input');
@@ -39,7 +40,12 @@ class BackupRestore {
   }
 
   attachEventListeners() {
-    // Manual backup button
+    // Manual backup to server button
+    this.manualBackupBtn.addEventListener('click', () => {
+      this.createManualBackup();
+    });
+
+    // Download backup button
     this.backupBtn.addEventListener('click', () => {
       this.downloadBackup();
     });
@@ -127,6 +133,42 @@ class BackupRestore {
       this.backupStatus.className = 'backup-status error';
     } finally {
       this.backupBtn.disabled = false;
+    }
+  }
+
+  async createManualBackup() {
+    try {
+      this.backupStatus.textContent = 'Creating backup...';
+      this.backupStatus.className = 'backup-status info';
+      this.manualBackupBtn.disabled = true;
+
+      const response = await fetch('/api/database/backup/manual', {
+        method: 'POST'
+      });
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to create backup');
+      }
+
+      this.backupStatus.textContent = data.message;
+      this.backupStatus.className = 'backup-status success';
+      
+      // Reload the available backups list
+      await this.loadAvailableBackups();
+      
+      setTimeout(() => {
+        this.backupStatus.textContent = '';
+        this.backupStatus.className = 'backup-status';
+      }, 5000);
+
+    } catch (error) {
+      console.error('Error creating manual backup:', error);
+      this.backupStatus.textContent = `Error: ${error.message}`;
+      this.backupStatus.className = 'backup-status error';
+    } finally {
+      this.manualBackupBtn.disabled = false;
     }
   }
 
@@ -404,6 +446,11 @@ class BackupRestore {
       const backupItem = document.createElement('div');
       backupItem.className = 'backup-item';
       
+      // Add manual backup class for highlighting
+      if (backup.is_manual) {
+        backupItem.classList.add('backup-manual');
+      }
+      
       // Format date
       const date = new Date(backup.created);
       const formattedDate = date.toLocaleString('en-US', {
@@ -426,9 +473,15 @@ class BackupRestore {
         formattedSize = `${(size / (1024 * 1024)).toFixed(2)} MB`;
       }
       
+      // Create filename with badge if manual
+      let filenameHtml = backup.filename;
+      if (backup.is_manual) {
+        filenameHtml += ' <span class="backup-manual-badge">Manual</span>';
+      }
+      
       backupItem.innerHTML = `
         <div class="backup-info">
-          <div class="backup-filename">${backup.filename}</div>
+          <div class="backup-filename">${filenameHtml}</div>
           <div class="backup-date">${formattedDate}</div>
         </div>
         <div class="backup-size">${formattedSize}</div>

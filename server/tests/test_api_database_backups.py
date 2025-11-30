@@ -36,8 +36,8 @@ class TestDatabaseBackupsAPI:
             assert 'filename' in backup
             assert 'created' in backup
             assert 'size' in backup
+            assert 'is_manual' in backup
             assert backup['size'] > 0
-            assert backup['filename'].startswith('auto_backup_')
             assert backup['filename'].endswith('.sql')
     
     def test_list_backups_sorted_newest_first(self, api_client):
@@ -73,29 +73,36 @@ class TestDatabaseBackupsAPI:
                 if backup_file.exists():
                     backup_file.unlink()
     
-    def test_list_backups_filters_non_auto_files(self, api_client):
-        """Test that only auto_backup_* files are listed."""
+    def test_list_backups_includes_all_sql_files(self, api_client):
+        """Test that all SQL backup files are listed."""
         response = requests.get(f'{api_client}/api/database/backups/list')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         
-        # All returned files should match the auto_backup pattern
+        # All returned files should be SQL files
         for backup in data['backups']:
-            assert backup['filename'].startswith('auto_backup_')
             assert backup['filename'].endswith('.sql')
-            # Verify filename format: auto_backup_YYYYMMDD_HHMMSS.sql
+            # Verify is_manual flag exists and is boolean
+            assert 'is_manual' in backup
+            assert isinstance(backup['is_manual'], bool)
+            # Manual backups should not start with auto_backup_
+            if backup['is_manual']:
+                assert not backup['filename'].startswith('auto_backup_')
+            else:
+                assert backup['filename'].startswith('auto_backup_')
+            # Verify filename format: either auto_backup or aft_backup with timestamp
             import re
-            assert re.match(r'^auto_backup_\d{8}_\d{6}\.sql$', backup['filename'])
+            assert re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', backup['filename'])
     
     def test_restore_backup_invalid_filename_format(self, api_client):
         """Test that restore rejects invalid filename formats."""
         # Try various invalid filename formats
         invalid_filenames = [
             "manual_backup.sql",
-            "auto_backup_invalid.sql",
-            "auto_backup_20240101.sql",
-            "auto_backup_20240101_12.sql",
+            "backup_invalid.sql",
+            "backup_20240101.sql",
+            "backup_20240101_12.sql",
         ]
         
         for filename in invalid_filenames:

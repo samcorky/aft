@@ -1040,8 +1040,10 @@ def restore_backup_from_file(filename):
         
         backup_dir = Path("/app/backups")
         backup_path = (backup_dir / filename).resolve()
-        # Ensure the resolved backup_path is within backup_dir
-        if not str(backup_path).startswith(str(backup_dir.resolve()) + os.sep):
+        # Ensure the resolved backup_path is strictly within backup_dir (no traversal/symlink escape)
+        try:
+            backup_path.relative_to(backup_dir.resolve())
+        except ValueError:
             return jsonify({"success": False, "message": "Invalid backup file path"}), 400
         
         if not backup_path.exists():

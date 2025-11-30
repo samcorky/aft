@@ -816,8 +816,8 @@ def list_backups():
 
 
 @app.route("/api/database/backups/restore/<filename>", methods=["POST"])
-def restore_automatic_backup(filename):
-    """Restore from a specific automatic backup file.
+def restore_backup_from_file(filename):
+    """Restore from a specific backup file (automatic or manual).
     ---
     tags:
       - Database

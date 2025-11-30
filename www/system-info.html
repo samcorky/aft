@@ -110,36 +110,6 @@
         </div>
       </div>
 
-      <!-- Backup & Restore Card -->
-      <div class="info-card backup-card full-width">
-        <h2>💾 Backup & Restore</h2>
-        <div class="info-content">
-          <p class="backup-info">
-            Create a backup of your database or restore from a previous backup. 
-            Backups include version information for safe restoration.
-          </p>
-          <div class="backup-actions">
-            <button class="backup-btn" id="backup-btn">
-              <span>⬇️</span>
-              <span>Download Backup</span>
-            </button>
-            <div class="restore-section">
-              <input 
-                type="file" 
-                id="restore-file-input" 
-                accept=".sql"
-                style="display: none;"
-              >
-              <button class="restore-btn" id="restore-btn">
-                <span>⬆️</span>
-                <span>Restore from Backup</span>
-              </button>
-            </div>
-          </div>
-          <div class="backup-status" id="backup-status"></div>
-        </div>
-      </div>
-
       <!-- Danger Zone Card -->
       <div class="info-card danger-card full-width">
         <h2>
@@ -160,10 +130,10 @@
   </div>
 
   <!-- Delete Confirmation Modal -->
-  <div class="modal" id="delete-modal">
+  <div class="modal" id="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-warning">
     <div class="modal-content">
-      <h2>⚠️ Delete Database</h2>
-      <p class="modal-warning">
+      <h2 id="delete-modal-title">⚠️ Delete Database</h2>
+      <p id="delete-modal-warning" class="modal-warning">
         This will permanently delete all of your data including all boards, columns, and cards.
         This action cannot be undone!
       </p>

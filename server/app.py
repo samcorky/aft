@@ -4717,6 +4717,17 @@ def method_not_allowed_error(error):
     return error
 
 
+@app.errorhandler(413)
+def request_entity_too_large_error(error):
+    """Handle 413 errors (Request Entity Too Large) with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": f"File size exceeds maximum allowed size of {app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)}MB"
+        }), 413
+    return error
+
+
 @app.errorhandler(500)
 def internal_error(error):
     """Handle 500 errors with JSON response for API endpoints."""

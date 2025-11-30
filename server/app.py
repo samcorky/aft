@@ -774,6 +774,9 @@ def list_automatic_backups():
                     type: string
                   size:
                     type: integer
+                  is_manual:
+                    type: boolean
+                    description: True if manually created, False if automatic
       500:
         description: Failed to list backups
     """

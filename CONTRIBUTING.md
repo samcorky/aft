@@ -1,0 +1,594 @@
+# Contributing to AFT
+
+Thank you for your interest in contributing to AFT. This document provides guidelines for contributing to the project.
+
+## Table of Contents
+
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Workflow](#development-workflow)
+- [Coding Standards](#coding-standards)
+- [Testing Requirements](#testing-requirements)
+- [Accessibility Requirements](#accessibility-requirements)
+- [Security Guidelines](#security-guidelines)
+- [Pull Request Process](#pull-request-process)
+- [Style Guide](#style-guide)
+- [Commit Messages](#commit-messages)
+
+## Code of Conduct
+
+### Our Standards
+
+- Use welcoming and inclusive language
+- Be respectful of differing viewpoints and experiences
+- Gracefully accept constructive criticism
+- Focus on what is best for the community
+- Show empathy towards other community members
+
+## Getting Started
+
+I had copilot write all of this primarily so I can ensure it always does all the things. If you're manually contributing, ensure your PR follows the spirit of this guide, or better yet, have an AI do it for you, that's how this app works.
+
+### Prerequisites
+
+- Python 3.12+
+- Docker and Docker Compose
+- Git
+- A GitHub account
+
+### Setting Up Development Environment
+
+1. **Fork the Repository**
+   
+   Click the "Fork" button on the [AFT repository](https://github.com/sjefferson99/aft) to create your own copy.
+
+2. **Clone Your Fork**
+   
+   ```bash
+   git clone https://github.com/YOUR-USERNAME/aft.git
+   cd aft
+   ```
+
+3. **Add Upstream Remote**
+   
+   ```bash
+   git remote add upstream https://github.com/sjefferson99/aft.git
+   ```
+
+4. **Start Development Environment**
+   
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. **Verify Setup**
+   
+   - Application: http://localhost:80
+   - API: http://localhost:5000/api/health
+
+## Development Workflow
+
+### 1. Create an Issue
+
+Before starting work, create an issue to document the problem or enhancement:
+
+1. Go to the [Issues page](https://github.com/sjefferson99/aft/issues)
+2. Click "New Issue"
+3. Provide a clear title and description
+4. Include:
+   - Problem description or enhancement proposal
+   - Your thoughts on potential fixes or implementation
+   - Any relevant context, screenshots, or error messages
+   - Acceptance criteria (what defines "done")
+
+This helps coordinate work, avoid duplication, and gather feedback before implementation.
+
+### 2. Create a Branch
+
+Create a new branch for your feature or bugfix:
+
+```bash
+git checkout -b feature/your-feature-name
+# or
+git checkout -b fix/your-bugfix-name
+```
+
+### 3. Make Your Changes
+
+- Write clean, maintainable code
+- Follow the project's coding standards
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure accessibility requirements are met
+
+### 4. Test Your Changes
+
+```bash
+# Run all tests
+cd server
+pytest -v
+
+# Run with coverage
+pytest --cov=. --cov-report=html
+
+# Run specific test file
+pytest tests/test_api_boards.py -v
+```
+
+### 5. Commit Your Changes
+
+```bash
+git add .
+git commit -m "feat: add new feature"
+```
+
+See [Commit Messages](#commit-messages) for commit message guidelines.
+
+### 6. Keep Your Branch Updated
+
+```bash
+git fetch upstream
+git rebase upstream/main
+```
+
+### 7. Push to Your Fork
+
+```bash
+git push origin feature/your-feature-name
+```
+
+### 8. Create a Pull Request
+
+1. Go to your fork on GitHub
+2. Click "Pull Request"
+3. Select your branch
+4. Fill out the PR template
+5. Submit for review
+
+## Coding Standards
+
+### Python Code
+
+- **Style**: Follow PEP 8
+- **Formatting**: Use 4 spaces for indentation
+- **Line Length**: Maximum 100 characters
+- **Docstrings**: Use Google-style docstrings
+
+```python
+def example_function(param1: str, param2: int) -> dict:
+    """Brief description of function.
+    
+    Args:
+        param1: Description of param1
+        param2: Description of param2
+    
+    Returns:
+        Dictionary containing result
+    
+    Raises:
+        ValueError: If param2 is negative
+    """
+    if param2 < 0:
+        raise ValueError("param2 must be non-negative")
+    
+    return {"param1": param1, "param2": param2}
+```
+
+### JavaScript Code
+
+- **Style**: Use ES6+ features
+- **Formatting**: Use 2 spaces for indentation
+- **Semicolons**: Use semicolons
+- **Quotes**: Use single quotes for strings
+
+```javascript
+class ExampleClass {
+  constructor() {
+    this.property = 'value';
+  }
+
+  exampleMethod(param) {
+    return `Result: ${param}`;
+  }
+}
+```
+
+### HTML/CSS
+
+- **Indentation**: Use 2 spaces
+- **Semantic HTML**: Use appropriate HTML5 elements
+- **Accessibility**: Include ARIA attributes (see [Accessibility Requirements](#accessibility-requirements))
+- **CSS Classes**: Use kebab-case for class names
+
+## Testing Requirements
+
+All code contributions must include appropriate tests. See [TESTING.md](./TESTING.md) for comprehensive testing guidelines.
+
+### Test Coverage Requirements
+
+- **New Features**: Must include tests for all new functionality
+- **Bug Fixes**: Must include a test that fails before the fix and passes after
+
+### Required Test Categories
+
+1. **Happy Path**: Test successful operations with valid input
+2. **Error Cases**: Test error handling and validation
+3. **Edge Cases**: Test boundary conditions
+4. **Security**: Test input validation, path traversal prevention, etc.
+
+### Example Test Structure
+
+```python
+@pytest.mark.api
+class TestNewFeatureAPI:
+    """Test cases for new feature."""
+    
+    def test_feature_success(self, api_client):
+        """Test successful operation."""
+        response = requests.post(
+            f'{api_client}/api/new-feature',
+            json={"data": "test"}
+        )
+        assert response.status_code == 200
+        assert response.json()['success'] is True
+    
+    def test_feature_invalid_input(self, api_client):
+        """Test operation with invalid input."""
+        response = requests.post(
+            f'{api_client}/api/new-feature',
+            json={"data": ""}
+        )
+        assert response.status_code == 400
+        assert response.json()['success'] is False
+```
+
+### Running Tests Before PR
+
+```bash
+# Run all tests
+pytest -v
+
+# Check coverage
+pytest --cov=. --cov-report=term-missing
+
+# Run only your new tests
+pytest tests/test_your_feature.py -v
+```
+
+## Accessibility Requirements
+
+All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](./ACCESSIBILITY.md) for comprehensive guidelines.
+
+### Required for All UI Changes
+
+- ✅ **Semantic HTML**: Use appropriate HTML5 elements
+- ✅ **ARIA Attributes**: Add proper ARIA labels and roles
+- ✅ **Keyboard Navigation**: All interactive elements must be keyboard accessible
+- ✅ **Focus Management**: Visible focus indicators and logical tab order
+- ✅ **Color Contrast**: Meet WCAG AA standards (4.5:1 for normal text)
+- ✅ **Screen Reader Testing**: Test with NVDA, JAWS, or VoiceOver
+
+### Modal Dialogs Must Include
+
+```html
+<div id="myModal" class="modal" 
+     role="dialog" 
+     aria-modal="true" 
+     aria-labelledby="modal-title" 
+     aria-describedby="modal-description">
+  <div class="modal-content">
+    <h2 id="modal-title">Modal Title</h2>
+    <p id="modal-description">Modal description</p>
+  </div>
+</div>
+```
+
+### Forms Must Include
+
+- Proper `<label>` elements associated with inputs
+- Error messages linked with `aria-describedby`
+- Required fields marked with `aria-required="true"`
+
+### Testing Accessibility
+
+1. Use browser DevTools accessibility inspector
+2. Test keyboard navigation (Tab, Enter, Escape, Arrow keys)
+3. Test with a screen reader
+4. Run automated tools (axe DevTools, Lighthouse)
+
+## Security Guidelines
+
+All code must follow security best practices. See [server/SECURITY.md](./server/SECURITY.md) for comprehensive security guidelines.
+
+### Required Security Practices
+
+1. **Input Validation**: Validate all user input
+   - Type checking
+   - Length limits
+   - Format validation
+   - Sanitization
+
+2. **SQL Injection Prevention**: Use parameterized queries
+   ```python
+   # Good - Parameterized query
+   db.query(Board).filter(Board.id == board_id)
+   
+   # Bad - String concatenation
+   db.execute(f"SELECT * FROM boards WHERE id = {board_id}")
+   ```
+
+3. **XSS Prevention**: Escape output in frontend
+   ```javascript
+   // Good - Use textContent or framework escaping
+   element.textContent = userInput;
+   
+   // Bad - Direct HTML injection
+   element.innerHTML = userInput;
+   ```
+
+4. **Path Traversal Prevention**: Validate filenames
+   ```python
+   # Validate filename format
+   if not re.match(r'^[a-zA-Z0-9_-]+\.[a-z]+$', filename):
+       return error("Invalid filename")
+   ```
+
+5. **Error Handling**: Don't expose internal details
+   ```python
+   try:
+       # Operation
+   except Exception as e:
+       logger.error(f"Internal error: {str(e)}")
+       return jsonify({"success": False, "message": "Operation failed"}), 500
+   ```
+
+### Security Testing Requirements
+
+- Test with invalid/malicious input
+- Test path traversal attempts
+- Test SQL injection attempts
+- Test XSS payloads
+- Verify error messages don't leak sensitive data
+
+## Pull Request Process
+
+### Before Submitting
+
+- [ ] Code follows project style guidelines
+- [ ] All tests pass (`pytest -v`)
+- [ ] New tests added for new functionality
+- [ ] Test coverage is maintained or improved
+- [ ] Accessibility requirements met (for UI changes)
+- [ ] Security guidelines followed
+- [ ] Documentation updated (if needed)
+- [ ] Commit messages follow conventions
+- [ ] Branch is up to date with main
+
+### PR Template
+
+When creating a PR, include:
+
+```markdown
+## Description
+Brief description of the changes
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
+
+## Testing
+- [ ] All existing tests pass
+- [ ] New tests added
+- [ ] Manual testing completed
+
+## Accessibility
+- [ ] Keyboard navigation tested
+- [ ] Screen reader compatible
+- [ ] ARIA attributes added (if applicable)
+
+## Security
+- [ ] Input validation added
+- [ ] No sensitive data exposed
+- [ ] Security tests added (if applicable)
+
+## Screenshots (if applicable)
+Add screenshots for UI changes
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Tests pass locally
+- [ ] Documentation updated
+- [ ] Accessibility verified
+- [ ] Security reviewed
+```
+
+### Review Process
+
+1. **Automated Checks**: CI/CD runs tests automatically
+2. **Code Review**: Maintainer reviews code
+3. **Feedback**: Address any requested changes
+4. **Approval**: PR is approved by maintainer
+5. **Merge**: PR is merged into main branch
+
+### After Merge
+
+- Delete your branch: `git branch -d feature/your-feature-name`
+- Pull the latest: `git pull upstream main`
+
+## Style Guide
+
+### Python
+
+```python
+# Good
+def create_backup(filename: str, config: dict) -> dict:
+    """Create a database backup.
+    
+    Args:
+        filename: Name for the backup file
+        config: Backup configuration dictionary
+    
+    Returns:
+        Dictionary with success status and filename
+    """
+    if not filename:
+        raise ValueError("Filename is required")
+    
+    # Implementation
+    return {"success": True, "filename": filename}
+
+
+# Bad
+def create_backup(filename,config):
+    if not filename:raise ValueError("Filename is required")
+    return {"success":True,"filename":filename}
+```
+
+### JavaScript
+
+```javascript
+// Good
+class BackupManager {
+  constructor() {
+    this.backups = [];
+  }
+
+  async createBackup(filename) {
+    if (!filename) {
+      throw new Error('Filename is required');
+    }
+    
+    const response = await fetch('/api/backup', {
+      method: 'POST',
+      body: JSON.stringify({ filename })
+    });
+    
+    return response.json();
+  }
+}
+
+// Bad
+class BackupManager{
+  constructor(){this.backups=[]}
+  async createBackup(filename){
+    if(!filename)throw new Error('Filename is required')
+    const response=await fetch('/api/backup',{method:'POST',body:JSON.stringify({filename})})
+    return response.json()
+  }
+}
+```
+
+### HTML
+
+```html
+<!-- Good -->
+<form id="backupForm" aria-label="Backup settings">
+  <div class="form-group">
+    <label for="backupName">Backup Name</label>
+    <input 
+      type="text" 
+      id="backupName" 
+      name="backup_name" 
+      required
+      aria-required="true"
+      aria-describedby="name-help"
+    >
+    <p id="name-help" class="help-text">
+      Enter a name for your backup
+    </p>
+  </div>
+  <button type="submit" class="btn btn-primary">
+    Create Backup
+  </button>
+</form>
+
+<!-- Bad -->
+<form>
+  <div>
+    <span>Backup Name</span>
+    <input type="text">
+    <span>Enter a name for your backup</span>
+  </div>
+  <div onclick="submitForm()">Create Backup</div>
+</form>
+```
+
+## Commit Messages
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:
+
+### Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, missing semicolons, etc.)
+- `refactor`: Code refactoring
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+
+### Examples
+
+```bash
+# Feature
+git commit -m "feat(backup): add manual backup functionality"
+
+# Bug fix
+git commit -m "fix(api): prevent path traversal in backup endpoints"
+
+# Documentation
+git commit -m "docs: add accessibility guidelines"
+
+# Multiple lines
+git commit -m "feat(backup): add restore from auto backups
+
+- Add API endpoint for listing backups
+- Add UI for selecting and restoring backups
+- Add modal confirmation dialog
+- Add comprehensive tests"
+
+# Breaking change
+git commit -m "feat(api): change backup API response format
+
+BREAKING CHANGE: Backup API now returns 'backups' array instead of 'files'"
+```
+
+### Scope (Optional)
+
+- `api`: API changes
+- `ui`: UI changes
+- `backup`: Backup-related changes
+- `auth`: Authentication changes
+- `db`: Database changes
+- `test`: Test changes
+- `docs`: Documentation changes
+
+## Questions or Need Help?
+
+- **Issues**: Open an issue for bugs or feature requests
+- **Discussions**: Use GitHub Discussions for questions
+- **Pull Requests**: Open a draft PR if you want early feedback
+
+## Recognition
+
+Contributors are recognized in:
+- GitHub contributors page
+- Release notes (for significant contributions)
+
+Thank you for contributing to AFT!
+
+---
+
+**Last Updated**: 2025-11-30

@@ -185,8 +185,8 @@ class BackupScheduler:
             logger.info("Backup directory permissions have been fixed, attempting to restart scheduler")
             self.permission_error = None
             
-            # Reset running flag and try to start the scheduler
-            self.running = False
+            # Stop first to ensure clean shutdown, then start
+            self.stop()
             self.start()
             return True
             

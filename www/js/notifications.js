@@ -73,6 +73,8 @@ class Notifications {
   openPopup() {
     this.popup.classList.add('show');
     this.isPopupOpen = true;
+    // Reload notifications when opening popup
+    this.loadNotifications();
   }
 
   /**

@@ -4782,6 +4782,106 @@ def get_notifications():
         db.close()
 
 
+@app.route("/api/notifications", methods=["POST"])
+def create_notification():
+    """Create a new notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - subject
+            - message
+          properties:
+            subject:
+              type: string
+              description: Subject of the notification
+              example: "New Feature Available"
+            message:
+              type: string
+              description: Message content of the notification
+              example: "Check out our new dark mode feature!"
+    responses:
+      201:
+        description: Notification created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notification:
+              type: object
+              properties:
+                id:
+                  type: integer
+                subject:
+                  type: string
+                message:
+                  type: string
+                unread:
+                  type: boolean
+                created_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
+        
+        subject = data.get('subject')
+        message = data.get('message')
+        
+        if not subject or not message:
+            return jsonify({"success": False, "message": "Subject and message are required"}), 400
+
+        # Create notification
+        notification = Notification(
+            subject=subject,
+            message=message,
+            unread=True
+        )
+        
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+
+        logger.info(f"Created notification: {notification.id}")
+        
+        return jsonify({
+            "success": True,
+            "notification": {
+                "id": notification.id,
+                "subject": notification.subject,
+                "message": notification.message,
+                "unread": notification.unread,
+                "created_at": notification.created_at.isoformat() if notification.created_at else None,
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating notification: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
 def mark_notification_read(notification_id):
     """Mark a notification as read.

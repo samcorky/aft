@@ -25,6 +25,11 @@ class Header {
       });
     }
     
+    // Initialize notifications if the class exists
+    if (typeof Notifications !== 'undefined') {
+      window.notifications = new Notifications();
+    }
+    
     // Load boards dropdown
     this.loadBoardsDropdown();
     

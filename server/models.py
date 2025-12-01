@@ -113,3 +113,18 @@ class Comment(Base):
     
     def __repr__(self):
         return f"<Comment(id={self.id}, card_id={self.card_id}, order={self.order})>"
+
+
+class Notification(Base):
+    """Notification model representing user notifications."""
+    
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    subject = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    unread = Column(Boolean, nullable=False, default=True, index=True)
+    created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
+    
+    def __repr__(self):
+        return f"<Notification(id={self.id}, subject='{self.subject}', unread={self.unread})>"

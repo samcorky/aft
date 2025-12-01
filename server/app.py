@@ -4709,6 +4709,234 @@ def delete_comment(comment_id):
         db.close()
 
 
+# ============================================================================
+# Notification Routes
+# ============================================================================
+
+
+@app.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    """Get all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: List of all notifications (newest first)
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  subject:
+                    type: string
+                  message:
+                    type: string
+                  unread:
+                    type: boolean
+                  created_at:
+                    type: string
+                    format: date-time
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notifications = (
+            db.query(Notification)
+            .order_by(Notification.created_at.desc())  # Newest first
+            .all()
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "notifications": [
+                    {
+                        "id": n.id,
+                        "subject": n.subject,
+                        "message": n.message,
+                        "unread": n.unread,
+                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                    }
+                    for n in notifications
+                ],
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"Error getting notifications: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
+def mark_notification_read(notification_id):
+    """Mark a notification as read.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as read"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = False
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as read")
+        return jsonify({"success": True, "message": "Notification marked as read"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as read: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
+def mark_notification_unread(notification_id):
+    """Mark a notification as unread.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as unread
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as unread"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = True
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as unread")
+        return jsonify({"success": True, "message": "Notification marked as unread"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as unread: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
+def delete_notification(notification_id):
+    """Delete a notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification deleted successfully"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        db.delete(notification)
+        db.commit()
+
+        logger.info(f"Notification {notification_id} deleted")
+        return jsonify({"success": True, "message": "Notification deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting notification {notification_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 # Error handlers to ensure API endpoints return JSON
 @app.errorhandler(404)
 def not_found_error(error):

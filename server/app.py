@@ -318,6 +318,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'checklist_items',
             'comments',
             'settings',
+            'notifications',
             'alembic_version'
         ]
 
@@ -4932,6 +4933,100 @@ def delete_notification(notification_id):
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting notification {notification_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/mark-all-read", methods=["PUT"])
+def mark_all_notifications_read():
+    """Mark all notifications as read.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications marked as read"
+            count:
+              type: integer
+              description: Number of notifications marked as read
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Update all unread notifications
+        result = db.query(Notification).filter(Notification.unread == True).update({"unread": False})
+        db.commit()
+
+        logger.info(f"Marked {result} notifications as read")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications marked as read",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking all notifications as read: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/delete-all", methods=["DELETE"])
+def delete_all_notifications():
+    """Delete all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications deleted"
+            count:
+              type: integer
+              description: Number of notifications deleted
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Delete all notifications
+        result = db.query(Notification).delete()
+        db.commit()
+
+        logger.info(f"Deleted {result} notifications")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications deleted",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting all notifications: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()

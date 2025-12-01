@@ -8,6 +8,7 @@ class Notifications {
     this.popup = document.getElementById('notifications-popup');
     this.list = document.getElementById('notifications-list');
     this.badge = document.getElementById('notification-badge');
+    this.markAllReadBtn = document.getElementById('mark-all-read-btn');
     this.isPopupOpen = false;
 
     this.init();
@@ -31,6 +32,15 @@ class Notifications {
       e.stopPropagation();
       this.togglePopup();
     });
+
+    // Mark all as read button
+    if (this.markAllReadBtn) {
+      this.markAllReadBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.markAllAsRead();
+      });
+    }
 
     // Close popup when clicking outside
     document.addEventListener('click', (e) => {
@@ -109,13 +119,13 @@ class Notifications {
 
     this.list.innerHTML = sortedNotifications.map(notification => {
       return `
-        <div class="notification-item ${notification.unread ? 'unread' : ''}" data-id="${notification.id}">
+        <div class="notification-item ${notification.unread ? 'unread' : ''}" data-id="${notification.id}" onclick="notifications.markAsRead(${notification.id}, ${notification.unread})">
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
             <div class="notification-time">${this.formatTime(notification.created_at)}</div>
           </div>
-          <div class="notification-actions">
+          <div class="notification-actions" onclick="event.stopPropagation()">
             <button class="notification-action-btn read-btn" 
                     onclick="notifications.toggleRead(${notification.id}, ${notification.unread})"
                     title="${notification.unread ? 'Mark as read' : 'Mark as unread'}">
@@ -137,12 +147,105 @@ class Notifications {
    */
   updateBadge() {
     const unreadCount = this.notifications.filter(n => n.unread).length;
+    const totalCount = this.notifications.length;
     
     if (unreadCount > 0) {
       this.badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
       this.badge.style.display = 'flex';
     } else {
       this.badge.style.display = 'none';
+    }
+
+    // Update button based on unread count
+    if (this.markAllReadBtn) {
+      if (unreadCount === 0 && totalCount > 0) {
+        // Change to delete all button
+        this.markAllReadBtn.textContent = 'Delete all';
+        this.markAllReadBtn.title = 'Delete all notifications';
+        this.markAllReadBtn.disabled = false;
+        this.markAllReadBtn.classList.add('delete-mode');
+      } else {
+        // Change to mark all read button
+        this.markAllReadBtn.textContent = 'Mark all read';
+        this.markAllReadBtn.title = 'Mark all as read';
+        this.markAllReadBtn.disabled = unreadCount === 0;
+        this.markAllReadBtn.classList.remove('delete-mode');
+      }
+    }
+  }
+
+  /**
+   * Mark all notifications as read or delete all based on current state.
+   */
+  async markAllAsRead() {
+    const unreadCount = this.notifications.filter(n => n.unread).length;
+    
+    // If no unread notifications, delete all instead
+    if (unreadCount === 0) {
+      return this.deleteAllNotifications();
+    }
+
+    try {
+      const response = await fetch('/api/notifications/mark-all-read', {
+        method: 'PUT'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark all notifications as read');
+      }
+
+      // Reload notifications
+      await this.loadNotifications();
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      this.showError('Failed to mark all as read');
+    }
+  }
+
+  /**
+   * Delete all notifications.
+   */
+  async deleteAllNotifications() {
+    try {
+      const response = await fetch('/api/notifications/delete-all', {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete all notifications');
+      }
+
+      // Reload notifications
+      await this.loadNotifications();
+    } catch (error) {
+      console.error('Error deleting all notifications:', error);
+      this.showError('Failed to delete all notifications');
+    }
+  }
+
+  /**
+   * Mark a notification as read (only if currently unread).
+   */
+  async markAsRead(id, isCurrentlyUnread) {
+    // Only mark as read if it's currently unread
+    if (!isCurrentlyUnread) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/notifications/${id}/read`, {
+        method: 'PUT'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to mark notification as read');
+      }
+
+      // Reload notifications
+      await this.loadNotifications();
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      this.showError('Failed to update notification');
     }
   }
 

@@ -313,8 +313,8 @@
   display: none;
   position: absolute;
   top: 100%;
-  right: 0;
-  margin-top: 10px;
+  left: 0;
+  padding-top: 5px;
   background-color: white;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -334,12 +334,50 @@
   padding: 15px 20px;
   border-bottom: 1px solid var(--border-color);
   background-color: #f8f9fa;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .notifications-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  color: var(--text-dark);
+}
+
+.mark-all-read-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-dark);
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.mark-all-read-btn:hover {
+  background-color: #4caf50;
+  border-color: #4caf50;
+  color: white;
+}
+
+.mark-all-read-btn.delete-mode:hover {
+  background-color: #e74c3c;
+  border-color: #e74c3c;
+  color: white;
+}
+
+.mark-all-read-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mark-all-read-btn:disabled:hover {
+  background: none;
+  border-color: var(--border-color);
   color: var(--text-dark);
 }
 

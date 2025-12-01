@@ -4844,11 +4844,19 @@ def create_notification():
         if not data:
             return jsonify({"success": False, "message": "No data provided"}), 400
         
-        subject = data.get('subject')
-        message = data.get('message')
+        subject = data.get('subject', '').strip()
+        message = data.get('message', '').strip()
         
+        # Validate required fields
         if not subject or not message:
             return jsonify({"success": False, "message": "Subject and message are required"}), 400
+        
+        # Validate length limits (matching database column constraints)
+        if len(subject) > 255:
+            return jsonify({"success": False, "message": "Subject must be 255 characters or less"}), 400
+        
+        if len(message) > 65535:
+            return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
 
         # Create notification
         notification = Notification(
@@ -4877,7 +4885,7 @@ def create_notification():
     except Exception as e:
         db.rollback()
         logger.error(f"Error creating notification: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to create notification"}), 500
     finally:
         db.close()
 

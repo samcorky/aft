@@ -2,6 +2,21 @@
 
 Thank you for your interest in contributing to AFT. This document provides guidelines for contributing to the project.
 
+## ⚠️ Pre-Submission Checklist
+
+Before submitting any code contribution, **verify ALL items** are complete:
+
+- [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
+- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](./TESTING.md))
+- [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
+- [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
+- [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
+- [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
+- [ ] **Documentation** - README/docs updated if behavior changed
+- [ ] **All Tests Pass** - Run `pytest -v` and verify all tests pass
+
+**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md) before implementing ANY feature.
+
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)

@@ -121,7 +121,12 @@ class Notifications {
 
     this.list.innerHTML = sortedNotifications.map(notification => {
       return `
-        <div class="notification-item ${notification.unread ? 'unread' : ''}" data-id="${notification.id}" onclick="notifications.markAsRead(${notification.id}, ${notification.unread})">
+        <div class="notification-item ${notification.unread ? 'unread' : ''}" 
+             data-id="${notification.id}" 
+             role="listitem"
+             onclick="notifications.markAsRead(${notification.id}, ${notification.unread})"
+             tabindex="0"
+             onkeypress="if(event.key==='Enter') notifications.markAsRead(${notification.id}, ${notification.unread})">
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
@@ -130,11 +135,13 @@ class Notifications {
           <div class="notification-actions" onclick="event.stopPropagation()">
             <button class="notification-action-btn read-btn" 
                     onclick="notifications.toggleRead(${notification.id}, ${notification.unread})"
+                    aria-label="${notification.unread ? 'Mark as read' : 'Mark as unread'}"
                     title="${notification.unread ? 'Mark as read' : 'Mark as unread'}">
               ${notification.unread ? '✓' : '○'}
             </button>
             <button class="notification-action-btn delete-btn" 
                     onclick="notifications.deleteNotification(${notification.id})"
+                    aria-label="Delete notification"
                     title="Delete">
               ✕
             </button>

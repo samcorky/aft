@@ -29,8 +29,7 @@ def upgrade():
         sa.PrimaryKeyConstraint('id')
     )
     
-    # Create indexes
-    op.create_index('ix_notifications_id', 'notifications', ['id'])
+    # Create indexes (primary key id already has an index automatically)
     op.create_index('ix_notifications_unread', 'notifications', ['unread'])
     op.create_index('ix_notifications_created_at', 'notifications', ['created_at'])
     
@@ -54,5 +53,4 @@ def downgrade():
     """Drop notifications table."""
     op.drop_index('ix_notifications_created_at', table_name='notifications')
     op.drop_index('ix_notifications_unread', table_name='notifications')
-    op.drop_index('ix_notifications_id', table_name='notifications')
     op.drop_table('notifications')

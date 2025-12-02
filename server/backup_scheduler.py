@@ -128,6 +128,10 @@ class BackupScheduler:
         if not is_writable:
             logger.error(error_msg)
             self.permission_error = error_msg
+            create_notification(
+                subject="⚠️ Backup Scheduler Permission Error",
+                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved."
+            )
             # Clean up lock file before returning
             if self.lock_file.exists():
                 self.lock_file.unlink()
@@ -627,6 +631,11 @@ class BackupScheduler:
                 if not is_writable:
                     if self.permission_error != error_msg:
                         logger.error(error_msg)
+                        # Create notification when permission error first detected or changes
+                        create_notification(
+                            subject="⚠️ Backup Permission Error",
+                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved."
+                        )
                     self.permission_error = error_msg
                     # Skip backup if we can't write
                     time.sleep(60)

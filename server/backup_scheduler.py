@@ -11,7 +11,8 @@ import logging
 
 from sqlalchemy import text
 from database import SessionLocal
-from models import Setting
+from models import Setting, Notification
+from notification_utils import create_notification
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,10 @@ class BackupScheduler:
         if not is_writable:
             logger.error(error_msg)
             self.permission_error = error_msg
+            create_notification(
+                subject="⚠️ Backup Scheduler Permission Error",
+                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved."
+            )
             # Clean up lock file before returning
             if self.lock_file.exists():
                 self.lock_file.unlink()
@@ -226,6 +231,10 @@ class BackupScheduler:
                 setting.value = json.dumps(False)
                 db.commit()
                 logger.warning(f"Disabled backups due to invalid settings: {error_msg}")
+                create_notification(
+                    subject="⚠️ Backups Disabled - Invalid Settings",
+                    message=f"Automatic backups have been disabled due to invalid configuration:\n\n{error_msg}\n\nPlease review backup settings and re-enable."
+                )
         except Exception as e:
             logger.error(f"Failed to disable backups: {str(e)}")
             db.rollback()
@@ -452,6 +461,80 @@ class BackupScheduler:
         
         return False
         
+    def _check_and_notify_overdue(self, settings: dict):
+        """Check if backup is overdue and send notification if needed.
+        
+        A backup is considered overdue if it's more than 2x the configured frequency
+        since the last backup, and backups are enabled.
+        
+        Checks database for existing unread overdue notifications to prevent
+        duplicates across process restarts.
+        """
+        db = SessionLocal()
+        try:
+            latest_backup = self._get_latest_backup_info()
+            latest_backup_date = latest_backup.get("date")
+            
+            if not latest_backup_date:
+                # No backup exists at all - don't spam notifications on first run
+                return
+            
+            freq_value = settings.get("backup_frequency_value", 1)
+            freq_unit = settings.get("backup_frequency_unit", "days")
+            
+            # Calculate frequency in timedelta
+            if freq_unit == "minutes":
+                frequency = timedelta(minutes=freq_value)
+            elif freq_unit == "hours":
+                frequency = timedelta(hours=freq_value)
+            else:  # days
+                frequency = timedelta(days=freq_value)
+            
+            now = datetime.now()
+            time_since_last = now - latest_backup_date
+            
+            # If overdue by more than 2x frequency, send notification
+            if time_since_last > frequency * 2:
+                # Check if an unread overdue notification already exists
+                existing_notification = db.query(Notification).filter(
+                    Notification.subject.like("%Backup Overdue%"),
+                    Notification.unread.is_(True)
+                ).first()
+                
+                if not existing_notification:
+                    overdue_by = time_since_last - frequency
+                    create_notification(
+                        subject="⚠️ Backup Overdue",
+                        message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues."
+                    )
+                    logger.warning(f"Backup is overdue by {overdue_by}, notification sent")
+            else:
+                # Backup is within acceptable window - no action needed
+                # Users will manually dismiss overdue notifications when they see them
+                pass
+                
+        except Exception as e:
+            logger.error(f"Error checking for overdue backup: {str(e)}")
+        finally:
+            db.close()
+    
+    def _format_timedelta(self, td: timedelta) -> str:
+        """Format a timedelta into a human-readable string."""
+        total_seconds = int(td.total_seconds())
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        minutes = (total_seconds % 3600) // 60
+        
+        parts = []
+        if days > 0:
+            parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hours > 0:
+            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes > 0:
+            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        
+        return ", ".join(parts) if parts else "less than a minute"
+        
     def _create_backup(self):
         """Create a database backup file."""
         try:
@@ -508,13 +591,40 @@ class BackupScheduler:
             
             if result.returncode != 0:
                 backup_path.unlink(missing_ok=True)
-                raise Exception(f"mysqldump failed: {result.stderr}")
+                error_msg = f"mysqldump failed: {result.stderr}"
+                create_notification(
+                    subject="⚠️ Automatic Backup Failed",
+                    message=f"Scheduled automatic backup failed:\n\n{error_msg}\n\nCheck database connection and mysqldump availability in server logs."
+                )
+                raise Exception(error_msg)
             
             logger.info(f"Automatic backup created: {backup_filename}")
+            
+            # Create resolution notification if there's an unread overdue notification
+            # Use a new session to check notifications
+            notification_db = SessionLocal()
+            try:
+                existing_overdue = notification_db.query(Notification).filter(
+                    Notification.subject.like("%Backup Overdue%"),
+                    Notification.unread.is_(True)
+                ).first()
+                
+                if existing_overdue:
+                    create_notification(
+                        subject="✅ Backup Completed",
+                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
+                    )
+            finally:
+                notification_db.close()
+            
             return True
             
         except Exception as e:
             logger.error(f"Error creating automatic backup: {str(e)}")
+            create_notification(
+                subject="⚠️ Automatic Backup Error",
+                message=f"Failed to create scheduled backup:\n\n{str(e)}\n\nCheck server logs for details. Backups will retry on next schedule."
+            )
             return False
             
     def _rotate_backups(self, retention_count: int):
@@ -547,6 +657,11 @@ class BackupScheduler:
                 if not is_writable:
                     if self.permission_error != error_msg:
                         logger.error(error_msg)
+                        # Create notification when permission error first detected or changes
+                        create_notification(
+                            subject="⚠️ Backup Permission Error",
+                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved."
+                        )
                     self.permission_error = error_msg
                     # Skip backup if we can't write
                     time.sleep(60)
@@ -555,12 +670,20 @@ class BackupScheduler:
                 # Permissions are OK, clear any previous error
                 if self.permission_error is not None:
                     logger.info("Backup directory permissions have been fixed")
+                    create_notification(
+                        subject="✅ Backup Permissions Restored",
+                        message="Backup directory permissions have been fixed. Automatic backups will resume on schedule."
+                    )
                 self.permission_error = None
                 
                 settings = self._get_settings()
                 
                 should_run = self._should_run_backup(settings)
                 logger.info(f"Backup check: should_run={should_run}, enabled={settings.get('backup_enabled')}, last_backup={self.last_backup_time}")
+                
+                # Check if backup is overdue and send notification if needed
+                if settings.get('backup_enabled'):
+                    self._check_and_notify_overdue(settings)
                 
                 if should_run:
                     logger.info("Running scheduled backup")

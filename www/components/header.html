@@ -26,6 +26,24 @@
           <span class="archive-toggle-slider"></span>
         </label>
       </div>
+      <div class="notifications-dropdown">
+        <a href="javascript:void(0)" class="icon-link" id="notifications-icon-link" title="Notifications" aria-label="Notifications" role="button">
+          <svg class="icon-btn icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span class="notification-badge" id="notification-badge" style="display: none;" aria-label="0 unread notifications"></span>
+        </a>
+        <div class="notifications-popup" id="notifications-popup" role="dialog" aria-labelledby="notifications-title">
+          <div class="notifications-header">
+            <h3 id="notifications-title">Notifications</h3>
+            <button class="mark-all-read-btn" id="mark-all-read-btn" title="Mark all as read" aria-label="Mark all notifications as read">Mark all read</button>
+          </div>
+          <div class="notifications-list" id="notifications-list" role="list" aria-live="polite">
+            <div class="notifications-loading">Loading...</div>
+          </div>
+        </div>
+      </div>
       <div class="settings-dropdown">
         <a href="javascript:void(0)" class="icon-link" title="Settings" aria-label="Settings" role="button">
           <svg class="icon-btn icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -318,6 +318,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'checklist_items',
             'comments',
             'settings',
+            'notifications',
             'alembic_version'
         ]
 
@@ -660,7 +661,11 @@ def backup_database():
 
     except Exception as e:
         logger.error(f"Error creating backup: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        create_notification_internal(
+            subject="⚠️ Database Backup Failed",
+            message=f"Failed to create database backup: {str(e)}\n\nCheck server logs for details."
+        )
+        return jsonify({"success": False, "message": "Failed to create database backup"}), 500
 
 
 @app.route("/api/database/backup/manual", methods=["POST"])
@@ -753,7 +758,11 @@ def create_manual_backup():
 
     except Exception as e:
         logger.error(f"Error creating manual backup: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        create_notification_internal(
+            subject="⚠️ Manual Backup Failed",
+            message=f"Failed to create manual backup: {str(e)}\n\nCheck database connection and mysqldump availability in server logs."
+        )
+        return jsonify({"success": False, "message": "Failed to create manual backup"}), 500
 
 
 @app.route("/api/database/restore", methods=["POST"])
@@ -4705,6 +4714,440 @@ def delete_comment(comment_id):
         db.rollback()
         logger.error(f"Error deleting comment {comment_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ============================================================================
+# Notification Routes
+# ============================================================================
+
+
+@app.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    """Get all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: List of all notifications (newest first)
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  subject:
+                    type: string
+                  message:
+                    type: string
+                  unread:
+                    type: boolean
+                  created_at:
+                    type: string
+                    format: date-time
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notifications = (
+            db.query(Notification)
+            .order_by(Notification.created_at.desc())  # Newest first
+            .all()
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "notifications": [
+                    {
+                        "id": n.id,
+                        "subject": n.subject,
+                        "message": n.message,
+                        "unread": n.unread,
+                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                    }
+                    for n in notifications
+                ],
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"Error getting notifications: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to retrieve notifications"}), 500
+    finally:
+        db.close()
+
+
+# Import notification utility with alias to avoid conflict with API route
+from notification_utils import create_notification as create_notification_internal
+
+
+@app.route("/api/notifications", methods=["POST"])
+def create_notification():
+    """Create a new notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - subject
+            - message
+          properties:
+            subject:
+              type: string
+              description: Subject of the notification
+              example: "New Feature Available"
+            message:
+              type: string
+              description: Message content of the notification
+              example: "Check out our new dark mode feature!"
+    responses:
+      201:
+        description: Notification created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notification:
+              type: object
+              properties:
+                id:
+                  type: integer
+                subject:
+                  type: string
+                message:
+                  type: string
+                unread:
+                  type: boolean
+                created_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
+        
+        subject = data.get('subject', '').strip()
+        message = data.get('message', '').strip()
+        
+        # Validate required fields
+        if not subject or not message:
+            return jsonify({"success": False, "message": "Subject and message are required"}), 400
+        
+        # Validate length limits (matching database column constraints)
+        if len(subject) > 255:
+            return jsonify({"success": False, "message": "Subject must be 255 characters or less"}), 400
+        
+        if len(message) > 65535:
+            return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
+
+        # Create notification
+        notification = Notification(
+            subject=subject,
+            message=message,
+            unread=True
+        )
+        
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+
+        logger.info(f"Created notification: {notification.id}")
+        
+        return jsonify({
+            "success": True,
+            "notification": {
+                "id": notification.id,
+                "subject": notification.subject,
+                "message": notification.message,
+                "unread": notification.unread,
+                "created_at": notification.created_at.isoformat() if notification.created_at else None,
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating notification: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to create notification"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
+def mark_notification_read(notification_id):
+    """Mark a notification as read.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as read"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = False
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as read")
+        return jsonify({"success": True, "message": "Notification marked as read"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as read: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
+def mark_notification_unread(notification_id):
+    """Mark a notification as unread.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as unread
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as unread"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = True
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as unread")
+        return jsonify({"success": True, "message": "Notification marked as unread"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as unread: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
+def delete_notification(notification_id):
+    """Delete a notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification deleted successfully"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        db.delete(notification)
+        db.commit()
+
+        logger.info(f"Notification {notification_id} deleted")
+        return jsonify({"success": True, "message": "Notification deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting notification {notification_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/mark-all-read", methods=["PUT"])
+def mark_all_notifications_read():
+    """Mark all notifications as read.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications marked as read"
+            count:
+              type: integer
+              description: Number of notifications marked as read
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Update all unread notifications
+        result = db.query(Notification).filter(Notification.unread.is_(True)).update({"unread": False})
+        db.commit()
+
+        logger.info(f"Marked {result} notifications as read")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications marked as read",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking all notifications as read: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to mark all notifications as read"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/delete-all", methods=["DELETE"])
+def delete_all_notifications():
+    """Delete all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications deleted"
+            count:
+              type: integer
+              description: Number of notifications deleted
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Delete all notifications
+        result = db.query(Notification).delete()
+        db.commit()
+
+        logger.info(f"Deleted {result} notifications")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications deleted",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting all notifications: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to delete all notifications"}), 500
     finally:
         db.close()
 

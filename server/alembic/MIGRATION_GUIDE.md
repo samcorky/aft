@@ -114,3 +114,35 @@ docker exec -it aft-server alembic downgrade -1
 ### Foreign key constraints fail
 - **Cause**: Tables created in wrong order
 - **Fix**: Ensure parent tables are created before child tables in migration
+
+### Schema validation fails with "Unexpected tables found in backup"
+- **Cause**: New table added but not registered in schema validation
+- **Fix**: Update the `expected_tables` list in `app.py`'s `validate_schema_integrity()` function (around line 315)
+- **Location**: `server/app.py`, function `validate_schema_integrity()`
+- **Example**:
+  ```python
+  if expected_tables is None:
+      expected_tables = [
+          'boards',
+          'columns',
+          'cards',
+          'checklist_items',
+          'comments',
+          'settings',
+          'notifications',  # Add new table here
+          'alembic_version'
+      ]
+  ```
+
+## Important: Schema Validation Updates
+
+**⚠️ CRITICAL**: When adding a new table via migration, you MUST update the schema validation function to avoid backup/restore failures.
+
+**Steps after creating a new table migration:**
+
+1. Open `server/app.py`
+2. Find the `validate_schema_integrity()` function (around line 295)
+3. Add your new table name to the `expected_tables` list
+4. Test backup and restore functionality to ensure it works
+
+**Why this matters**: The backup/restore system validates that only expected tables are present in backup files for security. New tables will be rejected unless explicitly added to the allowed list.

@@ -2,6 +2,21 @@
 
 Thank you for your interest in contributing to AFT. This document provides guidelines for contributing to the project.
 
+## ⚠️ Pre-Submission Checklist
+
+Before submitting any code contribution, **verify ALL items** are complete:
+
+- [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
+- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](./TESTING.md))
+- [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
+- [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
+- [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
+- [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
+- [ ] **Documentation** - README/docs updated if behavior changed
+- [ ] **All Tests Pass** - Run `pytest -v` and verify all tests pass
+
+**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md) before implementing ANY feature.
+
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
@@ -101,7 +116,17 @@ git checkout -b fix/your-bugfix-name
 - Update documentation as needed
 - Ensure accessibility requirements are met
 
-### 4. Test Your Changes
+### 4. Database Changes
+
+**⚠️ IMPORTANT**: If your changes include database schema modifications (new tables, columns, etc.), follow these steps:
+
+1. **Create Migration**: Follow the [Alembic Migration Guide](server/alembic/MIGRATION_GUIDE.md)
+2. **Update Schema Validation**: Add new tables to `expected_tables` in `server/app.py` (line ~315)
+3. **Test Backup/Restore**: Verify backup and restore functionality works with your changes
+
+See the [Migration Guide](server/alembic/MIGRATION_GUIDE.md) for detailed instructions on creating migrations and updating schema validation.
+
+### 5. Test Your Changes
 
 ```bash
 # Run all tests
@@ -115,7 +140,7 @@ pytest --cov=. --cov-report=html
 pytest tests/test_api_boards.py -v
 ```
 
-### 5. Commit Your Changes
+### 6. Commit Your Changes
 
 ```bash
 git add .
@@ -124,20 +149,20 @@ git commit -m "feat: add new feature"
 
 See [Commit Messages](#commit-messages) for commit message guidelines.
 
-### 6. Keep Your Branch Updated
+### 7. Keep Your Branch Updated
 
 ```bash
 git fetch upstream
 git rebase upstream/main
 ```
 
-### 7. Push to Your Fork
+### 8. Push to Your Fork
 
 ```bash
 git push origin feature/your-feature-name
 ```
 
-### 8. Create a Pull Request
+### 9. Create a Pull Request
 
 1. Go to your fork on GitHub
 2. Click "Pull Request"

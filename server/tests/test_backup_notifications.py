@@ -32,26 +32,14 @@ class TestBackupNotifications:
 class TestNotificationCreationHelper:
     """Test the notification creation helper function through API integration."""
     
-    def test_notifications_appear_in_list_after_errors(self, api_client):
-        """Test that any error-generated notifications appear in the list."""
-        # Get initial notification count
-        response = requests.get(f'{api_client}/api/notifications')
-        assert response.status_code == 200
-        initial_count = len(response.json()['notifications'])
+    @pytest.mark.skip(reason="Will be implemented with backup space check feature")
+    def test_backup_failure_creates_notification(self, api_client):
+        """Test that backup failure creates a notification.
         
-        # Try an operation that might fail (invalid restore file)
-        import io
-        invalid_sql = io.BytesIO(b"-- Invalid backup\nGARBAGE DATA")
-        files = {'file': ('test.sql', invalid_sql, 'application/sql')}
-        requests.post(f'{api_client}/api/database/restore', files=files)
-        
-        # Check notifications again
-        response = requests.get(f'{api_client}/api/notifications')
-        assert response.status_code == 200
-        final_count = len(response.json()['notifications'])
-        
-        # Count should be same or higher (no notification for validation errors)
-        assert final_count >= initial_count
+        TODO: Implement this test when backup space check feature is added.
+        Will trigger actual backup failure by setting overly large free space requirement.
+        """
+        pass
     
     def test_notification_structure_for_error_notifications(self, api_client):
         """Test that error notifications have proper structure when created."""

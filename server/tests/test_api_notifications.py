@@ -491,3 +491,76 @@ class TestNotificationsSecurity:
             assert response.status_code in [400, 404]
             data = response.json()
             assert data['success'] is False
+    
+    def test_create_notification_subject_exceeds_limit(self, api_client):
+        """Test creating notification with subject exceeding 255 char limit is rejected."""
+        # Create subject longer than 255 chars
+        subject = "A" * 300
+        message = "Test message for validation"
+        
+        response = requests.post(f'{api_client}/api/notifications', json={
+            "subject": subject,
+            "message": message
+        })
+        
+        # API should reject oversized input
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'Subject must be 255 characters or less' in data['message']
+    
+    def test_create_notification_message_exceeds_limit(self, api_client):
+        """Test creating notification with message exceeding 65535 char limit is rejected."""
+        subject = "Test Validation"
+        # Create message longer than 65535 chars
+        message = "B" * 70000
+        
+        response = requests.post(f'{api_client}/api/notifications', json={
+            "subject": subject,
+            "message": message
+        })
+        
+        # API should reject oversized input
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'Message must be 65535 characters or less' in data['message']
+    
+    def test_create_notification_both_exceed_limits(self, api_client):
+        """Test creating notification with both subject and message exceeding limits is rejected."""
+        subject = "X" * 300
+        message = "Y" * 70000
+        
+        response = requests.post(f'{api_client}/api/notifications', json={
+            "subject": subject,
+            "message": message
+        })
+        
+        # API should reject oversized input (validates subject first)
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '255 characters or less' in data['message']
+    
+    def test_create_notification_at_exact_limits(self, api_client):
+        """Test creating notification at exact character limits is accepted."""
+        subject = "A" * 255
+        message = "B" * 65535
+        
+        response = requests.post(f'{api_client}/api/notifications', json={
+            "subject": subject,
+            "message": message
+        })
+        
+        # API should accept input at exact limits
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert 'notification' in data
+        
+        # Verify no truncation occurred
+        notification = data['notification']
+        assert len(notification['subject']) == 255
+        assert len(notification['message']) == 65535
+        assert notification['subject'] == subject
+        assert notification['message'] == message

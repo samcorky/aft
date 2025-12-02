@@ -138,6 +138,11 @@ class Notifications {
     this.popup.classList.remove('show');
     this.isPopupOpen = false;
     
+    // Return focus to the trigger button
+    if (this.iconLink) {
+      this.iconLink.focus();
+    }
+    
     // Return focus to the trigger button for accessibility
     if (this.iconLink) {
       this.iconLink.focus();

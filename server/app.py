@@ -661,6 +661,10 @@ def backup_database():
 
     except Exception as e:
         logger.error(f"Error creating backup: {str(e)}")
+        create_notification_internal(
+            subject="⚠️ Database Backup Failed",
+            message=f"Failed to create database backup: {str(e)}\n\nCheck server logs for details."
+        )
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -754,6 +758,10 @@ def create_manual_backup():
 
     except Exception as e:
         logger.error(f"Error creating manual backup: {str(e)}")
+        create_notification_internal(
+            subject="⚠️ Manual Backup Failed",
+            message=f"Failed to create manual backup: {str(e)}\n\nCheck database connection and mysqldump availability in server logs."
+        )
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -4780,6 +4788,10 @@ def get_notifications():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
+
+
+# Import notification utility with alias to avoid conflict with API route
+from notification_utils import create_notification as create_notification_internal
 
 
 @app.route("/api/notifications", methods=["POST"])

@@ -10,6 +10,7 @@ class Notifications {
     this.badge = document.getElementById('notification-badge');
     this.markAllReadBtn = document.getElementById('mark-all-read-btn');
     this.isPopupOpen = false;
+    this.lastLoadTime = 0;  // Track last load time to avoid duplicate requests
 
     this.init();
   }
@@ -80,6 +81,7 @@ class Notifications {
     if (!document.hidden) {
       startPolling();
     }
+  }
 
   /**
    * Toggle the notifications popup.
@@ -98,8 +100,15 @@ class Notifications {
   openPopup() {
     this.popup.classList.add('show');
     this.isPopupOpen = true;
-    // Reload notifications when opening popup
-    this.loadNotifications();
+    
+    // Only reload if last load was more than 5 seconds ago
+    const now = Date.now();
+    const timeSinceLastLoad = now - this.lastLoadTime;
+    const RELOAD_THRESHOLD = 5000; // 5 seconds
+    
+    if (timeSinceLastLoad > RELOAD_THRESHOLD) {
+      this.loadNotifications();
+    }
   }
 
   /**
@@ -122,6 +131,7 @@ class Notifications {
 
       const data = await response.json();
       this.notifications = data.notifications || [];
+      this.lastLoadTime = Date.now();  // Update last load time
       this.renderNotifications();
       this.updateBadge();
     } catch (error) {

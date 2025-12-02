@@ -34,14 +34,18 @@ def upgrade():
     op.create_index('ix_notifications_unread', 'notifications', ['unread'])
     op.create_index('ix_notifications_created_at', 'notifications', ['created_at'])
     
-    # Insert welcome notification
+    # Insert welcome notification only if no notifications exist
+    # This prevents duplicates if migration is run multiple times (testing, manual upgrade/downgrade cycles)
     op.execute("""
         INSERT INTO notifications (subject, message, unread, created_at)
-        VALUES (
+        SELECT 
             'Welcome to AFT',
             'This is your notification area. Click a message to mark it as read, click mark as unread to read again later, or click delete to remove the message entirely',
             1,
             NOW()
+        FROM DUAL
+        WHERE NOT EXISTS (
+            SELECT 1 FROM notifications WHERE subject = 'Welcome to AFT'
         )
     """)
 

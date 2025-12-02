@@ -115,6 +115,13 @@
             <p class="setting-help">Number of backups to keep (1-100). Older backups will be automatically deleted.</p>
           </div>
 
+          <div class="setting-item">
+            <label for="minimumFreeSpace">Minimum Free Disk Space (MB)</label>
+            <input type="number" id="minimumFreeSpace" name="minimum_free_space_mb" 
+                   min="1" max="10485760" value="100" required>
+            <p class="setting-help">Minimum free disk space required before creating a backup (1-10485760 MB = 10TB). Backups will be skipped if insufficient space is available.</p>
+          </div>
+
           <div class="button-group">
             <button type="submit" class="btn btn-primary" id="saveBackupButton">
               Save Backup Settings

@@ -17,6 +17,7 @@ class BackupRestore {
     this.frequencyUnit = document.getElementById('frequencyUnit');
     this.startTime = document.getElementById('startTime');
     this.retentionCount = document.getElementById('retentionCount');
+    this.minimumFreeSpace = document.getElementById('minimumFreeSpace');
     this.schedulerStatus = document.getElementById('schedulerStatus');
     this.currentFrequency = document.getElementById('currentFrequency');
     this.currentRetention = document.getElementById('currentRetention');
@@ -328,6 +329,7 @@ class BackupRestore {
         if (this.frequencyUnit) this.frequencyUnit.value = config.frequency_unit || 'hours';
         if (this.startTime) this.startTime.value = config.start_time || '02:00';
         if (this.retentionCount) this.retentionCount.value = config.retention_count || 7;
+        if (this.minimumFreeSpace) this.minimumFreeSpace.value = config.minimum_free_space_mb || 100;
       }
     } catch (err) {
       console.error('Error loading backup config:', err);
@@ -346,7 +348,8 @@ class BackupRestore {
         frequency_value: this.frequencyValue ? parseInt(this.frequencyValue.value, 10) : 24,
         frequency_unit: this.frequencyUnit ? this.frequencyUnit.value : 'hours',
         start_time: this.startTime ? this.startTime.value : '02:00',
-        retention_count: this.retentionCount ? parseInt(this.retentionCount.value, 10) : 7
+        retention_count: this.retentionCount ? parseInt(this.retentionCount.value, 10) : 7,
+        minimum_free_space_mb: this.minimumFreeSpace ? parseInt(this.minimumFreeSpace.value, 10) : 100
       };
 
       const response = await fetch('/api/settings/backup/config', {

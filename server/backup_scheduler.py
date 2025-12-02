@@ -285,9 +285,45 @@ class BackupScheduler:
                 "backup_frequency_value": _get_setting_value(db, "backup_frequency_value", 1),
                 "backup_frequency_unit": _get_setting_value(db, "backup_frequency_unit", "days"),
                 "backup_start_time": _get_setting_value(db, "backup_start_time", "00:00"),
-                "backup_retention_count": _get_setting_value(db, "backup_retention_count", 7)
+                "backup_retention_count": _get_setting_value(db, "backup_retention_count", 7),
+                "backup_minimum_free_space_mb": _get_setting_value(db, "backup_minimum_free_space_mb", 100)
             }
             return settings
+        finally:
+            db.close()
+    
+    def _check_disk_space(self) -> tuple[bool, Optional[str]]:
+        """Check if sufficient disk space is available for backup.
+        
+        Returns:
+            Tuple of (is_sufficient, error_message). error_message is None if sufficient.
+        """
+        import shutil
+        
+        db = SessionLocal()
+        try:
+            # Get minimum required space from settings
+            min_space_mb = _get_setting_value(db, "backup_minimum_free_space_mb", 100)
+            
+            # Get disk usage statistics for backup directory
+            usage = shutil.disk_usage(self.backup_dir)
+            free_space_mb = usage.free / (1024 * 1024)
+            
+            if free_space_mb < min_space_mb:
+                error_msg = (
+                    f"Insufficient disk space for backup. "
+                    f"Available: {free_space_mb:.0f} MB, Required: {min_space_mb} MB"
+                )
+                logger.warning(error_msg)
+                return False, error_msg
+            
+            logger.info(f"Disk space check passed: {free_space_mb:.0f} MB available, {min_space_mb} MB required")
+            return True, None
+            
+        except Exception as e:
+            error_msg = f"Error checking disk space: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
         finally:
             db.close()
             
@@ -540,6 +576,16 @@ class BackupScheduler:
         try:
             # Ensure backup directory exists
             self.backup_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Check if sufficient disk space is available
+            has_space, space_error = self._check_disk_space()
+            if not has_space:
+                logger.error(f"Backup skipped: {space_error}")
+                create_notification(
+                    subject="❌ Backup Failed - Insufficient Disk Space",
+                    message=f"Automatic backup could not run due to insufficient free disk space.\n\n{space_error}\n\nPlease free up disk space or adjust the minimum free space requirement in backup settings."
+                )
+                return
             
             # Get current Alembic version
             db = SessionLocal()

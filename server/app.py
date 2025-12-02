@@ -4785,7 +4785,7 @@ def get_notifications():
 
     except Exception as e:
         logger.error(f"Error getting notifications: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to retrieve notifications"}), 500
     finally:
         db.close()
 
@@ -5100,7 +5100,7 @@ def mark_all_notifications_read():
     except Exception as e:
         db.rollback()
         logger.error(f"Error marking all notifications as read: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to mark all notifications as read"}), 500
     finally:
         db.close()
 
@@ -5147,7 +5147,7 @@ def delete_all_notifications():
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting all notifications: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to delete all notifications"}), 500
     finally:
         db.close()
 

@@ -499,7 +499,7 @@ class BackupScheduler:
                 # Check if an unread overdue notification already exists
                 existing_notification = db.query(Notification).filter(
                     Notification.subject.like("%Backup Overdue%"),
-                    Notification.unread == True
+                    Notification.unread.is_(True)
                 ).first()
                 
                 if not existing_notification and not self.overdue_notification_sent:

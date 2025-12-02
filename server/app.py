@@ -5087,7 +5087,7 @@ def mark_all_notifications_read():
         from models import Notification
 
         # Update all unread notifications
-        result = db.query(Notification).filter(Notification.unread == True).update({"unread": False})
+        result = db.query(Notification).filter(Notification.unread.is_(True)).update({"unread": False})
         db.commit()
 
         logger.info(f"Marked {result} notifications as read")

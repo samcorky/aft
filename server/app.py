@@ -62,6 +62,12 @@ SETTINGS_SCHEMA = {
         "description": "Number of backup files to retain (1-100)",
         "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 100,
     },
+    "backup_minimum_free_space_mb": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Minimum free disk space in MB required before creating a backup (1-10485760)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 10485760,
+    },
     "backup_last_run": {
         "type": "string",
         "nullable": True,
@@ -1646,6 +1652,7 @@ def get_backup_config():
             "backup_frequency_unit",
             "backup_start_time",
             "backup_retention_count",
+            "backup_minimum_free_space_mb",
             "backup_last_run"
         ]
         
@@ -1666,6 +1673,7 @@ def get_backup_config():
                     "backup_frequency_unit": "days",
                     "backup_start_time": "00:00",
                     "backup_retention_count": 7,
+                    "backup_minimum_free_space_mb": 100,
                     "backup_last_run": None
                 }
                 config[key.replace("backup_", "")] = defaults.get(key)
@@ -1752,7 +1760,8 @@ def update_backup_config():
             "frequency_value": "backup_frequency_value",
             "frequency_unit": "backup_frequency_unit",
             "start_time": "backup_start_time",
-            "retention_count": "backup_retention_count"
+            "retention_count": "backup_retention_count",
+            "minimum_free_space_mb": "backup_minimum_free_space_mb"
         }
         
         # Validate all provided fields using the settings schema
@@ -1784,7 +1793,7 @@ def update_backup_config():
             
             # Validate all required settings are present and valid
             required_errors = []
-            for field in ["frequency_value", "frequency_unit", "start_time", "retention_count"]:
+            for field in ["frequency_value", "frequency_unit", "start_time", "retention_count", "minimum_free_space_mb"]:
                 key = mapping[field]
                 value = final_settings.get(field)
                 if value is None:

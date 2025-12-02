@@ -32,14 +32,72 @@ class TestBackupNotifications:
 class TestNotificationCreationHelper:
     """Test the notification creation helper function through API integration."""
     
-    @pytest.mark.skip(reason="Will be implemented with backup space check feature")
     def test_backup_failure_creates_notification(self, api_client):
-        """Test that backup failure creates a notification.
+        """Test that backup failure creates a notification when disk space is insufficient.
         
-        TODO: Implement this test when backup space check feature is added.
-        Will trigger actual backup failure by setting overly large free space requirement.
+        Sets minimum free space requirement to 10TB (10485760 MB) which will exceed
+        available space and trigger a notification.
         """
-        pass
+        import time
+        
+        # Get notifications before test
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        notifications_before = response.json()['notifications']
+        disk_space_notifications_before = [
+            n for n in notifications_before
+            if 'Insufficient Disk Space' in n['subject']
+        ]
+        initial_count = len(disk_space_notifications_before)
+        
+        # Set unrealistic disk space requirement (10TB = 10485760 MB)
+        config = {
+            'enabled': True,
+            'frequency_value': 1,
+            'frequency_unit': 'minutes',
+            'start_time': '00:00',
+            'retention_count': 7,
+            'minimum_free_space_mb': 10485760  # 10TB
+        }
+        
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json=config
+        )
+        assert response.status_code == 200
+        
+        # Wait for backup scheduler to attempt backup (up to 90 seconds)
+        # The scheduler runs every 60 seconds, and with 1-minute frequency should attempt backup
+        max_wait = 90
+        notification_created = False
+        
+        for _ in range(max_wait):
+            time.sleep(1)
+            response = requests.get(f'{api_client}/api/notifications')
+            assert response.status_code == 200
+            notifications = response.json()['notifications']
+            
+            disk_space_notifications = [
+                n for n in notifications
+                if 'Insufficient Disk Space' in n['subject']
+            ]
+            
+            if len(disk_space_notifications) > initial_count:
+                notification_created = True
+                # Verify notification content
+                latest = disk_space_notifications[0]
+                assert '❌' in latest['subject']
+                assert 'Backup Failed' in latest['subject']
+                assert 'insufficient free disk space' in latest['message'].lower()
+                assert 'Available:' in latest['message'] or 'available' in latest['message'].lower()
+                assert 'Required:' in latest['message'] or 'required' in latest['message'].lower()
+                break
+        
+        # Reset to reasonable settings
+        config['minimum_free_space_mb'] = 100
+        requests.put(f'{api_client}/api/settings/backup/config', json=config)
+        
+        assert notification_created, "Disk space notification was not created within 90 seconds"
     
     def test_notification_structure_for_error_notifications(self, api_client):
         """Test that error notifications have proper structure when created."""

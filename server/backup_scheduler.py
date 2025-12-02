@@ -11,7 +11,7 @@ import logging
 
 from sqlalchemy import text
 from database import SessionLocal
-from models import Setting, Notification
+from models import Setting
 from notification_utils import create_notification
 
 logger = logging.getLogger(__name__)

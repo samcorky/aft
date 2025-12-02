@@ -126,7 +126,7 @@ class Notifications {
              role="listitem"
              onclick="notifications.markAsRead(${notification.id}, ${notification.unread})"
              tabindex="0"
-             onkeypress="if(event.key==='Enter') notifications.markAsRead(${notification.id}, ${notification.unread})">
+             onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); notifications.markAsRead(${notification.id}, ${notification.unread}); }">
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>

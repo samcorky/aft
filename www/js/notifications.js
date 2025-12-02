@@ -56,9 +56,30 @@ class Notifications {
     // Load notifications
     this.loadNotifications();
 
-    // Refresh every 60 seconds
-    setInterval(() => this.loadNotifications(), 60000);
-  }
+    // Set up polling with Page Visibility API
+    this.pollInterval = null;
+    const startPolling = () => {
+      if (!this.pollInterval) {
+        this.pollInterval = setInterval(() => this.loadNotifications(), 60000);
+      }
+    };
+    const stopPolling = () => {
+      if (this.pollInterval) {
+        clearInterval(this.pollInterval);
+        this.pollInterval = null;
+      }
+    };
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        this.loadNotifications(); // Optionally refresh immediately
+        startPolling();
+      }
+    });
+    if (!document.hidden) {
+      startPolling();
+    }
 
   /**
    * Toggle the notifications popup.

@@ -50,6 +50,13 @@ class Notifications {
       }
     });
 
+    // Close popup on Escape key for accessibility
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && this.isPopupOpen) {
+        this.closePopup();
+      }
+    });
+
     // Event delegation for notification actions
     this.list.addEventListener('click', (e) => this.handleNotificationClick(e));
     this.list.addEventListener('keydown', (e) => this.handleNotificationKeydown(e));
@@ -109,6 +116,19 @@ class Notifications {
     if (timeSinceLastLoad > RELOAD_THRESHOLD) {
       this.loadNotifications();
     }
+    
+    // Focus management for accessibility
+    // Focus the first focusable element in the popup for keyboard and screen reader users
+    setTimeout(() => {
+      const firstFocusable = this.popup.querySelector('button, a, [tabindex="0"]');
+      if (firstFocusable) {
+        firstFocusable.focus();
+      } else {
+        // Fallback: make popup focusable and focus it
+        this.popup.setAttribute('tabindex', '-1');
+        this.popup.focus();
+      }
+    }, 50); // Small delay to ensure DOM is updated after show class
   }
 
   /**
@@ -117,6 +137,11 @@ class Notifications {
   closePopup() {
     this.popup.classList.remove('show');
     this.isPopupOpen = false;
+    
+    // Return focus to the trigger button for accessibility
+    if (this.iconLink) {
+      this.iconLink.focus();
+    }
   }
 
   /**

@@ -11,7 +11,7 @@ import logging
 
 from sqlalchemy import text
 from database import SessionLocal
-from models import Setting
+from models import Setting, Notification
 from notification_utils import create_notification
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,6 @@ class BackupScheduler:
         self.permission_error = None  # Stores permission error message if directory not writable
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
-        self.overdue_notification_sent = False  # Track if we've sent an overdue notification
     
     def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
         """Check if backup directory is writable.
@@ -502,19 +501,17 @@ class BackupScheduler:
                     Notification.unread.is_(True)
                 ).first()
                 
-                if not existing_notification and not self.overdue_notification_sent:
+                if not existing_notification:
                     overdue_by = time_since_last - frequency
                     create_notification(
                         subject="⚠️ Backup Overdue",
                         message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues."
                     )
-                    self.overdue_notification_sent = True
                     logger.warning(f"Backup is overdue by {overdue_by}, notification sent")
             else:
-                # Backup is within acceptable window, reset notification flag
-                if self.overdue_notification_sent:
-                    logger.info("Backup is no longer overdue, resetting notification flag")
-                self.overdue_notification_sent = False
+                # Backup is within acceptable window - no action needed
+                # Users will manually dismiss overdue notifications when they see them
+                pass
                 
         except Exception as e:
             logger.error(f"Error checking for overdue backup: {str(e)}")
@@ -603,13 +600,22 @@ class BackupScheduler:
             
             logger.info(f"Automatic backup created: {backup_filename}")
             
-            # Clear overdue flag and create resolution notification if needed
-            if self.overdue_notification_sent:
-                create_notification(
-                    subject="✅ Backup Completed",
-                    message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
-                )
-            self.overdue_notification_sent = False
+            # Create resolution notification if there's an unread overdue notification
+            # Use a new session to check notifications
+            notification_db = SessionLocal()
+            try:
+                existing_overdue = notification_db.query(Notification).filter(
+                    Notification.subject.like("%Backup Overdue%"),
+                    Notification.unread.is_(True)
+                ).first()
+                
+                if existing_overdue:
+                    create_notification(
+                        subject="✅ Backup Completed",
+                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
+                    )
+            finally:
+                notification_db.close()
             
             return True
             

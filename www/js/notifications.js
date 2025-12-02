@@ -49,6 +49,10 @@ class Notifications {
       }
     });
 
+    // Event delegation for notification actions
+    this.list.addEventListener('click', (e) => this.handleNotificationClick(e));
+    this.list.addEventListener('keydown', (e) => this.handleNotificationKeydown(e));
+
     // Load notifications
     this.loadNotifications();
 
@@ -122,25 +126,27 @@ class Notifications {
     this.list.innerHTML = sortedNotifications.map(notification => {
       return `
         <div class="notification-item ${notification.unread ? 'unread' : ''}" 
-             data-id="${notification.id}" 
+             data-id="${notification.id}"
+             data-unread="${notification.unread}"
              role="listitem"
-             onclick="notifications.markAsRead(${notification.id}, ${notification.unread})"
-             tabindex="0"
-             onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); notifications.markAsRead(${notification.id}, ${notification.unread}); }">
+             tabindex="0">
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
             <div class="notification-time">${this.formatTime(notification.created_at)}</div>
           </div>
-          <div class="notification-actions" onclick="event.stopPropagation()">
+          <div class="notification-actions">
             <button class="notification-action-btn read-btn" 
-                    onclick="notifications.toggleRead(${notification.id}, ${notification.unread})"
+                    data-action="toggle-read"
+                    data-id="${notification.id}"
+                    data-unread="${notification.unread}"
                     aria-label="${notification.unread ? 'Mark as read' : 'Mark as unread'}"
                     title="${notification.unread ? 'Mark as read' : 'Mark as unread'}">
               ${notification.unread ? '✓' : '○'}
             </button>
             <button class="notification-action-btn delete-btn" 
-                    onclick="notifications.deleteNotification(${notification.id})"
+                    data-action="delete"
+                    data-id="${notification.id}"
                     aria-label="Delete notification"
                     title="Delete">
               ✕
@@ -149,6 +155,70 @@ class Notifications {
         </div>
       `;
     }).join('');
+  }
+
+  /**
+   * Handle click events on notification items and actions.
+   */
+  handleNotificationClick(e) {
+    const target = e.target;
+    
+    // Handle action button clicks
+    if (target.classList.contains('notification-action-btn')) {
+      e.stopPropagation();
+      const action = target.dataset.action;
+      const id = parseInt(target.dataset.id);
+      const isUnread = target.dataset.unread === 'true';
+      
+      if (action === 'toggle-read') {
+        this.toggleRead(id, isUnread);
+      } else if (action === 'delete') {
+        this.deleteNotification(id);
+      }
+      return;
+    }
+    
+    // Handle notification item click (mark as read if unread)
+    const notificationItem = target.closest('.notification-item');
+    if (notificationItem) {
+      const id = parseInt(notificationItem.dataset.id);
+      const isUnread = notificationItem.dataset.unread === 'true';
+      this.markAsRead(id, isUnread);
+    }
+  }
+
+  /**
+   * Handle keyboard events on notification items.
+   */
+  handleNotificationKeydown(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') {
+      return;
+    }
+    
+    e.preventDefault();
+    const target = e.target;
+    
+    // Handle action button keyboard activation
+    if (target.classList.contains('notification-action-btn')) {
+      const action = target.dataset.action;
+      const id = parseInt(target.dataset.id);
+      const isUnread = target.dataset.unread === 'true';
+      
+      if (action === 'toggle-read') {
+        this.toggleRead(id, isUnread);
+      } else if (action === 'delete') {
+        this.deleteNotification(id);
+      }
+      return;
+    }
+    
+    // Handle notification item keyboard activation
+    const notificationItem = target.closest('.notification-item');
+    if (notificationItem) {
+      const id = parseInt(notificationItem.dataset.id);
+      const isUnread = notificationItem.dataset.unread === 'true';
+      this.markAsRead(id, isUnread);
+    }
   }
 
   /**

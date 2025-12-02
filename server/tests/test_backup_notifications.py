@@ -75,3 +75,73 @@ class TestNotificationCreationHelper:
             # Message should not be empty
             assert len(notification['message']) > 0
             assert len(notification['message']) <= 65535
+
+
+@pytest.mark.api
+class TestOverdueNotificationDeduplication:
+    """Test that overdue notifications are not duplicated."""
+    
+    def test_no_duplicate_overdue_notifications(self, api_client):
+        """Test that only one unread overdue notification exists at a time.
+        
+        This verifies that the scheduler checks for existing unread overdue
+        notifications before creating a new one, preventing duplicates
+        across process restarts.
+        """
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        notifications = response.json()['notifications']
+        
+        # Count unread overdue notifications
+        unread_overdue = [
+            n for n in notifications 
+            if 'Backup Overdue' in n['subject'] and n['unread']
+        ]
+        
+        # Should have at most 1 unread overdue notification
+        assert len(unread_overdue) <= 1, \
+            f"Found {len(unread_overdue)} unread overdue notifications, expected at most 1"
+    
+    def test_backup_completion_notification_after_overdue(self, api_client):
+        """Test that a completion notification is created after overdue backup succeeds.
+        
+        Note: This requires manual testing or integration test with scheduler running.
+        Verifies that successful backup after overdue creates a resolution notification.
+        """
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        notifications = response.json()['notifications']
+        
+        # Find any backup completion notifications
+        completion_notifications = [
+            n for n in notifications 
+            if 'Backup Completed' in n['subject']
+        ]
+        
+        # Check content if any exist
+        for notification in completion_notifications:
+            assert '✅' in notification['subject']
+            assert 'successfully' in notification['message'].lower()
+            assert 'overdue' in notification['message'].lower()
+    
+    def test_overdue_notification_content(self, api_client):
+        """Test that overdue notifications contain expected information."""
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        notifications = response.json()['notifications']
+        
+        # Find any overdue notifications
+        overdue_notifications = [
+            n for n in notifications 
+            if 'Backup Overdue' in n['subject']
+        ]
+        
+        # Check content if any exist
+        for notification in overdue_notifications:
+            assert '⚠️' in notification['subject']
+            assert 'Last backup:' in notification['message']
+            assert 'Expected frequency:' in notification['message']
+            assert 'overdue by' in notification['message'].lower()

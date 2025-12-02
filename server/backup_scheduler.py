@@ -467,7 +467,11 @@ class BackupScheduler:
         
         A backup is considered overdue if it's more than 2x the configured frequency
         since the last backup, and backups are enabled.
+        
+        Checks database for existing unread overdue notifications to prevent
+        duplicates across process restarts.
         """
+        db = SessionLocal()
         try:
             latest_backup = self._get_latest_backup_info()
             latest_backup_date = latest_backup.get("date")
@@ -492,7 +496,13 @@ class BackupScheduler:
             
             # If overdue by more than 2x frequency, send notification
             if time_since_last > frequency * 2:
-                if not self.overdue_notification_sent:
+                # Check if an unread overdue notification already exists
+                existing_notification = db.query(Notification).filter(
+                    Notification.subject.like("%Backup Overdue%"),
+                    Notification.unread == True
+                ).first()
+                
+                if not existing_notification and not self.overdue_notification_sent:
                     overdue_by = time_since_last - frequency
                     create_notification(
                         subject="⚠️ Backup Overdue",
@@ -508,6 +518,8 @@ class BackupScheduler:
                 
         except Exception as e:
             logger.error(f"Error checking for overdue backup: {str(e)}")
+        finally:
+            db.close()
     
     def _format_timedelta(self, td: timedelta) -> str:
         """Format a timedelta into a human-readable string."""
@@ -590,7 +602,15 @@ class BackupScheduler:
                 raise Exception(error_msg)
             
             logger.info(f"Automatic backup created: {backup_filename}")
-            self.overdue_notification_sent = False  # Clear overdue flag on successful backup
+            
+            # Clear overdue flag and create resolution notification if needed
+            if self.overdue_notification_sent:
+                create_notification(
+                    subject="✅ Backup Completed",
+                    message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
+                )
+            self.overdue_notification_sent = False
+            
             return True
             
         except Exception as e:

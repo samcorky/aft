@@ -195,6 +195,11 @@ class Notifications {
     }
 
     try {
+      // Optimistic update: mark all as read locally
+      this.notifications.forEach(n => n.unread = false);
+      this.renderNotifications();
+      this.updateBadge();
+
       const response = await fetch('/api/notifications/mark-all-read', {
         method: 'PUT'
       });
@@ -202,12 +207,11 @@ class Notifications {
       if (!response.ok) {
         throw new Error('Failed to mark all notifications as read');
       }
-
-      // Reload notifications
-      await this.loadNotifications();
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
       this.showError('Failed to mark all as read');
+      // Reload on error to restore correct state
+      await this.loadNotifications();
     }
   }
 
@@ -216,6 +220,11 @@ class Notifications {
    */
   async deleteAllNotifications() {
     try {
+      // Optimistic update: clear all locally
+      this.notifications = [];
+      this.renderNotifications();
+      this.updateBadge();
+
       const response = await fetch('/api/notifications/delete-all', {
         method: 'DELETE'
       });
@@ -223,12 +232,11 @@ class Notifications {
       if (!response.ok) {
         throw new Error('Failed to delete all notifications');
       }
-
-      // Reload notifications
-      await this.loadNotifications();
     } catch (error) {
       console.error('Error deleting all notifications:', error);
       this.showError('Failed to delete all notifications');
+      // Reload on error to restore correct state
+      await this.loadNotifications();
     }
   }
 
@@ -242,6 +250,14 @@ class Notifications {
     }
 
     try {
+      // Optimistic update: mark as read locally
+      const notification = this.notifications.find(n => n.id === id);
+      if (notification) {
+        notification.unread = false;
+        this.renderNotifications();
+        this.updateBadge();
+      }
+
       const response = await fetch(`/api/notifications/${id}/read`, {
         method: 'PUT'
       });
@@ -249,12 +265,11 @@ class Notifications {
       if (!response.ok) {
         throw new Error('Failed to mark notification as read');
       }
-
-      // Reload notifications
-      await this.loadNotifications();
     } catch (error) {
       console.error('Error marking notification as read:', error);
       this.showError('Failed to update notification');
+      // Reload on error to restore correct state
+      await this.loadNotifications();
     }
   }
 
@@ -263,6 +278,14 @@ class Notifications {
    */
   async toggleRead(id, isCurrentlyUnread) {
     try {
+      // Optimistic update: toggle locally
+      const notification = this.notifications.find(n => n.id === id);
+      if (notification) {
+        notification.unread = !isCurrentlyUnread;
+        this.renderNotifications();
+        this.updateBadge();
+      }
+
       const action = isCurrentlyUnread ? 'read' : 'unread';
       const response = await fetch(`/api/notifications/${id}/${action}`, {
         method: 'PUT'
@@ -271,12 +294,11 @@ class Notifications {
       if (!response.ok) {
         throw new Error(`Failed to mark notification as ${action}`);
       }
-
-      // Reload notifications
-      await this.loadNotifications();
     } catch (error) {
       console.error('Error toggling notification:', error);
       this.showError('Failed to update notification');
+      // Reload on error to restore correct state
+      await this.loadNotifications();
     }
   }
 
@@ -285,6 +307,14 @@ class Notifications {
    */
   async deleteNotification(id) {
     try {
+      // Optimistic update: remove locally
+      const index = this.notifications.findIndex(n => n.id === id);
+      if (index !== -1) {
+        this.notifications.splice(index, 1);
+        this.renderNotifications();
+        this.updateBadge();
+      }
+
       const response = await fetch(`/api/notifications/${id}`, {
         method: 'DELETE'
       });
@@ -292,12 +322,11 @@ class Notifications {
       if (!response.ok) {
         throw new Error('Failed to delete notification');
       }
-
-      // Reload notifications
-      await this.loadNotifications();
     } catch (error) {
       console.error('Error deleting notification:', error);
       this.showError('Failed to delete notification');
+      // Reload on error to restore correct state
+      await this.loadNotifications();
     }
   }
 

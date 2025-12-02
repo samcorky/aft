@@ -40,7 +40,7 @@ def upgrade():
         INSERT INTO notifications (subject, message, unread, created_at)
         SELECT 
             'Welcome to AFT',
-            'This is your notification area. Click a message to mark it as read, click mark as unread to read again later, or click delete to remove the message entirely',
+            'This is your notification area. Click a message to mark it as read, click \'Mark as unread\' to mark it for reading later, or click \'Delete\' to remove it entirely.',
             1,
             NOW()
         FROM DUAL

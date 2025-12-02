@@ -665,7 +665,7 @@ def backup_database():
             subject="⚠️ Database Backup Failed",
             message=f"Failed to create database backup: {str(e)}\n\nCheck server logs for details."
         )
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to create database backup"}), 500
 
 
 @app.route("/api/database/backup/manual", methods=["POST"])

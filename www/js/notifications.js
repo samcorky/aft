@@ -287,8 +287,13 @@ class Notifications {
     if (unreadCount > 0) {
       this.badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
       this.badge.style.display = 'flex';
+      this.badge.setAttribute(
+        'aria-label',
+        `${unreadCount > 9 ? 'More than 9' : unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
+      );
     } else {
       this.badge.style.display = 'none';
+      this.badge.setAttribute('aria-label', '0 unread notifications');
     }
 
     // Update button based on unread count

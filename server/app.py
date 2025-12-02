@@ -762,7 +762,7 @@ def create_manual_backup():
             subject="⚠️ Manual Backup Failed",
             message=f"Failed to create manual backup: {str(e)}\n\nCheck database connection and mysqldump availability in server logs."
         )
-        return jsonify({"success": False, "message": str(e)}), 500
+        return jsonify({"success": False, "message": "Failed to create manual backup"}), 500
 
 
 @app.route("/api/database/restore", methods=["POST"])

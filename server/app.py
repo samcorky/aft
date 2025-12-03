@@ -3,7 +3,7 @@ import logging
 import json
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
 from sqlalchemy import text, func
 from utils import (
     validate_string_length,
@@ -325,6 +325,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'comments',
             'settings',
             'notifications',
+            'scheduled_cards',
             'alembic_version'
         ]
 
@@ -2039,6 +2040,107 @@ def create_board():
         db.close()
 
 
+@app.route("/api/boards/<int:board_id>/cards/scheduled", methods=["GET"])
+def get_board_scheduled_cards(board_id):
+    """Get all scheduled cards for a board with nested structure (board -> columns -> cards).
+    Returns only scheduled template cards (scheduled=True) organized by column.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board
+    responses:
+      200:
+        description: Board with columns and scheduled cards
+      404:
+        description: Board not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import BoardColumn, Card
+        
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Get columns for the board
+        columns = (
+            db.query(BoardColumn)
+            .filter(BoardColumn.board_id == board_id)
+            .order_by(BoardColumn.order)
+            .all()
+        )
+        
+        # Build nested structure with scheduled cards
+        result = {"id": board.id, "name": board.name, "columns": []}
+
+        for column in columns:
+            # Get only scheduled template cards for this column
+            cards = (
+                db.query(Card)
+                .filter(Card.column_id == column.id)
+                .filter(Card.scheduled.is_(True))
+                .order_by(Card.order)
+                .all()
+            )
+
+            # Serialize cards with checklist items and comments
+            cards_data = [
+                {
+                    "id": card.id,
+                    "title": card.title,
+                    "description": card.description,
+                    "order": card.order,
+                    "archived": card.archived,
+                    "scheduled": card.scheduled,
+                    "schedule": card.schedule,
+                    "checklist_items": [
+                        {
+                            "id": item.id,
+                            "card_id": item.card_id,
+                            "name": item.name,
+                            "checked": item.checked,
+                            "order": item.order
+                        }
+                        for item in card.checklist_items
+                    ],
+                    "comments": [
+                        {
+                            "id": comment.id,
+                            "card_id": comment.card_id,
+                            "comment": comment.comment,
+                            "order": comment.order,
+                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                        }
+                        for comment in card.comments
+                    ]
+                }
+                for card in cards
+            ]
+
+            column_data = {
+                "id": column.id,
+                "name": column.name,
+                "order": column.order,
+                "cards": cards_data,
+            }
+            result["columns"].append(column_data)
+
+        return jsonify({"success": True, "board": result})
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduled cards for board {board_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get scheduled cards"}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/boards/<int:board_id>", methods=["DELETE"])
 def delete_board(board_id):
     """Delete a board by ID.
@@ -2815,13 +2917,14 @@ def get_column_cards(column_id):
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
-        cards_query = db.query(Card).filter(Card.column_id == column_id)
+        # Always filter out scheduled template cards (scheduled=True) from task views
+        cards_query = db.query(Card).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
         
         # Apply archived filter
         if archived_param == 'true':
-            cards_query = cards_query.filter(Card.archived == True)
+            cards_query = cards_query.filter(Card.archived.is_(True))
         elif archived_param == 'false':
-            cards_query = cards_query.filter(Card.archived == False)
+            cards_query = cards_query.filter(Card.archived.is_(False))
         # If 'both', don't add archived filter
         
         cards = cards_query.order_by(Card.order).all()
@@ -2835,6 +2938,8 @@ def get_column_cards(column_id):
                 "description": c.description,
                 "order": c.order,
                 "archived": c.archived,
+                "scheduled": c.scheduled,
+                "schedule": c.schedule,
                 "checklist_items": [
                     {
                         "id": item.id,
@@ -2976,13 +3081,14 @@ def get_board_cards(board_id):
 
         for column in columns:
             # Get cards for this column with archived filter
-            cards_query = db.query(Card).filter(Card.column_id == column.id)
+            # Always filter out scheduled template cards (scheduled=True) from task views
+            cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
             
             # Apply archived filter
             if archived_param == 'true':
-                cards_query = cards_query.filter(Card.archived == True)
+                cards_query = cards_query.filter(Card.archived.is_(True))
             elif archived_param == 'false':
-                cards_query = cards_query.filter(Card.archived == False)
+                cards_query = cards_query.filter(Card.archived.is_(False))
             # If 'both', don't add archived filter
             
             cards = cards_query.order_by(Card.order).all()
@@ -2995,6 +3101,8 @@ def get_board_cards(board_id):
                     "description": card.description,
                     "order": card.order,
                     "archived": card.archived,
+                    "scheduled": card.scheduled,
+                    "schedule": card.schedule,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -3072,6 +3180,10 @@ def create_card(column_id):
               type: integer
               example: 0
               description: The order position (optional, defaults to end)
+            scheduled:
+              type: boolean
+              example: false
+              description: Whether this is a template card (optional, defaults to false)
     responses:
       201:
         description: Card created successfully
@@ -3195,9 +3307,18 @@ def create_card(column_id):
             # Add at the end
             order = db.query(Card).filter(Card.column_id == column_id).count()
 
+        # Validate scheduled parameter if provided
+        scheduled = data.get("scheduled", False)
+        if scheduled is not None and not isinstance(scheduled, bool):
+            return create_error_response("Scheduled must be a boolean", 400)
+
         # Create card
         card = Card(
-            column_id=column_id, title=title, description=description, order=order
+            column_id=column_id, 
+            title=title, 
+            description=description, 
+            order=order,
+            scheduled=scheduled
         )
         db.add(card)
         db.commit()
@@ -3526,6 +3647,8 @@ def get_card(card_id):
             "column_id": card.column_id,
             "order": card.order,
             "archived": card.archived,
+            "scheduled": card.scheduled,
+            "schedule": card.schedule,
             "checklist_items": [
                 {
                     "id": item.id,
@@ -3844,6 +3967,8 @@ def delete_card(card_id):
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
         db.rollback()
+        logger.error(f"Error deleting card {card_id}: {str(e)}")
+        logger.exception(e)
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -4201,6 +4326,501 @@ def batch_unarchive_cards():
         db.rollback()
         logger.error(f"Error batch unarchiving cards: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+# Scheduled Cards API endpoints
+@app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
+def get_scheduled_cards(column_id):
+    """Get all scheduled template cards for a specific column.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the column
+    responses:
+      200:
+        description: List of scheduled template cards for the column
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            cards:
+              type: array
+      500:
+        description: Server error
+    """
+    try:
+        db = SessionLocal()
+        
+        # Get only scheduled template cards (scheduled=True)
+        cards = (
+            db.query(Card)
+            .filter(Card.column_id == column_id)
+            .filter(Card.scheduled.is_(True))
+            .order_by(Card.order)
+            .all()
+        )
+        
+        cards_data = [
+            {
+                "id": c.id,
+                "column_id": c.column_id,
+                "title": c.title,
+                "description": c.description,
+                "order": c.order,
+                "scheduled": c.scheduled,
+                "schedule": c.schedule,
+                "checklist_items": [
+                    {
+                        "id": item.id,
+                        "card_id": item.card_id,
+                        "name": item.name,
+                        "checked": item.checked,
+                        "order": item.order
+                    }
+                    for item in c.checklist_items
+                ]
+            }
+            for c in cards
+        ]
+        
+        db.close()
+        return jsonify({"success": True, "cards": cards_data})
+    except Exception as e:
+        logger.error(f"Error getting scheduled cards: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get scheduled cards"}), 500
+
+
+@app.route("/api/schedules", methods=["POST"])
+def create_schedule():
+    """Create a new schedule for a card.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_id
+            - run_every
+            - unit
+            - start_date
+            - start_time
+          properties:
+            card_id:
+              type: integer
+            run_every:
+              type: integer
+            unit:
+              type: string
+              enum: [minute, hour, day, week, month, year]
+            start_date:
+              type: string
+              format: date
+            start_time:
+              type: string
+              format: time
+            end_date:
+              type: string
+              format: date
+            end_time:
+              type: string
+              format: time
+            schedule_enabled:
+              type: boolean
+            allow_duplicates:
+              type: boolean
+            keep_source_card:
+              type: boolean
+    responses:
+      201:
+        description: Schedule created successfully
+      400:
+        description: Invalid input
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime
+        
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Validate required fields
+        required_fields = ['card_id', 'run_every', 'unit', 'start_datetime']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"success": False, "message": f"{field} is required"}), 400
+        
+        card_id = data['card_id']
+        run_every = data['run_every']
+        unit = data['unit']
+        
+        # Validate unit
+        if unit not in ['minute', 'hour', 'day', 'week', 'month', 'year']:
+            return jsonify({"success": False, "message": "Invalid unit"}), 400
+        
+        # Validate run_every
+        if not isinstance(run_every, int) or run_every < 1:
+            return jsonify({"success": False, "message": "run_every must be a positive integer"}), 400
+        
+        # Check if card exists
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Check if card already has a schedule reference
+        if card.schedule is not None:
+            return jsonify({"success": False, "message": "Card is already scheduled"}), 400
+        
+        # Parse datetimes
+        try:
+            # Handle ISO format with 'Z' timezone suffix
+            # Convert to naive datetime (strip timezone) since we store as naive in DB
+            start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
+            start_datetime = datetime.fromisoformat(start_datetime_str)
+            if start_datetime.tzinfo is not None:
+                start_datetime = start_datetime.replace(tzinfo=None)
+            
+            end_datetime = None
+            if 'end_datetime' in data and data['end_datetime']:
+                end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
+                end_datetime = datetime.fromisoformat(end_datetime_str)
+                if end_datetime.tzinfo is not None:
+                    end_datetime = end_datetime.replace(tzinfo=None)
+        except (ValueError, TypeError) as e:
+            return jsonify({"success": False, "message": f"Invalid datetime format: {str(e)}"}), 400
+        
+        # Create a NEW card as the template (hidden from task views)
+        template_card = Card(
+            column_id=card.column_id,
+            title=card.title,
+            description=card.description,
+            order=card.order,
+            archived=False,
+            scheduled=True,  # This marks it as a template (hidden from task views)
+            schedule=None
+        )
+        db.add(template_card)
+        db.flush()  # Get the new card ID
+        
+        # Copy checklist items to template
+        for item in card.checklist_items:
+            new_item = ChecklistItem(
+                card_id=template_card.id,
+                name=item.name,
+                checked=item.checked,
+                order=item.order
+            )
+            db.add(new_item)
+        
+        # Create schedule
+        schedule = ScheduledCard(
+            card_id=template_card.id,
+            run_every=run_every,
+            unit=unit,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            schedule_enabled=data.get('schedule_enabled', True),
+            allow_duplicates=data.get('allow_duplicates', False)
+        )
+        
+        db.add(schedule)
+        db.flush()
+        
+        # Update template card's schedule reference
+        template_card.schedule = schedule.id
+        
+        # Handle keep_source_card parameter
+        keep_source_card = data.get('keep_source_card', True)
+        if keep_source_card:
+            # Update ORIGINAL card's schedule reference (but keep scheduled=False so it stays visible)
+            card.schedule = schedule.id
+        else:
+            # Delete the original card
+            db.delete(card)
+        
+        db.commit()
+        
+        # Calculate next runs for response
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=run_every,
+            unit=unit,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule created successfully",
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        }), 201
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to create schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["GET"])
+def get_schedule(schedule_id):
+    """Get a schedule by ID with next run times.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Schedule details
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        # Calculate next runs
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=schedule.run_every,
+            unit=schedule.unit,
+            start_datetime=schedule.start_datetime,
+            end_datetime=schedule.end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
+def update_schedule(schedule_id):
+    """Update a schedule.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+    responses:
+      200:
+        description: Schedule updated successfully
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime
+        
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Update fields if provided
+        if 'run_every' in data:
+            if not isinstance(data['run_every'], int) or data['run_every'] < 1:
+                return jsonify({"success": False, "message": "run_every must be a positive integer"}), 400
+            schedule.run_every = data['run_every']
+        
+        if 'unit' in data:
+            if data['unit'] not in ['minute', 'hour', 'day', 'week', 'month', 'year']:
+                return jsonify({"success": False, "message": "Invalid unit"}), 400
+            schedule.unit = data['unit']
+        
+        if 'start_datetime' in data:
+            try:
+                # Handle ISO format with 'Z' timezone suffix
+                # Convert to naive datetime (strip timezone) since we store as naive in DB
+                start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
+                parsed_dt = datetime.fromisoformat(start_datetime_str)
+                if parsed_dt.tzinfo is not None:
+                    parsed_dt = parsed_dt.replace(tzinfo=None)
+                schedule.start_datetime = parsed_dt
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "message": "Invalid start_datetime format"}), 400
+        
+        if 'end_datetime' in data:
+            if data['end_datetime']:
+                try:
+                    # Handle ISO format with 'Z' timezone suffix
+                    # Convert to naive datetime (strip timezone) since we store as naive in DB
+                    end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
+                    parsed_dt = datetime.fromisoformat(end_datetime_str)
+                    if parsed_dt.tzinfo is not None:
+                        parsed_dt = parsed_dt.replace(tzinfo=None)
+                    schedule.end_datetime = parsed_dt
+                except (ValueError, TypeError):
+                    return jsonify({"success": False, "message": "Invalid end_datetime format"}), 400
+            else:
+                schedule.end_datetime = None
+        
+        if 'schedule_enabled' in data:
+            schedule.schedule_enabled = bool(data['schedule_enabled'])
+        
+        if 'allow_duplicates' in data:
+            schedule.allow_duplicates = bool(data['allow_duplicates'])
+        
+        db.commit()
+        
+        # Calculate next runs for response
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=schedule.run_every,
+            unit=schedule.unit,
+            start_datetime=schedule.start_datetime,
+            end_datetime=schedule.end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule updated successfully",
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        })
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to update schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
+def delete_schedule(schedule_id):
+    """Delete a schedule and update related cards.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Schedule deleted successfully
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        template_card_id = schedule.card_id
+        
+        # Clear schedule reference from all cards that reference this schedule
+        # (including the original source card and any spawned cards)
+        created_cards = db.query(Card).filter(Card.schedule == schedule_id).all()
+        for card in created_cards:
+            card.schedule = None
+        
+        # Delete the schedule FIRST (to avoid foreign key constraint)
+        db.delete(schedule)
+        db.flush()
+        
+        # Then delete the template card (the hidden duplicate)
+        template_card = db.query(Card).filter(Card.id == template_card_id).first()
+        if template_card:
+            db.delete(template_card)
+        
+        db.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule deleted successfully"
+        })
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to delete schedule"}), 500
     finally:
         db.close()
 
@@ -5210,8 +5830,20 @@ def init_backup_scheduler():
     except Exception as e:
         logger.error(f"Failed to initialize backup scheduler: {str(e)}")
 
-# Start scheduler when module is loaded
+# Initialize card scheduler on app startup
+def init_card_scheduler():
+    """Initialize and start the card scheduler."""
+    try:
+        from card_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.start()
+        logger.info("Card scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize card scheduler: {str(e)}")
+
+# Start schedulers when module is loaded
 init_backup_scheduler()
+init_card_scheduler()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

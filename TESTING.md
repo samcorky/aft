@@ -613,6 +613,132 @@ jobs:
 9. ✅ **Documentation**: Include docstrings explaining what each test validates
 10. ✅ **Maintainability**: Keep tests simple and focused on one thing
 
+## Testing Scheduled and Background Operations
+
+### Approach
+Test scheduled operations by triggering them via API and verifying results:
+
+```python
+def test_scheduled_operation(self, api_client):
+    """Test that scheduled operation executes correctly."""
+    # Create scheduled item
+    schedule_response = requests.post(
+        f'{api_client}/api/schedules',
+        json={
+            "start_time": "2025-01-01T00:00:00",
+            "interval": 1,
+            "unit": "day"
+        }
+    )
+    schedule_id = schedule_response.json()['id']
+    
+    try:
+        # Verify next run calculation
+        get_response = requests.get(
+            f'{api_client}/api/schedules/{schedule_id}'
+        )
+        data = get_response.json()
+        assert 'next_runs' in data
+        assert len(data['next_runs']) == 4  # If showing next 4
+        
+        # Note: Don't test actual execution timing in unit tests
+        # Background service execution tested separately or manually
+        
+    finally:
+        requests.delete(f'{api_client}/api/schedules/{schedule_id}')
+```
+
+### What NOT to Test
+- ❌ Don't test actual sleep/timing in unit tests (too slow, unreliable)
+- ❌ Don't mock time.sleep() (tests become meaningless)
+- ❌ Don't test background service thread startup (integration test territory)
+
+### What TO Test
+- ✅ Calculation of next run times
+- ✅ Schedule CRUD operations
+- ✅ Filter logic (e.g., only show active schedules)
+- ✅ Validation (end times, intervals, etc.)
+- ✅ Relationship handling (scheduled items and created results)
+- ✅ Edge cases (timezone boundaries, past dates, etc.)
+
+### Example: Testing Next Run Calculation
+
+```python
+def test_schedule_next_runs_calculation(self, api_client):
+    """Test that next run times are calculated correctly."""
+    from datetime import datetime, timedelta
+    
+    # Create schedule starting tomorrow
+    start_time = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    
+    response = requests.post(
+        f'{api_client}/api/schedules',
+        json={
+            "card_title": "Test",
+            "column_id": 1,
+            "start_time": start_time,
+            "interval": 2,
+            "unit": "day",
+            "enabled": True
+        }
+    )
+    
+    schedule_id = response.json()['id']
+    
+    try:
+        # Get schedule with next_runs
+        get_response = requests.get(f'{api_client}/api/schedules/{schedule_id}')
+        data = get_response.json()
+        
+        # Verify next_runs array
+        assert 'next_runs' in data
+        assert len(data['next_runs']) == 4
+        
+        # Verify runs are properly spaced (2 days apart)
+        runs = [datetime.fromisoformat(r) for r in data['next_runs']]
+        for i in range(len(runs) - 1):
+            diff = runs[i + 1] - runs[i]
+            assert diff.days == 2, f"Expected 2 days between runs, got {diff.days}"
+    
+    finally:
+        requests.delete(f'{api_client}/api/schedules/{schedule_id}')
+```
+
+### Example: Testing Duplicate Prevention
+
+```python
+def test_schedule_duplicate_prevention(self, api_client):
+    """Test that allow_duplicates flag is respected."""
+    # Create schedule with duplicates disabled
+    response = requests.post(
+        f'{api_client}/api/schedules',
+        json={
+            "card_title": "Unique Task",
+            "column_id": 1,
+            "start_time": "2025-01-01T00:00:00",
+            "interval": 1,
+            "unit": "day",
+            "allow_duplicates": False,
+            "enabled": True
+        }
+    )
+    
+    schedule_id = response.json()['id']
+    
+    try:
+        # Verify schedule was created with correct flag
+        get_response = requests.get(f'{api_client}/api/schedules/{schedule_id}')
+        data = get_response.json()
+        assert data['allow_duplicates'] is False
+        
+        # Note: Actual duplicate prevention testing would require
+        # creating cards and checking scheduler behavior
+        # That's better suited for integration/manual testing
+        
+    finally:
+        requests.delete(f'{api_client}/api/schedules/{schedule_id}')
+```
+
 ## Resources
 
 - [pytest Documentation](https://docs.pytest.org/)

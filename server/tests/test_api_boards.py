@@ -96,6 +96,70 @@ class TestBoardsAPI:
         """Test deleting a non-existent board."""
         response = requests.delete(f'{api_client}/api/boards/9999')
         assert response.status_code == 404
+    
+    def test_get_board_scheduled_cards(self, api_client, sample_board, sample_column):
+        """Test getting board with all scheduled cards in one request."""
+        # First create a regular card to schedule
+        card_data = {
+            'title': 'Card to Schedule',
+            'description': 'This will become a template'
+        }
+        card_response = requests.post(
+            f'{api_client}/api/columns/{sample_column["id"]}/cards',
+            json=card_data
+        )
+        assert card_response.status_code == 201
+        card_id = card_response.json()['card']['id']
+        
+        # Create a schedule for the card (this creates the template card)
+        from datetime import datetime, timedelta
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        schedule_data = {
+            'card_id': card_id,
+            'run_every': 1,
+            'unit': 'day',
+            'start_datetime': tomorrow,
+            'end_datetime': None,
+            'schedule_enabled': True,
+            'allow_duplicates': False,
+            'keep_source_card': True
+        }
+        schedule_response = requests.post(
+            f'{api_client}/api/schedules',
+            json=schedule_data
+        )
+        assert schedule_response.status_code == 201
+        
+        # Get board with scheduled cards
+        response = requests.get(f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert 'board' in data
+        assert data['board']['id'] == sample_board['id']
+        assert data['board']['name'] == sample_board['name']
+        assert 'columns' in data['board']
+        
+        # Verify column structure includes cards
+        column = data['board']['columns'][0]
+        assert 'id' in column
+        assert 'name' in column
+        assert 'order' in column
+        assert 'cards' in column
+        assert len(column['cards']) == 1
+        
+        # Verify scheduled template card is returned (not the original card)
+        card = column['cards'][0]
+        assert card['title'] == 'Card to Schedule'
+        assert card['scheduled'] is True
+        assert card['schedule'] is not None
+    
+    def test_get_board_scheduled_cards_not_found(self, api_client):
+        """Test getting scheduled cards for a non-existent board."""
+        response = requests.get(f'{api_client}/api/boards/9999/cards/scheduled')
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
 
 
 @pytest.mark.api

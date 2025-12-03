@@ -1,5 +1,5 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, Date, Time
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -52,6 +52,8 @@ class Card(Base):
     description = Column(String(2000), nullable=True)
     order = Column(Integer, nullable=False, default=0)
     archived = Column(Boolean, nullable=False, default=False, index=True)
+    scheduled = Column(Boolean, nullable=False, default=False, index=True)
+    schedule = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NULL'), nullable=True, index=True)
     
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")
@@ -62,8 +64,15 @@ class Card(Base):
     # Relationship to comments (newest first)
     comments = relationship("Comment", back_populates="card", cascade="all, delete-orphan", order_by="Comment.order.desc()")
     
+    # Relationship to schedule (one-to-one for template cards)
+    # passive_deletes=True tells SQLAlchemy to rely on database CASCADE instead of trying to SET NULL
+    schedule_config = relationship("ScheduledCard", foreign_keys="ScheduledCard.card_id", back_populates="template_card", uselist=False, passive_deletes=True)
+    
+    # Relationship to the schedule this card was created from (many cards can be created from one schedule)
+    created_from_schedule = relationship("ScheduledCard", foreign_keys=[schedule], back_populates="created_cards")
+    
     def __repr__(self):
-        return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order})>"
+        return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order}, scheduled={self.scheduled})>"
 
 
 class ChecklistItem(Base):
@@ -128,3 +137,27 @@ class Notification(Base):
     
     def __repr__(self):
         return f"<Notification(id={self.id}, subject='{self.subject}', unread={self.unread})>"
+
+
+class ScheduledCard(Base):
+    """ScheduledCard model representing a card scheduling configuration."""
+    
+    __tablename__ = "scheduled_cards"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    card_id = Column(Integer, ForeignKey('cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    run_every = Column(Integer, nullable=False)
+    unit = Column(String(10), nullable=False)  # minute, hour, day, week, month, year
+    start_datetime = Column(DateTime, nullable=False)
+    end_datetime = Column(DateTime, nullable=True)
+    schedule_enabled = Column(Boolean, nullable=False, default=True, index=True)
+    allow_duplicates = Column(Boolean, nullable=False, default=False)
+    
+    # Relationship to the template card (one-to-one)
+    template_card = relationship("Card", foreign_keys=[card_id], back_populates="schedule_config")
+    
+    # Relationship to cards created from this schedule (one-to-many)
+    created_cards = relationship("Card", foreign_keys="Card.schedule", back_populates="created_from_schedule")
+    
+    def __repr__(self):
+        return f"<ScheduledCard(id={self.id}, card_id={self.card_id}, run_every={self.run_every}, unit='{self.unit}', enabled={self.schedule_enabled})>"

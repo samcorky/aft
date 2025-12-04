@@ -127,7 +127,19 @@ class ChecklistManager {
     this.container.addEventListener('keydown', (e) => {
       if (e.target.classList.contains('checklist-item-input') && e.key === 'Enter') {
         e.preventDefault();
+        const inputValue = e.target.value.trim();
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
+        
+        // First commit the current input
         e.target.blur();
+        
+        // If the input had content, add a new item below it after blur completes
+        if (inputValue) {
+          setTimeout(() => {
+            // Add new item after the current one
+            this.addItemAfter(tempId);
+          }, 50); // Delay to ensure commit completes
+        }
       }
     });
   }
@@ -195,6 +207,54 @@ class ChecklistManager {
 
     if (insertAtTop) {
       this.container.insertAdjacentHTML('afterbegin', itemHtml);
+    } else {
+      this.container.insertAdjacentHTML('beforeend', itemHtml);
+    }
+
+    // Focus the newly added input
+    const newInput = this.container.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
+    if (newInput) {
+      newInput.focus();
+    }
+
+    this.onItemAdded();
+    this.updateSummary();
+  }
+
+  addItemAfter(afterTempId) {
+    const tempId = Date.now() + Math.random();
+    const item = {
+      name: '',
+      checked: false,
+      tempId: tempId
+    };
+
+    // Find the index of the item to insert after
+    const afterIndex = this.pendingItems.findIndex(i => i.tempId === afterTempId);
+    if (afterIndex !== -1) {
+      // Insert after the found item
+      this.pendingItems.splice(afterIndex + 1, 0, item);
+    } else {
+      // If not found, add at the end
+      this.pendingItems.push(item);
+    }
+
+    // Add item to UI with input field
+    const itemHtml = `
+      <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
+        <span class="drag-handle" title="Drag to reorder">&#9776;</span>
+        <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
+        <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
+        <div class="checklist-item-actions">
+          <button type="button" class="${this.deleteButtonClass}" data-temp-id="${tempId}" title="Delete">🗑</button>
+        </div>
+      </div>
+    `;
+
+    // Find the DOM element to insert after
+    const afterElement = this.container.querySelector(`.checklist-item[data-temp-id="${afterTempId}"]`);
+    if (afterElement) {
+      afterElement.insertAdjacentHTML('afterend', itemHtml);
     } else {
       this.container.insertAdjacentHTML('beforeend', itemHtml);
     }

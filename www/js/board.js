@@ -652,17 +652,9 @@ class BoardManager {
           return;
         }
         
-        console.log('Card collapse threshold:', collapseHeight);
         document.querySelectorAll('.card').forEach(card => {
           const contentWrapper = card.querySelector('.card-content-wrapper');
           const expandBtn = card.querySelector('.card-expand-btn');
-          
-          console.log('Card:', {
-            hasWrapper: !!contentWrapper,
-            hasButton: !!expandBtn,
-            scrollHeight: contentWrapper?.scrollHeight,
-            offsetHeight: contentWrapper?.offsetHeight
-          });
           
           if (contentWrapper && expandBtn) {
             // Measure the actual content height
@@ -670,7 +662,6 @@ class BoardManager {
             
             // If content is taller than the threshold, make it collapsible
             if (contentHeight > collapseHeight) {
-              console.log('Adding overflow classes to card with height:', contentHeight);
               card.classList.add('has-overflow');
               card.classList.add('collapsed');
             }

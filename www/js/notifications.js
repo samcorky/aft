@@ -242,6 +242,7 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

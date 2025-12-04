@@ -485,6 +485,11 @@ class BoardManager {
                       <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
                         <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
+                        ${card.comments && card.comments.length > 0 ? `
+                          <div class="card-comments-indicator">
+                            💬 ${card.comments.length} ${card.comments.length === 1 ? 'comment' : 'comments'}
+                          </div>
+                        ` : ''}
                         ${card.checklist_items && card.checklist_items.length > 0 ? `
                           <div class="card-checklist">
                             <div class="card-checklist-summary">

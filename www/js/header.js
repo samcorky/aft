@@ -143,9 +143,8 @@ class Header {
 
     this.statusIcon.className = `status-icon ${status}`;
     
-    if (status === 'success' && count !== null) {
-      const boardText = count === 1 ? 'board' : 'boards';
-      this.statusText.textContent = `DB connected: ${count} ${boardText}`;
+    if (status === 'success') {
+      this.statusText.textContent = 'DB connected';
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
       this.statusText.title = message; // Show full error on hover

@@ -844,6 +844,42 @@ class BoardManager {
     }
   }
 
+  /**
+   * Add a time interval to a date without mutating the original.
+   * Handles month/year additions correctly to avoid mutation issues.
+   * 
+   * @param {Date} date - The base date
+   * @param {number} amount - How many units to add
+   * @param {string} unit - The unit (minute, hour, day, week, month, year)
+   * @returns {Date} A new Date object with the interval added
+   */
+  addInterval(date, amount, unit) {
+    switch (unit) {
+      case 'minute':
+        return new Date(date.getTime() + amount * 60 * 1000);
+      case 'hour':
+        return new Date(date.getTime() + amount * 60 * 60 * 1000);
+      case 'day':
+        return new Date(date.getTime() + amount * 24 * 60 * 60 * 1000);
+      case 'week':
+        return new Date(date.getTime() + amount * 7 * 24 * 60 * 60 * 1000);
+      case 'month': {
+        // Create new date to avoid mutation
+        const newDate = new Date(date);
+        newDate.setMonth(newDate.getMonth() + amount);
+        return newDate;
+      }
+      case 'year': {
+        // Create new date to avoid mutation
+        const newDate = new Date(date);
+        newDate.setFullYear(newDate.getFullYear() + amount);
+        return newDate;
+      }
+      default:
+        return new Date(date);
+    }
+  }
+
   async openScheduleModal(cardId, cardData, hasSchedule) {
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
@@ -997,29 +1033,8 @@ class BoardManager {
             runs.push(new Date(current));
           }
 
-          // Add interval
-          switch (unit) {
-            case 'minute':
-              current = new Date(current.getTime() + runEvery * 60 * 1000);
-              break;
-            case 'hour':
-              current = new Date(current.getTime() + runEvery * 60 * 60 * 1000);
-              break;
-            case 'day':
-              current = new Date(current.getTime() + runEvery * 24 * 60 * 60 * 1000);
-              break;
-            case 'week':
-              current = new Date(current.getTime() + runEvery * 7 * 24 * 60 * 60 * 1000);
-              break;
-            case 'month':
-              current = new Date(current);
-              current.setMonth(current.getMonth() + runEvery);
-              break;
-            case 'year':
-              current = new Date(current);
-              current.setFullYear(current.getFullYear() + runEvery);
-              break;
-          }
+          // Add interval using utility function
+          current = this.addInterval(current, runEvery, unit);
 
           if (endDateTime && current > endDateTime) break;
         }
@@ -1451,27 +1466,8 @@ class BoardManager {
             runs.push(new Date(current));
           }
 
-          // Add interval
-          switch (unit) {
-            case 'minute':
-              current = new Date(current.getTime() + runEvery * 60 * 1000);
-              break;
-            case 'hour':
-              current = new Date(current.getTime() + runEvery * 60 * 60 * 1000);
-              break;
-            case 'day':
-              current = new Date(current.getTime() + runEvery * 24 * 60 * 60 * 1000);
-              break;
-            case 'week':
-              current = new Date(current.getTime() + runEvery * 7 * 24 * 60 * 60 * 1000);
-              break;
-            case 'month':
-              current = new Date(current.setMonth(current.getMonth() + runEvery));
-              break;
-            case 'year':
-              current = new Date(current.setFullYear(current.getFullYear() + runEvery));
-              break;
-          }
+          // Add interval using utility function
+          current = this.addInterval(current, runEvery, unit);
 
           if (endDateTime && current > endDateTime) break;
         }

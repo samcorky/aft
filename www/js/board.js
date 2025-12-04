@@ -452,7 +452,7 @@ class BoardManager {
                         }
                         <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
                       </div>
-                      <div class="card-content-wrapper">
+                      <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
                         <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
                         ${card.checklist_items && card.checklist_items.length > 0 ? `
@@ -474,7 +474,7 @@ class BoardManager {
                           </div>
                         ` : ''}
                       </div>
-                      <button class="card-expand-btn" data-card-id="${card.id}">Show more...</button>
+                      <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
                     </div>
                   `).join('') : ''
                 }
@@ -678,9 +678,11 @@ class BoardManager {
           if (card.classList.contains('collapsed')) {
             card.classList.remove('collapsed');
             e.target.textContent = 'Show less...';
+            e.target.setAttribute('aria-expanded', 'true');
           } else {
             card.classList.add('collapsed');
             e.target.textContent = 'Show more...';
+            e.target.setAttribute('aria-expanded', 'false');
           }
         });
       });

@@ -7,6 +7,7 @@ Create Date: 2025-12-03
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import false, true
 
 
 # revision identifiers, used by Alembic.
@@ -33,8 +34,8 @@ def upgrade():
             sa.Column('unit', sa.String(10), nullable=False),
             sa.Column('start_datetime', sa.DateTime(), nullable=False),
             sa.Column('end_datetime', sa.DateTime(), nullable=True),
-            sa.Column('schedule_enabled', sa.Boolean(), nullable=False, server_default='1'),
-            sa.Column('allow_duplicates', sa.Boolean(), nullable=False, server_default='0'),
+            sa.Column('schedule_enabled', sa.Boolean(), nullable=False, server_default=true()),
+            sa.Column('allow_duplicates', sa.Boolean(), nullable=False, server_default=false()),
             sa.PrimaryKeyConstraint('id'),
             sa.ForeignKeyConstraint(['card_id'], ['cards.id'], ondelete='CASCADE')
         )
@@ -46,7 +47,7 @@ def upgrade():
     existing_columns = [col['name'] for col in inspector.get_columns('cards')]
     
     if 'scheduled' not in existing_columns:
-        op.add_column('cards', sa.Column('scheduled', sa.Boolean(), nullable=False, server_default='0'))
+        op.add_column('cards', sa.Column('scheduled', sa.Boolean(), nullable=False, server_default=false()))
         op.create_index('ix_cards_scheduled', 'cards', ['scheduled'])
     
     if 'schedule' not in existing_columns:

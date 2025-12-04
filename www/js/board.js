@@ -18,18 +18,11 @@ function calculateChecklistPercentage(items) {
  * @param {Function} closeHandler - Function to call when modal should close (e.g., handleCancel or modal.remove)
  */
 function setupModalBackgroundClose(modal, closeHandler) {
-  let mouseDownInsideModal = false;
   let mouseDownOnBackground = false;
   
   modal.addEventListener('mousedown', (e) => {
     // Track if mousedown was on the background (not on modal content)
     mouseDownOnBackground = e.target === modal;
-    // Track if mousedown was anywhere inside the modal
-    mouseDownInsideModal = true;
-  });
-  
-  modal.addEventListener('mouseup', (e) => {
-    mouseDownInsideModal = false;
   });
   
   modal.addEventListener('click', (e) => {

@@ -12,6 +12,38 @@ function calculateChecklistPercentage(items) {
 }
 
 /**
+ * Setup modal background click handler that ignores text selection drags
+ * Prevents modal from closing when user drags to select text and releases outside modal
+ * @param {HTMLElement} modal - The modal element
+ * @param {Function} closeHandler - Function to call when modal should close (e.g., handleCancel or modal.remove)
+ */
+function setupModalBackgroundClose(modal, closeHandler) {
+  let mouseDownInsideModal = false;
+  let mouseDownOnBackground = false;
+  
+  modal.addEventListener('mousedown', (e) => {
+    // Track if mousedown was on the background (not on modal content)
+    mouseDownOnBackground = e.target === modal;
+    // Track if mousedown was anywhere inside the modal
+    mouseDownInsideModal = true;
+  });
+  
+  modal.addEventListener('mouseup', (e) => {
+    mouseDownInsideModal = false;
+  });
+  
+  modal.addEventListener('click', (e) => {
+    // Only close if:
+    // 1. Click target is the background
+    // 2. Mousedown also started on the background (not a drag from inside)
+    if (e.target === modal && mouseDownOnBackground) {
+      closeHandler();
+    }
+    mouseDownOnBackground = false;
+  });
+}
+
+/**
  * Convert URLs in text to clickable hyperlinks
  * @param {string} text - Text that may contain URLs
  * @returns {string} HTML with URLs converted to links
@@ -1250,12 +1282,8 @@ class BoardManager {
       }
     });
 
-    // Close modal when clicking outside
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal when clicking outside (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   openAddColumnModal() {
@@ -1306,12 +1334,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async openAddTemplateWithScheduleModal(columnId, order = null) {
@@ -1680,12 +1704,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click with warning
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        handleCancel();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async createColumn(name) {
@@ -1944,12 +1964,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async moveAllCards(sourceColumnId, targetColumnId, position, includeArchived = false) {
@@ -2045,12 +2061,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async updateColumn(columnId, name) {
@@ -2241,12 +2253,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click with warning
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        handleCancel();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
@@ -2923,12 +2931,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click with warning
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        handleCancel();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async getCardData(cardId) {

@@ -856,6 +856,7 @@ class BoardManager {
         }
       } catch (err) {
         console.error('Error fetching schedule:', err);
+        return null;
       }
     }
 

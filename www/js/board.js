@@ -54,6 +54,8 @@ class ChecklistManager {
     this.pendingItems = pendingItems;
     this.updateSummary = options.updateSummary || (() => {});
     this.onItemCommitted = options.onItemCommitted || (() => {});
+    this.onItemAdded = options.onItemAdded || (() => {});
+    this.onItemChanged = options.onItemChanged || (() => {});
     this.deleteButtonClass = options.deleteButtonClass || 'checklist-delete-btn-temp';
     
     // Set up event delegation
@@ -68,6 +70,7 @@ class ChecklistManager {
         const item = this.pendingItems.find(i => i.tempId === tempId);
         if (item) {
           item.checked = e.target.checked;
+          this.onItemChanged();
           this.updateSummary();
         }
       }
@@ -82,6 +85,7 @@ class ChecklistManager {
           this.pendingItems.splice(index, 1);
         }
         e.target.closest('.checklist-item').remove();
+        this.onItemChanged();
         this.updateSummary();
       }
     });
@@ -176,6 +180,7 @@ class ChecklistManager {
       newInput.focus();
     }
 
+    this.onItemAdded();
     this.updateSummary();
   }
 }
@@ -1316,6 +1321,7 @@ class BoardManager {
     // Track checklist items to be created
     let pendingChecklistItems = [];
     let checklistVisible = false;
+    let hasUnsavedChanges = false;
     
     // Set default values for schedule
     const now = new Date();
@@ -1442,6 +1448,26 @@ class BoardManager {
     // Focus on title input
     titleInput.focus();
     
+    // Track changes in title and description
+    titleInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '';
+    });
+    
+    const descriptionInput = document.getElementById('template-description');
+    descriptionInput.addEventListener('input', () => {
+      hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== '';
+    });
+    
+    // Track changes in schedule fields
+    [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
+      input.addEventListener('input', () => {
+        hasUnsavedChanges = true;
+      });
+      input.addEventListener('change', () => {
+        hasUnsavedChanges = true;
+      });
+    });
+    
     // Checklist management
     const updateChecklistSummary = () => {
       const summaryElement = document.getElementById('checklist-summary');
@@ -1457,7 +1483,9 @@ class BoardManager {
     
     const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
       updateSummary: updateChecklistSummary,
-      deleteButtonClass: 'checklist-delete-btn-new'
+      deleteButtonClass: 'checklist-delete-btn-new',
+      onItemAdded: () => { hasUnsavedChanges = true; },
+      onItemChanged: () => { hasUnsavedChanges = true; }
     });
     
     const showChecklistUI = () => {
@@ -1559,8 +1587,21 @@ class BoardManager {
     // Initial calculation
     updateNextRuns();
 
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => modal.remove());
+    // Handle cancel with warning if there are unsaved changes
+    const handleCancel = () => {
+      // Check if there's any content or checklist items
+      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+      
+      if (hasContent) {
+        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+          modal.remove();
+        }
+      } else {
+        modal.remove();
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle form submit - create template card with schedule in one API call
     form.addEventListener('submit', async (e) => {
@@ -1639,10 +1680,10 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
+    // Close modal on background click with warning
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.remove();
+        handleCancel();
       }
     });
   }
@@ -2048,6 +2089,7 @@ class BoardManager {
     // Track checklist items to be created
     let pendingChecklistItems = [];
     let checklistVisible = false;
+    let hasUnsavedChanges = false;
     
     // Create modal HTML
     const modalHtml = `
@@ -2103,6 +2145,16 @@ class BoardManager {
     // Focus on input
     titleInput.focus();
     
+    // Track changes in title and description
+    titleInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '';
+    });
+    
+    const descriptionInput = document.getElementById('card-description');
+    descriptionInput.addEventListener('input', () => {
+      hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== '';
+    });
+    
     // Helper to update checklist summary
     const updateChecklistSummary = () => {
       const summaryElement = document.getElementById('checklist-summary');
@@ -2120,7 +2172,9 @@ class BoardManager {
     // Create checklist manager with event delegation
     const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
       updateSummary: updateChecklistSummary,
-      deleteButtonClass: 'checklist-delete-btn-new'
+      deleteButtonClass: 'checklist-delete-btn-new',
+      onItemAdded: () => { hasUnsavedChanges = true; },
+      onItemChanged: () => { hasUnsavedChanges = true; }
     });
     
     // Show checklist UI with header and top/bottom buttons
@@ -2156,10 +2210,21 @@ class BoardManager {
       });
     }
 
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
-    });
+    // Handle cancel with warning if there are unsaved changes
+    const handleCancel = () => {
+      // Check if there's any content or checklist items
+      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+      
+      if (hasContent) {
+        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+          modal.remove();
+        }
+      } else {
+        modal.remove();
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle form submit
     form.addEventListener('submit', async (e) => {
@@ -2176,10 +2241,10 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
+    // Close modal on background click with warning
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.remove();
+        handleCancel();
       }
     });
   }

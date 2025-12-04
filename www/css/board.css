@@ -567,6 +567,20 @@
   font-weight: 500;
 }
 
+.card-comments-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-description:not(:empty) + .card-comments-indicator {
+  margin-top: 10px;
+}
+
 .card-checklist-item {
   display: flex;
   align-items: center;

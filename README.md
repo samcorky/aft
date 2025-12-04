@@ -41,7 +41,7 @@ Use at your own risk.
 
 ### 📊 Column Management
 - **Flexible Columns** - Create custom columns for your workflow (e.g., To Do, In Progress, Done)
-- **Reorder Columns** - Drag and rearrange columns to match your process
+- **Reorder Columns** - Rearrange columns to match your process
 - **Column Operations** - Add, edit, or delete columns as your workflow evolves
 - **Column Menu** - Access column actions via three-dots menu:
   - **Move All Cards** - Batch move all cards from one column to another (top or bottom position)
@@ -57,7 +57,6 @@ Use at your own risk.
 - **Move Cards** - Drag cards between columns to track progress
 - **Update Cards** - Edit card details, titles, and descriptions
 - **Delete Cards** - Remove completed or cancelled tasks
-- **Card Filtering** - View cards by column or across entire boards
 - **Archive Cards** - Archive completed cards to declutter your board while preserving history
 - **Unarchive Cards** - Restore archived cards back to active view when needed
 - **View Switching** - Switch between Task, Scheduled, and Archived views using the header dropdown
@@ -65,6 +64,17 @@ Use at your own risk.
 
 ![Card Detail](images/card_detail.png)
 ![Archive View](images/archive_screen.png)
+
+### ✅ Checklist Items
+- **Task Breakdown** - Add checklist items to cards for subtasks
+- **Track Progress** - Check off items as you complete them
+- **Update Checklists** - Modify checklist item text and completion status
+- **Remove Items** - Delete checklist items when no longer needed
+
+### 💬 Comments
+- **Card Discussion** - Add comments to cards for collaboration
+- **Comment History** - View all comments on a card with timestamps
+- **Delete Comments** - Remove outdated or incorrect comments
 
 ### 🔄 Scheduled Cards (Recurring Tasks)
 - **Template Cards** - Convert any card into a recurring task template
@@ -86,50 +96,37 @@ Use at your own risk.
 ![Scheduled Cards](images/scheduled_cards.png)
 ![Schedule Modal](images/schedule_modal.png)
 
-### ✅ Checklist Items
-- **Task Breakdown** - Add checklist items to cards for subtasks
-- **Track Progress** - Check off items as you complete them
-- **Update Checklists** - Modify checklist item text and completion status
-- **Remove Items** - Delete checklist items when no longer needed
-
-### 💬 Comments
-- **Card Discussion** - Add comments to cards for collaboration
-- **Comment History** - View all comments on a card with timestamps
-- **Delete Comments** - Remove outdated or incorrect comments
-
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
-- **Automatic Database Backups** - Schedule recurring backups to protect your data
-  - Configurable frequency (minutes, hours, or days)
-  - Flexible start time alignment for backup scheduling
-  - Automatic retention management (keep 1-100 most recent backups)
-  - Backup health monitoring with status indicators
-  - Overdue backup detection
-  - Backups saved to host filesystem via bind mount (`./backups/`)
-- **Settings Schema** - View available settings and validation rules
-- **Persistent Configuration** - Settings saved to database
 
 ![Settings](images/settings.png)
 
-### 🔧 Database Management
-- **Manual Backup** - Download on-demand database backups
-- **Automatic Backups** - Scheduled backups running in the background
-  - Files saved to `./backups/` directory on host
-  - Viewable backup module status on system information page
-  - Configurable minimum free disk space requirement (1MB - 10TB)
-- **Restore Database** - Upload and restore from backup files
-- **Reset Database** - Clear all data for fresh start
-- **Version Tracking** - Monitor application and database schema versions
+### Automatic Database Backups - Schedule recurring backups to protect your data ###
+- Configurable frequency (minutes, hours, or days)
+- Flexible start time alignment for backup scheduling
+- Automatic retention management (keep 1-100 most recent backups)
+- Backup health monitoring with status indicators
+- Overdue backup detection
+- Backups saved to host filesystem via bind mount (`./backups/`)
 
-![Database Statistics](images/db_stats.png)
+![Backup Settings](images/backup_configuration.png)
 
 ### 🔔 Notifications
 - **System Notifications** - Receive alerts about important events
 - **Backup Notifications** - Alerts for overdue backups or backup failures
 - **Schedule Notifications** - Alerts for schedule errors or when schedules end
 - **Notification Center** - View and manage all notifications from the header
-- **Mark as Read** - Individual or bulk mark notifications as read
+- **Mark as Read** - Individual or bulk mark notifications as read and delete
 - **Notification Badge** - Unread count indicator in header
+
+![Notifications](images/notifications.png)
+
+### 🔧 System Info
+- **Version Tracking** - Monitor application and database schema versions
+- **DB Stats** - Statistics on task entities in the database
+- **Service Monitoring** - Status of running system services and enable/disable toggle
+
+![System Info](images/system_info.png)
 
 ### 🤖 Background Services
 - **Backup Scheduler** - Automatic database backup service running every minute

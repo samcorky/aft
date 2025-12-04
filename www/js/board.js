@@ -123,6 +123,13 @@ class ChecklistManager {
       }
     }, true); // Use capture to catch blur
 
+    // Listen for commit complete event to trigger adding new item
+    this.container.addEventListener('checklistItemCommitted', (e) => {
+      if (e.detail.addItemAfter) {
+        this.addItemAfter(e.detail.tempId);
+      }
+    });
+
     // Single event listener for Enter key on inputs
     this.container.addEventListener('keydown', (e) => {
       if (e.target.classList.contains('checklist-item-input') && e.key === 'Enter') {
@@ -130,16 +137,13 @@ class ChecklistManager {
         const inputValue = e.target.value.trim();
         const tempId = Number(e.target.getAttribute('data-temp-id'));
         
-        // First commit the current input
-        e.target.blur();
-        
-        // If the input had content, add a new item below it after blur completes
+        // Mark that we want to add an item after this one commits
         if (inputValue) {
-          setTimeout(() => {
-            // Add new item after the current one
-            this.addItemAfter(tempId);
-          }, 50); // Delay to ensure commit completes
+          e.target.dataset.addItemAfterCommit = 'true';
         }
+        
+        // Trigger commit
+        e.target.blur();
       }
     });
   }
@@ -149,6 +153,7 @@ class ChecklistManager {
     
     const name = inputElement.value.trim();
     const tempId = Number(inputElement.getAttribute('data-temp-id'));
+    const shouldAddItemAfter = inputElement.dataset.addItemAfterCommit === 'true';
     
     if (name) {
       const item = this.pendingItems.find(i => i.tempId === tempId);
@@ -167,6 +172,13 @@ class ChecklistManager {
         
         this.updateSummary();
         this.onItemCommitted(tempId);
+        
+        // Dispatch event to signal commit is complete
+        if (shouldAddItemAfter) {
+          this.container.dispatchEvent(new CustomEvent('checklistItemCommitted', {
+            detail: { tempId, addItemAfter: true }
+          }));
+        }
       }
     } else {
       // Remove empty item

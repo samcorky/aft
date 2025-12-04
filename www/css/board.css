@@ -1,4 +1,9 @@
 /* Board Page Styles */
+:root {
+  --card-collapse-height: 160px;
+  --card-bg-color: white;
+}
+
 .board-header {
   display: flex;
   justify-content: space-between;
@@ -363,13 +368,53 @@
 
 /* Card Styles */
 .card {
-  background: white;
+  background: var(--card-bg-color);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   padding: 12px;
   cursor: grab;
   transition: all 0.2s;
   position: relative;
+}
+
+.card.collapsed .card-content-wrapper {
+  max-height: var(--card-collapse-height);
+  overflow: hidden;
+  position: relative;
+}
+
+.card.collapsed .card-content-wrapper::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, var(--card-bg-color));
+  pointer-events: none;
+}
+
+.card-expand-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+  display: none;
+}
+
+.card.has-overflow .card-expand-btn {
+  display: block;
+}
+
+.card-expand-btn:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
 }
 
 .card:active {

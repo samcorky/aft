@@ -452,26 +452,29 @@ class BoardManager {
                         }
                         <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
                       </div>
-                      <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
-                      <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
-                      ${card.checklist_items && card.checklist_items.length > 0 ? `
-                        <div class="card-checklist">
-                          <div class="card-checklist-summary">
-                            ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${calculateChecklistPercentage(card.checklist_items)}%)
-                          </div>
-                          ${card.checklist_items.map(item => `
-                            <div class="card-checklist-item">
-                              <input 
-                                type="checkbox" 
-                                class="card-checklist-checkbox" 
-                                data-item-id="${item.id}"
-                                ${item.checked ? 'checked' : ''}
-                              >
-                              <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
+                      <div class="card-content-wrapper" id="card-content-${card.id}">
+                        <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
+                        <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
+                        ${card.checklist_items && card.checklist_items.length > 0 ? `
+                          <div class="card-checklist">
+                            <div class="card-checklist-summary">
+                              ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${calculateChecklistPercentage(card.checklist_items)}%)
                             </div>
-                          `).join('')}
-                        </div>
-                      ` : ''}
+                            ${card.checklist_items.map(item => `
+                              <div class="card-checklist-item">
+                                <input 
+                                  type="checkbox" 
+                                  class="card-checklist-checkbox" 
+                                  data-item-id="${item.id}"
+                                  ${item.checked ? 'checked' : ''}
+                                >
+                                <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
+                              </div>
+                            `).join('')}
+                          </div>
+                        ` : ''}
+                      </div>
+                      <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
                     </div>
                   `).join('') : ''
                 }
@@ -619,15 +622,67 @@ class BoardManager {
       // Add event listeners for card clicks (open edit modal)
       document.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', async (e) => {
-          // Don't trigger if clicking the delete button or checklist checkbox
+          // Don't trigger if clicking the delete button, checklist checkbox, or expand button
           if (e.target.classList.contains('card-delete-btn')) return;
           if (e.target.classList.contains('card-checklist-checkbox')) return;
+          if (e.target.classList.contains('card-expand-btn')) return;
+          if (e.target.classList.contains('card-archive-btn')) return;
+          if (e.target.classList.contains('card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
           // Reload card data to get latest state
           const cardData = await this.getCardData(cardId);
           if (cardData) {
             this.openEditCardModal(cardId, cardData);
+          }
+        });
+      });
+
+      // Initialize card collapse/expand functionality
+      // Use requestAnimationFrame to ensure DOM is fully rendered before measuring
+      requestAnimationFrame(() => {
+        // Get the collapse threshold from CSS custom property
+        const collapseHeightStr = getComputedStyle(document.documentElement)
+          .getPropertyValue('--card-collapse-height')
+          .trim();
+        const collapseHeight = parseInt(collapseHeightStr);
+        
+        if (!collapseHeight || isNaN(collapseHeight)) {
+          console.error('Card collapse height not defined in CSS. Skipping card collapse logic.');
+          return;
+        }
+        
+        document.querySelectorAll('.card').forEach(card => {
+          const contentWrapper = card.querySelector('.card-content-wrapper');
+          const expandBtn = card.querySelector('.card-expand-btn');
+          
+          if (contentWrapper && expandBtn) {
+            // Measure the actual content height
+            const contentHeight = contentWrapper.scrollHeight;
+            
+            // If content is taller than the threshold, make it collapsible
+            if (contentHeight > collapseHeight) {
+              card.classList.add('has-overflow');
+              card.classList.add('collapsed');
+            }
+          }
+        });
+      });
+
+      // Add event listeners for card expand buttons
+      document.querySelectorAll('.card-expand-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const card = e.target.closest('.card');
+          
+          if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+            e.target.textContent = 'Show less...';
+            e.target.setAttribute('aria-expanded', 'true');
+          } else {
+            card.classList.add('collapsed');
+            e.target.textContent = 'Show more...';
+            e.target.setAttribute('aria-expanded', 'false');
           }
         });
       });

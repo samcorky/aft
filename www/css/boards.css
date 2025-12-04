@@ -1,4 +1,10 @@
 /* Boards Page Styles */
+#boards-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
 .boards-header {
   display: flex;
   justify-content: space-between;

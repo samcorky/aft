@@ -437,7 +437,7 @@ class BoardManager {
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
                 </div>
                 <div class="column-actions">
-                  <button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>
+                  ${!this.showArchived ? `<button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>` : ''}
                   <button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>
                   <button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>
                   <div class="column-menu-wrapper">
@@ -508,7 +508,7 @@ class BoardManager {
                     </div>
                   `).join('') : ''
                 }
-                <button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>
+                ${!this.showArchived ? `<button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>` : ''}
               </div>
             </div>
           `).join('')}

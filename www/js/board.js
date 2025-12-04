@@ -653,7 +653,6 @@ class BoardManager {
         }
         
         console.log('Card collapse threshold:', collapseHeight);
-        console.log('Checking cards for overflow...');
         document.querySelectorAll('.card').forEach(card => {
           const contentWrapper = card.querySelector('.card-content-wrapper');
           const expandBtn = card.querySelector('.card-expand-btn');

@@ -189,6 +189,7 @@ class BoardManager {
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
+    this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
   }
@@ -231,6 +232,28 @@ class BoardManager {
     await this.loadBoard();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
+    this.setupViewListener();
+  }
+
+  setupViewListener() {
+    // Listen for view changes from header
+    window.addEventListener('viewChanged', async (e) => {
+      const newView = e.detail.view;
+      
+      // Map view names to internal state
+      if (newView === 'archived') {
+        this.currentView = 'task';
+        this.showArchived = true;
+      } else if (newView === 'scheduled') {
+        this.currentView = 'scheduled';
+        this.showArchived = false;
+      } else { // 'task'
+        this.currentView = 'task';
+        this.showArchived = false;
+      }
+      
+      await this.loadBoard();
+    });
   }
 
   setupDropdownClickOutside() {
@@ -246,10 +269,18 @@ class BoardManager {
 
   async loadBoard() {
     try {
-      // Load board with nested structure (board -> columns -> cards)
-      // Add archived parameter to filter cards based on showArchived state
-      const archivedParam = this.showArchived ? 'true' : 'false';
-      const response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
+      let response;
+      
+      if (this.currentView === 'scheduled') {
+        // Load board with all scheduled cards in a single request
+        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`);
+      } else {
+        // Load board with nested structure (board -> columns -> cards)
+        // Add archived parameter to filter cards based on showArchived state
+        const archivedParam = this.showArchived ? 'true' : 'false';
+        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
+      }
+      
       const data = await this.parseResponse(response);
       
       if (!data.success) {
@@ -258,6 +289,15 @@ class BoardManager {
       }
 
       const board = data.board;
+      this.processBoard(board);
+    } catch (error) {
+      console.error('Error loading board:', error);
+      this.showError('An error occurred while loading the board');
+    }
+  }
+
+  processBoard(board) {
+    try {
       this.boardName = board.name;
       this.columns = board.columns;
       
@@ -300,7 +340,8 @@ class BoardManager {
       e.preventDefault();
       const columnId = this.hoveredColumnId || this.lastUsedColumnId;
       if (columnId) {
-        this.openAddCardModal(columnId, 0); // 0 = top
+        const scheduled = this.currentView === 'scheduled';
+        this.openAddCardModal(columnId, 0, scheduled); // 0 = top
       }
     }
 
@@ -309,7 +350,8 @@ class BoardManager {
       e.preventDefault();
       const columnId = this.hoveredColumnId || this.lastUsedColumnId;
       if (columnId) {
-        this.openAddCardModal(columnId); // default = bottom
+        const scheduled = this.currentView === 'scheduled';
+        this.openAddCardModal(columnId, null, scheduled); // default = bottom
       }
     }
   }
@@ -336,13 +378,12 @@ class BoardManager {
   }
 
   renderBoard() {
-    // Hide archive toggle in header when there are no columns
-    const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
+    // Show/hide views dropdown in header based on columns
+    if (window.header) {
+      window.header.showViewsDropdown(this.columns.length > 0);
+    }
     
     if (this.columns.length === 0) {
-      if (archiveToggleWrapper) {
-        archiveToggleWrapper.style.display = 'none';
-      }
       
       this.container.innerHTML = `
         <div class="empty-board">
@@ -402,11 +443,12 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
                       <div class="card-action-buttons">
-                        ${card.archived ? 
-                          `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
-                          `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
+                        ${this.currentView === 'scheduled' ? '' : 
+                          card.archived ? 
+                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
+                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
                         }
                         <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
                       </div>
@@ -442,28 +484,6 @@ class BoardManager {
           </div>
         </div>
       `;
-      
-      // Show and set up archive toggle in header
-      const archiveToggleWrapper = document.getElementById('archive-toggle-wrapper');
-      const archiveToggleCheckbox = document.getElementById('archive-toggle-checkbox');
-      
-      if (archiveToggleWrapper && archiveToggleCheckbox) {
-        // Show the toggle
-        archiveToggleWrapper.style.display = 'flex';
-        
-        // Set initial state
-        archiveToggleCheckbox.checked = this.showArchived;
-        
-        // Remove any existing listener by cloning and replacing the element
-        const newCheckbox = archiveToggleCheckbox.cloneNode(true);
-        archiveToggleCheckbox.parentNode.replaceChild(newCheckbox, archiveToggleCheckbox);
-        
-        // Set initial state on the new checkbox
-        newCheckbox.checked = this.showArchived;
-        
-        // Add event listener to the new checkbox
-        newCheckbox.addEventListener('change', () => this.toggleArchiveView());
-      }
       
       // Add event listener for add column button next to columns
       document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());
@@ -511,14 +531,16 @@ class BoardManager {
       document.querySelectorAll('.column-add-card-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
-          this.openAddCardModal(columnId, 0); // Add at top (order 0)
+          const scheduled = this.currentView === 'scheduled';
+          this.openAddCardModal(columnId, 0, scheduled); // Add at top (order 0)
         });
       });
       
       document.querySelectorAll('.add-card-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const columnId = parseInt(e.target.getAttribute('data-column-id'));
-          this.openAddCardModal(columnId); // Add at bottom (default)
+          const scheduled = this.currentView === 'scheduled';
+          this.openAddCardModal(columnId, null, scheduled); // Add at bottom (default)
         });
       });
       
@@ -822,6 +844,360 @@ class BoardManager {
     }
   }
 
+  /**
+   * Add a time interval to a date without mutating the original.
+   * Handles month/year additions correctly to avoid mutation issues.
+   * 
+   * @param {Date} date - The base date
+   * @param {number} amount - How many units to add
+   * @param {string} unit - The unit (minute, hour, day, week, month, year)
+   * @returns {Date} A new Date object with the interval added
+   */
+  addInterval(date, amount, unit) {
+    switch (unit) {
+      case 'minute':
+        return new Date(date.getTime() + amount * 60 * 1000);
+      case 'hour':
+        return new Date(date.getTime() + amount * 60 * 60 * 1000);
+      case 'day':
+        return new Date(date.getTime() + amount * 24 * 60 * 60 * 1000);
+      case 'week':
+        return new Date(date.getTime() + amount * 7 * 24 * 60 * 60 * 1000);
+      case 'month': {
+        // Create new date to avoid mutation
+        const newDate = new Date(date);
+        newDate.setMonth(newDate.getMonth() + amount);
+        return newDate;
+      }
+      case 'year': {
+        // Create new date to avoid mutation
+        const newDate = new Date(date);
+        newDate.setFullYear(newDate.getFullYear() + amount);
+        return newDate;
+      }
+      default:
+        return new Date(date);
+    }
+  }
+
+  async openScheduleModal(cardId, cardData, hasSchedule) {
+    // If card has a schedule, fetch the schedule details
+    let scheduleData = null;
+    if (hasSchedule && cardData.schedule) {
+      try {
+        const response = await fetch(`/api/schedules/${cardData.schedule}`);
+        const data = await this.parseResponse(response);
+        if (data.success) {
+          scheduleData = data.schedule;
+        }
+      } catch (err) {
+        console.error('Error fetching schedule:', err);
+        return null;
+      }
+    }
+
+    // Set default values
+    const now = new Date();
+    const defaultStartDatetime = scheduleData?.start_datetime 
+      ? scheduleData.start_datetime.substring(0, 16) // Format: YYYY-MM-DDTHH:MM
+      : now.toISOString().substring(0, 16); // Current date and time
+    const defaultEndDatetime = scheduleData?.end_datetime 
+      ? scheduleData.end_datetime.substring(0, 16)
+      : '';
+    const defaultRunEvery = scheduleData?.run_every || 1;
+    const defaultUnit = scheduleData?.unit || 'day';
+    const defaultEnabled = scheduleData?.schedule_enabled !== false;
+    const defaultAllowDuplicates = scheduleData?.allow_duplicates || false;
+
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="schedule-modal">
+        <div class="modal-content schedule-modal-content">
+          <div class="modal-header">
+            <div class="modal-header-actions">
+              ${hasSchedule ? `<button type="button" class="btn btn-secondary" id="edit-template-btn" data-card-id="${scheduleData?.card_id || ''}">Edit Template</button>` : ''}
+              ${hasSchedule ? `<button type="button" class="btn btn-danger" id="delete-schedule-btn">Delete Schedule</button>` : ''}
+              <button type="button" class="btn btn-secondary" id="cancel-schedule-btn">Cancel</button>
+              <button type="submit" form="schedule-form" class="btn btn-primary">${hasSchedule ? 'Update Schedule' : 'Create Schedule'}</button>
+            </div>
+            <h2>${hasSchedule ? 'Edit Schedule' : 'Create Schedule'}</h2>
+          </div>
+          <form id="schedule-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="schedule-run-every">Run Every:</label>
+                <input type="number" id="schedule-run-every" name="run-every" min="1" value="${defaultRunEvery}" required>
+              </div>
+              <div class="form-group">
+                <label for="schedule-unit">Unit:</label>
+                <select id="schedule-unit" name="unit" required>
+                  <option value="minute" ${defaultUnit === 'minute' ? 'selected' : ''}>Minute(s)</option>
+                  <option value="hour" ${defaultUnit === 'hour' ? 'selected' : ''}>Hour(s)</option>
+                  <option value="day" ${defaultUnit === 'day' ? 'selected' : ''}>Day(s)</option>
+                  <option value="week" ${defaultUnit === 'week' ? 'selected' : ''}>Week(s)</option>
+                  <option value="month" ${defaultUnit === 'month' ? 'selected' : ''}>Month(s)</option>
+                  <option value="year" ${defaultUnit === 'year' ? 'selected' : ''}>Year(s)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="schedule-start-datetime">Start Date & Time:</label>
+                <input type="datetime-local" id="schedule-start-datetime" name="start-datetime" value="${defaultStartDatetime}" required>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="schedule-end-datetime">End Date & Time (Optional):</label>
+                <input type="datetime-local" id="schedule-end-datetime" name="end-datetime" value="${defaultEndDatetime}">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schedule-enabled" name="enabled" ${defaultEnabled ? 'checked' : ''}>
+                <span>Schedule Enabled</span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schedule-allow-duplicates" name="allow-duplicates" ${defaultAllowDuplicates ? 'checked' : ''}>
+                <span>Allow Duplicates (create new cards even if unarchived cards from this schedule exist)</span>
+              </label>
+            </div>
+
+            ${!hasSchedule ? `
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schedule-keep-source" name="keep-source" checked>
+                <span>Keep Original Card (if unchecked, the original card will be deleted after creating the schedule template)</span>
+              </label>
+            </div>
+            ` : ''}
+
+            <div class="next-runs-section" id="next-runs-section">
+              <h3>Next 4 Scheduled Runs</h3>
+              <div class="next-runs-list" id="next-runs-list">
+                <p class="next-runs-loading">Calculating...</p>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('schedule-modal');
+    const form = document.getElementById('schedule-form');
+    const cancelBtn = document.getElementById('cancel-schedule-btn');
+    const deleteBtn = document.getElementById('delete-schedule-btn');
+    const runEveryInput = document.getElementById('schedule-run-every');
+    const unitSelect = document.getElementById('schedule-unit');
+    const startDatetimeInput = document.getElementById('schedule-start-datetime');
+    const endDatetimeInput = document.getElementById('schedule-end-datetime');
+    const nextRunsList = document.getElementById('next-runs-list');
+
+    // Function to calculate and display next runs
+    const updateNextRuns = async () => {
+      const runEvery = parseInt(runEveryInput.value);
+      const unit = unitSelect.value;
+      const startDatetime = startDatetimeInput.value;
+      const endDatetime = endDatetimeInput.value || null;
+
+      if (!runEvery || !unit || !startDatetime) {
+        nextRunsList.innerHTML = '<p class="next-runs-empty">Please fill in required fields</p>';
+        return;
+      }
+
+      try {
+        // Calculate next runs client-side
+        const startDateTime = new Date(startDatetime);
+        const endDateTime = endDatetime ? new Date(endDatetime) : null;
+        const now = new Date();
+
+        let runs = [];
+        let current = startDateTime;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        while (runs.length < 4 && attempts < maxAttempts) {
+          attempts++;
+          
+          if (current >= now && (!endDateTime || current <= endDateTime)) {
+            runs.push(new Date(current));
+          }
+
+          // Add interval using utility function
+          current = this.addInterval(current, runEvery, unit);
+
+          if (endDateTime && current > endDateTime) break;
+        }
+
+        if (runs.length === 0) {
+          nextRunsList.innerHTML = '<p class="next-runs-empty">No upcoming runs (schedule may have ended)</p>';
+        } else {
+          nextRunsList.innerHTML = runs.map(run => {
+            const dateStr = run.toLocaleDateString('en-US', { 
+              weekday: 'short', 
+              year: 'numeric', 
+              month: 'short', 
+              day: 'numeric' 
+            });
+            const timeStr = run.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            });
+            return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Error calculating next runs:', err);
+        nextRunsList.innerHTML = '<p class="next-runs-error">Error calculating runs</p>';
+      }
+    };
+
+    // Initial calculation
+    updateNextRuns();
+
+    // Update on input changes
+    [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
+      input.addEventListener('change', updateNextRuns);
+      input.addEventListener('input', () => {
+        // Debounce for text inputs
+        clearTimeout(input.updateTimeout);
+        input.updateTimeout = setTimeout(updateNextRuns, 500);
+      });
+    });
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    // Handle delete
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to delete this schedule? This will not delete cards already created.')) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`/api/schedules/${scheduleData.id}`, {
+            method: 'DELETE'
+          });
+
+          const data = await this.parseResponse(response);
+
+          if (data.success) {
+            modal.remove();
+            // Close the edit card modal too
+            const editModal = document.getElementById('edit-card-modal');
+            if (editModal) editModal.remove();
+            await this.loadBoard();
+          } else {
+            alert('Failed to delete schedule: ' + data.message);
+          }
+        } catch (err) {
+          console.error('Error deleting schedule:', err);
+          alert('An error occurred while deleting the schedule');
+        }
+      });
+    }
+
+    // Handle edit template button
+    const editTemplateBtn = document.getElementById('edit-template-btn');
+    if (editTemplateBtn) {
+      editTemplateBtn.addEventListener('click', async () => {
+        const templateCardId = parseInt(editTemplateBtn.getAttribute('data-card-id'));
+        if (templateCardId) {
+          // Fetch the template card data
+          try {
+            const response = await fetch(`/api/cards/${templateCardId}`);
+            const data = await this.parseResponse(response);
+            if (data.success) {
+              // Close schedule modal
+              modal.remove();
+              // Open edit card modal for the template
+              this.openEditCardModal(templateCardId, data.card);
+            } else {
+              alert('Failed to load template card: ' + data.message);
+            }
+          } catch (err) {
+            console.error('Error loading template card:', err);
+            alert('Error loading template card');
+          }
+        }
+      });
+    }
+
+    // Handle form submit
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const formData = {
+        run_every: parseInt(runEveryInput.value),
+        unit: unitSelect.value,
+        start_datetime: startDatetimeInput.value ? new Date(startDatetimeInput.value).toISOString() : null,
+        end_datetime: endDatetimeInput.value ? new Date(endDatetimeInput.value).toISOString() : null,
+        schedule_enabled: document.getElementById('schedule-enabled').checked,
+        allow_duplicates: document.getElementById('schedule-allow-duplicates').checked
+      };
+
+      try {
+        let response;
+        
+        if (hasSchedule) {
+          // Update existing schedule
+          response = await fetch(`/api/schedules/${scheduleData.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+          });
+        } else {
+          // Create new schedule
+          const keepSourceCheckbox = document.getElementById('schedule-keep-source');
+          response = await fetch('/api/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              card_id: cardId,
+              keep_source_card: keepSourceCheckbox ? keepSourceCheckbox.checked : true,
+              ...formData
+            })
+          });
+        }
+
+        const data = await this.parseResponse(response);
+
+        if (data.success) {
+          modal.remove();
+          // Close the edit card modal too
+          const editModal = document.getElementById('edit-card-modal');
+          if (editModal) editModal.remove();
+          await this.loadBoard();
+        } else {
+          alert('Failed to save schedule: ' + data.message);
+        }
+      } catch (err) {
+        console.error('Error saving schedule:', err);
+        alert('An error occurred while saving the schedule');
+      }
+    });
+
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
   openAddColumnModal() {
     // Create modal HTML
     const modalHtml = `
@@ -867,6 +1243,344 @@ class BoardManager {
       if (columnName) {
         await this.createColumn(columnName);
         modal.remove();
+      }
+    });
+
+    // Close modal on background click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  async openAddTemplateWithScheduleModal(columnId, order = null) {
+    // Track the last used column for keyboard shortcuts
+    this.lastUsedColumnId = columnId;
+    
+    // Track checklist items to be created
+    let pendingChecklistItems = [];
+    let checklistVisible = false;
+    
+    // Set default values for schedule
+    const now = new Date();
+    const defaultStartDatetime = now.toISOString().substring(0, 16); // Format: YYYY-MM-DDTHH:MM
+    const defaultRunEvery = 1;
+    const defaultUnit = 'day';
+    const defaultEnabled = true;
+    const defaultAllowDuplicates = false;
+    
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="add-template-schedule-modal">
+        <div class="modal-content schedule-modal-content">
+          <div class="modal-header">
+            <div class="modal-header-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-template-schedule-btn">Cancel</button>
+              <button type="submit" form="add-template-schedule-form" class="btn btn-primary">Create Template & Schedule</button>
+            </div>
+            <h2>Add New Template with Schedule</h2>
+          </div>
+          <form id="add-template-schedule-form">
+            <div class="form-group">
+              <label for="template-title">Title:</label>
+              <input type="text" id="template-title" name="template-title" required>
+            </div>
+            <div class="form-group">
+              <label for="template-description">Description:</label>
+              <textarea id="template-description" name="template-description" rows="4"></textarea>
+            </div>
+            
+            <div class="checklist-section">
+              <div id="checklist-header-container">
+                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
+              </div>
+              <div id="checklist-content-container" style="display: none;">
+                <div class="checklist-header">
+                  <h3>Checklist</h3>
+                  <span class="checklist-summary" id="checklist-summary">0/0 (0%)</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
+                <div class="checklist-items" id="new-template-checklist-items"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
+              </div>
+            </div>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 2px solid var(--border-color);">
+            
+            <h3 style="margin-bottom: 20px;">Schedule Settings</h3>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="template-schedule-run-every">Run Every:</label>
+                <input type="number" id="template-schedule-run-every" name="run-every" min="1" value="${defaultRunEvery}" required>
+              </div>
+              <div class="form-group">
+                <label for="template-schedule-unit">Unit:</label>
+                <select id="template-schedule-unit" name="unit" required>
+                  <option value="minute" ${defaultUnit === 'minute' ? 'selected' : ''}>Minute(s)</option>
+                  <option value="hour" ${defaultUnit === 'hour' ? 'selected' : ''}>Hour(s)</option>
+                  <option value="day" ${defaultUnit === 'day' ? 'selected' : ''}>Day(s)</option>
+                  <option value="week" ${defaultUnit === 'week' ? 'selected' : ''}>Week(s)</option>
+                  <option value="month" ${defaultUnit === 'month' ? 'selected' : ''}>Month(s)</option>
+                  <option value="year" ${defaultUnit === 'year' ? 'selected' : ''}>Year(s)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="template-schedule-start-datetime">Start Date & Time:</label>
+                <input type="datetime-local" id="template-schedule-start-datetime" name="start-datetime" value="${defaultStartDatetime}" required>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="template-schedule-end-datetime">End Date & Time (Optional):</label>
+                <input type="datetime-local" id="template-schedule-end-datetime" name="end-datetime">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="template-schedule-enabled" name="enabled" ${defaultEnabled ? 'checked' : ''}>
+                <span>Schedule Enabled</span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="template-schedule-allow-duplicates" name="allow-duplicates" ${defaultAllowDuplicates ? 'checked' : ''}>
+                <span>Allow Duplicates (create new cards even if unarchived cards from this schedule exist)</span>
+              </label>
+            </div>
+
+            <div class="next-runs-section" id="next-runs-section">
+              <h3>Next 4 Scheduled Runs</h3>
+              <div class="next-runs-list" id="next-runs-list">
+                <p class="next-runs-loading">Calculating...</p>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('add-template-schedule-modal');
+    const form = document.getElementById('add-template-schedule-form');
+    const cancelBtn = document.getElementById('cancel-template-schedule-btn');
+    const titleInput = document.getElementById('template-title');
+    const runEveryInput = document.getElementById('template-schedule-run-every');
+    const unitSelect = document.getElementById('template-schedule-unit');
+    const startDatetimeInput = document.getElementById('template-schedule-start-datetime');
+    const endDatetimeInput = document.getElementById('template-schedule-end-datetime');
+    const nextRunsList = document.getElementById('next-runs-list');
+    const checklistHeaderContainer = document.getElementById('checklist-header-container');
+    const checklistContentContainer = document.getElementById('checklist-content-container');
+    const checklistContainer = document.getElementById('new-template-checklist-items');
+
+    // Focus on title input
+    titleInput.focus();
+    
+    // Checklist management
+    const updateChecklistSummary = () => {
+      const summaryElement = document.getElementById('checklist-summary');
+      if (summaryElement) {
+        const total = pendingChecklistItems.length;
+        const checked = pendingChecklistItems.filter(i => i.checked).length;
+        const percentage = calculateChecklistPercentage(pendingChecklistItems);
+        summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+      }
+    };
+    
+    this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
+    
+    const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
+      updateSummary: updateChecklistSummary,
+      deleteButtonClass: 'checklist-delete-btn-new'
+    });
+    
+    const showChecklistUI = () => {
+      if (!checklistVisible) {
+        checklistVisible = true;
+        checklistHeaderContainer.style.display = 'none';
+        checklistContentContainer.style.display = 'block';
+      }
+    };
+
+    const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
+    const addTopBtn = document.getElementById('add-checklist-item-top-btn');
+    const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
+    
+    if (addInitialBtn) {
+      addInitialBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(false);
+      });
+    }
+    if (addTopBtn) {
+      addTopBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(true);
+      });
+    }
+    if (addBottomBtn) {
+      addBottomBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(false);
+      });
+    }
+
+    // Function to calculate and display next runs
+    const updateNextRuns = async () => {
+      const runEvery = parseInt(runEveryInput.value);
+      const unit = unitSelect.value;
+      const startDatetime = startDatetimeInput.value;
+      const endDatetime = endDatetimeInput.value || null;
+
+      if (!runEvery || !unit || !startDatetime) {
+        nextRunsList.innerHTML = '<p class="next-runs-empty">Please fill in required fields</p>';
+        return;
+      }
+
+      try {
+        // Calculate next runs client-side
+        const startDateTime = new Date(startDatetime);
+        const endDateTime = endDatetime ? new Date(endDatetime) : null;
+        const now = new Date();
+
+        let runs = [];
+        let current = startDateTime;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        while (runs.length < 4 && attempts < maxAttempts) {
+          attempts++;
+          
+          if (current >= now && (!endDateTime || current <= endDateTime)) {
+            runs.push(new Date(current));
+          }
+
+          // Add interval using utility function
+          current = this.addInterval(current, runEvery, unit);
+
+          if (endDateTime && current > endDateTime) break;
+        }
+
+        if (runs.length === 0) {
+          nextRunsList.innerHTML = '<p class="next-runs-empty">No upcoming runs (schedule may have ended)</p>';
+        } else {
+          nextRunsList.innerHTML = runs.map(run => {
+            const dateStr = run.toLocaleDateString('en-US', { 
+              weekday: 'short', 
+              year: 'numeric', 
+              month: 'short', 
+              day: 'numeric' 
+            });
+            const timeStr = run.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            });
+            return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Error calculating next runs:', err);
+        nextRunsList.innerHTML = '<p class="next-runs-error">Error calculating runs</p>';
+      }
+    };
+
+    // Update next runs on input change
+    runEveryInput.addEventListener('input', updateNextRuns);
+    unitSelect.addEventListener('change', updateNextRuns);
+    startDatetimeInput.addEventListener('change', updateNextRuns);
+    endDatetimeInput.addEventListener('change', updateNextRuns);
+
+    // Initial calculation
+    updateNextRuns();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    // Handle form submit - create template card with schedule in one API call
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const title = titleInput.value.trim();
+      const description = document.getElementById('template-description').value.trim();
+      const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
+
+      const scheduleData = {
+        run_every: parseInt(runEveryInput.value),
+        unit: unitSelect.value,
+        start_datetime: startDatetimeInput.value ? new Date(startDatetimeInput.value).toISOString() : null,
+        end_datetime: endDatetimeInput.value ? new Date(endDatetimeInput.value).toISOString() : null,
+        schedule_enabled: document.getElementById('template-schedule-enabled').checked,
+        allow_duplicates: document.getElementById('template-schedule-allow-duplicates').checked
+      };
+
+      try {
+        // Step 1: Create the template card
+        const cardBody = {
+          title,
+          description,
+          scheduled: true
+        };
+        if (order !== null) {
+          cardBody.order = order;
+        }
+
+        const cardResponse = await fetch(`/api/columns/${columnId}/cards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cardBody)
+        });
+
+        const cardData = await this.parseResponse(cardResponse);
+
+        if (!cardData.success) {
+          alert('Failed to create template card: ' + cardData.message);
+          return;
+        }
+
+        const cardId = cardData.card.id;
+
+        // Step 2: Create checklist items if any
+        if (validChecklistItems.length > 0) {
+          for (let i = 0; i < validChecklistItems.length; i++) {
+            const item = validChecklistItems[i];
+            await this.createChecklistItem(cardId, item.name, i, item.checked || false);
+          }
+        }
+
+        // Step 3: Create the schedule
+        const scheduleResponse = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            card_id: cardId,
+            ...scheduleData,
+            keep_source_card: false // Don't keep original since it IS the template
+          })
+        });
+
+        const scheduleResponseData = await this.parseResponse(scheduleResponse);
+
+        if (scheduleResponseData.success) {
+          modal.remove();
+          await this.loadBoard();
+        } else {
+          alert('Failed to create schedule: ' + scheduleResponseData.message);
+        }
+
+      } catch (err) {
+        console.error('Error creating template with schedule:', err);
+        alert('Error creating template with schedule');
       }
     });
 
@@ -1266,7 +1980,13 @@ class BoardManager {
     }
   }
 
-  openAddCardModal(columnId, order = null) {
+  openAddCardModal(columnId, order = null, scheduled = false) {
+    // If we're in scheduled view, open the combined template+schedule modal instead
+    if (scheduled) {
+      this.openAddTemplateWithScheduleModal(columnId, order);
+      return;
+    }
+    
     // Track the last used column for keyboard shortcuts
     this.lastUsedColumnId = columnId;
     
@@ -1278,7 +1998,7 @@ class BoardManager {
     const modalHtml = `
       <div class="modal" id="add-card-modal">
         <div class="modal-content card-modal-content">
-          <h2>Add New Card</h2>
+          <h2>${scheduled ? 'Add New Template Card' : 'Add New Card'}</h2>
           <form id="add-card-form">
             <div class="form-group">
               <label for="card-title">Title:</label>
@@ -1396,7 +2116,7 @@ class BoardManager {
       if (title) {
         // Filter out empty checklist items
         const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
-        await this.createCard(columnId, title, description, order, validChecklistItems);
+        await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
         modal.remove();
       }
     });
@@ -1409,11 +2129,14 @@ class BoardManager {
     });
   }
 
-  async createCard(columnId, title, description, order = null, checklistItems = []) {
+  async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
     try {
       const body = { title, description };
       if (order !== null) {
         body.order = order;
+      }
+      if (scheduled) {
+        body.scheduled = scheduled;
       }
       
       const response = await fetch(`/api/columns/${columnId}/cards`, {
@@ -1427,12 +2150,13 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        const cardId = data.card.id;
+        
         // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
         // in a single request to avoid multiple sequential API calls and ensure atomicity.
         // This would prevent race conditions and improve performance.
         // If there are checklist items, create them with their checked state
         if (checklistItems.length > 0) {
-          const cardId = data.card.id;
           for (let i = 0; i < checklistItems.length; i++) {
             const item = checklistItems[i];
             // Pass checked state directly to createChecklistItem
@@ -1442,11 +2166,32 @@ class BoardManager {
         
         // Reload board once at the end to show the new card
         await this.loadBoard();
+        
+        // If this is a template card, prompt to create a schedule
+        if (scheduled) {
+          const createSchedule = confirm(
+            'Template card created! Would you like to create a schedule for it now?\n\n' +
+            'Schedules automatically create new task cards from this template at regular intervals.'
+          );
+          
+          if (createSchedule) {
+            try {
+              this.openScheduleModal(cardId);
+            } catch (err) {
+              console.error('Error opening schedule modal:', err);
+              alert('Failed to open schedule editor. Please try again.');
+            }
+          }
+        }
+        
+        return cardId;
       } else {
         alert('Failed to create card: ' + data.message);
+        return null;
       }
     } catch (err) {
       alert('Error creating card: ' + err.message);
+      return null;
     }
   }
 
@@ -1456,9 +2201,18 @@ class BoardManager {
     const hasChecklist = checklistItems.length > 0;
     const hasComments = comments.length > 0;
     
+    // Remove any existing edit card modal to prevent duplicates
+    const existingModal = document.getElementById('edit-card-modal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+    
     // Store original values for change detection
     const originalTitle = cardData.title;
     const originalDescription = cardData.description || '';
+    
+    // Check if this is a scheduled template card
+    const isTemplate = cardData.scheduled === true;
     
     // Track changes
     let hasUnsavedChanges = false;
@@ -1469,15 +2223,23 @@ class BoardManager {
       <div class="modal" id="edit-card-modal">
         <div class="modal-content card-modal-content">
           <div class="modal-header">
-            <h2>Edit Card</h2>
             <div class="modal-header-actions">
-              ${cardData.archived ? 
-                `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` :
-                `<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
+              ${isTemplate ?
+                `<button type="button" class="btn btn-secondary" id="edit-schedule-from-template-btn" data-card-id="${cardData.id}" data-has-schedule="${cardData.schedule ? 'true' : 'false'}">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                  Edit Schedule
+                </button>` :
+                cardData.archived ? 
+                  `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` :
+                  `<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
               }
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
             </div>
+            <h2>${isTemplate ? 'Edit Card Template' : 'Edit Card'}</h2>
           </div>
           <form id="edit-card-form">
             <div class="form-group">
@@ -1487,6 +2249,16 @@ class BoardManager {
             <div class="form-group">
               <label for="edit-card-description">Description:</label>
               <textarea id="edit-card-description" name="edit-card-description" rows="4">${this.escapeHtml(cardData.description || '')}</textarea>
+            </div>
+            
+            <div class="schedule-section">
+              <button type="button" class="btn btn-secondary" id="schedule-card-btn" data-card-id="${cardData.id}" data-has-schedule="${cardData.schedule ? 'true' : 'false'}">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                ${cardData.schedule ? 'Edit Schedule' : 'Create Schedule'}
+              </button>
             </div>
             
             <div class="checklist-section">
@@ -1526,6 +2298,7 @@ class BoardManager {
               `}
             </div>
             
+            ${!isTemplate ? `
             <div class="comments-section">
               <div class="comments-header">
                 <h3>Comments</h3>
@@ -1538,6 +2311,7 @@ class BoardManager {
                 ${hasComments ? comments.map(comment => this.generateCommentHtml(comment)).join('') : '<p class="no-comments">No comments yet.</p>'}
               </div>
             </div>
+            ` : ''}
           </form>
         </div>
       </div>
@@ -1587,6 +2361,50 @@ class BoardManager {
       unarchiveBtn.addEventListener('click', async () => {
         modal.remove();
         await this.unarchiveCard(cardId);
+      });
+    }
+
+    // Handle edit schedule button from template modal
+    const editScheduleFromTemplateBtn = document.getElementById('edit-schedule-from-template-btn');
+    if (editScheduleFromTemplateBtn) {
+      editScheduleFromTemplateBtn.addEventListener('click', () => {
+        // Check for unsaved changes
+        if (hasUnsavedChanges || hasUnpostedComment()) {
+          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+            return;
+          }
+        }
+        const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
+        // Remove the edit card modal before opening schedule modal
+        modal.remove();
+        try {
+          this.openScheduleModal(cardId, cardData, hasSchedule);
+        } catch (err) {
+          console.error('Error opening schedule modal:', err);
+          alert('Failed to open schedule editor. Please try again.');
+        }
+      });
+    }
+
+    // Handle schedule button
+    const scheduleBtn = document.getElementById('schedule-card-btn');
+    if (scheduleBtn) {
+      scheduleBtn.addEventListener('click', () => {
+        // Check for unsaved changes
+        if (hasUnsavedChanges || hasUnpostedComment()) {
+          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+            return;
+          }
+        }
+        const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
+        // Remove the edit card modal before opening schedule modal
+        modal.remove();
+        try {
+          this.openScheduleModal(cardId, cardData, hasSchedule);
+        } catch (err) {
+          console.error('Error opening schedule modal:', err);
+          alert('Failed to open schedule editor. Please try again.');
+        }
       });
     }
 
@@ -1803,76 +2621,78 @@ class BoardManager {
       });
     });
 
-    // Handle post comment button
+    // Handle post comment button (only if comments section exists)
     const postCommentBtn = document.getElementById('post-comment-btn');
     const newCommentInput = document.getElementById('new-comment-input');
     const MAX_COMMENT_LENGTH = 50000;
     
-    postCommentBtn.addEventListener('click', async () => {
-      const commentText = newCommentInput.value.trim();
-      if (!commentText) return;
-      
-      // Validate comment length on client side
-      if (commentText.length > MAX_COMMENT_LENGTH) {
-        alert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`);
-        return;
-      }
-      
-      try {
-        const response = await fetch(`/api/cards/${cardId}/comments`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ comment: commentText })
-        });
+    if (postCommentBtn && newCommentInput) {
+      postCommentBtn.addEventListener('click', async () => {
+        const commentText = newCommentInput.value.trim();
+        if (!commentText) return;
         
-        const data = await response.json();
-        
-        if (data.success) {
-          // Add the new comment to the UI at the top of the list
-          const commentsList = document.getElementById('comments-list');
-          const noCommentsMsg = commentsList.querySelector('.no-comments');
-          if (noCommentsMsg) {
-            noCommentsMsg.remove();
-          }
-          
-          const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
-          const newCommentHtml = this.generateCommentHtml(data.comment);
-          
-          commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
-          
-          // Attach delete handler to new comment
-          const newComment = commentsList.querySelector(`[data-comment-id="${data.comment.id}"]`);
-          const deleteBtn = newComment.querySelector('.comment-delete-btn');
-          deleteBtn.addEventListener('click', () => this.deleteCommentHandler(deleteBtn, cardId));
-          
-          // Attach read more handler if it's a long comment
-          if (isLongComment) {
-            const readMoreBtn = newComment.querySelector('.comment-read-more');
-            readMoreBtn.addEventListener('click', (e) => {
-              const commentText = newComment.querySelector('.comment-text');
-              this.toggleCommentCollapse(commentText, e.target);
-            });
-          }
-          
-          // Clear input
-          newCommentInput.value = '';
-        } else {
-          alert('Failed to post comment: ' + data.message);
+        // Validate comment length on client side
+        if (commentText.length > MAX_COMMENT_LENGTH) {
+          alert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`);
+          return;
         }
-      } catch (err) {
-        console.error('Error posting comment:', err);
-        alert('Error posting comment');
-      }
-    });
+        
+        try {
+          const response = await fetch(`/api/cards/${cardId}/comments`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ comment: commentText })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            // Add the new comment to the UI at the top of the list
+            const commentsList = document.getElementById('comments-list');
+            const noCommentsMsg = commentsList.querySelector('.no-comments');
+            if (noCommentsMsg) {
+              noCommentsMsg.remove();
+            }
+            
+            const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
+            const newCommentHtml = this.generateCommentHtml(data.comment);
+            
+            commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
+            
+            // Attach delete handler to new comment
+            const newComment = commentsList.querySelector(`[data-comment-id="${data.comment.id}"]`);
+            const deleteBtn = newComment.querySelector('.comment-delete-btn');
+            deleteBtn.addEventListener('click', () => this.deleteCommentHandler(deleteBtn, cardId));
+            
+            // Attach read more handler if it's a long comment
+            if (isLongComment) {
+              const readMoreBtn = newComment.querySelector('.comment-read-more');
+              readMoreBtn.addEventListener('click', (e) => {
+                const commentText = newComment.querySelector('.comment-text');
+                this.toggleCommentCollapse(commentText, e.target);
+              });
+            }
+            
+            // Clear input
+            newCommentInput.value = '';
+          } else {
+            alert('Failed to post comment: ' + data.message);
+          }
+        } catch (err) {
+          console.error('Error posting comment:', err);
+          alert('Error posting comment');
+        }
+      });
+    }
     
-    // Handle delete comment buttons
+    // Handle delete comment buttons (only if comments section exists)
     document.querySelectorAll('.comment-delete-btn').forEach(btn => {
       btn.addEventListener('click', () => this.deleteCommentHandler(btn, cardId));
     });
     
-    // Handle read more buttons
+    // Handle read more buttons (only if comments section exists)
     document.querySelectorAll('.comment-read-more').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const commentId = e.target.getAttribute('data-comment-id');
@@ -1896,6 +2716,34 @@ class BoardManager {
       const description = document.getElementById('edit-card-description').value.trim();
       
       if (title) {
+        // Validate that template cards have a schedule
+        if (isTemplate && !cardData.schedule) {
+          const createSchedule = confirm(
+            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\n' +
+            'Would you like to create a schedule for this template now?'
+          );
+          
+          if (createSchedule) {
+            // Save changes first, then open schedule modal
+            await this.updateCard(cardId, title, description);
+            modal.remove();
+            
+            // Open schedule modal for this template
+            try {
+              this.openScheduleModal(cardData.id);
+            } catch (err) {
+              alert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err));
+            }
+            return;
+          } else {
+            // User chose not to create a schedule, ask if they still want to save
+            const saveAnyway = confirm('Save template without a schedule? (You can add a schedule later using the Edit Schedule button)');
+            if (!saveAnyway) {
+              return; // Don't save, stay in modal
+            }
+          }
+        }
+        
         // TODO: PERFORMANCE - Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
         // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
         // transaction. This would:

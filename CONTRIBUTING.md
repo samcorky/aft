@@ -225,6 +225,154 @@ class ExampleClass {
 - **Accessibility**: Include ARIA attributes (see [Accessibility Requirements](#accessibility-requirements))
 - **CSS Classes**: Use kebab-case for class names
 
+## Background Services
+
+For features requiring scheduled or periodic operations, implement them as **daemon threads within the Flask app** rather than separate services.
+
+### Service Architecture
+- Create standalone Python scripts in server directory (e.g., `card_scheduler.py`, `backup_scheduler.py`)
+- Implement a `get_scheduler()` function that returns a threading.Thread instance
+- Use daemon threads so they terminate when the Flask app stops
+- Use while True loop with sleep interval for scheduling
+- Implement lock files to prevent issues if app restarts during execution
+- Include comprehensive error handling and logging
+
+### Example Scheduler Implementation
+
+```python
+import threading
+import time
+import os
+from pathlib import Path
+
+_scheduler_thread = None
+_scheduler_lock = threading.Lock()
+
+def run_scheduled_task():
+    """Main scheduler loop."""
+    lock_file = Path("/tmp/my_scheduler.lock")
+    
+    while True:
+        try:
+            # Check if already running (lock file exists)
+            if lock_file.exists():
+                logger.warning("Scheduler already running, skipping")
+                time.sleep(60)
+                continue
+            
+            # Create lock file
+            lock_file.touch()
+            
+            try:
+                # Perform scheduled task
+                logger.info("Running scheduled task")
+                # ... task logic here ...
+                
+            finally:
+                # Always remove lock file
+                if lock_file.exists():
+                    lock_file.unlink()
+            
+        except Exception as e:
+            logger.error(f"Error in scheduled task: {str(e)}")
+            # Continue running despite errors
+        
+        # Wait before next iteration
+        time.sleep(60)  # 60 seconds
+
+def get_scheduler():
+    """Get or create the scheduler thread."""
+    global _scheduler_thread
+    
+    with _scheduler_lock:
+        if _scheduler_thread is None or not _scheduler_thread.is_alive():
+            _scheduler_thread = threading.Thread(
+                target=run_scheduled_task,
+                daemon=True,  # Thread dies when main app dies
+                name="MySchedulerThread"
+            )
+    
+    return _scheduler_thread
+```
+
+### Integration in app.py
+
+Add initialization function and call it at module level:
+
+```python
+def init_my_scheduler():
+    """Initialize and start the scheduler."""
+    try:
+        from my_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.start()
+        logger.info("My scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize scheduler: {str(e)}")
+
+# Start scheduler when module is loaded (at end of app.py)
+init_my_scheduler()
+```
+
+### Why Daemon Threads?
+- **Automatic Cleanup**: Daemon threads terminate when the main app stops
+- **Single Container**: No need for multiple containers or services
+- **Simpler Deployment**: Everything runs in the Flask app container
+- **Shared Context**: Direct access to Flask app, database, and models
+
+### Testing Background Services
+- Test via API endpoints (create conditions, verify results via API)
+- Test lock file behavior (ensure it prevents concurrent execution)
+- Test error recovery (simulate failures, verify continued operation)
+- Test notification generation (if applicable)
+- **Note**: Don't test actual timing/sleep in unit tests (too slow, unreliable)
+
+## Utility Modules
+
+For reusable logic shared across multiple features:
+
+### When to Create a Utility Module
+- Business logic used by both API endpoints and background services
+- Complex calculations that need unit testing
+- Algorithm implementations that don't depend on database models
+
+### Structure
+- Create `feature_utils.py` in server directory
+- Pure functions with clear inputs/outputs
+- Comprehensive docstrings with examples
+- Type hints for all parameters and returns
+
+### Example
+
+```python
+def calculate_next_occurrence(start_time: datetime, interval: int, unit: str) -> datetime:
+    """Calculate next occurrence of a scheduled event.
+    
+    Args:
+        start_time: When to start calculating from
+        interval: How many units between occurrences
+        unit: Time unit (minute, hour, day, week, month, year)
+    
+    Returns:
+        datetime: Next occurrence time
+    
+    Example:
+        >>> calculate_next_occurrence(
+        ...     datetime(2025, 1, 15),
+        ...     2,
+        ...     'week'
+        ... )
+        datetime(2025, 1, 29, 0, 0)
+    """
+    # Implementation
+```
+
+### Testing Utility Modules
+- Create `test_feature_utils.py` with unit tests
+- Test edge cases (boundaries, invalid input)
+- Test with realistic data
+- Mock time-dependent functions if needed
+
 ## Testing Requirements
 
 All code contributions must include appropriate tests. See [TESTING.md](./TESTING.md) for comprehensive testing guidelines.

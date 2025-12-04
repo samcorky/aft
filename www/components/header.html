@@ -19,12 +19,37 @@
       <div class="nav-board-name" id="nav-board-name"></div>
     </nav>
     <div class="header-right">
-      <div class="archive-toggle-wrapper" id="archive-toggle-wrapper" style="display: none;">
-        <label class="archive-toggle-label">
-          <span class="toggle-label-text">Show Archived</span>
-          <input type="checkbox" id="archive-toggle-checkbox" class="archive-toggle-input">
-          <span class="archive-toggle-slider"></span>
-        </label>
+      <div class="views-dropdown" id="views-dropdown" style="display: none;">
+        <button class="views-dropdown-btn" id="views-dropdown-btn" title="Switch View" aria-label="Switch View">
+          <span class="views-dropdown-label" id="views-dropdown-label">Task View</span>
+          <svg class="views-dropdown-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        <div class="views-dropdown-menu" id="views-dropdown-menu">
+          <button class="views-dropdown-item" data-view="task">
+            <svg class="views-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 11 12 14 22 4"></polyline>
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+            </svg>
+            <span>Task View</span>
+          </button>
+          <button class="views-dropdown-item" data-view="scheduled">
+            <svg class="views-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Scheduled View</span>
+          </button>
+          <button class="views-dropdown-item" data-view="archived">
+            <svg class="views-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="21 8 21 21 3 21 3 8"></polyline>
+              <rect x="1" y="3" width="22" height="5"></rect>
+              <line x1="10" y1="12" x2="14" y2="12"></line>
+            </svg>
+            <span>Archived View</span>
+          </button>
+        </div>
       </div>
       <div class="notifications-dropdown">
         <a href="javascript:void(0)" class="icon-link" id="notifications-icon-link" title="Notifications" aria-label="Notifications" role="button">

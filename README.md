@@ -60,11 +60,31 @@ Use at your own risk.
 - **Card Filtering** - View cards by column or across entire boards
 - **Archive Cards** - Archive completed cards to declutter your board while preserving history
 - **Unarchive Cards** - Restore archived cards back to active view when needed
-- **Toggle Archive View** - Switch between active and archived cards using the header toggle
+- **View Switching** - Switch between Task, Scheduled, and Archived views using the header dropdown
 - **Batch Operations** - Archive or unarchive multiple cards at once via column menu
 
 ![Card Detail](images/card_detail.png)
 ![Archive View](images/archive_screen.png)
+
+### 🔄 Scheduled Cards (Recurring Tasks)
+- **Template Cards** - Convert any card into a recurring task template
+- **Flexible Scheduling** - Create cards automatically on a schedule:
+  - **Frequency Options**: Every N minutes, hours, days, weeks, months, or years
+  - **Start Date/Time**: Configure when the schedule begins
+  - **End Date/Time**: Optional schedule expiration (auto-disables when reached)
+- **Schedule Management**:
+  - **Enable/Disable**: Turn schedules on or off without deleting them
+  - **Edit Schedules**: Update frequency, dates, or settings at any time
+  - **Delete Schedules**: Remove recurring schedules when no longer needed
+- **Duplicate Control** - Prevent duplicate cards in the same column or allow multiple instances
+- **Live Preview** - See the next 4 scheduled run times before saving
+- **Scheduled View** - Dedicated view for managing template cards (separate from task view)
+- **Automatic Creation** - Cards created every minute based on enabled schedules
+- **Schedule Tracking** - Auto-generated comments track which schedule created each card
+- **Checklist Preservation** - Template checklist items are copied to new cards
+
+![Scheduled Cards](images/scheduled_cards.png)
+![Schedule Modal](images/schedule_modal.png)
 
 ### ✅ Checklist Items
 - **Task Breakdown** - Add checklist items to cards for subtasks
@@ -96,11 +116,33 @@ Use at your own risk.
 - **Automatic Backups** - Scheduled backups running in the background
   - Files saved to `./backups/` directory on host
   - Viewable backup module status on system information page
+  - Configurable minimum free disk space requirement (1MB - 10TB)
 - **Restore Database** - Upload and restore from backup files
 - **Reset Database** - Clear all data for fresh start
 - **Version Tracking** - Monitor application and database schema versions
 
 ![Database Statistics](images/db_stats.png)
+
+### 🔔 Notifications
+- **System Notifications** - Receive alerts about important events
+- **Backup Notifications** - Alerts for overdue backups or backup failures
+- **Schedule Notifications** - Alerts for schedule errors or when schedules end
+- **Notification Center** - View and manage all notifications from the header
+- **Mark as Read** - Individual or bulk mark notifications as read
+- **Notification Badge** - Unread count indicator in header
+
+### 🤖 Background Services
+- **Backup Scheduler** - Automatic database backup service running every minute
+  - Monitors backup schedule and creates backups at configured intervals
+  - Enforces retention policies automatically
+  - Checks disk space before creating backups
+  - Creates notifications for failures or overdue backups
+- **Card Scheduler** - Automatic card creation service running every minute
+  - Processes enabled schedules and creates cards at scheduled times
+  - Enforces duplicate prevention rules
+  - Auto-disables schedules past their end date
+  - Creates notifications on errors
+  - Adds tracking comments to created cards
 
 ### 🔌 API Documentation
 - **Interactive API Docs** - Built-in Swagger UI at `/api/docs`
@@ -108,3 +150,59 @@ Use at your own risk.
 - **Health Checks** - Database connectivity and version endpoints
 
 ![API Documentation](images/api_docs.png)
+
+## Architecture Decisions
+
+This section documents key architectural choices made in the AFT application.
+
+### Custom Date Math vs. dateutil
+
+**Decision**: Implement custom `_add_months()` and `_add_years()` functions instead of using `python-dateutil`.
+
+**Rationale**:
+- Scheduled cards feature only needs simple calendar math (add N months/years)
+- `python-dateutil` adds 300KB+ dependency for functionality we don't need
+- Our custom implementation handles edge cases correctly:
+  - Month overflow (Jan 31 + 1 month = Feb 28/29)
+  - Leap years (Feb 29 + 1 year = Feb 28)
+  - Year boundaries (Dec 31 + 1 month = Jan 31 next year)
+- No timezone/DST complexity needed (app uses local time)
+- Custom functions are ~50 lines vs. large library
+
+**When to Reconsider**: If we later need timezone handling, complex recurrence rules (RRULE), or relative deltas with multiple units, consider adding `python-dateutil`.
+
+**Implementation**: See `server/schedule_utils.py` for the custom date math functions.
+
+### Background Services: Daemon Threads vs. Celery
+
+**Decision**: Use simple Python scripts with daemon threads instead of Celery task queue.
+
+**Rationale**:
+- Application is single-user/small-scale
+- Simple periodic tasks (backups every N minutes, card creation on schedule)
+- Don't need distributed task execution, complex workflows, or advanced retry logic
+- Simpler deployment (no Redis/RabbitMQ required)
+- Easier to debug and maintain
+- Threads run within Flask app container, sharing database connections and context
+
+**When to Reconsider**: If application scales to multi-user with complex workflows, many background tasks, or need for task prioritization/distribution, consider Celery.
+
+**Implementation**: See `server/backup_scheduler.py` and `server/card_scheduler.py` for examples of the daemon thread pattern.
+
+### Single Container vs. Microservices
+
+**Decision**: Run all background services as daemon threads within the Flask app container.
+
+**Rationale**:
+- Simpler deployment and orchestration
+- Shared database connections and SQLAlchemy sessions
+- Direct access to Flask app models and utilities
+- Lower resource overhead (no inter-service communication)
+- Appropriate for single-user application scale
+
+**Trade-offs**:
+- All services restart if Flask app restarts
+- Can't scale services independently
+- Acceptable for current use case
+
+**Implementation**: Background services initialized in `server/app.py` via `init_backup_scheduler()` and `init_card_scheduler()` functions.

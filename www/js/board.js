@@ -1011,10 +1011,12 @@ class BoardManager {
               current = new Date(current.getTime() + runEvery * 7 * 24 * 60 * 60 * 1000);
               break;
             case 'month':
-              current = new Date(current.setMonth(current.getMonth() + runEvery));
+              current = new Date(current);
+              current.setMonth(current.getMonth() + runEvery);
               break;
             case 'year':
-              current = new Date(current.setFullYear(current.getFullYear() + runEvery));
+              current = new Date(current);
+              current.setFullYear(current.getFullYear() + runEvery);
               break;
           }
 

@@ -439,6 +439,7 @@ class BackupRestore {
           }
           
           this.safeSetText(this.latestBackup, timeAgo);
+          this.latestBackup.title = backupDate.toLocaleString();
         } else {
           this.safeSetText(this.latestBackup, 'No backups found');
         }

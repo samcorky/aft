@@ -443,7 +443,7 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
                       <div class="card-action-buttons">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
@@ -877,8 +877,13 @@ class BoardManager {
       <div class="modal" id="schedule-modal">
         <div class="modal-content schedule-modal-content">
           <div class="modal-header">
+            <div class="modal-header-actions">
+              ${hasSchedule ? `<button type="button" class="btn btn-secondary" id="edit-template-btn" data-card-id="${scheduleData?.card_id || ''}">Edit Template</button>` : ''}
+              ${hasSchedule ? `<button type="button" class="btn btn-danger" id="delete-schedule-btn">Delete Schedule</button>` : ''}
+              <button type="button" class="btn btn-secondary" id="cancel-schedule-btn">Cancel</button>
+              <button type="submit" form="schedule-form" class="btn btn-primary">${hasSchedule ? 'Update Schedule' : 'Create Schedule'}</button>
+            </div>
             <h2>${hasSchedule ? 'Edit Schedule' : 'Create Schedule'}</h2>
-            <button type="button" class="btn btn-secondary" id="cancel-schedule-btn">Cancel</button>
           </div>
           <form id="schedule-form">
             <div class="form-row">
@@ -941,14 +946,6 @@ class BoardManager {
               <div class="next-runs-list" id="next-runs-list">
                 <p class="next-runs-loading">Calculating...</p>
               </div>
-            </div>
-
-            <div class="modal-actions">
-              ${hasSchedule ? `
-                <button type="button" class="btn btn-danger" id="delete-schedule-btn">Delete Schedule</button>
-                <button type="button" class="btn btn-secondary" id="edit-template-btn" data-card-id="${scheduleData?.card_id || ''}">Edit Template</button>
-              ` : ''}
-              <button type="submit" class="btn btn-primary">${hasSchedule ? 'Update Schedule' : 'Create Schedule'}</button>
             </div>
           </form>
         </div>
@@ -1106,10 +1103,10 @@ class BoardManager {
             const response = await fetch(`/api/cards/${templateCardId}`);
             const data = await this.parseResponse(response);
             if (data.success) {
-              // Close schedule modal but keep reference
+              // Close schedule modal
               modal.remove();
               // Open edit card modal for the template
-              await this.showEditCardModal(templateCardId);
+              this.openEditCardModal(templateCardId, data.card);
             } else {
               alert('Failed to load template card: ' + data.message);
             }
@@ -1228,6 +1225,363 @@ class BoardManager {
       if (columnName) {
         await this.createColumn(columnName);
         modal.remove();
+      }
+    });
+
+    // Close modal on background click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+
+  async openAddTemplateWithScheduleModal(columnId, order = null) {
+    // Track the last used column for keyboard shortcuts
+    this.lastUsedColumnId = columnId;
+    
+    // Track checklist items to be created
+    let pendingChecklistItems = [];
+    let checklistVisible = false;
+    
+    // Set default values for schedule
+    const now = new Date();
+    const defaultStartDatetime = now.toISOString().substring(0, 16); // Format: YYYY-MM-DDTHH:MM
+    const defaultRunEvery = 1;
+    const defaultUnit = 'day';
+    const defaultEnabled = true;
+    const defaultAllowDuplicates = false;
+    
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="add-template-schedule-modal">
+        <div class="modal-content schedule-modal-content">
+          <div class="modal-header">
+            <div class="modal-header-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-template-schedule-btn">Cancel</button>
+              <button type="submit" form="add-template-schedule-form" class="btn btn-primary">Create Template & Schedule</button>
+            </div>
+            <h2>Add New Template with Schedule</h2>
+          </div>
+          <form id="add-template-schedule-form">
+            <div class="form-group">
+              <label for="template-title">Title:</label>
+              <input type="text" id="template-title" name="template-title" required>
+            </div>
+            <div class="form-group">
+              <label for="template-description">Description:</label>
+              <textarea id="template-description" name="template-description" rows="4"></textarea>
+            </div>
+            
+            <div class="checklist-section">
+              <div id="checklist-header-container">
+                <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
+              </div>
+              <div id="checklist-content-container" style="display: none;">
+                <div class="checklist-header">
+                  <h3>Checklist</h3>
+                  <span class="checklist-summary" id="checklist-summary">0/0 (0%)</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
+                <div class="checklist-items" id="new-template-checklist-items"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
+              </div>
+            </div>
+            
+            <hr style="margin: 30px 0; border: none; border-top: 2px solid var(--border-color);">
+            
+            <h3 style="margin-bottom: 20px;">Schedule Settings</h3>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="template-schedule-run-every">Run Every:</label>
+                <input type="number" id="template-schedule-run-every" name="run-every" min="1" value="${defaultRunEvery}" required>
+              </div>
+              <div class="form-group">
+                <label for="template-schedule-unit">Unit:</label>
+                <select id="template-schedule-unit" name="unit" required>
+                  <option value="minute" ${defaultUnit === 'minute' ? 'selected' : ''}>Minute(s)</option>
+                  <option value="hour" ${defaultUnit === 'hour' ? 'selected' : ''}>Hour(s)</option>
+                  <option value="day" ${defaultUnit === 'day' ? 'selected' : ''}>Day(s)</option>
+                  <option value="week" ${defaultUnit === 'week' ? 'selected' : ''}>Week(s)</option>
+                  <option value="month" ${defaultUnit === 'month' ? 'selected' : ''}>Month(s)</option>
+                  <option value="year" ${defaultUnit === 'year' ? 'selected' : ''}>Year(s)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="template-schedule-start-datetime">Start Date & Time:</label>
+                <input type="datetime-local" id="template-schedule-start-datetime" name="start-datetime" value="${defaultStartDatetime}" required>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group full-width">
+                <label for="template-schedule-end-datetime">End Date & Time (Optional):</label>
+                <input type="datetime-local" id="template-schedule-end-datetime" name="end-datetime">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="template-schedule-enabled" name="enabled" ${defaultEnabled ? 'checked' : ''}>
+                <span>Schedule Enabled</span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="template-schedule-allow-duplicates" name="allow-duplicates" ${defaultAllowDuplicates ? 'checked' : ''}>
+                <span>Allow Duplicates (create new cards even if unarchived cards from this schedule exist)</span>
+              </label>
+            </div>
+
+            <div class="next-runs-section" id="next-runs-section">
+              <h3>Next 4 Scheduled Runs</h3>
+              <div class="next-runs-list" id="next-runs-list">
+                <p class="next-runs-loading">Calculating...</p>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('add-template-schedule-modal');
+    const form = document.getElementById('add-template-schedule-form');
+    const cancelBtn = document.getElementById('cancel-template-schedule-btn');
+    const titleInput = document.getElementById('template-title');
+    const runEveryInput = document.getElementById('template-schedule-run-every');
+    const unitSelect = document.getElementById('template-schedule-unit');
+    const startDatetimeInput = document.getElementById('template-schedule-start-datetime');
+    const endDatetimeInput = document.getElementById('template-schedule-end-datetime');
+    const nextRunsList = document.getElementById('next-runs-list');
+    const checklistHeaderContainer = document.getElementById('checklist-header-container');
+    const checklistContentContainer = document.getElementById('checklist-content-container');
+    const checklistContainer = document.getElementById('new-template-checklist-items');
+
+    // Focus on title input
+    titleInput.focus();
+    
+    // Checklist management
+    const updateChecklistSummary = () => {
+      const summaryElement = document.getElementById('checklist-summary');
+      if (summaryElement) {
+        const total = pendingChecklistItems.length;
+        const checked = pendingChecklistItems.filter(i => i.checked).length;
+        const percentage = calculateChecklistPercentage(pendingChecklistItems);
+        summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+      }
+    };
+    
+    this.setupNewCardChecklistDragAndDrop(checklistContainer, pendingChecklistItems);
+    
+    const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
+      updateSummary: updateChecklistSummary,
+      deleteButtonClass: 'checklist-delete-btn-new'
+    });
+    
+    const showChecklistUI = () => {
+      if (!checklistVisible) {
+        checklistVisible = true;
+        checklistHeaderContainer.style.display = 'none';
+        checklistContentContainer.style.display = 'block';
+      }
+    };
+
+    const addInitialBtn = document.getElementById('add-checklist-item-initial-btn');
+    const addTopBtn = document.getElementById('add-checklist-item-top-btn');
+    const addBottomBtn = document.getElementById('add-checklist-item-bottom-btn');
+    
+    if (addInitialBtn) {
+      addInitialBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(false);
+      });
+    }
+    if (addTopBtn) {
+      addTopBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(true);
+      });
+    }
+    if (addBottomBtn) {
+      addBottomBtn.addEventListener('click', () => {
+        showChecklistUI();
+        checklistManager.addItem(false);
+      });
+    }
+
+    // Function to calculate and display next runs
+    const updateNextRuns = async () => {
+      const runEvery = parseInt(runEveryInput.value);
+      const unit = unitSelect.value;
+      const startDatetime = startDatetimeInput.value;
+      const endDatetime = endDatetimeInput.value || null;
+
+      if (!runEvery || !unit || !startDatetime) {
+        nextRunsList.innerHTML = '<p class="next-runs-empty">Please fill in required fields</p>';
+        return;
+      }
+
+      try {
+        // Calculate next runs client-side
+        const startDateTime = new Date(startDatetime);
+        const endDateTime = endDatetime ? new Date(endDatetime) : null;
+        const now = new Date();
+
+        let runs = [];
+        let current = startDateTime;
+        let attempts = 0;
+        const maxAttempts = 100;
+
+        while (runs.length < 4 && attempts < maxAttempts) {
+          attempts++;
+          
+          if (current >= now && (!endDateTime || current <= endDateTime)) {
+            runs.push(new Date(current));
+          }
+
+          // Add interval
+          switch (unit) {
+            case 'minute':
+              current = new Date(current.getTime() + runEvery * 60 * 1000);
+              break;
+            case 'hour':
+              current = new Date(current.getTime() + runEvery * 60 * 60 * 1000);
+              break;
+            case 'day':
+              current = new Date(current.getTime() + runEvery * 24 * 60 * 60 * 1000);
+              break;
+            case 'week':
+              current = new Date(current.getTime() + runEvery * 7 * 24 * 60 * 60 * 1000);
+              break;
+            case 'month':
+              current = new Date(current.setMonth(current.getMonth() + runEvery));
+              break;
+            case 'year':
+              current = new Date(current.setFullYear(current.getFullYear() + runEvery));
+              break;
+          }
+
+          if (endDateTime && current > endDateTime) break;
+        }
+
+        if (runs.length === 0) {
+          nextRunsList.innerHTML = '<p class="next-runs-empty">No upcoming runs (schedule may have ended)</p>';
+        } else {
+          nextRunsList.innerHTML = runs.map(run => {
+            const dateStr = run.toLocaleDateString('en-US', { 
+              weekday: 'short', 
+              year: 'numeric', 
+              month: 'short', 
+              day: 'numeric' 
+            });
+            const timeStr = run.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            });
+            return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
+          }).join('');
+        }
+      } catch (err) {
+        console.error('Error calculating next runs:', err);
+        nextRunsList.innerHTML = '<p class="next-runs-error">Error calculating runs</p>';
+      }
+    };
+
+    // Update next runs on input change
+    runEveryInput.addEventListener('input', updateNextRuns);
+    unitSelect.addEventListener('change', updateNextRuns);
+    startDatetimeInput.addEventListener('change', updateNextRuns);
+    endDatetimeInput.addEventListener('change', updateNextRuns);
+
+    // Initial calculation
+    updateNextRuns();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    // Handle form submit - create template card with schedule in one API call
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const title = titleInput.value.trim();
+      const description = document.getElementById('template-description').value.trim();
+      const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
+
+      const scheduleData = {
+        run_every: parseInt(runEveryInput.value),
+        unit: unitSelect.value,
+        start_datetime: startDatetimeInput.value ? new Date(startDatetimeInput.value).toISOString() : null,
+        end_datetime: endDatetimeInput.value ? new Date(endDatetimeInput.value).toISOString() : null,
+        schedule_enabled: document.getElementById('template-schedule-enabled').checked,
+        allow_duplicates: document.getElementById('template-schedule-allow-duplicates').checked
+      };
+
+      try {
+        // Step 1: Create the template card
+        const cardBody = {
+          title,
+          description,
+          scheduled: true
+        };
+        if (order !== null) {
+          cardBody.order = order;
+        }
+
+        const cardResponse = await fetch(`/api/columns/${columnId}/cards`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cardBody)
+        });
+
+        const cardData = await this.parseResponse(cardResponse);
+
+        if (!cardData.success) {
+          alert('Failed to create template card: ' + cardData.message);
+          return;
+        }
+
+        const cardId = cardData.card.id;
+
+        // Step 2: Create checklist items if any
+        if (validChecklistItems.length > 0) {
+          for (let i = 0; i < validChecklistItems.length; i++) {
+            const item = validChecklistItems[i];
+            await this.createChecklistItem(cardId, item.name, i, item.checked || false);
+          }
+        }
+
+        // Step 3: Create the schedule
+        const scheduleResponse = await fetch('/api/schedules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            card_id: cardId,
+            ...scheduleData,
+            keep_source_card: false // Don't keep original since it IS the template
+          })
+        });
+
+        const scheduleResponseData = await this.parseResponse(scheduleResponse);
+
+        if (scheduleResponseData.success) {
+          modal.remove();
+          await this.loadBoard();
+        } else {
+          alert('Failed to create schedule: ' + scheduleResponseData.message);
+        }
+
+      } catch (err) {
+        console.error('Error creating template with schedule:', err);
+        alert('Error creating template with schedule');
       }
     });
 
@@ -1628,6 +1982,12 @@ class BoardManager {
   }
 
   openAddCardModal(columnId, order = null, scheduled = false) {
+    // If we're in scheduled view, open the combined template+schedule modal instead
+    if (scheduled) {
+      this.openAddTemplateWithScheduleModal(columnId, order);
+      return;
+    }
+    
     // Track the last used column for keyboard shortcuts
     this.lastUsedColumnId = columnId;
     
@@ -1837,6 +2197,12 @@ class BoardManager {
     const hasChecklist = checklistItems.length > 0;
     const hasComments = comments.length > 0;
     
+    // Remove any existing edit card modal to prevent duplicates
+    const existingModal = document.getElementById('edit-card-modal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+    
     // Store original values for change detection
     const originalTitle = cardData.title;
     const originalDescription = cardData.description || '';
@@ -1853,7 +2219,6 @@ class BoardManager {
       <div class="modal" id="edit-card-modal">
         <div class="modal-content card-modal-content">
           <div class="modal-header">
-            <h2>${isTemplate ? 'Edit Card Template' : 'Edit Card'}</h2>
             <div class="modal-header-actions">
               ${isTemplate ?
                 `<button type="button" class="btn btn-secondary" id="edit-schedule-from-template-btn" data-card-id="${cardData.id}" data-has-schedule="${cardData.schedule ? 'true' : 'false'}">
@@ -1870,6 +2235,7 @@ class BoardManager {
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
             </div>
+            <h2>${isTemplate ? 'Edit Card Template' : 'Edit Card'}</h2>
           </div>
           <form id="edit-card-form">
             <div class="form-group">
@@ -2005,6 +2371,8 @@ class BoardManager {
           }
         }
         const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
+        // Remove the edit card modal before opening schedule modal
+        modal.remove();
         this.openScheduleModal(cardId, cardData, hasSchedule);
       });
     }
@@ -2020,6 +2388,8 @@ class BoardManager {
           }
         }
         const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
+        // Remove the edit card modal before opening schedule modal
+        modal.remove();
         this.openScheduleModal(cardId, cardData, hasSchedule);
       });
     }

@@ -88,6 +88,12 @@ class Header {
     // Handle view selection
     dropdownItems.forEach(item => {
       item.addEventListener('click', (e) => {
+        // Don't allow clicking the active view
+        if (item.classList.contains('active')) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         const view = e.currentTarget.dataset.view;
         this.setView(view);
         dropdownMenu.classList.remove('show');

@@ -4504,54 +4504,75 @@ def create_schedule():
         except (ValueError, TypeError) as e:
             return jsonify({"success": False, "message": f"Invalid datetime format: {str(e)}"}), 400
         
-        # Create a NEW card as the template (hidden from task views)
-        template_card = Card(
-            column_id=card.column_id,
-            title=card.title,
-            description=card.description,
-            order=card.order,
-            archived=False,
-            scheduled=True,  # This marks it as a template (hidden from task views)
-            schedule=None
-        )
-        db.add(template_card)
-        db.flush()  # Get the new card ID
-        
-        # Copy checklist items to template
-        for item in card.checklist_items:
-            new_item = ChecklistItem(
-                card_id=template_card.id,
-                name=item.name,
-                checked=item.checked,
-                order=item.order
+        # Check if card is already a template (scheduled=True)
+        # If so, just create the schedule and link it - don't create a duplicate template
+        if card.scheduled:
+            # This card is already a template, just create and link the schedule
+            schedule = ScheduledCard(
+                card_id=card.id,
+                run_every=run_every,
+                unit=unit,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                schedule_enabled=data.get('schedule_enabled', True),
+                allow_duplicates=data.get('allow_duplicates', False)
             )
-            db.add(new_item)
-        
-        # Create schedule
-        schedule = ScheduledCard(
-            card_id=template_card.id,
-            run_every=run_every,
-            unit=unit,
-            start_datetime=start_datetime,
-            end_datetime=end_datetime,
-            schedule_enabled=data.get('schedule_enabled', True),
-            allow_duplicates=data.get('allow_duplicates', False)
-        )
-        
-        db.add(schedule)
-        db.flush()
-        
-        # Update template card's schedule reference
-        template_card.schedule = schedule.id
-        
-        # Handle keep_source_card parameter
-        keep_source_card = data.get('keep_source_card', True)
-        if keep_source_card:
-            # Update ORIGINAL card's schedule reference (but keep scheduled=False so it stays visible)
+            
+            db.add(schedule)
+            db.flush()
+            
+            # Update card's schedule reference
             card.schedule = schedule.id
+            template_card = card
         else:
-            # Delete the original card
-            db.delete(card)
+            # Create a NEW card as the template (hidden from task views)
+            template_card = Card(
+                column_id=card.column_id,
+                title=card.title,
+                description=card.description,
+                order=card.order,
+                archived=False,
+                scheduled=True,  # This marks it as a template (hidden from task views)
+                schedule=None
+            )
+            db.add(template_card)
+            db.flush()  # Get the new card ID
+            
+            # Copy checklist items to template
+            for item in card.checklist_items:
+                new_item = ChecklistItem(
+                    card_id=template_card.id,
+                    name=item.name,
+                    checked=item.checked,
+                    order=item.order
+                )
+                db.add(new_item)
+            
+            # Create schedule
+            schedule = ScheduledCard(
+                card_id=template_card.id,
+                run_every=run_every,
+                unit=unit,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                schedule_enabled=data.get('schedule_enabled', True),
+                allow_duplicates=data.get('allow_duplicates', False)
+            )
+            
+            db.add(schedule)
+            db.flush()
+            
+            # Update template card's schedule reference
+            template_card.schedule = schedule.id
+            
+            # Handle keep_source_card parameter
+            keep_source_card = data.get('keep_source_card', True)
+            if keep_source_card:
+                # Update ORIGINAL card's schedule reference (but keep scheduled=False so it stays visible)
+                card.schedule = schedule.id
+            else:
+                # Delete the original card
+                db.delete(card)
         
         db.commit()
         

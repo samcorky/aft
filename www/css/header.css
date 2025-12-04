@@ -576,11 +576,14 @@
 
 .views-dropdown-item.active {
   background-color: rgba(46, 125, 50, 0.1);
-  color: var(--primary-color);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .views-dropdown-item.active .views-icon {
-  stroke: var(--primary-color);
+  stroke: var(--text-muted);
 }
 
 .views-dropdown-item span {

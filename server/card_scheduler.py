@@ -288,7 +288,7 @@ class CardScheduler:
             comment_text = (
                 f"🤖 Created by scheduling system\n\n"
                 f"Schedule ID: {schedule.id}\n"
-                f"Frequency: Every {schedule.run_every} {schedule.unit}{'s' if int(schedule.run_every) > 1 else ''}\n"  # type: ignore
+                f"Frequency: Every {schedule.run_every} {schedule.unit if schedule.run_every == 1 else schedule.unit + 's'}\n"  # type: ignore
                 f"Created at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             )
             

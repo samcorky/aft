@@ -32,13 +32,18 @@ class CardScheduler:
         """
         try:
             if self.lock_file.exists():
-                # Check if lock is stale (> 5 minutes old)
-                age = time.time() - self.lock_file.stat().st_mtime
-                if age > 300:  # 5 minutes
+                # Check if lock is stale by verifying if the PID is still running
+                try:
+                    pid_text = self.lock_file.read_text().strip()
+                    pid = int(pid_text)
+                    # Check if process is alive
+                    os.kill(pid, 0)
+                    # If no exception, process is alive; lock is not stale
+                    return False
+                except (ValueError, OSError):
+                    # PID not valid or process not running; consider lock stale
                     logger.warning("Removing stale card scheduler lock file")
                     self.lock_file.unlink()
-                else:
-                    return False
             
             # Create lock file with PID
             self.lock_file.write_text(str(os.getpid()))

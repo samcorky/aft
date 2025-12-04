@@ -8,10 +8,7 @@ class SystemInfo {
     this.deleteBtn = null;
     this.confirmInput = null;
     this.errorMessage = null;
-    this.backupBtn = null;
-    this.restoreBtn = null;
-    this.restoreFileInput = null;
-    this.backupStatus = null;
+    this.backupToggle = null;
   }
 
   async init() {
@@ -20,10 +17,7 @@ class SystemInfo {
     this.deleteBtn = document.getElementById('delete-db-btn');
     this.confirmInput = document.getElementById('delete-confirmation-input');
     this.errorMessage = document.getElementById('delete-error');
-    this.backupBtn = document.getElementById('backup-btn');
-    this.restoreBtn = document.getElementById('restore-btn');
-    this.restoreFileInput = document.getElementById('restore-file-input');
-    this.backupStatus = document.getElementById('backup-status');
+    this.backupToggle = document.getElementById('backupToggle');
     
     // Set up event listeners
     this.setupEventListeners();
@@ -33,23 +27,6 @@ class SystemInfo {
   }
 
   setupEventListeners() {
-    // Backup button
-    this.backupBtn.addEventListener('click', () => {
-      this.downloadBackup();
-    });
-
-    // Restore button opens file picker
-    this.restoreBtn.addEventListener('click', () => {
-      this.restoreFileInput.click();
-    });
-
-    // File input change triggers restore
-    this.restoreFileInput.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        this.restoreFromFile(e.target.files[0]);
-      }
-    });
-
     // Delete button opens modal
     this.deleteBtn.addEventListener('click', () => {
       this.openDeleteModal();
@@ -83,20 +60,29 @@ class SystemInfo {
         this.closeDeleteModal();
       }
     });
+
+    // Backup toggle
+    if (this.backupToggle) {
+      this.backupToggle.addEventListener('change', async (e) => {
+        await this.toggleBackup(e.target.checked);
+      });
+    }
   }
 
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse] = await Promise.all([
+      const [testResponse, versionResponse, statsResponse, backupStatusResponse] = await Promise.all([
         fetch('/api/test'),
         fetch('/api/version'),
-        fetch('/api/stats')
+        fetch('/api/stats'),
+        fetch('/api/settings/backup/status')
       ]);
 
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
       const statsData = await statsResponse.json();
+      const backupStatusData = await backupStatusResponse.json();
 
       // Update connection status
       const connectionElement = document.getElementById('db-connection');
@@ -123,6 +109,43 @@ class SystemInfo {
         document.getElementById('boards-count').textContent = statsData.boards_count;
         document.getElementById('columns-count').textContent = statsData.columns_count;
         document.getElementById('cards-count').textContent = statsData.cards_count;
+        document.getElementById('cards-archived-count').textContent = statsData.cards_archived_count || 0;
+        document.getElementById('checklist-items-total').textContent = statsData.checklist_items_total || 0;
+        document.getElementById('checklist-items-checked').textContent = statsData.checklist_items_checked || 0;
+        document.getElementById('checklist-items-unchecked').textContent = statsData.checklist_items_unchecked || 0;
+      }
+
+      // Update backup module status
+      if (backupStatusData.success && backupStatusData.status) {
+        const status = backupStatusData.status;
+        const healthBadge = document.getElementById('backup-module-health');
+        
+        if (healthBadge) {
+          // Update health status
+          if (status.running) {
+            healthBadge.textContent = 'Healthy';
+            healthBadge.className = 'status-badge status-healthy';
+          } else {
+            healthBadge.textContent = 'Unhealthy';
+            healthBadge.className = 'status-badge status-unhealthy';
+          }
+        }
+        
+        // Update toggle state
+        if (this.backupToggle) {
+          this.backupToggle.checked = status.enabled;
+        }
+        
+        // Display permission error if present
+        const errorDiv = document.getElementById('backupPermissionError');
+        if (errorDiv) {
+          if (status.permission_error) {
+            errorDiv.textContent = status.permission_error;
+            errorDiv.style.display = 'block';
+          } else {
+            errorDiv.style.display = 'none';
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading system info:', error);
@@ -189,112 +212,28 @@ class SystemInfo {
     }
   }
 
-  async downloadBackup() {
+  async toggleBackup(enabled) {
     try {
-      this.backupStatus.textContent = 'Creating backup...';
-      this.backupStatus.className = 'backup-status info';
-      this.backupBtn.disabled = true;
-
-      const response = await fetch('/api/database/backup');
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to create backup');
-      }
-
-      // Get filename from Content-Disposition header or create default
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'aft_backup.sql';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-
-      // Download the file
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      this.backupStatus.textContent = 'Backup downloaded successfully!';
-      this.backupStatus.className = 'backup-status success';
-      
-      setTimeout(() => {
-        this.backupStatus.textContent = '';
-        this.backupStatus.className = 'backup-status';
-      }, 5000);
-
-    } catch (error) {
-      console.error('Error creating backup:', error);
-      this.backupStatus.textContent = `Error: ${error.message}`;
-      this.backupStatus.className = 'backup-status error';
-    } finally {
-      this.backupBtn.disabled = false;
-    }
-  }
-
-  async restoreFromFile(file) {
-    try {
-      // Confirm restore action
-      const confirmed = confirm(
-        `Are you sure you want to restore from "${file.name}"?\n\n` +
-        'This will replace all current data with the backup. This action cannot be undone.'
-      );
-
-      if (!confirmed) {
-        this.restoreFileInput.value = '';
-        return;
-      }
-
-      this.backupStatus.textContent = 'Restoring database... This may take a minute.';
-      this.backupStatus.className = 'backup-status info';
-      this.restoreBtn.disabled = true;
-
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch('/api/database/restore', {
-        method: 'POST',
-        body: formData
+      const response = await fetch('/api/settings/backup/config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
       });
-
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Server returned an invalid response. The operation may have timed out. Please check if the restore completed successfully by refreshing the page.');
-      }
 
       const data = await response.json();
 
-      if (data.success) {
-        this.backupStatus.textContent = data.message;
-        this.backupStatus.className = 'backup-status success';
-        
-        // Reload page after successful restore
-        setTimeout(() => {
-          alert('Database restored successfully. The page will now reload.');
-          window.location.reload();
-        }, 2000);
-      } else {
-        this.backupStatus.textContent = `Error: ${data.message}`;
-        this.backupStatus.className = 'backup-status error';
-        this.restoreBtn.disabled = false;
+      if (!data.success) {
+        // Revert toggle on error
+        this.backupToggle.checked = !enabled;
+        alert(`Error: ${data.message}`);
       }
-
     } catch (error) {
-      console.error('Error restoring database:', error);
-      this.backupStatus.textContent = `Error: ${error.message}`;
-      this.backupStatus.className = 'backup-status error';
-      this.restoreBtn.disabled = false;
-    } finally {
-      this.restoreFileInput.value = '';
+      console.error('Error toggling backup:', error);
+      // Revert toggle on error
+      this.backupToggle.checked = !enabled;
+      alert(`Error: ${error.message}`);
     }
   }
 }

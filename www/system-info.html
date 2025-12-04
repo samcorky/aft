@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/header.css">
   <link rel="stylesheet" href="/css/system-info.css">
+  <link rel="stylesheet" href="/css/settings.css">
 </head>
 <body>
   <!-- Header will be inserted here -->
@@ -47,6 +48,31 @@
         </div>
       </div>
 
+      <!-- Backup Module Card -->
+      <div class="info-card">
+        <h2>Backup Module</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Status:</span>
+            <span class="status-value">
+              <span id="backup-module-health" class="status-badge">Loading...</span>
+            </span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Enabled:</span>
+            <span class="status-value">
+              <div class="backup-toggle-wrapper">
+                <label class="backup-toggle-label">
+                  <input type="checkbox" id="backupToggle" class="backup-toggle-input">
+                  <span class="backup-toggle-slider"></span>
+                </label>
+              </div>
+            </span>
+          </div>
+        </div>
+        <div id="backupPermissionError" class="backup-status error" style="display: none; margin-top: 15px;"></div>
+      </div>
+
       <!-- Database Statistics Card -->
       <div class="info-card full-width">
         <h2>Database Statistics</h2>
@@ -64,37 +90,23 @@
               <div class="stat-label">Cards</div>
               <div class="stat-value" id="cards-count">-</div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Backup & Restore Card -->
-      <div class="info-card backup-card full-width">
-        <h2>💾 Backup & Restore</h2>
-        <div class="info-content">
-          <p class="backup-info">
-            Create a backup of your database or restore from a previous backup. 
-            Backups include version information for safe restoration.
-          </p>
-          <div class="backup-actions">
-            <button class="backup-btn" id="backup-btn">
-              <span>⬇️</span>
-              <span>Download Backup</span>
-            </button>
-            <div class="restore-section">
-              <input 
-                type="file" 
-                id="restore-file-input" 
-                accept=".sql"
-                style="display: none;"
-              >
-              <button class="restore-btn" id="restore-btn">
-                <span>⬆️</span>
-                <span>Restore from Backup</span>
-              </button>
+            <div class="stat-item">
+              <div class="stat-label">Archived Cards</div>
+              <div class="stat-value" id="cards-archived-count">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Checklist Items</div>
+              <div class="stat-value" id="checklist-items-total">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Items Checked</div>
+              <div class="stat-value" id="checklist-items-checked">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Items Unchecked</div>
+              <div class="stat-value" id="checklist-items-unchecked">-</div>
             </div>
           </div>
-          <div class="backup-status" id="backup-status"></div>
         </div>
       </div>
 
@@ -118,10 +130,10 @@
   </div>
 
   <!-- Delete Confirmation Modal -->
-  <div class="modal" id="delete-modal">
+  <div class="modal" id="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-warning">
     <div class="modal-content">
-      <h2>⚠️ Delete Database</h2>
-      <p class="modal-warning">
+      <h2 id="delete-modal-title">⚠️ Delete Database</h2>
+      <p id="delete-modal-warning" class="modal-warning">
         This will permanently delete all of your data including all boards, columns, and cards.
         This action cannot be undone!
       </p>
@@ -142,6 +154,7 @@
     </div>
   </div>
 
+  <script src="/js/notifications.js"></script>
   <script src="/js/header.js"></script>
   <script src="/js/system-info.js"></script>
 </body>

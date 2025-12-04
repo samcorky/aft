@@ -98,7 +98,7 @@ def isolated_test():
 
 
 def _delete_all_data():
-    """Helper to delete all boards and settings, ensuring clean state."""
+    """Helper to delete all boards, notifications and settings, ensuring clean state."""
     try:
         # Delete all boards (cascades to columns and cards)
         response = requests.get(f"{API_BASE_URL}/api/boards", timeout=5)
@@ -116,6 +116,11 @@ def _delete_all_data():
             remaining = verify_response.json().get('boards', [])
             if remaining:
                 print(f"Warning: {len(remaining)} boards still exist after cleanup")
+        
+        # Delete all notifications
+        delete_notif_response = requests.delete(f"{API_BASE_URL}/api/notifications/delete-all", timeout=5)
+        if delete_notif_response.status_code != 200:
+            print(f"Warning: Failed to delete notifications: {delete_notif_response.status_code}")
         
         # Reset settings to null
         requests.put(f"{API_BASE_URL}/api/settings/default_board", 
@@ -170,3 +175,15 @@ def sample_card(api_client, sample_column):
     assert response.status_code == 201
     card = response.json()['card']
     return card
+
+
+@pytest.fixture
+def sample_notification(api_client):
+    """Create a sample notification for testing."""
+    response = requests.post(f"{api_client}/api/notifications", json={
+        'subject': 'Test Notification',
+        'message': 'This is a test notification'
+    })
+    assert response.status_code == 201
+    notification = response.json()['notification']
+    return notification

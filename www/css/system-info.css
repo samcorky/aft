@@ -92,6 +92,29 @@
   background-color: var(--error-color);
 }
 
+/* Status Badge Styles */
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.status-badge.status-healthy {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.status-unhealthy {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.status-text {
+  font-size: 14px;
+}
+
 /* Statistics Grid */
 .stats-grid {
   display: grid;
@@ -184,11 +207,15 @@
 }
 
 .backup-status {
-  min-height: 24px;
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
+}
+
+.backup-status:empty {
+  padding: 0;
+  min-height: 0;
 }
 
 .backup-status.info {

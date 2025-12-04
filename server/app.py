@@ -3,8 +3,8 @@ import logging
 import json
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting
-from sqlalchemy import text
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
+from sqlalchemy import text, func
 from utils import (
     validate_string_length,
     validate_integer,
@@ -13,6 +13,7 @@ from utils import (
     create_success_response,
     MAX_TITLE_LENGTH,
     MAX_DESCRIPTION_LENGTH,
+    MAX_COMMENT_LENGTH,
 )
 
 # Configure logging
@@ -20,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.2.0"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -30,8 +31,68 @@ SETTINGS_SCHEMA = {
         "description": "ID of the board to load by default on application startup",
         "validate": lambda value: value is None
         or (isinstance(value, int) and not isinstance(value, bool) and value > 0),
-    }
+    },
+    "backup_enabled": {
+        "type": "boolean",
+        "nullable": False,
+        "description": "Enable or disable automatic database backups",
+        "validate": lambda value: isinstance(value, bool),
+    },
+    "backup_frequency_value": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Numeric value for backup frequency (1-99)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 99,
+    },
+    "backup_frequency_unit": {
+        "type": "string",
+        "nullable": False,
+        "description": "Unit for backup frequency (minutes, hours, days)",
+        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "days"],
+    },
+    "backup_start_time": {
+        "type": "string",
+        "nullable": False,
+        "description": "Time when daily backups should run (HH:MM format)",
+        "validate": lambda value: isinstance(value, str) and _validate_time_format(value),
+    },
+    "backup_retention_count": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Number of backup files to retain (1-100)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 100,
+    },
+    "backup_minimum_free_space_mb": {
+        "type": "integer",
+        "nullable": False,
+        "description": "Minimum free disk space in MB required before creating a backup (1-10485760)",
+        "validate": lambda value: isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 10485760,
+    },
+    "backup_last_run": {
+        "type": "string",
+        "nullable": True,
+        "description": "ISO timestamp of the last backup run",
+        "validate": lambda value: value is None or isinstance(value, str),
+    },
 }
+
+
+def _validate_time_format(time_str):
+    """Validate HH:MM time format."""
+    try:
+        parts = time_str.split(":")
+        if len(parts) != 2:
+            return False
+        hours_str, minutes_str = parts[0], parts[1]
+        
+        # Minutes must be exactly 2 digits
+        if len(minutes_str) != 2:
+            return False
+        
+        hours, minutes = int(hours_str), int(minutes_str)
+        return 0 <= hours <= 23 and 0 <= minutes <= 59
+    except (ValueError, AttributeError):
+        return False
 
 
 def validate_setting(key, value):
@@ -71,6 +132,12 @@ def validate_setting(key, value):
 
 app = Flask(__name__)
 
+# Configure maximum upload size (110MB)
+app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
+
+# Maximum backup file size for validation (MB) - actual content size limit
+MAX_BACKUP_FILE_SIZE_MB = 100
+
 # Configure Swagger
 swagger_config = {
     "headers": [],
@@ -104,9 +171,8 @@ API documentation for AFT application
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
 
-
-# Request size limit (10MB)
-MAX_REQUEST_SIZE = 10 * 1024 * 1024
+# Request size limit (110MB) for non-file-upload endpoints
+MAX_REQUEST_SIZE = 110 * 1024 * 1024
 
 
 @app.before_request
@@ -114,11 +180,15 @@ def validate_request():
     """Validate incoming requests for security.
 
     This runs before every request to:
-    1. Check request size to prevent DoS attacks
+    1. Check request size to prevent DoS attacks (except file uploads)
     2. Validate Content-Type for JSON requests
     """
-    # Check request size
-    if request.content_length and request.content_length > MAX_REQUEST_SIZE:
+    # Exclude restore endpoints from size check (they use Flask's MAX_CONTENT_LENGTH instead)
+    restore_endpoints = ['/api/database/restore', '/api/database/backups/restore/']
+    is_restore_endpoint = any(request.path.startswith(endpoint) for endpoint in restore_endpoints)
+    
+    # Check request size for non-restore endpoints
+    if not is_restore_endpoint and request.content_length and request.content_length > MAX_REQUEST_SIZE:
         return create_error_response(
             f"Request size exceeds maximum of {MAX_REQUEST_SIZE} bytes", 413
         )
@@ -133,6 +203,195 @@ def validate_request():
                 return create_error_response(
                     "Content-Type must be application/json for JSON requests", 400
                 )
+
+
+# Security validation functions for SQL backups
+def validate_backup_file_security(file_path):
+    """Validate backup file for dangerous SQL patterns.
+
+    This function checks for SQL patterns that could be used for:
+    - Privilege escalation (GRANT, CREATE USER)
+    - File system access (INTO OUTFILE, LOAD DATA)
+    - Stored procedures/functions (potential for code execution)
+    - Cross-database operations (USE statements)
+    - MySQL shell commands
+
+    Args:
+        file_path: Path to the SQL backup file
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import re
+
+    # Patterns that indicate potentially dangerous SQL
+    dangerous_patterns = [
+        (r'\bGRANT\s+', 'GRANT statements (privilege manipulation)'),
+        (r'\bCREATE\s+USER\b', 'CREATE USER statements'),
+        (r'\bDROP\s+USER\b', 'DROP USER statements'),
+        (r'\bALTER\s+USER\b', 'ALTER USER statements'),
+        (r'\bINTO\s+OUTFILE\b', 'INTO OUTFILE (file system access)'),
+        (r'\bLOAD\s+DATA\b', 'LOAD DATA (file system access)'),
+        (r'\bCREATE\s+(PROCEDURE|FUNCTION)\b', 'Stored procedures/functions'),
+        (r'\bUSE\s+`?\w+`?\s*', 'USE statements (cross-database operation)'),
+        (r'\\!', 'MySQL shell commands'),
+        (r'\bSELECT\s+.+?\bINTO\s+@', 'Variable assignment with SELECT'),
+        (r'\bEXECUTE\s+', 'Dynamic SQL execution'),
+        (r'\bPREPARE\s+', 'Prepared statement (potential SQL injection)'),
+    ]
+
+    try:
+        line_num = 0
+        in_multiline_comment = False
+        
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line_num += 1
+                stripped = line.strip()
+                
+                # Handle multi-line comment state
+                if in_multiline_comment:
+                    # Check if multi-line comment ends on this line
+                    if '*/' in line:
+                        in_multiline_comment = False
+                        # Check content after the closing */ if any
+                        after_comment = line.split('*/', 1)[1].strip()
+                        if not after_comment or after_comment.startswith('--'):
+                            continue
+                        # Continue to check the rest of the line
+                        stripped = after_comment
+                    else:
+                        # Still inside multi-line comment, skip entire line
+                        continue
+                
+                # Check if multi-line comment starts on this line
+                if '/*' in stripped:
+                    # Get content before the comment
+                    before_comment = stripped.split('/*', 1)[0].strip()
+                    
+                    # Check if comment closes on same line
+                    if '*/' in line:
+                        # Extract any content after the closing */
+                        after_comment = line.split('*/', 1)[1].strip()
+                        # Only check non-comment parts
+                        stripped = before_comment + ' ' + after_comment
+                    else:
+                        # Multi-line comment starts but doesn't end
+                        in_multiline_comment = True
+                        stripped = before_comment
+                
+                # Skip single-line comments and empty lines
+                if not stripped or stripped.startswith('--'):
+                    continue
+
+                # Check each dangerous pattern
+                for pattern, description in dangerous_patterns:
+                    if re.search(pattern, stripped, re.IGNORECASE):
+                        return (
+                            False,
+                            f"Dangerous SQL pattern detected on line {line_num}: {description}"
+                        )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error reading backup file: {str(e)}"
+
+
+def validate_schema_integrity(file_path, expected_tables=None):
+    """Validate that backup only contains expected database tables.
+
+    This function ensures that:
+    - Only expected tables are being created
+    - No unauthorized schema modifications
+    - Table structures match expected patterns
+
+    Args:
+        file_path: Path to the SQL backup file
+        expected_tables: List of expected table names (optional)
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import re
+
+    # Default expected tables based on our models
+    if expected_tables is None:
+        expected_tables = [
+            'boards',
+            'columns',
+            'cards',
+            'checklist_items',
+            'comments',
+            'settings',
+            'notifications',
+            'scheduled_cards',
+            'alembic_version'
+        ]
+
+    found_tables = set()
+    unexpected_tables = []
+
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                # Look for CREATE TABLE statements
+                # Pattern matches: CREATE TABLE [IF NOT EXISTS] [`tablename`] or "tablename" or tablename
+                match = re.match(r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?([^`"\s(]+)[`"]?', line, re.IGNORECASE)
+                if match:
+                    table_name = match.group(1)
+                    found_tables.add(table_name)
+                    if table_name not in expected_tables:
+                        unexpected_tables.append(table_name)
+
+        # Check for unexpected tables
+        if unexpected_tables:
+            return (
+                False,
+                f"Unexpected tables found in backup: {', '.join(unexpected_tables)}"
+            )
+
+        # Check if we found at least some core tables (boards, cards, columns)
+        core_tables = {'boards', 'columns', 'cards'}
+        if not core_tables.intersection(found_tables):
+            return (
+                False,
+                "Backup does not appear to contain valid AFT database schema"
+            )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error validating schema: {str(e)}"
+
+
+def validate_backup_file_size(file_path, max_size_mb=100):
+    """Validate backup file size to prevent DoS attacks.
+
+    Args:
+        file_path: Path to the SQL backup file
+        max_size_mb: Maximum allowed file size in megabytes (default 100MB)
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    import os
+
+    try:
+        file_size = os.path.getsize(file_path)
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        if file_size > max_size_bytes:
+            size_mb = file_size / (1024 * 1024)
+            return (
+                False,
+                f"File size ({size_mb:.1f}MB) exceeds maximum allowed size ({max_size_mb}MB)"
+            )
+
+        return True, None
+
+    except Exception as e:
+        return False, f"Error checking file size: {str(e)}"
 
 
 @app.route("/api/version")
@@ -257,6 +516,18 @@ def get_stats():
             cards_count:
               type: integer
               example: 42
+            cards_archived_count:
+              type: integer
+              example: 8
+            checklist_items_total:
+              type: integer
+              example: 28
+            checklist_items_checked:
+              type: integer
+              example: 15
+            checklist_items_unchecked:
+              type: integer
+              example: 13
       500:
         description: Failed to get statistics
         schema:
@@ -270,9 +541,17 @@ def get_stats():
     """
     db = SessionLocal()
     try:
+        from models import ChecklistItem
+        
         boards_count = db.query(Board).count()
         columns_count = db.query(BoardColumn).count()
         cards_count = db.query(Card).count()
+        cards_archived_count = db.query(Card).filter(Card.archived.is_(True)).count()
+        
+        # Get checklist item counts
+        checklist_items_total = db.query(ChecklistItem).count()
+        checklist_items_checked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(True)).count()
+        checklist_items_unchecked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(False)).count()
 
         return jsonify(
             {
@@ -280,6 +559,10 @@ def get_stats():
                 "boards_count": boards_count,
                 "columns_count": columns_count,
                 "cards_count": cards_count,
+                "cards_archived_count": cards_archived_count,
+                "checklist_items_total": checklist_items_total,
+                "checklist_items_checked": checklist_items_checked,
+                "checklist_items_unchecked": checklist_items_unchecked,
             }
         )
     except Exception as e:
@@ -385,7 +668,108 @@ def backup_database():
 
     except Exception as e:
         logger.error(f"Error creating backup: {str(e)}")
-        return jsonify({"success": False, "message": str(e)}), 500
+        create_notification_internal(
+            subject="⚠️ Database Backup Failed",
+            message=f"Failed to create database backup: {str(e)}\n\nCheck server logs for details."
+        )
+        return jsonify({"success": False, "message": "Failed to create database backup"}), 500
+
+
+@app.route("/api/database/backup/manual", methods=["POST"])
+def create_manual_backup():
+    """Create a manual backup and save to backups folder.
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: Backup created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            filename:
+              type: string
+      500:
+        description: Failed to create backup
+    """
+    import subprocess
+    import os
+    from pathlib import Path
+    from datetime import datetime
+
+    try:
+        # Get current Alembic version
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        db_version = row[0] if row else "unknown"
+        db.close()
+
+        # Get database credentials from environment
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_host = "db"
+
+        # Create backup in the backups folder
+        backup_dir = Path("/app/backups")
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"aft_backup_{timestamp}.sql"
+        backup_path = backup_dir / backup_filename
+
+        # Write version comment to file
+        with open(backup_path, "w") as f:
+            f.write(f"-- AFT Database Backup\n")
+            f.write(f"-- App Version: {APP_VERSION}\n")
+            f.write(f"-- Alembic Version: {db_version}\n")
+            f.write(f"-- Backup Date: {datetime.now().isoformat()}\n")
+            f.write(f"--\n\n")
+
+        # Run mysqldump and append to file
+        mysqldump_cmd = [
+            "mysqldump",
+            "-h",
+            db_host,
+            "-u",
+            db_user,
+            f"-p{db_password}",
+            "--single-transaction",
+            "--routines",
+            "--triggers",
+            "--skip-ssl",
+            db_name,
+        ]
+
+        with open(backup_path, "a") as f:
+            result = subprocess.run(
+                mysqldump_cmd, stdout=f, stderr=subprocess.PIPE, text=True
+            )
+
+        if result.returncode != 0:
+            backup_path.unlink()
+            raise Exception(f"mysqldump failed: {result.stderr}")
+
+        logger.info(f"Manual database backup created successfully: {backup_filename}")
+
+        return jsonify({
+            "success": True,
+            "message": f"Backup created successfully: {backup_filename}",
+            "filename": backup_filename
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating manual backup: {str(e)}")
+        create_notification_internal(
+            subject="⚠️ Manual Backup Failed",
+            message=f"Failed to create manual backup: {str(e)}\n\nCheck database connection and mysqldump availability in server logs."
+        )
+        return jsonify({"success": False, "message": "Failed to create manual backup"}), 500
 
 
 @app.route("/api/database/restore", methods=["POST"])
@@ -454,6 +838,36 @@ def restore_database():
         temp_file.close()
         file.save(temp_path)
 
+        # File size validation: Check for reasonable size
+        is_valid_size, size_error = validate_backup_file_size(temp_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
+        if not is_valid_size:
+            os.unlink(temp_path)
+            logger.warning(f"File size validation failed: {size_error}")
+            return jsonify({
+                "success": False,
+                "message": f"File size validation failed: {size_error}"
+            }), 400
+
+        # Security validation: Check for dangerous SQL patterns
+        is_secure, security_error = validate_backup_file_security(temp_path)
+        if not is_secure:
+            os.unlink(temp_path)
+            logger.warning(f"Security validation failed: {security_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Security validation failed: {security_error}"
+            }), 400
+
+        # Schema validation: Ensure only expected tables
+        is_valid_schema, schema_error = validate_schema_integrity(temp_path)
+        if not is_valid_schema:
+            os.unlink(temp_path)
+            logger.warning(f"Schema validation failed: {schema_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Schema validation failed: {schema_error}"
+            }), 400
+
         # Read first few lines to get version info
         backup_version = None
         with open(temp_path, "r") as f:
@@ -485,16 +899,12 @@ def restore_database():
         db.close()
 
         # Check version compatibility
-        if backup_version > current_version:
-            os.unlink(temp_path)
-            return (
-                jsonify(
-                    {
-                        "success": False,
-                        "message": f"Backup is from a newer database version ({backup_version}). Please update the application to at least database version {backup_version} before restoring.",
-                    }
-                ),
-                400,
+        # Note: Alembic versions are revision IDs, not semantic versions
+        # We can only reliably check equality; different versions require migration
+        if backup_version != current_version:
+            logger.warning(
+                f"Backup version ({backup_version}) differs from current version ({current_version}). "
+                "Will attempt to restore and upgrade."
             )
 
         # Get database credentials
@@ -546,10 +956,10 @@ def restore_database():
         if result.returncode != 0:
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
-        # If backup version is older than current, run migrations to upgrade
-        if backup_version < current_version:
+        # If backup version differs from current, run migrations to upgrade
+        if backup_version != current_version:
             logger.info(
-                f"Upgrading database from {backup_version} to {current_version}"
+                f"Migrating database from {backup_version} to {current_version}"
             )
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
@@ -578,6 +988,305 @@ def restore_database():
         logger.error(f"Error restoring database: {str(e)}")
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.unlink(temp_path)
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backups/list", methods=["GET"])
+def list_backups():
+    """List all available backup files (both automatic and manual).
+    ---
+    tags:
+      - Database
+    responses:
+      200:
+        description: List of available backups
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            backups:
+              type: array
+              items:
+                type: object
+                properties:
+                  filename:
+                    type: string
+                  created:
+                    type: string
+                  size:
+                    type: integer
+                  is_manual:
+                    type: boolean
+                    description: True if manually created, False if automatic
+      500:
+        description: Failed to list backups
+    """
+    try:
+        from pathlib import Path
+        from datetime import datetime
+        
+        backup_dir = Path("/app/backups")
+        
+        if not backup_dir.exists():
+            return jsonify({"success": True, "backups": []})
+        
+        backups = []
+        for backup_file in backup_dir.glob("*.sql"):
+            stat = backup_file.stat()
+            is_manual = not backup_file.name.startswith("auto_backup_")
+            backups.append({
+                "filename": backup_file.name,
+                "created": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "size": stat.st_size,
+                "is_manual": is_manual,
+                "mtime": stat.st_mtime  # For sorting
+            })
+        
+        # Sort by modification time, newest first
+        backups.sort(key=lambda x: x["mtime"], reverse=True)
+        
+        # Remove mtime from response
+        for backup in backups:
+            del backup["mtime"]
+        
+        return jsonify({"success": True, "backups": backups})
+        
+    except Exception as e:
+        logger.error(f"Error listing backups: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backups/restore/<filename>", methods=["POST"])
+def restore_backup_from_file(filename):
+    """Restore from a specific backup file (automatic or manual).
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: The backup filename to restore from
+    responses:
+      200:
+        description: Database restored successfully
+      400:
+        description: Invalid backup file
+      404:
+        description: Backup file not found
+      500:
+        description: Failed to restore backup
+    """
+    try:
+        from pathlib import Path
+        import re
+        import os
+        import subprocess
+        
+        # Validate filename to prevent path traversal
+        # Allow both auto_backup and manual backup filenames (aft_backup)
+        if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+            return jsonify({"success": False, "message": "Invalid backup filename"}), 400
+        
+        backup_dir = Path("/app/backups")
+        backup_path = backup_dir / filename
+        
+        # Check for symlinks before resolving (security: prevent symlink-based path traversal)
+        if backup_path.is_symlink():
+            logger.warning(f"Attempted to restore from symlink: {filename}")
+            return jsonify({"success": False, "message": "Symlinks are not allowed"}), 400
+        
+        # Resolve path and ensure it's strictly within backup_dir (no traversal)
+        resolved_backup_path = backup_path.resolve()
+        resolved_backup_dir = backup_dir.resolve()
+        try:
+            resolved_backup_path.relative_to(resolved_backup_dir)
+        except ValueError:
+            logger.warning(f"Path traversal attempt detected: {filename}")
+            return jsonify({"success": False, "message": "Invalid backup file path"}), 400
+        
+        if not resolved_backup_path.exists():
+            return jsonify({"success": False, "message": "Backup file not found"}), 404
+        
+        # File size validation
+        is_valid_size, size_error = validate_backup_file_size(resolved_backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
+        if not is_valid_size:
+            logger.warning(f"File size validation failed for {filename}: {size_error}")
+            return jsonify({
+                "success": False,
+                "message": f"File size validation failed: {size_error}"
+            }), 400
+
+        # Security validation: Check for dangerous SQL patterns
+        is_secure, security_error = validate_backup_file_security(resolved_backup_path)
+        if not is_secure:
+            logger.warning(f"Security validation failed for {filename}: {security_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Security validation failed: {security_error}"
+            }), 400
+
+        # Schema validation: Ensure only expected tables
+        is_valid_schema, schema_error = validate_schema_integrity(resolved_backup_path)
+        if not is_valid_schema:
+            logger.warning(f"Schema validation failed for {filename}: {schema_error}")
+            return jsonify({
+                "success": False,
+                "message": f"Schema validation failed: {schema_error}"
+            }), 400
+
+        # Read and validate the backup file
+        with open(resolved_backup_path, 'r') as f:
+            content = f.read(10000)  # Read first 10KB to find version
+            
+        # Extract Alembic version from backup
+        version_match = re.search(r"-- Alembic Version: (\S+)", content)
+        if not version_match:
+            return jsonify({
+                "success": False,
+                "message": "Invalid backup file: No Alembic version found"
+            }), 400
+            
+        backup_version = version_match.group(1)
+        
+        # Get current Alembic version
+        db = SessionLocal()
+        result = db.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.fetchone()
+        current_version = row[0] if row else "unknown"
+        db.close()
+        
+        # Check version compatibility
+        # Note: Alembic versions are revision IDs, not semantic versions
+        # We can only reliably check equality; different versions require migration
+        if backup_version != current_version:
+            logger.warning(
+                f"Backup version ({backup_version}) differs from current version ({current_version}). "
+                "Will attempt to restore and upgrade."
+            )
+        
+        # Get database credentials
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_host = "db"
+        
+        # Drop all existing tables
+        db = SessionLocal()
+        from sqlalchemy import MetaData
+        
+        metadata = MetaData()
+        metadata.reflect(bind=engine)
+        metadata.drop_all(bind=engine)
+        
+        # Drop alembic_version table
+        try:
+            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"Could not drop alembic_version table: {e}")
+        finally:
+            db.close()
+        
+        # Restore from backup file
+        mysql_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            db_name,
+        ]
+        
+        with open(resolved_backup_path, 'r') as f:
+            result = subprocess.run(
+                mysql_cmd, stdin=f, stderr=subprocess.PIPE, text=True
+            )
+        
+        if result.returncode != 0:
+            raise Exception(f"MySQL restore failed: {result.stderr}")
+        
+        # Run migrations if needed
+        if backup_version != current_version:
+            logger.info(f"Migrating database from {backup_version} to {current_version}")
+            upgrade_result = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                cwd="/app",
+                capture_output=True,
+                text=True,
+            )
+            
+            if upgrade_result.returncode != 0:
+                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+            
+            logger.info("Database restored and upgraded successfully")
+            return jsonify({
+                "success": True,
+                "message": f"Database restored from {filename} and upgraded to version {current_version}"
+            })
+        else:
+            logger.info(f"Database restored successfully from {filename}")
+            return jsonify({
+                "success": True,
+                "message": f"Database restored successfully from {filename}"
+            })
+            
+    except Exception as e:
+        logger.error(f"Error restoring from automatic backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backups/delete/<filename>", methods=["DELETE"])
+def delete_backup(filename):
+    """Delete a specific backup file.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: The backup filename to delete
+    responses:
+      200:
+        description: Backup deleted successfully
+      400:
+        description: Invalid backup file
+      404:
+        description: Backup file not found
+      500:
+        description: Failed to delete backup
+    """
+    try:
+        from pathlib import Path
+        import re
+        
+        # Validate filename to prevent path traversal
+        # Allow both auto_backup and manual backup filenames (aft_backup)
+        if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+            return jsonify({"success": False, "message": "Invalid backup filename"}), 400
+        
+        backup_dir = Path("/app/backups")
+        backup_path = backup_dir / filename
+        
+        if not backup_path.exists():
+            return jsonify({"success": False, "message": "Backup file not found"}), 404
+        
+        # Delete the backup file
+        backup_path.unlink()
+        
+        logger.info(f"Backup deleted successfully: {filename}")
+        return jsonify({
+            "success": True,
+            "message": f"Backup {filename} deleted successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting backup: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -903,6 +1612,259 @@ def set_setting(key):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/settings/backup/config", methods=["GET"])
+def get_backup_config():
+    """Get all backup configuration settings.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Backup configuration retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            config:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                frequency_value:
+                  type: integer
+                frequency_unit:
+                  type: string
+                start_time:
+                  type: string
+                retention_count:
+                  type: integer
+                last_run:
+                  type: string
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        keys = [
+            "backup_enabled",
+            "backup_frequency_value",
+            "backup_frequency_unit",
+            "backup_start_time",
+            "backup_retention_count",
+            "backup_minimum_free_space_mb",
+            "backup_last_run"
+        ]
+        
+        config = {}
+        for key in keys:
+            setting = db.query(Setting).filter(Setting.key == key).first()
+            if setting:
+                # Try to parse JSON, otherwise use raw value
+                try:
+                    config[key.replace("backup_", "")] = json.loads(setting.value)
+                except (json.JSONDecodeError, TypeError):
+                    config[key.replace("backup_", "")] = setting.value
+            else:
+                # Default values
+                defaults = {
+                    "backup_enabled": False,
+                    "backup_frequency_value": 1,
+                    "backup_frequency_unit": "days",
+                    "backup_start_time": "00:00",
+                    "backup_retention_count": 7,
+                    "backup_minimum_free_space_mb": 100,
+                    "backup_last_run": None
+                }
+                config[key.replace("backup_", "")] = defaults.get(key)
+        
+        return jsonify({"success": True, "config": config})
+    except Exception as e:
+        logger.error(f"Error getting backup config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/backup/config", methods=["PUT"])
+def update_backup_config():
+    """Update backup configuration settings.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              example: true
+            frequency_value:
+              type: integer
+              example: 1
+              minimum: 1
+              maximum: 99
+            frequency_unit:
+              type: string
+              example: "days"
+              enum: ["minutes", "hours", "days"]
+            start_time:
+              type: string
+              example: "02:00"
+              pattern: "^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$"
+            retention_count:
+              type: integer
+              example: 7
+              minimum: 1
+              maximum: 100
+    responses:
+      200:
+        description: Backup configuration updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+      400:
+        description: Invalid input
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Allow empty body - just return success without updating anything
+        if not data:
+            return jsonify({"success": True, "message": "No settings to update"})
+        
+        # Map frontend field names to setting keys
+        mapping = {
+            "enabled": "backup_enabled",
+            "frequency_value": "backup_frequency_value",
+            "frequency_unit": "backup_frequency_unit",
+            "start_time": "backup_start_time",
+            "retention_count": "backup_retention_count",
+            "minimum_free_space_mb": "backup_minimum_free_space_mb"
+        }
+        
+        # Validate all provided fields using the settings schema
+        errors = []
+        for field, key in mapping.items():
+            if field in data:
+                is_valid, error_msg = validate_setting(key, data[field])
+                if not is_valid:
+                    errors.append(error_msg)
+        
+        if errors:
+            return jsonify({"success": False, "message": "; ".join(errors)}), 400
+        
+        # Additional validation: Cannot enable backups if required settings are invalid or missing
+        if data.get("enabled") is True:
+            # Get current settings for fields not being updated
+            current_settings = {}
+            for field, key in mapping.items():
+                if field not in data:
+                    setting = db.query(Setting).filter(Setting.key == key).first()
+                    if setting:
+                        try:
+                            current_settings[field] = json.loads(setting.value)
+                        except (json.JSONDecodeError, TypeError):
+                            current_settings[field] = None
+            
+            # Merge with new data
+            final_settings = {**current_settings, **data}
+            
+            # Validate all required settings are present and valid
+            required_errors = []
+            for field in ["frequency_value", "frequency_unit", "start_time", "retention_count", "minimum_free_space_mb"]:
+                key = mapping[field]
+                value = final_settings.get(field)
+                if value is None:
+                    required_errors.append(f"{field} must be set before enabling backups")
+                else:
+                    is_valid, error_msg = validate_setting(key, value)
+                    if not is_valid:
+                        required_errors.append(error_msg)
+            
+            if required_errors:
+                return jsonify({
+                    "success": False,
+                    "message": "Cannot enable backups with invalid settings: " + "; ".join(required_errors)
+                }), 400
+        
+        # Update settings
+        for field, key in mapping.items():
+            if field in data:
+                value = json.dumps(data[field])
+                setting = db.query(Setting).filter(Setting.key == key).first()
+                
+                if setting:
+                    setting.value = value
+                else:
+                    setting = Setting(key=key, value=value)
+                    db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Backup configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating backup config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/backup/status", methods=["GET"])
+def get_backup_status():
+    """Get backup scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Backup scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        
+        # Attempt to restart scheduler if it failed due to permissions that were fixed
+        scheduler.retry_start_if_permission_fixed()
+        
+        status = scheduler.get_status()
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting backup status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/boards", methods=["GET"])
 def get_boards():
     """Get all boards.
@@ -1074,6 +2036,107 @@ def create_board():
         db.rollback()
         logger.error(f"Error creating board: {str(e)}")
         return create_error_response("Failed to create board", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/boards/<int:board_id>/cards/scheduled", methods=["GET"])
+def get_board_scheduled_cards(board_id):
+    """Get all scheduled cards for a board with nested structure (board -> columns -> cards).
+    Returns only scheduled template cards (scheduled=True) organized by column.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board
+    responses:
+      200:
+        description: Board with columns and scheduled cards
+      404:
+        description: Board not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import BoardColumn, Card
+        
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Board not found"}), 404
+        
+        # Get columns for the board
+        columns = (
+            db.query(BoardColumn)
+            .filter(BoardColumn.board_id == board_id)
+            .order_by(BoardColumn.order)
+            .all()
+        )
+        
+        # Build nested structure with scheduled cards
+        result = {"id": board.id, "name": board.name, "columns": []}
+
+        for column in columns:
+            # Get only scheduled template cards for this column
+            cards = (
+                db.query(Card)
+                .filter(Card.column_id == column.id)
+                .filter(Card.scheduled.is_(True))
+                .order_by(Card.order)
+                .all()
+            )
+
+            # Serialize cards with checklist items and comments
+            cards_data = [
+                {
+                    "id": card.id,
+                    "title": card.title,
+                    "description": card.description,
+                    "order": card.order,
+                    "archived": card.archived,
+                    "scheduled": card.scheduled,
+                    "schedule": card.schedule,
+                    "checklist_items": [
+                        {
+                            "id": item.id,
+                            "card_id": item.card_id,
+                            "name": item.name,
+                            "checked": item.checked,
+                            "order": item.order
+                        }
+                        for item in card.checklist_items
+                    ],
+                    "comments": [
+                        {
+                            "id": comment.id,
+                            "card_id": comment.card_id,
+                            "comment": comment.comment,
+                            "order": comment.order,
+                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                        }
+                        for comment in card.comments
+                    ]
+                }
+                for card in cards
+            ]
+
+            column_data = {
+                "id": column.id,
+                "name": column.name,
+                "order": column.order,
+                "cards": cards_data,
+            }
+            result["columns"].append(column_data)
+
+        return jsonify({"success": True, "board": result})
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduled cards for board {board_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get scheduled cards"}), 500
     finally:
         db.close()
 
@@ -1800,6 +2863,13 @@ def get_column_cards(column_id):
         type: integer
         required: true
         description: The ID of the column
+      - name: archived
+        in: query
+        type: string
+        required: false
+        description: Filter by archived status - 'true' for archived, 'false' for unarchived, 'both' for all (default is 'false')
+        enum: ['true', 'false', 'both']
+        default: 'false'
     responses:
       200:
         description: List of cards for the column
@@ -1844,26 +2914,51 @@ def get_column_cards(column_id):
         db = SessionLocal()
         from models import Card
 
-        cards = (
-            db.query(Card)
-            .filter(Card.column_id == column_id)
-            .order_by(Card.order)
-            .all()
-        )
+        # Get archived filter from query parameter (default to false - unarchived only)
+        archived_param = request.args.get('archived', 'false').lower()
+
+        # Always filter out scheduled template cards (scheduled=True) from task views
+        cards_query = db.query(Card).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
+        
+        # Apply archived filter
+        if archived_param == 'true':
+            cards_query = cards_query.filter(Card.archived.is_(True))
+        elif archived_param == 'false':
+            cards_query = cards_query.filter(Card.archived.is_(False))
+        # If 'both', don't add archived filter
+        
+        cards = cards_query.order_by(Card.order).all()
+        
+        # Serialize cards before closing session to access relationships
+        cards_data = [
+            {
+                "id": c.id,
+                "column_id": c.column_id,
+                "title": c.title,
+                "description": c.description,
+                "order": c.order,
+                "archived": c.archived,
+                "scheduled": c.scheduled,
+                "schedule": c.schedule,
+                "checklist_items": [
+                    {
+                        "id": item.id,
+                        "card_id": item.card_id,
+                        "name": item.name,
+                        "checked": item.checked,
+                        "order": item.order
+                    }
+                    for item in c.checklist_items
+                ]
+            }
+            for c in cards
+        ]
+        
         db.close()
         return jsonify(
             {
                 "success": True,
-                "cards": [
-                    {
-                        "id": c.id,
-                        "column_id": c.column_id,
-                        "title": c.title,
-                        "description": c.description,
-                        "order": c.order,
-                    }
-                    for c in cards
-                ],
+                "cards": cards_data
             }
         )
     except Exception as e:
@@ -1882,6 +2977,13 @@ def get_board_cards(board_id):
         type: integer
         required: true
         description: The ID of the board
+      - name: archived
+        in: query
+        type: string
+        required: false
+        description: Filter by archived status - 'true' for archived, 'false' for unarchived, 'both' for all (default is 'false')
+        enum: ['true', 'false', 'both']
+        default: 'false'
     responses:
       200:
         description: Nested structure of board with columns and cards
@@ -1957,6 +3059,9 @@ def get_board_cards(board_id):
         db = SessionLocal()
         from models import BoardColumn, Card
 
+        # Get archived filter from query parameter (default to false - unarchived only)
+        archived_param = request.args.get('archived', 'false').lower()
+
         # Get board
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
@@ -1975,27 +3080,58 @@ def get_board_cards(board_id):
         result = {"id": board.id, "name": board.name, "columns": []}
 
         for column in columns:
-            # Get cards for this column
-            cards = (
-                db.query(Card)
-                .filter(Card.column_id == column.id)
-                .order_by(Card.order)
-                .all()
-            )
+            # Get cards for this column with archived filter
+            # Always filter out scheduled template cards (scheduled=True) from task views
+            cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
+            
+            # Apply archived filter
+            if archived_param == 'true':
+                cards_query = cards_query.filter(Card.archived.is_(True))
+            elif archived_param == 'false':
+                cards_query = cards_query.filter(Card.archived.is_(False))
+            # If 'both', don't add archived filter
+            
+            cards = cards_query.order_by(Card.order).all()
+
+            # Serialize cards with checklist items and comments while session is active
+            cards_data = [
+                {
+                    "id": card.id,
+                    "title": card.title,
+                    "description": card.description,
+                    "order": card.order,
+                    "archived": card.archived,
+                    "scheduled": card.scheduled,
+                    "schedule": card.schedule,
+                    "checklist_items": [
+                        {
+                            "id": item.id,
+                            "card_id": item.card_id,
+                            "name": item.name,
+                            "checked": item.checked,
+                            "order": item.order
+                        }
+                        for item in card.checklist_items
+                    ],
+                    "comments": [
+                        {
+                            "id": comment.id,
+                            "card_id": comment.card_id,
+                            "comment": comment.comment,
+                            "order": comment.order,
+                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                        }
+                        for comment in card.comments
+                    ]
+                }
+                for card in cards
+            ]
 
             column_data = {
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
-                "cards": [
-                    {
-                        "id": card.id,
-                        "title": card.title,
-                        "description": card.description,
-                        "order": card.order,
-                    }
-                    for card in cards
-                ],
+                "cards": cards_data,
             }
             result["columns"].append(column_data)
 
@@ -2044,6 +3180,10 @@ def create_card(column_id):
               type: integer
               example: 0
               description: The order position (optional, defaults to end)
+            scheduled:
+              type: boolean
+              example: false
+              description: Whether this is a template card (optional, defaults to false)
     responses:
       201:
         description: Card created successfully
@@ -2167,9 +3307,18 @@ def create_card(column_id):
             # Add at the end
             order = db.query(Card).filter(Card.column_id == column_id).count()
 
+        # Validate scheduled parameter if provided
+        scheduled = data.get("scheduled", False)
+        if scheduled is not None and not isinstance(scheduled, bool):
+            return create_error_response("Scheduled must be a boolean", 400)
+
         # Create card
         card = Card(
-            column_id=column_id, title=title, description=description, order=order
+            column_id=column_id, 
+            title=title, 
+            description=description, 
+            order=order,
+            scheduled=scheduled
         )
         db.add(card)
         db.commit()
@@ -2272,6 +3421,258 @@ def delete_all_cards_in_column(column_id):
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting cards from column {column_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/columns/<int:source_column_id>/cards/move", methods=["POST"])
+def move_all_cards_in_column(source_column_id):
+    """Move all cards from one column to another in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: source_column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the source column
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - target_column_id
+            - position
+          properties:
+            target_column_id:
+              type: integer
+              description: The ID of the target column
+              example: 2
+            position:
+              type: string
+              enum: [top, bottom]
+              description: Where to place cards in target column
+              example: "bottom"
+            include_archived:
+              type: boolean
+              description: Whether to include archived cards in the move
+              example: false
+              default: false
+    responses:
+      200:
+        description: All cards moved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Moved 5 cards"
+            moved_count:
+              type: integer
+              example: 5
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Invalid position value"
+      404:
+        description: Column not found
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "Source column not found"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import BoardColumn, Card
+
+        data = request.get_json()
+        target_column_id = data.get("target_column_id")
+        position = data.get("position", "bottom")
+        include_archived = data.get("include_archived", False)
+
+        # Validate inputs
+        if not target_column_id:
+            return jsonify({"success": False, "message": "target_column_id is required"}), 400
+        
+        if position not in ["top", "bottom"]:
+            return jsonify({"success": False, "message": "Invalid position value. Must be 'top' or 'bottom'"}), 400
+
+        # Verify source column exists
+        source_column = db.query(BoardColumn).filter(BoardColumn.id == source_column_id).first()
+        if not source_column:
+            return jsonify({"success": False, "message": "Source column not found"}), 404
+
+        # Verify target column exists
+        target_column = db.query(BoardColumn).filter(BoardColumn.id == target_column_id).first()
+        if not target_column:
+            return jsonify({"success": False, "message": "Target column not found"}), 404
+
+        # Get cards from source column, optionally filtering out archived cards
+        source_query = db.query(Card).filter(Card.column_id == source_column_id)
+        if not include_archived:
+            source_query = source_query.filter(Card.archived.is_(False))
+        source_cards = source_query.order_by(Card.order).all()
+
+        if not source_cards:
+            return jsonify({"success": True, "message": "No cards to move", "moved_count": 0}), 200
+
+        # Get cards in target column to calculate new order values
+        target_cards = (
+            db.query(Card)
+            .filter(Card.column_id == target_column_id)
+            .order_by(Card.order)
+            .all()
+        )
+
+        # Calculate new order values based on position
+        if position == "top":
+            # Move existing target cards down to make room
+            for i, card in enumerate(target_cards):
+                card.order = i + len(source_cards)
+            
+            # Place source cards at top (maintain original order)
+            for i, card in enumerate(source_cards):
+                card.column_id = target_column_id
+                card.order = i
+        else:  # bottom
+            # Target cards keep their order
+            # Source cards go after target cards
+            start_order = len(target_cards)
+            for i, card in enumerate(source_cards):
+                card.column_id = target_column_id
+                card.order = start_order + i
+
+        db.commit()
+
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "message": f"Moved {len(source_cards)} cards",
+                    "moved_count": len(source_cards),
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error moving cards from column {source_column_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>", methods=["GET"])
+def get_card(card_id):
+    """Get a single card with its checklist items.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to retrieve
+    responses:
+      200:
+        description: Card data retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card:
+              type: object
+              properties:
+                id:
+                  type: integer
+                title:
+                  type: string
+                description:
+                  type: string
+                column_id:
+                  type: integer
+                order:
+                  type: integer
+                checklist_items:
+                  type: array
+                  items:
+                    type: object
+      404:
+        description: Card not found
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+        
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Serialize card with checklist items and comments
+        card_data = {
+            "id": card.id,
+            "title": card.title,
+            "description": card.description,
+            "column_id": card.column_id,
+            "order": card.order,
+            "archived": card.archived,
+            "scheduled": card.scheduled,
+            "schedule": card.schedule,
+            "checklist_items": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "checked": item.checked,
+                    "order": item.order
+                }
+                for item in sorted(card.checklist_items, key=lambda x: x.order)
+            ],
+            "comments": [
+                {
+                    "id": comment.id,
+                    "card_id": comment.card_id,
+                    "comment": comment.comment,
+                    "order": comment.order,
+                    "created_at": comment.created_at.isoformat() if comment.created_at else None
+                }
+                for comment in card.comments
+            ]
+        }
+        
+        return jsonify({"success": True, "card": card_data})
+    except Exception as e:
+        logger.error(f"Error getting card {card_id}: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
@@ -2444,14 +3845,18 @@ def update_card(card_id):
 
             # If moving to a different column
             if new_column_id != old_column_id:
-                # Decrement order of cards after old position in old column
+                # Decrement order of cards after old position in old column (excluding archived)
                 db.query(Card).filter(
-                    Card.column_id == old_column_id, Card.order > old_order
+                    Card.column_id == old_column_id, 
+                    Card.order > old_order,
+                    Card.archived == False
                 ).update({Card.order: Card.order - 1})
 
-                # Increment order of cards >= new position in new column
+                # Increment order of cards >= new position in new column (excluding archived)
                 db.query(Card).filter(
-                    Card.column_id == new_column_id, Card.order >= new_order
+                    Card.column_id == new_column_id, 
+                    Card.order >= new_order,
+                    Card.archived == False
                 ).update({Card.order: Card.order + 1})
 
                 card.column_id = new_column_id
@@ -2460,18 +3865,20 @@ def update_card(card_id):
             # If reordering within the same column
             elif new_order != old_order:
                 if new_order < old_order:
-                    # Moving up: increment cards between new and old position
+                    # Moving up: increment cards between new and old position (excluding archived)
                     db.query(Card).filter(
                         Card.column_id == old_column_id,
                         Card.order >= new_order,
                         Card.order < old_order,
+                        Card.archived == False
                     ).update({Card.order: Card.order + 1})
                 else:
-                    # Moving down: decrement cards between old and new position
+                    # Moving down: decrement cards between old and new position (excluding archived)
                     db.query(Card).filter(
                         Card.column_id == old_column_id,
                         Card.order > old_order,
                         Card.order <= new_order,
+                        Card.archived == False
                     ).update({Card.order: Card.order - 1})
 
                 card.order = new_order
@@ -2560,8 +3967,1903 @@ def delete_card(card_id):
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
         db.rollback()
+        logger.error(f"Error deleting card {card_id}: {str(e)}")
+        logger.exception(e)
         return jsonify({"success": False, "message": str(e)}), 500
 
+
+@app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
+def archive_card(card_id):
+    """Archive a card by ID.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to archive
+    responses:
+      200:
+        description: Card archived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card archived successfully"
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+
+        card.archived = True
+        db.commit()
+        
+        # Refresh and serialize the card
+        db.refresh(card)
+        card_dict = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order,
+            "archived": card.archived
+        }
+
+        return jsonify({"success": True, "message": "Card archived successfully", "card": card_dict}), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error archiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to archive card"}), 500
+    finally:
+        db.close()
+
+@app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
+def unarchive_card(card_id):
+    """Unarchive a card by ID.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card to unarchive
+    responses:
+      200:
+        description: Card unarchived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card unarchived successfully"
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+
+        # Get the card's current order and column
+        card_order = card.order
+        column_id = card.column_id
+
+        # Unarchive the card first
+        card.archived = False
+
+        # Increment order of all active cards at this position and above
+        # This ensures the unarchived card is inserted at its order position
+        db.query(Card).filter(
+            Card.column_id == column_id,
+            Card.order >= card_order,
+            Card.id != card_id,
+            Card.archived == False
+        ).update({Card.order: Card.order + 1}, synchronize_session=False)
+
+        db.commit()
+        
+        # Refresh and serialize the card
+        db.refresh(card)
+        card_dict = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order,
+            "archived": card.archived
+        }
+
+        return jsonify({"success": True, "message": "Card unarchived successfully", "card": card_dict}), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error unarchiving card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to unarchive card"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/batch/archive", methods=["POST"])
+def batch_archive_cards():
+    """Archive multiple cards in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_ids
+          properties:
+            card_ids:
+              type: array
+              items:
+                type: integer
+              description: List of card IDs to archive
+              example: [1, 2, 3]
+    responses:
+      200:
+        description: Cards archived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Archived 3 cards"
+            archived_count:
+              type: integer
+              example: 3
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "card_ids is required"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        data = request.get_json()
+        card_ids = data.get("card_ids", [])
+
+        if not card_ids:
+            return jsonify({"success": False, "message": "card_ids is required"}), 400
+
+        if not isinstance(card_ids, list):
+            return jsonify({"success": False, "message": "card_ids must be an array"}), 400
+
+        # Archive all cards with the given IDs
+        archived_count = (
+            db.query(Card)
+            .filter(Card.id.in_(card_ids))
+            .update({Card.archived: True}, synchronize_session=False)
+        )
+        
+        db.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Archived {archived_count} cards",
+            "archived_count": archived_count
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch archiving cards: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/batch/unarchive", methods=["POST"])
+def batch_unarchive_cards():
+    """Unarchive multiple cards in a single transaction.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_ids
+          properties:
+            card_ids:
+              type: array
+              items:
+                type: integer
+              description: List of card IDs to unarchive
+              example: [1, 2, 3]
+    responses:
+      200:
+        description: Cards unarchived successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Unarchived 3 cards"
+            unarchived_count:
+              type: integer
+              example: 3
+      400:
+        description: Invalid request
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+              example: "card_ids is required"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: false
+            message:
+              type: string
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+
+        data = request.get_json()
+        card_ids = data.get("card_ids", [])
+
+        if not card_ids:
+            return jsonify({"success": False, "message": "card_ids is required"}), 400
+
+        if not isinstance(card_ids, list):
+            return jsonify({"success": False, "message": "card_ids must be an array"}), 400
+
+        # Get all cards to unarchive with their column and order information
+        cards_to_unarchive = (
+            db.query(Card)
+            .filter(Card.id.in_(card_ids))
+            .order_by(Card.column_id, Card.order)
+            .all()
+        )
+        
+        if not cards_to_unarchive:
+            return jsonify({
+                "success": True,
+                "message": "No cards found to unarchive",
+                "unarchived_count": 0
+            }), 200
+        
+        # Group cards by column for efficient order management
+        cards_by_column = {}
+        for card in cards_to_unarchive:
+            if card.column_id not in cards_by_column:
+                cards_by_column[card.column_id] = []
+            cards_by_column[card.column_id].append(card)
+        
+        # Process each column separately to handle order conflicts
+        for column_id, column_cards in cards_by_column.items():
+            # Sort cards by their order
+            column_cards.sort(key=lambda c: c.order)
+            
+            # For each card being unarchived, shift active cards to make room
+            for card in column_cards:
+                card_order = card.order
+                
+                # Increment order of all active cards at this position and above
+                # This ensures the unarchived card can be inserted at its order position
+                db.query(Card).filter(
+                    Card.column_id == column_id,
+                    Card.order >= card_order,
+                    Card.id != card.id,
+                    Card.archived.is_(False)
+                ).update({Card.order: Card.order + 1}, synchronize_session=False)
+                
+                # Unarchive the card
+                card.archived = False
+        
+        db.commit()
+
+        return jsonify({
+            "success": True,
+            "message": f"Unarchived {len(cards_to_unarchive)} cards",
+            "unarchived_count": len(cards_to_unarchive)
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error batch unarchiving cards: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+# Scheduled Cards API endpoints
+@app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
+def get_scheduled_cards(column_id):
+    """Get all scheduled template cards for a specific column.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the column
+    responses:
+      200:
+        description: List of scheduled template cards for the column
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            cards:
+              type: array
+      500:
+        description: Server error
+    """
+    try:
+        db = SessionLocal()
+        
+        # Get only scheduled template cards (scheduled=True)
+        cards = (
+            db.query(Card)
+            .filter(Card.column_id == column_id)
+            .filter(Card.scheduled.is_(True))
+            .order_by(Card.order)
+            .all()
+        )
+        
+        cards_data = [
+            {
+                "id": c.id,
+                "column_id": c.column_id,
+                "title": c.title,
+                "description": c.description,
+                "order": c.order,
+                "scheduled": c.scheduled,
+                "schedule": c.schedule,
+                "checklist_items": [
+                    {
+                        "id": item.id,
+                        "card_id": item.card_id,
+                        "name": item.name,
+                        "checked": item.checked,
+                        "order": item.order
+                    }
+                    for item in c.checklist_items
+                ]
+            }
+            for c in cards
+        ]
+        
+        db.close()
+        return jsonify({"success": True, "cards": cards_data})
+    except Exception as e:
+        logger.error(f"Error getting scheduled cards: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get scheduled cards"}), 500
+
+
+@app.route("/api/schedules", methods=["POST"])
+def create_schedule():
+    """Create a new schedule for a card.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - card_id
+            - run_every
+            - unit
+            - start_date
+            - start_time
+          properties:
+            card_id:
+              type: integer
+            run_every:
+              type: integer
+            unit:
+              type: string
+              enum: [minute, hour, day, week, month, year]
+            start_date:
+              type: string
+              format: date
+            start_time:
+              type: string
+              format: time
+            end_date:
+              type: string
+              format: date
+            end_time:
+              type: string
+              format: time
+            schedule_enabled:
+              type: boolean
+            allow_duplicates:
+              type: boolean
+            keep_source_card:
+              type: boolean
+    responses:
+      201:
+        description: Schedule created successfully
+      400:
+        description: Invalid input
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime
+        
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Validate required fields
+        required_fields = ['card_id', 'run_every', 'unit', 'start_datetime']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"success": False, "message": f"{field} is required"}), 400
+        
+        card_id = data['card_id']
+        run_every = data['run_every']
+        unit = data['unit']
+        
+        # Validate unit
+        if unit not in ['minute', 'hour', 'day', 'week', 'month', 'year']:
+            return jsonify({"success": False, "message": "Invalid unit"}), 400
+        
+        # Validate run_every
+        if not isinstance(run_every, int) or run_every < 1:
+            return jsonify({"success": False, "message": "run_every must be a positive integer"}), 400
+        
+        # Check if card exists
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        # Check if card already has a schedule reference
+        if card.schedule is not None:
+            return jsonify({"success": False, "message": "Card is already scheduled"}), 400
+        
+        # Parse datetimes
+        try:
+            # Handle ISO format with 'Z' timezone suffix
+            # Convert to naive datetime (strip timezone) since we store as naive in DB
+            start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
+            start_datetime = datetime.fromisoformat(start_datetime_str)
+            if start_datetime.tzinfo is not None:
+                start_datetime = start_datetime.replace(tzinfo=None)
+            
+            end_datetime = None
+            if 'end_datetime' in data and data['end_datetime']:
+                end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
+                end_datetime = datetime.fromisoformat(end_datetime_str)
+                if end_datetime.tzinfo is not None:
+                    end_datetime = end_datetime.replace(tzinfo=None)
+        except (ValueError, TypeError) as e:
+            return jsonify({"success": False, "message": f"Invalid datetime format: {str(e)}"}), 400
+        
+        # Check if card is already a template (scheduled=True)
+        # If so, just create the schedule and link it - don't create a duplicate template
+        if card.scheduled:
+            # This card is already a template, just create and link the schedule
+            schedule = ScheduledCard(
+                card_id=card.id,
+                run_every=run_every,
+                unit=unit,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                schedule_enabled=data.get('schedule_enabled', True),
+                allow_duplicates=data.get('allow_duplicates', False)
+            )
+            
+            db.add(schedule)
+            db.flush()
+            
+            # Update card's schedule reference
+            card.schedule = schedule.id
+        else:
+            # Create a NEW card as the template (hidden from task views)
+            template_card = Card(
+                column_id=card.column_id,
+                title=card.title,
+                description=card.description,
+                order=card.order,
+                archived=False,
+                scheduled=True,  # This marks it as a template (hidden from task views)
+                schedule=None
+            )
+            db.add(template_card)
+            db.flush()  # Get the new card ID
+            
+            # Copy checklist items to template
+            for item in card.checklist_items:
+                new_item = ChecklistItem(
+                    card_id=template_card.id,
+                    name=item.name,
+                    checked=item.checked,
+                    order=item.order
+                )
+                db.add(new_item)
+            
+            # Create schedule
+            schedule = ScheduledCard(
+                card_id=template_card.id,
+                run_every=run_every,
+                unit=unit,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                schedule_enabled=data.get('schedule_enabled', True),
+                allow_duplicates=data.get('allow_duplicates', False)
+            )
+            
+            db.add(schedule)
+            db.flush()
+            
+            # Update template card's schedule reference
+            template_card.schedule = schedule.id
+            
+            # Handle keep_source_card parameter
+            keep_source_card = data.get('keep_source_card', True)
+            if keep_source_card:
+                # Update ORIGINAL card's schedule reference (but keep scheduled=False so it stays visible)
+                card.schedule = schedule.id
+            else:
+                # Delete the original card
+                db.delete(card)
+        
+        db.commit()
+        
+        # Calculate next runs for response
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=run_every,
+            unit=unit,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule created successfully",
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        }), 201
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to create schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["GET"])
+def get_schedule(schedule_id):
+    """Get a schedule by ID with next run times.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Schedule details
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        # Calculate next runs
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=schedule.run_every,
+            unit=schedule.unit,
+            start_datetime=schedule.start_datetime,
+            end_datetime=schedule.end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
+def update_schedule(schedule_id):
+    """Update a schedule.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+    responses:
+      200:
+        description: Schedule updated successfully
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime
+        
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        # Update fields if provided
+        if 'run_every' in data:
+            if not isinstance(data['run_every'], int) or data['run_every'] < 1:
+                return jsonify({"success": False, "message": "run_every must be a positive integer"}), 400
+            schedule.run_every = data['run_every']
+        
+        if 'unit' in data:
+            if data['unit'] not in ['minute', 'hour', 'day', 'week', 'month', 'year']:
+                return jsonify({"success": False, "message": "Invalid unit"}), 400
+            schedule.unit = data['unit']
+        
+        if 'start_datetime' in data:
+            try:
+                # Handle ISO format with 'Z' timezone suffix
+                # Convert to naive datetime (strip timezone) since we store as naive in DB
+                start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
+                parsed_dt = datetime.fromisoformat(start_datetime_str)
+                if parsed_dt.tzinfo is not None:
+                    parsed_dt = parsed_dt.replace(tzinfo=None)
+                schedule.start_datetime = parsed_dt
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "message": "Invalid start_datetime format"}), 400
+        
+        if 'end_datetime' in data:
+            if data['end_datetime']:
+                try:
+                    # Handle ISO format with 'Z' timezone suffix
+                    # Convert to naive datetime (strip timezone) since we store as naive in DB
+                    end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
+                    parsed_dt = datetime.fromisoformat(end_datetime_str)
+                    if parsed_dt.tzinfo is not None:
+                        parsed_dt = parsed_dt.replace(tzinfo=None)
+                    schedule.end_datetime = parsed_dt
+                except (ValueError, TypeError):
+                    return jsonify({"success": False, "message": "Invalid end_datetime format"}), 400
+            else:
+                schedule.end_datetime = None
+        
+        if 'schedule_enabled' in data:
+            schedule.schedule_enabled = bool(data['schedule_enabled'])
+        
+        if 'allow_duplicates' in data:
+            schedule.allow_duplicates = bool(data['allow_duplicates'])
+        
+        db.commit()
+        
+        # Calculate next runs for response
+        from schedule_utils import calculate_next_runs
+        
+        next_runs = calculate_next_runs(
+            run_every=schedule.run_every,
+            unit=schedule.unit,
+            start_datetime=schedule.start_datetime,
+            end_datetime=schedule.end_datetime,
+            max_results=4
+        )
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule updated successfully",
+            "schedule": {
+                "id": schedule.id,
+                "card_id": schedule.card_id,
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+                "start_datetime": schedule.start_datetime.isoformat(),
+                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "schedule_enabled": schedule.schedule_enabled,
+                "allow_duplicates": schedule.allow_duplicates,
+                "next_runs": next_runs
+            }
+        })
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to update schedule"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
+def delete_schedule(schedule_id):
+    """Delete a schedule and update related cards.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: schedule_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Schedule deleted successfully
+      404:
+        description: Schedule not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+        
+        if not schedule:
+            return jsonify({"success": False, "message": "Schedule not found"}), 404
+        
+        template_card_id = schedule.card_id
+        
+        # Clear schedule reference from all cards that reference this schedule
+        # (including the original source card and any spawned cards)
+        created_cards = db.query(Card).filter(Card.schedule == schedule_id).all()
+        for card in created_cards:
+            card.schedule = None
+        
+        # Delete the schedule FIRST (to avoid foreign key constraint)
+        db.delete(schedule)
+        db.flush()
+        
+        # Then delete the template card (the hidden duplicate)
+        template_card = db.query(Card).filter(Card.id == template_card_id).first()
+        if template_card:
+            db.delete(template_card)
+        
+        db.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": "Schedule deleted successfully"
+        })
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting schedule: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to delete schedule"}), 500
+    finally:
+        db.close()
+
+
+# Checklist Items API endpoints
+@app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
+def create_checklist_item(card_id):
+    """Create a new checklist item for a card.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              example: "Review documentation"
+              description: The name of the checklist item
+            checked:
+              type: boolean
+              example: false
+              description: Whether the item is checked
+            order:
+              type: integer
+              example: 0
+              description: The order position
+    responses:
+      201:
+        description: Checklist item created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            checklist_item:
+              type: object
+              properties:
+                id:
+                  type: integer
+                card_id:
+                  type: integer
+                name:
+                  type: string
+                checked:
+                  type: boolean
+                order:
+                  type: integer
+      400:
+        description: Bad request - missing name
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data or "name" not in data:
+            return create_error_response("Name is required", 400)
+
+        from models import Card, ChecklistItem
+
+        # Verify card exists
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found", 404)
+
+        # Validate name
+        name = data.get("name")
+        if not isinstance(name, str):
+            return create_error_response("Name must be a string", 400)
+
+        # Sanitize and validate length
+        name = sanitize_string(name)
+        if not name:
+            return create_error_response("Name cannot be empty", 400)
+
+        is_valid, error = validate_string_length(name, 500, "Name")
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        # Validate checked if provided
+        checked = data.get("checked", False)
+        if not isinstance(checked, bool):
+            return create_error_response("Checked must be a boolean", 400)
+
+        # Validate order if provided
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+            
+            # Increment order of existing items >= this order to make room
+            existing_items = (
+                db.query(ChecklistItem)
+                .filter(ChecklistItem.card_id == card_id, ChecklistItem.order >= order)
+                .all()
+            )
+            for item_to_update in existing_items:
+                item_to_update.order += 1
+        else:
+            # Add at the end
+            order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
+
+        # Create checklist item
+        checklist_item = ChecklistItem(
+            card_id=card_id,
+            name=name,
+            checked=checked,
+            order=order
+        )
+
+        db.add(checklist_item)
+        db.commit()
+        db.refresh(checklist_item)
+
+        return jsonify({
+            "success": True,
+            "checklist_item": {
+                "id": checklist_item.id,
+                "card_id": checklist_item.card_id,
+                "name": checklist_item.name,
+                "checked": checklist_item.checked,
+                "order": checklist_item.order
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating checklist item for card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/checklist-items/<int:item_id>", methods=["PATCH"])
+def update_checklist_item(item_id):
+    """Update a checklist item's name, checked status, and/or order.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: item_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the checklist item to update
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Updated item name"
+            checked:
+              type: boolean
+              example: true
+            order:
+              type: integer
+              example: 1
+    responses:
+      200:
+        description: Checklist item updated successfully
+      400:
+        description: Bad request - no data provided or validation error
+      404:
+        description: Checklist item not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data:
+            return create_error_response("No data provided", 400)
+
+        from models import ChecklistItem
+
+        checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+
+        if not checklist_item:
+            return create_error_response("Checklist item not found", 404)
+
+        # Update name if provided
+        if "name" in data:
+            name = data["name"]
+            if not isinstance(name, str):
+                return create_error_response("Name must be a string", 400)
+
+            name = sanitize_string(name)
+            if not name:
+                return create_error_response("Name cannot be empty", 400)
+
+            is_valid, error = validate_string_length(name, 500, "Name")
+            if not is_valid:
+                return create_error_response(error, 400)
+
+            checklist_item.name = name
+
+        # Update checked if provided
+        if "checked" in data:
+            checked = data["checked"]
+            if not isinstance(checked, bool):
+                return create_error_response("Checked must be a boolean", 400)
+            checklist_item.checked = checked
+
+        # Update order if provided
+        if "order" in data:
+            order = data["order"]
+            is_valid, error = validate_integer(order, "Order", allow_none=False, min_value=0)
+            if not is_valid:
+                return create_error_response(error, 400)
+            checklist_item.order = order
+
+        db.commit()
+        db.refresh(checklist_item)
+
+        return jsonify({
+            "success": True,
+            "checklist_item": {
+                "id": checklist_item.id,
+                "card_id": checklist_item.card_id,
+                "name": checklist_item.name,
+                "checked": checklist_item.checked,
+                "order": checklist_item.order
+            }
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating checklist item {item_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/checklist-items/<int:item_id>", methods=["DELETE"])
+def delete_checklist_item(item_id):
+    """Delete a checklist item by ID.
+    ---
+    tags:
+      - Checklist Items
+    parameters:
+      - name: item_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the checklist item to delete
+    responses:
+      200:
+        description: Checklist item deleted successfully
+      404:
+        description: Checklist item not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import ChecklistItem
+
+        checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+
+        if not checklist_item:
+            return create_error_response("Checklist item not found", 404)
+
+        db.delete(checklist_item)
+        db.commit()
+
+        return jsonify({"success": True, "message": "Checklist item deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting checklist item {item_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/comments", methods=["GET"])
+def get_card_comments(card_id):
+    """Get all comments for a card.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+    responses:
+      200:
+        description: List of comments for the card
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            comments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  card_id:
+                    type: integer
+                  comment:
+                    type: string
+                  order:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Comment
+
+        comments = (
+            db.query(Comment)
+            .filter(Comment.card_id == card_id)
+            .order_by(Comment.order.desc())  # Newest first
+            .all()
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "comments": [
+                    {
+                        "id": c.id,
+                        "card_id": c.card_id,
+                        "comment": c.comment,
+                        "order": c.order,
+                        "created_at": c.created_at.isoformat() if c.created_at else None,
+                    }
+                    for c in comments
+                ],
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting comments for card {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/comments", methods=["POST"])
+def create_comment(card_id):
+    """Create a new comment for a card.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - comment
+          properties:
+            comment:
+              type: string
+              example: "This is a journal entry for the card"
+              description: The comment text
+    responses:
+      201:
+        description: Comment created successfully
+      400:
+        description: Bad request - missing comment or validation error
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Handle case where get_json() might raise an exception for empty body
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+            
+        if not data or "comment" not in data:
+            return create_error_response("Comment text is required", 400)
+
+        # Verify card exists
+        from models import Card, Comment
+
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found", 404)
+
+        # Validate and sanitize comment
+        comment_text = data.get("comment")
+        if not isinstance(comment_text, str):
+            return create_error_response("Comment must be a string", 400)
+
+        comment_text = sanitize_string(comment_text)
+        if not comment_text:
+            return create_error_response("Comment cannot be empty", 400)
+
+        is_valid, error = validate_string_length(
+            comment_text, MAX_COMMENT_LENGTH, "Comment"
+        )
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        # Get next order number (max + 1) with row-level locking to prevent race conditions
+        # FOR UPDATE locks the row until the transaction commits, ensuring sequential order assignment
+        max_order = (
+            db.query(func.max(Comment.order))
+            .filter(Comment.card_id == card_id)
+            .with_for_update()
+            .scalar()
+        )
+        next_order = (max_order + 1) if max_order is not None else 0
+
+        # Create comment
+        comment = Comment(
+            card_id=card_id,
+            comment=comment_text,
+            order=next_order
+        )
+        db.add(comment)
+        db.commit()
+        db.refresh(comment)
+
+        result = {
+            "id": comment.id,
+            "card_id": comment.card_id,
+            "comment": comment.comment,
+            "order": comment.order,
+            "created_at": comment.created_at.isoformat() if comment.created_at else None,
+        }
+
+        return create_success_response({"comment": result}, status_code=201)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating comment for card {card_id}: {str(e)}")
+        return create_error_response("Failed to create comment", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/comments/<int:comment_id>", methods=["DELETE"])
+def delete_comment(comment_id):
+    """Delete a comment by ID.
+    
+    Note: The order field is preserved in the database to maintain conversation history.
+    Deleted comments leave gaps in the order sequence.
+    ---
+    tags:
+      - Comments
+    parameters:
+      - name: comment_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the comment to delete
+    responses:
+      200:
+        description: Comment deleted successfully
+      404:
+        description: Comment not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Comment
+
+        comment = db.query(Comment).filter(Comment.id == comment_id).first()
+
+        if not comment:
+            return create_error_response("Comment not found", 404)
+
+        db.delete(comment)
+        db.commit()
+
+        return jsonify({"success": True, "message": "Comment deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting comment {comment_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ============================================================================
+# Notification Routes
+# ============================================================================
+
+
+@app.route("/api/notifications", methods=["GET"])
+def get_notifications():
+    """Get all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: List of all notifications (newest first)
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notifications:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  subject:
+                    type: string
+                  message:
+                    type: string
+                  unread:
+                    type: boolean
+                  created_at:
+                    type: string
+                    format: date-time
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notifications = (
+            db.query(Notification)
+            .order_by(Notification.created_at.desc())  # Newest first
+            .all()
+        )
+
+        return jsonify(
+            {
+                "success": True,
+                "notifications": [
+                    {
+                        "id": n.id,
+                        "subject": n.subject,
+                        "message": n.message,
+                        "unread": n.unread,
+                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                    }
+                    for n in notifications
+                ],
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"Error getting notifications: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to retrieve notifications"}), 500
+    finally:
+        db.close()
+
+
+# Import notification utility with alias to avoid conflict with API route
+from notification_utils import create_notification as create_notification_internal
+
+
+@app.route("/api/notifications", methods=["POST"])
+def create_notification():
+    """Create a new notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - subject
+            - message
+          properties:
+            subject:
+              type: string
+              description: Subject of the notification
+              example: "New Feature Available"
+            message:
+              type: string
+              description: Message content of the notification
+              example: "Check out our new dark mode feature!"
+    responses:
+      201:
+        description: Notification created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            notification:
+              type: object
+              properties:
+                id:
+                  type: integer
+                subject:
+                  type: string
+                message:
+                  type: string
+                unread:
+                  type: boolean
+                created_at:
+                  type: string
+                  format: date-time
+      400:
+        description: Invalid request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
+        
+        subject = data.get('subject', '').strip()
+        message = data.get('message', '').strip()
+        
+        # Validate required fields
+        if not subject or not message:
+            return jsonify({"success": False, "message": "Subject and message are required"}), 400
+        
+        # Validate length limits (matching database column constraints)
+        if len(subject) > 255:
+            return jsonify({"success": False, "message": "Subject must be 255 characters or less"}), 400
+        
+        if len(message) > 65535:
+            return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
+
+        # Create notification
+        notification = Notification(
+            subject=subject,
+            message=message,
+            unread=True
+        )
+        
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+
+        logger.info(f"Created notification: {notification.id}")
+        
+        return jsonify({
+            "success": True,
+            "notification": {
+                "id": notification.id,
+                "subject": notification.subject,
+                "message": notification.message,
+                "unread": notification.unread,
+                "created_at": notification.created_at.isoformat() if notification.created_at else None,
+            }
+        }), 201
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error creating notification: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to create notification"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
+def mark_notification_read(notification_id):
+    """Mark a notification as read.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as read"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = False
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as read")
+        return jsonify({"success": True, "message": "Notification marked as read"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as read: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
+def mark_notification_unread(notification_id):
+    """Mark a notification as unread.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification marked as unread
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification marked as unread"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        notification.unread = True
+        db.commit()
+
+        logger.info(f"Notification {notification_id} marked as unread")
+        return jsonify({"success": True, "message": "Notification marked as unread"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking notification {notification_id} as unread: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
+def delete_notification(notification_id):
+    """Delete a notification.
+    ---
+    tags:
+      - Notifications
+    parameters:
+      - name: notification_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the notification
+    responses:
+      200:
+        description: Notification deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Notification deleted successfully"
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            return create_error_response("Notification not found", 404)
+
+        db.delete(notification)
+        db.commit()
+
+        logger.info(f"Notification {notification_id} deleted")
+        return jsonify({"success": True, "message": "Notification deleted successfully"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting notification {notification_id}: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/mark-all-read", methods=["PUT"])
+def mark_all_notifications_read():
+    """Mark all notifications as read.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications marked as read
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications marked as read"
+            count:
+              type: integer
+              description: Number of notifications marked as read
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Update all unread notifications
+        result = db.query(Notification).filter(Notification.unread.is_(True)).update({"unread": False})
+        db.commit()
+
+        logger.info(f"Marked {result} notifications as read")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications marked as read",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking all notifications as read: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to mark all notifications as read"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/notifications/delete-all", methods=["DELETE"])
+def delete_all_notifications():
+    """Delete all notifications.
+    ---
+    tags:
+      - Notifications
+    responses:
+      200:
+        description: All notifications deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "All notifications deleted"
+            count:
+              type: integer
+              description: Number of notifications deleted
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Notification
+
+        # Delete all notifications
+        result = db.query(Notification).delete()
+        db.commit()
+
+        logger.info(f"Deleted {result} notifications")
+        return jsonify({
+            "success": True, 
+            "message": "All notifications deleted",
+            "count": result
+        }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting all notifications: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to delete all notifications"}), 500
+    finally:
+        db.close()
+
+
+# Error handlers to ensure API endpoints return JSON
+@app.errorhandler(404)
+def not_found_error(error):
+    """Handle 404 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "message": "Endpoint not found"}), 404
+    # For non-API routes, return default Flask 404
+    return error
+
+
+@app.errorhandler(405)
+def method_not_allowed_error(error):
+    """Handle 405 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({"success": False, "message": "Method not allowed"}), 405
+    return error
+
+
+@app.errorhandler(413)
+def request_entity_too_large_error(error):
+    """Handle 413 errors (Request Entity Too Large) with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": f"File size exceeds maximum allowed size of {app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)}MB"
+        }), 413
+    return error
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        logger.error(f"Internal server error: {str(error)}")
+        return jsonify({"success": False, "message": "Internal server error"}), 500
+    return error
+
+
+# Initialize backup scheduler on app startup
+def init_backup_scheduler():
+    """Initialize and start the backup scheduler."""
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.start()
+        logger.info("Backup scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize backup scheduler: {str(e)}")
+
+# Initialize card scheduler on app startup
+def init_card_scheduler():
+    """Initialize and start the card scheduler."""
+    try:
+        from card_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.start()
+        logger.info("Card scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize card scheduler: {str(e)}")
+
+# Start schedulers when module is loaded
+init_backup_scheduler()
+init_card_scheduler()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

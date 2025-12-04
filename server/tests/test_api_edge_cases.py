@@ -195,6 +195,179 @@ class TestAPIInputValidation:
             verify = requests.get(f"{api_client}/api/boards")
             assert verify.status_code == 200
 
+    def test_sql_injection_checklist_item_name(self, api_client, sample_card):
+        """Test SQL injection attempt in checklist item name."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "'; DROP TABLE checklist_items; --"}
+        )
+        # SQLAlchemy should prevent injection
+        # Should either succeed with the string stored as-is, or fail validation
+        if response.status_code == 201:
+            # Verify checklist_items table still exists
+            verify = requests.get(f'{api_client}/api/columns/{sample_card["column_id"]}/cards')
+            assert verify.status_code == 200
+
+    def test_xss_checklist_item_name(self, api_client, sample_card):
+        """Test XSS attempt in checklist item name."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": '<script>alert("XSS")</script>'}
+        )
+        # Should succeed - we store what user provides
+        # Frontend should escape on display
+        assert response.status_code == 201
+        data = response.json()
+        assert data["success"] is True
+
+    def test_unicode_checklist_item_name(self, api_client, sample_card):
+        """Test Unicode characters in checklist item name."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "测试任务 🎯 ✅"}
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert "测试任务" in data["checklist_item"]["name"]
+
+    def test_oversized_checklist_item_name(self, api_client, sample_card):
+        """Test creating checklist item with oversized name."""
+        long_name = "A" * 1000  # Beyond 500 char limit
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": long_name}
+        )
+        # Should reject oversized name
+        assert response.status_code == 400
+
+    def test_null_checklist_item_name(self, api_client, sample_card):
+        """Test creating checklist item with null name."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": None}
+        )
+        # Should reject null name
+        assert response.status_code == 400
+
+    def test_integer_checklist_item_name(self, api_client, sample_card):
+        """Test creating checklist item with integer as name."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": 12345}
+        )
+        # Should reject non-string name
+        assert response.status_code == 400
+
+    def test_checklist_item_negative_order(self, api_client, sample_card):
+        """Test creating checklist item with negative order."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test", "order": -1}
+        )
+        # Should either accept or reject negative order
+        assert response.status_code in [201, 400]
+
+    def test_checklist_item_huge_order(self, api_client, sample_card):
+        """Test creating checklist item with very large order."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test", "order": 2147483647}  # Max INT
+        )
+        # Should accept valid integer
+        assert response.status_code == 201
+
+    def test_checklist_item_order_as_string(self, api_client, sample_card):
+        """Test creating checklist item with string as order."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test", "order": "5"}
+        )
+        # Should reject non-integer order
+        assert response.status_code == 400
+
+    def test_checklist_item_checked_as_string(self, api_client, sample_card):
+        """Test creating checklist item with string as checked."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test", "checked": "true"}
+        )
+        # Should reject non-boolean checked
+        assert response.status_code == 400
+
+    def test_checklist_item_invalid_card_id(self, api_client):
+        """Test creating checklist item for non-existent card."""
+        response = requests.post(
+            f'{api_client}/api/cards/99999/checklist-items',
+            json={"name": "Test"}
+        )
+        assert response.status_code == 404
+
+    def test_checklist_item_negative_card_id(self, api_client):
+        """Test creating checklist item with negative card ID."""
+        response = requests.post(
+            f'{api_client}/api/cards/-1/checklist-items',
+            json={"name": "Test"}
+        )
+        assert response.status_code == 404
+
+    def test_checklist_item_non_numeric_card_id(self, api_client):
+        """Test creating checklist item with non-numeric card ID."""
+        response = requests.post(
+            f'{api_client}/api/cards/abc/checklist-items',
+            json={"name": "Test"}
+        )
+        # Should return 404 for invalid ID format
+        assert response.status_code == 404
+
+    def test_update_checklist_item_invalid_id(self, api_client):
+        """Test updating non-existent checklist item."""
+        response = requests.patch(
+            f'{api_client}/api/checklist-items/99999',
+            json={"name": "Updated"}
+        )
+        assert response.status_code == 404
+
+    def test_update_checklist_item_negative_id(self, api_client):
+        """Test updating checklist item with negative ID."""
+        response = requests.patch(
+            f'{api_client}/api/checklist-items/-1',
+            json={"name": "Updated"}
+        )
+        assert response.status_code == 404
+
+    def test_delete_checklist_item_invalid_id(self, api_client):
+        """Test deleting non-existent checklist item."""
+        response = requests.delete(f'{api_client}/api/checklist-items/99999')
+        assert response.status_code == 404
+
+    def test_malformed_json_checklist_item(self, api_client, sample_card):
+        """Test creating checklist item with malformed JSON."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            data='{"name": invalid json}',
+            headers={"Content-Type": "application/json"},
+        )
+        # Should return 400 or 500 for malformed JSON
+        assert response.status_code in [400, 500]
+
+    def test_missing_json_body_checklist_item(self, api_client, sample_card):
+        """Test creating checklist item without JSON body."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            headers={"Content-Type": "application/json"}
+        )
+        # Should return 400 for missing body
+        assert response.status_code == 400
+
+    def test_empty_json_body_checklist_item(self, api_client, sample_card):
+        """Test creating checklist item with empty JSON object."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={}
+        )
+        # Should return 400 for missing name
+        assert response.status_code == 400
+
 
 @pytest.mark.api
 class TestAPIConcurrency:
@@ -239,6 +412,58 @@ class TestAPIConcurrency:
             f"{api_client}/api/columns/{column_id}/cards", json={"title": "Test Card"}
         )
         assert card_response.status_code == 404
+
+    def test_delete_checklist_item_twice(self, api_client, sample_card):
+        """Test deleting the same checklist item twice."""
+        # Create checklist item
+        create_response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test item"}
+        )
+        item_id = create_response.json()["checklist_item"]["id"]
+
+        # First delete should succeed
+        response1 = requests.delete(f'{api_client}/api/checklist-items/{item_id}')
+        assert response1.status_code == 200
+
+        # Second delete should fail
+        response2 = requests.delete(f'{api_client}/api/checklist-items/{item_id}')
+        assert response2.status_code == 404
+
+    def test_update_deleted_checklist_item(self, api_client, sample_card):
+        """Test updating a checklist item after it's deleted."""
+        # Create checklist item
+        create_response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Test item"}
+        )
+        item_id = create_response.json()["checklist_item"]["id"]
+
+        # Delete item
+        delete_response = requests.delete(f'{api_client}/api/checklist-items/{item_id}')
+        assert delete_response.status_code == 200
+
+        # Try to update deleted item
+        update_response = requests.patch(
+            f'{api_client}/api/checklist-items/{item_id}',
+            json={"name": "Updated name"}
+        )
+        assert update_response.status_code == 404
+
+    def test_create_checklist_item_in_deleted_card(self, api_client, sample_card):
+        """Test creating checklist item in a deleted card."""
+        card_id = sample_card["id"]
+
+        # Delete card
+        delete_response = requests.delete(f'{api_client}/api/cards/{card_id}')
+        assert delete_response.status_code == 200
+
+        # Try to create checklist item in deleted card
+        item_response = requests.post(
+            f'{api_client}/api/cards/{card_id}/checklist-items',
+            json={"name": "Test item"}
+        )
+        assert item_response.status_code == 404
 
 
 @pytest.mark.api
@@ -291,3 +516,43 @@ class TestAPIBoundaryConditions:
         verify = requests.get(f'{api_client}/api/columns/{sample_column["id"]}/cards')
         assert verify.status_code == 200
         assert len(verify.json()["cards"]) == 100
+
+    def test_checklist_item_name_at_max_length(self, api_client, sample_card):
+        """Test checklist item name at maximum allowed length."""
+        # models.py shows String(500) for checklist item name
+        max_name = "T" * 500
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": max_name}
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["checklist_item"]["name"]) == 500
+
+    def test_many_checklist_items_on_card(self, api_client, sample_card):
+        """Test creating many checklist items on a single card."""
+        # Create 100 checklist items
+        for i in range(100):
+            response = requests.post(
+                f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+                json={"name": f"Item {i}"}
+            )
+            assert response.status_code == 201
+
+        # Verify all items created by fetching cards from column
+        verify = requests.get(f'{api_client}/api/columns/{sample_card["column_id"]}/cards')
+        assert verify.status_code == 200
+        card = next((c for c in verify.json()["cards"] if c["id"] == sample_card["id"]), None)
+        assert card is not None
+        assert len(card["checklist_items"]) == 100
+
+    def test_checklist_item_with_max_order_value(self, api_client, sample_card):
+        """Test checklist item with maximum integer order value."""
+        max_order = 2147483647  # Max 32-bit signed integer
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={"name": "Max order item", "order": max_order}
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["checklist_item"]["order"] == max_order

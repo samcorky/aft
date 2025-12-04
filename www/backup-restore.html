@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Backup & Restore - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/system-info.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <div class="settings-container">
+      <h2>Backup & Restore</h2>
+
+      <!-- Manual Backup & Restore Section -->
+      <div class="settings-section">
+        <h3>💾 Manual Backup & Restore</h3>
+        <p class="setting-help">
+          Create a backup of your database or restore from a previous backup. 
+          Backups include version information for safe restoration.
+          <strong>Note: Maximum restore file size is 100MB.</strong>
+        </p>
+        <div class="backup-actions">
+          <button class="backup-btn" id="manual-backup-btn">
+            <span>💾</span>
+            <span>Manual Backup</span>
+          </button>
+          <button class="backup-btn" id="backup-btn">
+            <span>⬇️</span>
+            <span>Download Backup</span>
+          </button>
+          <div class="restore-section">
+            <input 
+              type="file" 
+              id="restore-file-input" 
+              accept=".sql"
+              class="visually-hidden"
+              aria-label="Choose backup file to restore"
+            >
+            <button class="restore-btn" id="restore-btn">
+              <span>⬆️</span>
+              <span>Restore from Backup</span>
+            </button>
+          </div>
+        </div>
+        <div class="backup-status" id="backup-status"></div>
+      </div>
+
+      <!-- Automatic Backups Section -->
+      <div class="settings-section">
+        <h3>⏰ Automatic Backups</h3>
+        <p class="setting-help">Configure automatic database backups to protect your data. Backups align to the start time pattern. If a backup is overdue (more than 2x the frequency interval), it will run immediately and then resume the normal schedule.</p>
+        
+        <div class="status-info">
+          <dl>
+            <dt>Backup Module Status:</dt>
+            <dd>
+              <span id="schedulerStatus" class="status-badge">Loading...</span>
+            </dd>
+            <dt>Backups Enabled:</dt>
+            <dd>
+              <div class="backup-toggle-wrapper">
+                <label class="backup-toggle-label">
+                  <input type="checkbox" id="backupEnabled" name="enabled" class="backup-toggle-input">
+                  <span class="backup-toggle-slider"></span>
+                </label>
+              </div>
+            </dd>
+            <dt>Current Frequency:</dt>
+            <dd id="currentFrequency">-</dd>
+            <dt>Retention:</dt>
+            <dd id="currentRetention">-</dd>
+            <dt>Latest Backup:</dt>
+            <dd id="latestBackup">-</dd>
+            <dt>Backup Status:</dt>
+            <dd id="backupWindowStatus">-</dd>
+          </dl>
+        </div>
+        
+        <div id="backupPermissionError" class="settings-status error" style="display: none;"></div>
+
+        <form id="backupConfigForm">
+
+          <div class="form-row">
+            <div class="setting-item">
+              <label for="frequencyValue">Backup Frequency: Run every</label>
+              <input type="number" id="frequencyValue" name="frequency_value" 
+                     min="1" max="99" value="24" required>
+              <p class="setting-help">Value between 1 and 99</p>
+            </div>
+            <div class="setting-item">
+              <label for="frequencyUnit">Unit</label>
+              <select id="frequencyUnit" name="frequency_unit" class="setting-select" required>
+                <option value="minutes">Minutes</option>
+                <option value="hours" selected>Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="setting-item">
+            <label for="startTime">Backup Start Time (UTC)</label>
+            <input type="time" id="startTime" name="start_time" value="02:00" required>
+            <p class="setting-help">Time to align backups in UTC timezone (HH:MM). For daily backups, this is the time of day. For hourly backups, backups run at this minute past each hour (e.g., 02:45 runs at :45 past every hour). For minute intervals, backups align to this time (e.g., 16:09 with 5-minute interval runs at 16:09, 16:14, 16:19, etc.).</p>
+          </div>
+
+          <div class="setting-item">
+            <label for="retentionCount">Retention Count</label>
+            <input type="number" id="retentionCount" name="retention_count" 
+                   min="1" max="100" value="7" required>
+            <p class="setting-help">Number of backups to keep (1-100). Older backups will be automatically deleted.</p>
+          </div>
+
+          <div class="setting-item">
+            <label for="minimumFreeSpace">Minimum Free Disk Space (MB)</label>
+            <input type="number" id="minimumFreeSpace" name="minimum_free_space_mb" 
+                   min="1" max="10485760" value="100" required>
+            <p class="setting-help">Minimum free disk space required before creating a backup (1-10485760 MB = 10TB). Backups will be skipped if insufficient space is available.</p>
+          </div>
+
+          <div class="button-group">
+            <button type="submit" class="btn btn-primary" id="saveBackupButton">
+              Save Backup Settings
+            </button>
+            <button type="button" class="btn btn-secondary" id="resetBackupButton">
+              Reset
+            </button>
+          </div>
+          <div class="backup-status" id="backup-settings-status"></div>
+        </form>
+      </div>
+
+      <!-- Available Backups Section -->
+      <div class="settings-section">
+        <h3>📋 Available Backups</h3>
+        <p class="setting-help">Restore from any of the backups listed below. Manual backups are highlighted.</p>
+        
+        <div id="backupsListContainer">
+          <div id="backupsLoading" class="backups-loading">Loading backups...</div>
+          <div id="backupsEmpty" class="backups-empty" style="display: none;">No backups available</div>
+          <div id="backupsList" class="backups-list" style="display: none;"></div>
+        </div>
+        
+        <div id="restoreStatus" class="backup-status"></div>
+      </div>
+
+      <div class="settings-actions">
+        <div id="settings-status" class="settings-status"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Restore Modal -->
+  <div id="restoreModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="restoreModalTitle" aria-describedby="restoreModalMessage">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="restoreModalTitle"></h2>
+      </div>
+      <div class="modal-body">
+        <p id="restoreModalMessage"></p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="restoreModalCancelBtn" style="display: none;">Cancel</button>
+        <button class="btn btn-primary" id="restoreModalConfirmBtn"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+  <script src="/js/backup-restore.js"></script>
+</body>
+</html>

@@ -13,8 +13,193 @@ Trello was great, then Atlassian bought it.
 - `docker compose up -d`
 - Navigate to http(s)://{docker-host-ip}
 
+### Backup Storage
+Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
+
+**Permission Requirements**: The container runs as a non-root user (UID 1000). If the `./backups/` directory is not writable, backups will fail with a permission error displayed in the UI. To fix this, run:
+```bash
+sudo chown -R 1000:1000 ./backups
+sudo chmod -R 755 ./backups
+```
+
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.
 I know what it all does, I have no idea what code was written to achieve it.
 Use at your own risk.
+
+## Features
+
+### 📋 Board Management
+- **Create Multiple Boards** - Organize different projects with separate Kanban boards
+- **Update Board Details** - Rename boards and modify their properties
+- **Delete Boards** - Remove boards when projects are complete
+- **Default Board Setting** - Set a default board to load on startup
+- **Board Statistics** - View counts of boards, columns, and cards
+
+![Board List](images/boards.png)
+
+### 📊 Column Management
+- **Flexible Columns** - Create custom columns for your workflow (e.g., To Do, In Progress, Done)
+- **Reorder Columns** - Rearrange columns to match your process
+- **Column Operations** - Add, edit, or delete columns as your workflow evolves
+- **Column Menu** - Access column actions via three-dots menu:
+  - **Move All Cards** - Batch move all cards from one column to another (top or bottom position)
+  - **Archive All Cards** - Archive all active cards in a column at once
+  - **Unarchive All Cards** - Unarchive all archived cards in a column (visible in archive view)
+  - **Delete All Cards** - Remove all cards from a column
+  - **Delete Column** - Remove the entire column
+
+![Kanban Board](images/board.png)
+
+### 🎴 Card Management
+- **Create Cards** - Add task cards with titles and descriptions
+- **Move Cards** - Drag cards between columns to track progress
+- **Update Cards** - Edit card details, titles, and descriptions
+- **Delete Cards** - Remove completed or cancelled tasks
+- **Archive Cards** - Archive completed cards to declutter your board while preserving history
+- **Unarchive Cards** - Restore archived cards back to active view when needed
+- **View Switching** - Switch between Task, Scheduled, and Archived views using the header dropdown
+- **Batch Operations** - Archive or unarchive multiple cards at once via column menu
+
+![Card Detail](images/card_detail.png)
+![Archive View](images/archive_screen.png)
+
+### ✅ Checklist Items
+- **Task Breakdown** - Add checklist items to cards for subtasks
+- **Track Progress** - Check off items as you complete them
+- **Update Checklists** - Modify checklist item text and completion status
+- **Remove Items** - Delete checklist items when no longer needed
+
+### 💬 Comments
+- **Card Discussion** - Add comments to cards for collaboration
+- **Comment History** - View all comments on a card with timestamps
+- **Delete Comments** - Remove outdated or incorrect comments
+
+### 🔄 Scheduled Cards (Recurring Tasks)
+- **Template Cards** - Convert any card into a recurring task template
+- **Flexible Scheduling** - Create cards automatically on a schedule:
+  - **Frequency Options**: Every N minutes, hours, days, weeks, months, or years
+  - **Start Date/Time**: Configure when the schedule begins
+  - **End Date/Time**: Optional schedule expiration (auto-disables when reached)
+- **Schedule Management**:
+  - **Enable/Disable**: Turn schedules on or off without deleting them
+  - **Edit Schedules**: Update frequency, dates, or settings at any time
+  - **Delete Schedules**: Remove recurring schedules when no longer needed
+- **Duplicate Control** - Prevent duplicate cards in the same column or allow multiple instances
+- **Live Preview** - See the next 4 scheduled run times before saving
+- **Scheduled View** - Dedicated view for managing template cards (separate from task view)
+- **Automatic Creation** - Cards created every minute based on enabled schedules
+- **Schedule Tracking** - Auto-generated comments track which schedule created each card
+- **Checklist Preservation** - Template checklist items are copied to new cards
+
+![Scheduled Cards](images/scheduled_cards.png)
+![Schedule Modal](images/schedule_modal.png)
+
+### ⚙️ Settings & Configuration
+- **Customizable Settings** - Configure application preferences including default board
+
+![Settings](images/settings.png)
+
+### Automatic Database Backups - Schedule recurring backups to protect your data ###
+- Configurable frequency (minutes, hours, or days)
+- Flexible start time alignment for backup scheduling
+- Automatic retention management (keep 1-100 most recent backups)
+- Backup health monitoring with status indicators
+- Overdue backup detection
+- Backups saved to host filesystem via bind mount (`./backups/`)
+
+![Backup Settings](images/backup_configuration.png)
+
+### 🔔 Notifications
+- **System Notifications** - Receive alerts about important events
+- **Backup Notifications** - Alerts for overdue backups or backup failures
+- **Schedule Notifications** - Alerts for schedule errors or when schedules end
+- **Notification Center** - View and manage all notifications from the header
+- **Mark as Read** - Individual or bulk mark notifications as read and delete
+- **Notification Badge** - Unread count indicator in header
+
+![Notifications](images/notifications.png)
+
+### 🔧 System Info
+- **Version Tracking** - Monitor application and database schema versions
+- **DB Stats** - Statistics on task entities in the database
+- **Service Monitoring** - Status of running system services and enable/disable toggle
+
+![System Info](images/system_info.png)
+
+### 🤖 Background Services
+- **Backup Scheduler** - Automatic database backup service running every minute
+  - Monitors backup schedule and creates backups at configured intervals
+  - Enforces retention policies automatically
+  - Checks disk space before creating backups
+  - Creates notifications for failures or overdue backups
+- **Card Scheduler** - Automatic card creation service running every minute
+  - Processes enabled schedules and creates cards at scheduled times
+  - Enforces duplicate prevention rules
+  - Auto-disables schedules past their end date
+  - Creates notifications on errors
+  - Adds tracking comments to created cards
+
+### 🔌 API Documentation
+- **Interactive API Docs** - Built-in Swagger UI at `/api/docs`
+- **RESTful API** - Full API access for integrations and automation
+- **Health Checks** - Database connectivity and version endpoints
+
+![API Documentation](images/api_docs.png)
+
+## Architecture Decisions
+
+This section documents key architectural choices made in the AFT application.
+
+### Custom Date Math vs. dateutil
+
+**Decision**: Implement custom `_add_months()` and `_add_years()` functions instead of using `python-dateutil`.
+
+**Rationale**:
+- Scheduled cards feature only needs simple calendar math (add N months/years)
+- `python-dateutil` adds 300KB+ dependency for functionality we don't need
+- Our custom implementation handles edge cases correctly:
+  - Month overflow (Jan 31 + 1 month = Feb 28/29)
+  - Leap years (Feb 29 + 1 year = Feb 28)
+  - Year boundaries (Dec 31 + 1 month = Jan 31 next year)
+- No timezone/DST complexity needed (app uses local time)
+- Custom functions are ~50 lines vs. large library
+
+**When to Reconsider**: If we later need timezone handling, complex recurrence rules (RRULE), or relative deltas with multiple units, consider adding `python-dateutil`.
+
+**Implementation**: See `server/schedule_utils.py` for the custom date math functions.
+
+### Background Services: Daemon Threads vs. Celery
+
+**Decision**: Use simple Python scripts with daemon threads instead of Celery task queue.
+
+**Rationale**:
+- Application is single-user/small-scale
+- Simple periodic tasks (backups every N minutes, card creation on schedule)
+- Don't need distributed task execution, complex workflows, or advanced retry logic
+- Simpler deployment (no Redis/RabbitMQ required)
+- Easier to debug and maintain
+- Threads run within Flask app container, sharing database connections and context
+
+**When to Reconsider**: If application scales to multi-user with complex workflows, many background tasks, or need for task prioritization/distribution, consider Celery.
+
+**Implementation**: See `server/backup_scheduler.py` and `server/card_scheduler.py` for examples of the daemon thread pattern.
+
+### Single Container vs. Microservices
+
+**Decision**: Run all background services as daemon threads within the Flask app container.
+
+**Rationale**:
+- Simpler deployment and orchestration
+- Shared database connections and SQLAlchemy sessions
+- Direct access to Flask app models and utilities
+- Lower resource overhead (no inter-service communication)
+- Appropriate for single-user application scale
+
+**Trade-offs**:
+- All services restart if Flask app restarts
+- Can't scale services independently
+- Acceptable for current use case
+
+**Implementation**: Background services initialized in `server/app.py` via `init_backup_scheduler()` and `init_card_scheduler()` functions.

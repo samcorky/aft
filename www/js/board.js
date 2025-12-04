@@ -2718,7 +2718,11 @@ class BoardManager {
             modal.remove();
             
             // Open schedule modal for this template
-            this.openScheduleModal(cardData.id);
+            try {
+              this.openScheduleModal(cardData.id);
+            } catch (err) {
+              alert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err));
+            }
             return;
           } else {
             // User chose not to create a schedule, ask if they still want to save

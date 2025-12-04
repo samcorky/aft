@@ -179,21 +179,13 @@ class ChecklistManager {
     }
   }
 
-  addItem(insertAtTop = false) {
-    const tempId = Date.now() + Math.random();
+  createItemElement(tempId) {
     const item = {
       name: '',
       checked: false,
       tempId: tempId
     };
 
-    if (insertAtTop) {
-      this.pendingItems.unshift(item);
-    } else {
-      this.pendingItems.push(item);
-    }
-
-    // Add item to UI with input field
     const itemHtml = `
       <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
         <span class="drag-handle" title="Drag to reorder">&#9776;</span>
@@ -205,51 +197,44 @@ class ChecklistManager {
       </div>
     `;
 
-    if (insertAtTop) {
-      this.container.insertAdjacentHTML('afterbegin', itemHtml);
-    } else {
-      this.container.insertAdjacentHTML('beforeend', itemHtml);
-    }
+    return { item, itemHtml };
+  }
 
-    // Focus the newly added input
+  focusNewItem(tempId) {
     const newInput = this.container.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
     if (newInput) {
       newInput.focus();
     }
+  }
 
+  addItem(insertAtTop = false) {
+    const tempId = Date.now() + Math.random();
+    const { item, itemHtml } = this.createItemElement(tempId);
+
+    if (insertAtTop) {
+      this.pendingItems.unshift(item);
+      this.container.insertAdjacentHTML('afterbegin', itemHtml);
+    } else {
+      this.pendingItems.push(item);
+      this.container.insertAdjacentHTML('beforeend', itemHtml);
+    }
+
+    this.focusNewItem(tempId);
     this.onItemAdded();
     this.updateSummary();
   }
 
   addItemAfter(afterTempId) {
     const tempId = Date.now() + Math.random();
-    const item = {
-      name: '',
-      checked: false,
-      tempId: tempId
-    };
+    const { item, itemHtml } = this.createItemElement(tempId);
 
     // Find the index of the item to insert after
     const afterIndex = this.pendingItems.findIndex(i => i.tempId === afterTempId);
     if (afterIndex !== -1) {
-      // Insert after the found item
       this.pendingItems.splice(afterIndex + 1, 0, item);
     } else {
-      // If not found, add at the end
       this.pendingItems.push(item);
     }
-
-    // Add item to UI with input field
-    const itemHtml = `
-      <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
-        <span class="drag-handle" title="Drag to reorder">&#9776;</span>
-        <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
-        <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
-        <div class="checklist-item-actions">
-          <button type="button" class="${this.deleteButtonClass}" data-temp-id="${tempId}" title="Delete">🗑</button>
-        </div>
-      </div>
-    `;
 
     // Find the DOM element to insert after
     const afterElement = this.container.querySelector(`.checklist-item[data-temp-id="${afterTempId}"]`);
@@ -259,12 +244,7 @@ class ChecklistManager {
       this.container.insertAdjacentHTML('beforeend', itemHtml);
     }
 
-    // Focus the newly added input
-    const newInput = this.container.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
-    if (newInput) {
-      newInput.focus();
-    }
-
+    this.focusNewItem(tempId);
     this.onItemAdded();
     this.updateSummary();
   }

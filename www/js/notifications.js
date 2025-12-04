@@ -242,6 +242,7 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);
@@ -261,6 +262,7 @@ class Notifications {
     
     // Handle action button keyboard activation
     if (target.classList.contains('notification-action-btn')) {
+      e.stopPropagation(); // Prevent the popup from closing
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';
@@ -276,6 +278,7 @@ class Notifications {
     // Handle notification item keyboard activation
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

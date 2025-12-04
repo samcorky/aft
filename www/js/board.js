@@ -1479,7 +1479,7 @@ class BoardManager {
     
     const descriptionInput = document.getElementById('template-description');
     descriptionInput.addEventListener('input', () => {
-      hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== '';
+      hasUnsavedChanges = titleInput.value.trim() !== '' || descriptionInput.value.trim() !== '';
     });
     
     // Track changes in schedule fields
@@ -2164,7 +2164,7 @@ class BoardManager {
     
     const descriptionInput = document.getElementById('card-description');
     descriptionInput.addEventListener('input', () => {
-      hasUnsavedChanges = hasUnsavedChanges || descriptionInput.value.trim() !== '';
+      hasUnsavedChanges = titleInput.value.trim() !== '' || descriptionInput.value.trim() !== '';
     });
     
     // Helper to update checklist summary

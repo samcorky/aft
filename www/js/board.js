@@ -2179,7 +2179,12 @@ class BoardManager {
           );
           
           if (createSchedule) {
-            this.openScheduleModal(cardId);
+            try {
+              this.openScheduleModal(cardId);
+            } catch (err) {
+              console.error('Error opening schedule modal:', err);
+              alert('Failed to open schedule editor. Please try again.');
+            }
           }
         }
         
@@ -2376,7 +2381,12 @@ class BoardManager {
         const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
         // Remove the edit card modal before opening schedule modal
         modal.remove();
-        this.openScheduleModal(cardId, cardData, hasSchedule);
+        try {
+          this.openScheduleModal(cardId, cardData, hasSchedule);
+        } catch (err) {
+          console.error('Error opening schedule modal:', err);
+          alert('Failed to open schedule editor. Please try again.');
+        }
       });
     }
 
@@ -2393,7 +2403,12 @@ class BoardManager {
         const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
         // Remove the edit card modal before opening schedule modal
         modal.remove();
-        this.openScheduleModal(cardId, cardData, hasSchedule);
+        try {
+          this.openScheduleModal(cardId, cardData, hasSchedule);
+        } catch (err) {
+          console.error('Error opening schedule modal:', err);
+          alert('Failed to open schedule editor. Please try again.');
+        }
       });
     }
 

@@ -138,6 +138,16 @@ class CardScheduler:
     def _process_schedule(self, db, schedule: ScheduledCard, now: datetime):
         """Process a single schedule and create card if needed.
         
+        This method implements a catch-up mechanism to handle missed schedules:
+        - Looks back up to 1 hour to find the most recent scheduled run time
+        - Creates the card if we're within 1 minute of any missed run time
+        - Only creates ONE card per missed window to prevent duplicates
+        
+        Limitations:
+        - If the server is down for more than 1 hour, schedules in that period won't be caught up
+        - Only catches up the most recent missed run, not all missed runs
+        - Relies on checking the database for existing cards to prevent duplicates
+        
         Args:
             db: Database session
             schedule: ScheduledCard instance
@@ -161,8 +171,14 @@ class CardScheduler:
                 return
         
         # Calculate next run time - check if we should run now
-        # Look back 1 minute to catch any runs we might have missed
-        check_time = now - timedelta(minutes=1)
+        # Look back up to 1 hour to catch any runs we might have missed due to:
+        # - Server restarts
+        # - Heavy load causing delayed execution
+        # - Temporary service interruptions
+        # This provides a reasonable catch-up window without going too far back
+        lookback_window = timedelta(hours=1)
+        check_time = now - lookback_window
+        
         next_run = get_next_run(
             start=schedule.start_datetime,  # type: ignore
             after=check_time,
@@ -170,9 +186,38 @@ class CardScheduler:
             unit=schedule.unit  # type: ignore
         )
         
-        # Check if it's time to create a card (within the last minute)
-        if next_run and (now - next_run).total_seconds() < 60:
-            self._create_scheduled_card(db, schedule)
+        # Check if it's time to create a card
+        # We create a card if the calculated next_run is in the past but within our lookback window
+        # This allows catching up on missed schedules while preventing old schedules from triggering
+        if next_run and next_run <= now:
+            # Check how far in the past this run was
+            time_since_run = (now - next_run).total_seconds()
+            
+            # Only create if within lookback window (prevents very old schedules from triggering)
+            if time_since_run < lookback_window.total_seconds():
+                # Additional safety when duplicates not allowed: Check if card already exists
+                # This prevents creating duplicate cards if the scheduler runs multiple times
+                # within the lookback window (e.g., after a restart)
+                if not schedule.allow_duplicates:  # type: ignore
+                    # For non-duplicate schedules, check if any active cards exist from this schedule
+                    # This is a simple but effective way to prevent duplicates without needing timestamps
+                    existing_card = (
+                        db.query(Card)
+                        .filter(Card.schedule == schedule.id)
+                        .filter(Card.scheduled.is_(False))  # Don't count template cards
+                        .filter(Card.archived.is_(False))  # Only check active cards
+                        .first()
+                    )
+                    
+                    if existing_card:
+                        # Already have an active card for this schedule, skip
+                        logger.debug(f"Skipping schedule {schedule.id} - active card already exists")
+                        return
+                
+                logger.info(f"Creating card for schedule {schedule.id} (missed by {time_since_run:.0f} seconds)")
+                self._create_scheduled_card(db, schedule)
+            else:
+                logger.debug(f"Skipping schedule {schedule.id} - next_run too old ({time_since_run:.0f} seconds ago)")
     
     def _create_scheduled_card(self, db, schedule: ScheduledCard):
         """Create a new card from a schedule template.

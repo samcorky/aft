@@ -4523,7 +4523,6 @@ def create_schedule():
             
             # Update card's schedule reference
             card.schedule = schedule.id
-            template_card = card
         else:
             # Create a NEW card as the template (hidden from task views)
             template_card = Card(

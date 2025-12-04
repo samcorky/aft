@@ -1,5 +1,5 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, Date, Time
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base

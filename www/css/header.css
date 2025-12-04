@@ -34,7 +34,7 @@
 }
 
 .header-logo {
-  height: 50px;
+  height: 40px;
   width: auto;
 }
 
@@ -46,7 +46,7 @@
 
 .header-left h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -64,8 +64,8 @@
 }
 
 .header-left h2 {
-  margin: 5px 0 0 0;
-  font-size: 14px;
+  margin: 0;
+  font-size: 11px;
   font-weight: 400;
   opacity: 0.8;
 }

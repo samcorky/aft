@@ -641,6 +641,18 @@ class BoardManager {
       // Initialize card collapse/expand functionality
       // Use requestAnimationFrame to ensure DOM is fully rendered before measuring
       requestAnimationFrame(() => {
+        // Get the collapse threshold from CSS custom property
+        const collapseHeightStr = getComputedStyle(document.documentElement)
+          .getPropertyValue('--card-collapse-height')
+          .trim();
+        const collapseHeight = parseInt(collapseHeightStr);
+        
+        if (!collapseHeight || isNaN(collapseHeight)) {
+          console.error('Card collapse height not defined in CSS. Skipping card collapse logic.');
+          return;
+        }
+        
+        console.log('Card collapse threshold:', collapseHeight);
         console.log('Checking cards for overflow...');
         document.querySelectorAll('.card').forEach(card => {
           const contentWrapper = card.querySelector('.card-content-wrapper');
@@ -657,8 +669,8 @@ class BoardManager {
             // Measure the actual content height
             const contentHeight = contentWrapper.scrollHeight;
             
-            // If content is taller than ~160px (8 lines), make it collapsible
-            if (contentHeight > 160) {
+            // If content is taller than the threshold, make it collapsible
+            if (contentHeight > collapseHeight) {
               console.log('Adding overflow classes to card with height:', contentHeight);
               card.classList.add('has-overflow');
               card.classList.add('collapsed');

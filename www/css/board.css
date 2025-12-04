@@ -1,4 +1,8 @@
 /* Board Page Styles */
+:root {
+  --card-collapse-height: 160px;
+}
+
 .board-header {
   display: flex;
   justify-content: space-between;
@@ -373,7 +377,7 @@
 }
 
 .card.collapsed .card-content-wrapper {
-  max-height: 160px; /* Approximately 8 lines */
+  max-height: var(--card-collapse-height);
   overflow: hidden;
   position: relative;
 }

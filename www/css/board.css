@@ -372,6 +372,46 @@
   position: relative;
 }
 
+.card.collapsed .card-content-wrapper {
+  max-height: 160px; /* Approximately 8 lines */
+  overflow: hidden;
+  position: relative;
+}
+
+.card.collapsed .card-content-wrapper::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,1));
+  pointer-events: none;
+}
+
+.card-expand-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--primary-color);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+  display: none;
+}
+
+.card.has-overflow .card-expand-btn {
+  display: block;
+}
+
+.card-expand-btn:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
 .card:active {
   cursor: grabbing;
 }

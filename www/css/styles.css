@@ -179,6 +179,7 @@ body {
   margin: 0 0 15px 0;
   color: var(--text-color);
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 #appModal .modal-input {

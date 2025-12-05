@@ -472,6 +472,7 @@
 
 .modal-body p {
   margin: 0 0 15px 0;
+  white-space: pre-line;
 }
 
 .modal-body p:last-child {

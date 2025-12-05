@@ -32,6 +32,10 @@ class BackupRestore {
     this.backupsEmpty = document.getElementById('backupsEmpty');
     this.backupsList = document.getElementById('backupsList');
     this.restoreStatus = document.getElementById('restoreStatus');
+    this.deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    
+    // Track selected backups
+    this.selectedBackups = new Set();
   }
 
   // Helper function to escape HTML and prevent XSS
@@ -74,6 +78,16 @@ class BackupRestore {
     await this.loadBackupStatus();
     await this.loadAvailableBackups();
     this.attachEventListeners();
+    this.setupSelectAllCheckbox();
+  }
+
+  setupSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllBackups');
+    if (selectAllCheckbox) {
+      selectAllCheckbox.addEventListener('change', (e) => {
+        this.toggleSelectAll(e.target.checked);
+      });
+    }
   }
 
   attachEventListeners() {
@@ -104,6 +118,13 @@ class BackupRestore {
         if (e.target.files.length > 0) {
           this.restoreFromFile(e.target.files[0]);
         }
+      });
+    }
+
+    // Delete selected backups button
+    if (this.deleteSelectedBtn) {
+      this.deleteSelectedBtn.addEventListener('click', () => {
+        this.deleteSelectedBackups();
       });
     }
 
@@ -520,10 +541,12 @@ class BackupRestore {
 
   renderBackupsList(backups) {
     this.backupsList.innerHTML = '';
+    this.selectedBackups.clear();
     
     backups.forEach(backup => {
       const backupItem = document.createElement('div');
       backupItem.className = 'backup-item';
+      backupItem.dataset.filename = backup.filename;
       
       // Add manual backup class for highlighting
       if (backup.is_manual) {
@@ -558,6 +581,9 @@ class BackupRestore {
       }
       
       backupItem.innerHTML = `
+        <div class="backup-checkbox">
+          <input type="checkbox" class="backup-select-checkbox" data-filename="${this.escapeHtml(backup.filename)}" aria-label="Select ${this.escapeHtml(backup.filename)}">
+        </div>
         <div class="backup-info">
           <div class="backup-filename">${filenameHtml}</div>
           <div class="backup-date">${formattedDate}</div>
@@ -573,6 +599,12 @@ class BackupRestore {
         </div>
       `;
       
+      // Add checkbox event listener
+      const checkbox = backupItem.querySelector('.backup-select-checkbox');
+      checkbox.addEventListener('change', (e) => {
+        this.toggleBackupSelection(backup.filename, e.target.checked);
+      });
+      
       const restoreBtn = backupItem.querySelector('.backup-restore-btn');
       restoreBtn.addEventListener('click', () => {
         this.restoreFromAutoBackup(backup.filename);
@@ -585,6 +617,106 @@ class BackupRestore {
       
       this.backupsList.appendChild(backupItem);
     });
+    
+    this.updateDeleteSelectedButton();
+    this.updateSelectAllCheckbox();
+  }
+
+  toggleBackupSelection(filename, isSelected) {
+    if (isSelected) {
+      this.selectedBackups.add(filename);
+    } else {
+      this.selectedBackups.delete(filename);
+    }
+    this.updateDeleteSelectedButton();
+    this.updateSelectAllCheckbox();
+  }
+
+  toggleSelectAll(isSelected) {
+    const checkboxes = this.backupsList.querySelectorAll('.backup-select-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = isSelected;
+      const filename = checkbox.dataset.filename;
+      if (isSelected) {
+        this.selectedBackups.add(filename);
+      } else {
+        this.selectedBackups.delete(filename);
+      }
+    });
+    this.updateDeleteSelectedButton();
+    this.updateSelectAllCheckbox();
+  }
+
+  updateSelectAllCheckbox() {
+    const selectAllCheckbox = document.getElementById('selectAllBackups');
+    if (!selectAllCheckbox) return;
+    
+    const checkboxes = this.backupsList.querySelectorAll('.backup-select-checkbox');
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    
+    selectAllCheckbox.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+  }
+
+  updateDeleteSelectedButton() {
+    if (this.deleteSelectedBtn) {
+      if (this.selectedBackups.size > 0) {
+        this.deleteSelectedBtn.disabled = false;
+        this.deleteSelectedBtn.textContent = `Delete Selected (${this.selectedBackups.size})`;
+      } else {
+        this.deleteSelectedBtn.disabled = true;
+        this.deleteSelectedBtn.textContent = 'Delete Selected';
+      }
+    }
+  }
+
+  async deleteSelectedBackups() {
+    const count = this.selectedBackups.size;
+    if (count === 0) return;
+    
+    // Show confirmation modal
+    const confirmed = await showConfirm(
+      `Are you sure you want to delete ${count} backup${count > 1 ? 's' : ''}? This action cannot be undone.`,
+      'Confirm Bulk Delete'
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      const filenames = Array.from(this.selectedBackups);
+      
+      const response = await fetch('/api/database/backups/delete-multiple', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ filenames })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete backups');
+      }
+      
+      // Show success message
+      let message = `Successfully deleted ${data.deleted} backup${data.deleted > 1 ? 's' : ''}`;
+      if (data.failed > 0) {
+        message += `. ${data.failed} failed to delete.`;
+        if (data.errors && data.errors.length > 0) {
+          console.error('Bulk delete errors:', data.errors);
+        }
+      }
+      
+      await showAlert(message, data.failed > 0 ? 'Warning' : 'Success');
+      
+      // Reload the backups list
+      await this.loadAvailableBackups();
+      
+    } catch (error) {
+      console.error('Error deleting backups:', error);
+      await showAlert(`Error deleting backups: ${error.message}`, 'Error');
+    }
   }
 
   async restoreFromAutoBackup(filename) {

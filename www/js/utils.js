@@ -17,7 +17,8 @@ async function preloadTimeFormat() {
     if (response.ok) {
       const data = await response.json();
       if (data.success) {
-        sessionStorage.setItem('timeFormat', data.value || '24');
+        const value = data.value || '24';
+        sessionStorage.setItem('timeFormat', (value === '12' || value === '24') ? value : '24');
       }
     }
   } catch (err) {
@@ -45,8 +46,8 @@ async function formatTime(date, includeSeconds = false) {
       const response = await fetch('/api/settings/time_format');
       if (response.ok) {
         const data = await response.json();
-        if (data.success) {
-          timeFormat = data.value || '24';
+        if (data.success && (data.value === '12' || data.value === '24')) {
+          timeFormat = data.value;
           sessionStorage.setItem('timeFormat', timeFormat);
         } else {
           timeFormat = '24'; // fallback
@@ -96,8 +97,9 @@ async function formatTime(date, includeSeconds = false) {
 function formatTimeSync(date, includeSeconds = false) {
   const dateObj = date instanceof Date ? date : new Date(date);
   
-  // Check session storage (synchronous)
-  const timeFormat = sessionStorage.getItem('timeFormat') || '24';
+  // Check session storage (synchronous) and validate
+  const cachedFormat = sessionStorage.getItem('timeFormat') || '24';
+  const timeFormat = (cachedFormat === '12' || cachedFormat === '24') ? cachedFormat : '24';
   
   // Format based on preference
   if (timeFormat === '12') {

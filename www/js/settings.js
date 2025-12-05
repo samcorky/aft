@@ -71,7 +71,8 @@ class Settings {
       if (timeResponse.ok) {
         const data = await timeResponse.json();
         if (data.success) {
-          const timeFormat = data.value || '24';
+          const value = data.value || '24';
+          const timeFormat = (value === '12' || value === '24') ? value : '24';
           const radio = document.querySelector(`input[name="time-format"][value="${timeFormat}"]`);
           if (radio) {
             radio.checked = true;

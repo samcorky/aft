@@ -85,18 +85,7 @@ class BackupRestore {
     const selectAllCheckbox = document.getElementById('selectAllBackups');
     if (selectAllCheckbox) {
       selectAllCheckbox.addEventListener('change', (e) => {
-        const checkboxes = this.backupsList.querySelectorAll('.backup-select-checkbox');
-        checkboxes.forEach(checkbox => {
-          checkbox.checked = e.target.checked;
-          const filename = checkbox.dataset.filename;
-          if (e.target.checked) {
-            this.selectedBackups.add(filename);
-          } else {
-            this.selectedBackups.delete(filename);
-          }
-        });
-        this.updateDeleteSelectedButton();
-        this.updateSelectAllCheckbox();
+        this.toggleSelectAll(e.target.checked);
       });
     }
   }
@@ -643,7 +632,7 @@ class BackupRestore {
     this.updateSelectAllCheckbox();
   }
 
-  toggleSelectAll(isSelected, backups) {
+  toggleSelectAll(isSelected) {
     const checkboxes = this.backupsList.querySelectorAll('.backup-select-checkbox');
     checkboxes.forEach(checkbox => {
       checkbox.checked = isSelected;
@@ -655,6 +644,7 @@ class BackupRestore {
       }
     });
     this.updateDeleteSelectedButton();
+    this.updateSelectAllCheckbox();
   }
 
   updateSelectAllCheckbox() {

@@ -269,6 +269,7 @@ class TestBulkDeleteBackupAPI:
                 try:
                     requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
                 except Exception:
+                    # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
     def test_delete_multiple_with_invalid_filenames(self, api_client):

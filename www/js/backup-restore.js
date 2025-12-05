@@ -96,6 +96,7 @@ class BackupRestore {
           }
         });
         this.updateDeleteSelectedButton();
+        this.updateSelectAllCheckbox();
       });
     }
   }

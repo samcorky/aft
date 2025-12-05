@@ -526,13 +526,13 @@ class BoardManager {
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
                     <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
-                      <div class="card-action-buttons">
+                      <div class="card-action-buttons" draggable="false">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
-                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
-                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
+                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">📂</button>` :
+                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">🗄️</button>`
                         }
-                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
                       </div>
                       <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
@@ -710,11 +710,12 @@ class BoardManager {
       document.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', async (e) => {
           // Don't trigger if clicking the delete button, checklist checkbox, or expand button
-          if (e.target.classList.contains('card-delete-btn')) return;
-          if (e.target.classList.contains('card-checklist-checkbox')) return;
-          if (e.target.classList.contains('card-expand-btn')) return;
-          if (e.target.classList.contains('card-archive-btn')) return;
-          if (e.target.classList.contains('card-unarchive-btn')) return;
+          // Use closest() to handle clicks on button content (like emoji text nodes)
+          if (e.target.closest('.card-delete-btn')) return;
+          if (e.target.closest('.card-checklist-checkbox')) return;
+          if (e.target.closest('.card-expand-btn')) return;
+          if (e.target.closest('.card-archive-btn')) return;
+          if (e.target.closest('.card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
           // Reload card data to get latest state
@@ -760,16 +761,16 @@ class BoardManager {
       document.querySelectorAll('.card-expand-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const card = e.target.closest('.card');
+          const card = e.currentTarget.closest('.card');
           
           if (card.classList.contains('collapsed')) {
             card.classList.remove('collapsed');
-            e.target.textContent = 'Show less...';
-            e.target.setAttribute('aria-expanded', 'true');
+            e.currentTarget.textContent = 'Show less...';
+            e.currentTarget.setAttribute('aria-expanded', 'true');
           } else {
             card.classList.add('collapsed');
-            e.target.textContent = 'Show more...';
-            e.target.setAttribute('aria-expanded', 'false');
+            e.currentTarget.textContent = 'Show more...';
+            e.currentTarget.setAttribute('aria-expanded', 'false');
           }
         });
       });
@@ -806,27 +807,36 @@ class BoardManager {
       
       // Add event listeners for delete card buttons
       document.querySelectorAll('.card-delete-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.deleteCard(cardId);
         });
       });
       
       // Add event listeners for archive card buttons
       document.querySelectorAll('.card-archive-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.archiveCard(cardId);
         });
       });
       
       // Add event listeners for unarchive card buttons
       document.querySelectorAll('.card-unarchive-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.unarchiveCard(cardId);
         });
       });
@@ -876,6 +886,17 @@ class BoardManager {
     // Card drag events
     cards.forEach(card => {
       card.addEventListener('dragstart', (e) => {
+        // Don't allow drag if clicking on buttons or interactive elements
+        if (e.target.closest('.card-delete-btn') || 
+            e.target.closest('.card-archive-btn') || 
+            e.target.closest('.card-unarchive-btn') ||
+            e.target.closest('.card-expand-btn') ||
+            e.target.closest('.card-checklist-checkbox') ||
+            e.target.closest('.card-action-buttons')) {
+          e.preventDefault();
+          return false;
+        }
+        
         e.stopPropagation(); // Prevent column from also starting to drag
         draggedCard = card;
         card.classList.add('dragging');
@@ -1225,7 +1246,7 @@ class BoardManager {
     // Handle delete
     if (deleteBtn) {
       deleteBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to delete this schedule? This will not delete cards already created.')) {
+        if (!await showConfirm('Are you sure you want to delete this schedule? This will not delete cards already created.', 'Confirm Deletion')) {
           return;
         }
 
@@ -1243,11 +1264,11 @@ class BoardManager {
             if (editModal) editModal.remove();
             await this.loadBoard();
           } else {
-            alert('Failed to delete schedule: ' + data.message);
+            await showAlert('Failed to delete schedule: ' + data.message, 'Error');
           }
         } catch (err) {
           console.error('Error deleting schedule:', err);
-          alert('An error occurred while deleting the schedule');
+          await showAlert('An error occurred while deleting the schedule', 'Error');
         }
       });
     }
@@ -1268,11 +1289,11 @@ class BoardManager {
               // Open edit card modal for the template
               this.openEditCardModal(templateCardId, data.card);
             } else {
-              alert('Failed to load template card: ' + data.message);
+              await showAlert('Failed to load template card: ' + data.message, 'Error');
             }
           } catch (err) {
             console.error('Error loading template card:', err);
-            alert('Error loading template card');
+            await showAlert('Error loading template card', 'Error');
           }
         }
       });
@@ -1324,11 +1345,11 @@ class BoardManager {
           if (editModal) editModal.remove();
           await this.loadBoard();
         } else {
-          alert('Failed to save schedule: ' + data.message);
+          await showAlert('Failed to save schedule: ' + data.message, 'Error');
         }
       } catch (err) {
         console.error('Error saving schedule:', err);
-        alert('An error occurred while saving the schedule');
+        await showAlert('An error occurred while saving the schedule', 'Error');
       }
     });
 
@@ -1662,12 +1683,12 @@ class BoardManager {
     updateNextRuns();
 
     // Handle cancel with warning if there are unsaved changes
-    const handleCancel = () => {
+    const handleCancel = async () => {
       // Check if there's any content or checklist items
       const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
       
       if (hasContent) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
           modal.remove();
         }
       } else {
@@ -1714,7 +1735,7 @@ class BoardManager {
         const cardData = await this.parseResponse(cardResponse);
 
         if (!cardData.success) {
-          alert('Failed to create template card: ' + cardData.message);
+          await showAlert('Failed to create template card: ' + cardData.message, 'Error');
           return;
         }
 
@@ -1745,12 +1766,12 @@ class BoardManager {
           modal.remove();
           await this.loadBoard();
         } else {
-          alert('Failed to create schedule: ' + scheduleResponseData.message);
+          await showAlert('Failed to create schedule: ' + scheduleResponseData.message, 'Error');
         }
 
       } catch (err) {
         console.error('Error creating template with schedule:', err);
-        alert('Error creating template with schedule');
+        await showAlert('Error creating template with schedule', 'Error');
       }
     });
 
@@ -1774,15 +1795,15 @@ class BoardManager {
         // Reload columns to show the new one
         await this.loadBoard();
       } else {
-        alert('Failed to create column: ' + data.message);
+        await showAlert('Failed to create column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error creating column: ' + err.message);
+      await showAlert('Error creating column: ' + err.message, 'Error');
     }
   }
 
   async deleteColumn(columnId) {
-    if (!confirm('Are you sure you want to delete this column?')) {
+    if (!await showConfirm('Are you sure you want to delete this column?', 'Confirm Deletion')) {
       return;
     }
 
@@ -1797,15 +1818,15 @@ class BoardManager {
         // Reload columns to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete column: ' + data.message);
+        await showAlert('Failed to delete column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error deleting column: ' + err.message);
+      await showAlert('Error deleting column: ' + err.message, 'Error');
     }
   }
 
   async deleteAllCardsInColumn(columnId) {
-    if (!confirm('Are you sure you want to delete all cards in this column? This action cannot be undone.')) {
+    if (!await showConfirm('Are you sure you want to delete all cards in this column? This action cannot be undone.', 'Confirm Deletion')) {
       return;
     }
 
@@ -1822,29 +1843,29 @@ class BoardManager {
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete cards: ' + data.message);
+        await showAlert('Failed to delete cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error deleting cards:', err);
-      alert('Error deleting cards: ' + err.message);
+      await showAlert('Error deleting cards: ' + err.message, 'Error');
     }
   }
 
   async archiveAllCardsInColumn(columnId) {
     const column = this.columns.find(c => c.id === columnId);
     if (!column || !column.cards) {
-      alert('No cards found in this column');
+      await showAlert('No cards found in this column', 'Warning');
       return;
     }
 
     // Get all unarchived cards
     const unarchivedCards = column.cards.filter(c => !c.archived);
     if (unarchivedCards.length === 0) {
-      alert('No active cards to archive in this column');
+      await showAlert('No active cards to archive in this column', 'Warning');
       return;
     }
 
-    if (!confirm(`Are you sure you want to archive all ${unarchivedCards.length} active card(s) in this column?`)) {
+    if (!await showConfirm(`Are you sure you want to archive all ${unarchivedCards.length} active card(s) in this column?`, 'Confirm Archive')) {
       return;
     }
 
@@ -1862,27 +1883,27 @@ class BoardManager {
 
       if (data.success) {
         await this.loadBoard();
-        alert(`Successfully archived ${data.archived_count} card(s)`);
+        await showAlert(`Successfully archived ${data.archived_count} card(s)`, 'Success');
       } else {
-        alert('Failed to archive cards: ' + data.message);
+        await showAlert('Failed to archive cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error archiving cards:', err);
-      alert('Error archiving cards: ' + err.message);
+      await showAlert('Error archiving cards: ' + err.message, 'Error');
     }
   }
 
   async unarchiveAllCardsInColumn(columnId) {
     const column = this.columns.find(c => c.id === columnId);
     if (!column || !column.cards) {
-      alert('No cards found in this column');
+      await showAlert('No cards found in this column', 'Warning');
       return;
     }
 
     // Get all archived cards
     const archivedCards = column.cards.filter(c => c.archived);
     if (archivedCards.length === 0) {
-      alert('No archived cards to unarchive in this column');
+      await showAlert('No archived cards to unarchive in this column', 'Warning');
       return;
     }
 
@@ -1904,28 +1925,28 @@ class BoardManager {
 
       if (data.success) {
         await this.loadBoard();
-        alert(`Successfully unarchived ${data.unarchived_count} card(s)`);
+        await showAlert(`Successfully unarchived ${data.unarchived_count} card(s)`, 'Success');
       } else {
-        alert('Failed to unarchive cards: ' + data.message);
+        await showAlert('Failed to unarchive cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error unarchiving cards:', err);
-      alert('Error unarchiving cards: ' + err.message);
+      await showAlert('Error unarchiving cards: ' + err.message, 'Error');
     }
   }
 
-  openMoveAllCardsModal(sourceColumnId) {
+  async openMoveAllCardsModal(sourceColumnId) {
     // Get source column and its cards
     const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
     if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
-      alert('No cards to move in this column');
+      await showAlert('No cards to move in this column', 'Warning');
       return;
     }
 
     // Get target columns (exclude source column)
     const targetColumns = this.columns.filter(c => c.id !== sourceColumnId);
     if (targetColumns.length === 0) {
-      alert('No other columns available to move cards to');
+      await showAlert('No other columns available to move cards to', 'Warning');
       return;
     }
 
@@ -2028,7 +2049,7 @@ class BoardManager {
     // Get target column to determine starting order for bottom position
     const targetColumn = this.columns.find(c => c.id === targetColumnId);
     if (!targetColumn) {
-      alert('Target column not found');
+      await showAlert('Target column not found', 'Error');
       return;
     }
 
@@ -2055,10 +2076,10 @@ class BoardManager {
       // Reload board to reflect changes
       await this.loadBoard();
       
-      alert(`Successfully moved ${data.moved_count} card(s)`);
+      await showAlert(`Successfully moved ${data.moved_count} card(s)`, 'Success');
     } catch (err) {
       console.error('Error moving cards:', err);
-      alert('Error moving cards: ' + err.message);
+      await showAlert('Error moving cards: ' + err.message, 'Error');
     }
   }
 
@@ -2131,10 +2152,10 @@ class BoardManager {
         // Reload columns to show the updated name
         await this.loadBoard();
       } else {
-        alert('Failed to update column: ' + data.message);
+        await showAlert('Failed to update column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error updating column: ' + err.message);
+      await showAlert('Error updating column: ' + err.message, 'Error');
     }
   }
 
@@ -2347,9 +2368,9 @@ class BoardManager {
         
         // If this is a template card, prompt to create a schedule
         if (scheduled) {
-          const createSchedule = confirm(
-            'Template card created! Would you like to create a schedule for it now?\n\n' +
-            'Schedules automatically create new task cards from this template at regular intervals.'
+          const createSchedule = await showConfirm(
+            'Template card created! Would you like to create a schedule for it now?\n\nSchedules automatically create new task cards from this template at regular intervals.',
+            'Create Schedule?'
           );
           
           if (createSchedule) {
@@ -2357,18 +2378,18 @@ class BoardManager {
               this.openScheduleModal(cardId);
             } catch (err) {
               console.error('Error opening schedule modal:', err);
-              alert('Failed to open schedule editor. Please try again.');
+              await showAlert('Failed to open schedule editor. Please try again.', 'Error');
             }
           }
         }
         
         return cardId;
       } else {
-        alert('Failed to create card: ' + data.message);
+        await showAlert('Failed to create card: ' + data.message, 'Error');
         return null;
       }
     } catch (err) {
-      alert('Error creating card: ' + err.message);
+      await showAlert('Error creating card: ' + err.message, 'Error');
       return null;
     }
   }
@@ -2545,10 +2566,10 @@ class BoardManager {
     // Handle edit schedule button from template modal
     const editScheduleFromTemplateBtn = document.getElementById('edit-schedule-from-template-btn');
     if (editScheduleFromTemplateBtn) {
-      editScheduleFromTemplateBtn.addEventListener('click', () => {
+      editScheduleFromTemplateBtn.addEventListener('click', async () => {
         // Check for unsaved changes
         if (hasUnsavedChanges || hasUnpostedComment()) {
-          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.', 'Confirm Action')) {
             return;
           }
         }
@@ -2559,7 +2580,7 @@ class BoardManager {
           this.openScheduleModal(cardId, cardData, hasSchedule);
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          alert('Failed to open schedule editor. Please try again.');
+          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
         }
       });
     }
@@ -2567,10 +2588,10 @@ class BoardManager {
     // Handle schedule button
     const scheduleBtn = document.getElementById('schedule-card-btn');
     if (scheduleBtn) {
-      scheduleBtn.addEventListener('click', () => {
+      scheduleBtn.addEventListener('click', async () => {
         // Check for unsaved changes
         if (hasUnsavedChanges || hasUnpostedComment()) {
-          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.', 'Confirm Action')) {
             return;
           }
         }
@@ -2581,15 +2602,15 @@ class BoardManager {
           this.openScheduleModal(cardId, cardData, hasSchedule);
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          alert('Failed to open schedule editor. Please try again.');
+          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
         }
       });
     }
 
     // Handle cancel with warning if there are unsaved changes
-    const handleCancel = () => {
+    const handleCancel = async () => {
       if (hasUnpostedComment()) {
-        if (!confirm('You have an unposted comment. Are you sure you want to cancel?')) {
+        if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
           return;
         }
       }
@@ -2757,7 +2778,7 @@ class BoardManager {
     // Handle delete checklist item buttons
     document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
-        if (confirm('Delete this checklist item?')) {
+        if (await showConfirm('Delete this checklist item?', 'Confirm Deletion')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
           await this.deleteChecklistItem(itemId);
           // Remove the item element in-place instead of closing modal
@@ -2811,7 +2832,7 @@ class BoardManager {
         
         // Validate comment length on client side
         if (commentText.length > MAX_COMMENT_LENGTH) {
-          alert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`);
+          await showAlert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`, 'Invalid Input');
           return;
         }
         
@@ -2856,11 +2877,11 @@ class BoardManager {
             // Clear input
             newCommentInput.value = '';
           } else {
-            alert('Failed to post comment: ' + data.message);
+            await showAlert('Failed to post comment: ' + data.message, 'Error');
           }
         } catch (err) {
           console.error('Error posting comment:', err);
-          alert('Error posting comment');
+          await showAlert('Error posting comment', 'Error');
         }
       });
     }
@@ -2885,7 +2906,7 @@ class BoardManager {
       
       // Check for unposted comment
       if (hasUnpostedComment()) {
-        if (!confirm('You have an unposted comment. Are you sure you want to save without posting it?')) {
+        if (!await showConfirm('You have an unposted comment. Are you sure you want to save without posting it?', 'Confirm Action')) {
           return;
         }
       }
@@ -2896,9 +2917,9 @@ class BoardManager {
       if (title) {
         // Validate that template cards have a schedule
         if (isTemplate && !cardData.schedule) {
-          const createSchedule = confirm(
-            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\n' +
-            'Would you like to create a schedule for this template now?'
+          const createSchedule = await showConfirm(
+            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\nWould you like to create a schedule for this template now?',
+            'Create Schedule?'
           );
           
           if (createSchedule) {
@@ -2910,12 +2931,12 @@ class BoardManager {
             try {
               this.openScheduleModal(cardData.id);
             } catch (err) {
-              alert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err));
+              await showAlert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err), 'Error');
             }
             return;
           } else {
             // User chose not to create a schedule, ask if they still want to save
-            const saveAnyway = confirm('Save template without a schedule? (You can add a schedule later using the Edit Schedule button)');
+            const saveAnyway = await showConfirm('Save template without a schedule? (You can add a schedule later using the Edit Schedule button)', 'Confirm Action');
             if (!saveAnyway) {
               return; // Don't save, stay in modal
             }
@@ -3021,10 +3042,10 @@ class BoardManager {
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to create checklist item: ' + data.message);
+        await showAlert('Failed to create checklist item: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error creating checklist item: ' + err.message);
+      await showAlert('Error creating checklist item: ' + err.message, 'Error');
     }
   }
 
@@ -3041,10 +3062,10 @@ class BoardManager {
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to update checklist item: ' + data.message);
+        await showAlert('Failed to update checklist item: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error updating checklist item: ' + err.message);
+      await showAlert('Error updating checklist item: ' + err.message, 'Error');
     }
   }
 
@@ -3057,10 +3078,10 @@ class BoardManager {
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to delete checklist item: ' + data.message);
+        await showAlert('Failed to delete checklist item: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error deleting checklist item: ' + err.message);
+      await showAlert('Error deleting checklist item: ' + err.message, 'Error');
     }
   }
 
@@ -3080,15 +3101,15 @@ class BoardManager {
         // Reload board to show the updated card
         await this.loadBoard();
       } else {
-        alert('Failed to update card: ' + data.message);
+        await showAlert('Failed to update card: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error updating card: ' + err.message);
+      await showAlert('Error updating card: ' + err.message, 'Error');
     }
   }
 
   async deleteCard(cardId) {
-    if (!confirm('Are you sure you want to delete this card?')) {
+    if (!await showConfirm('Are you sure you want to delete this card?', 'Confirm Deletion')) {
       return;
     }
 
@@ -3103,10 +3124,10 @@ class BoardManager {
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete card: ' + data.message);
+        await showAlert('Failed to delete card: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error deleting card: ' + err.message);
+      await showAlert('Error deleting card: ' + err.message, 'Error');
     }
   }
 
@@ -3122,10 +3143,10 @@ class BoardManager {
         // Reload board to reflect archiving
         await this.loadBoard();
       } else {
-        alert('Failed to archive card: ' + data.message);
+        await showAlert('Failed to archive card: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error archiving card: ' + err.message);
+      await showAlert('Error archiving card: ' + err.message, 'Error');
     }
   }
 
@@ -3141,10 +3162,10 @@ class BoardManager {
         // Reload board to reflect unarchiving
         await this.loadBoard();
       } else {
-        alert('Failed to unarchive card: ' + data.message);
+        await showAlert('Failed to unarchive card: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error unarchiving card: ' + err.message);
+      await showAlert('Error unarchiving card: ' + err.message, 'Error');
     }
   }
 
@@ -3308,7 +3329,7 @@ class BoardManager {
   async deleteCommentHandler(deleteBtn, cardId) {
     const commentId = parseInt(deleteBtn.getAttribute('data-comment-id'));
     
-    if (!confirm('Are you sure you want to delete this comment?')) {
+    if (!await showConfirm('Are you sure you want to delete this comment?', 'Confirm Deletion')) {
       return;
     }
     
@@ -3330,11 +3351,11 @@ class BoardManager {
           commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
         }
       } else {
-        alert('Failed to delete comment: ' + data.message);
+        await showAlert('Failed to delete comment: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error deleting comment:', err);
-      alert('Error deleting comment');
+      await showAlert('Error deleting comment', 'Error');
     }
   }
 }

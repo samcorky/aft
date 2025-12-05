@@ -437,7 +437,8 @@
   z-index: 1000;
 }
 
-.modal.active {
+.modal.active,
+.modal.show {
   display: flex;
 }
 
@@ -470,7 +471,28 @@
 }
 
 .modal-body p {
-  margin: 0;
+  margin: 0 0 15px 0;
+  white-space: pre-line;
+}
+
+.modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  margin-top: 10px;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
 .modal-actions {

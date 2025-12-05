@@ -470,6 +470,10 @@
   gap: 8px;
   opacity: 1 !important;
   transition: all 0.2s;
+  pointer-events: auto;
+  -webkit-user-drag: none;
+  user-drag: none;
+  z-index: 10;
 }
 
 .card-delete-btn,
@@ -480,15 +484,20 @@
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
+  padding: 4px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
   opacity: 1 !important;
   visibility: visible !important;
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+  z-index: 10;
+  position: relative;
 }
 
 .card-delete-btn {

@@ -199,7 +199,7 @@ class SystemInfo {
         this.closeDeleteModal();
         
         // Show success message
-        alert('Database deleted successfully. The page will now reload.');
+        await showAlert('Database deleted successfully. The page will now reload.', 'Success');
         
         // Reload page
         window.location.reload();
@@ -227,13 +227,13 @@ class SystemInfo {
       if (!data.success) {
         // Revert toggle on error
         this.backupToggle.checked = !enabled;
-        alert(`Error: ${data.message}`);
+        await showAlert(data.message, 'Error');
       }
     } catch (error) {
       console.error('Error toggling backup:', error);
       // Revert toggle on error
       this.backupToggle.checked = !enabled;
-      alert(`Error: ${error.message}`);
+      await showAlert(error.message, 'Error');
     }
   }
 }

@@ -629,6 +629,7 @@ class BackupRestore {
     });
     
     this.updateDeleteSelectedButton();
+    this.updateSelectAllCheckbox();
   }
 
   toggleBackupSelection(filename, isSelected) {

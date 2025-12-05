@@ -478,15 +478,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background-color 0.2s, transform 0.1s;
+  position: relative;
 }
 
 .notification-action-link:hover {
   background: var(--primary-hover);
   transform: translateY(-1px);
-  max-width: none;
+}
+
+.notification-action-link:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
   white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  max-width: 300px;
+  font-size: 12px;
+  margin-bottom: 5px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  pointer-events: none;
 }
 
 .notification-time {

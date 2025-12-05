@@ -353,4 +353,8 @@ const header = new Header();
 window.header = header; // Make it globally accessible
 document.addEventListener('DOMContentLoaded', () => {
   header.load();
+  // Preload time format preference
+  if (typeof preloadTimeFormat === 'function') {
+    preloadTimeFormat();
+  }
 });

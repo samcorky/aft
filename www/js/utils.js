@@ -3,15 +3,139 @@
  */
 
 /**
+ * Preload the time format preference into session storage.
+ * Call this early on page load to avoid fallbacks in synchronous formatting.
+ * @returns {Promise<void>}
+ */
+async function preloadTimeFormat() {
+  if (sessionStorage.getItem('timeFormat')) {
+    return; // Already cached
+  }
+  
+  try {
+    const response = await fetch('/api/settings/time_format');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success) {
+        sessionStorage.setItem('timeFormat', data.value || '24');
+      }
+    }
+  } catch (err) {
+    console.error('Error preloading time format:', err);
+  }
+}
+
+/**
+ * Format time according to user's time format preference.
+ * Uses session storage to cache the preference and avoid API calls on every render.
+ * 
+ * @param {Date|string} date - Date object or ISO date string
+ * @param {boolean} includeSeconds - Whether to include seconds in the output
+ * @returns {Promise<string>} Formatted time string (e.g., "2:30 PM" or "14:30")
+ */
+async function formatTime(date, includeSeconds = false) {
+  const dateObj = date instanceof Date ? date : new Date(date);
+  
+  // Check session storage first
+  let timeFormat = sessionStorage.getItem('timeFormat');
+  
+  // If not cached, fetch from API
+  if (!timeFormat) {
+    try {
+      const response = await fetch('/api/settings/time_format');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          timeFormat = data.value || '24';
+          sessionStorage.setItem('timeFormat', timeFormat);
+        } else {
+          timeFormat = '24'; // fallback
+        }
+      } else {
+        timeFormat = '24'; // fallback
+      }
+    } catch (err) {
+      console.error('Error fetching time format preference:', err);
+      timeFormat = '24'; // fallback
+    }
+  }
+  
+  // Format based on preference
+  if (timeFormat === '12') {
+    const options = {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-US', options);
+  } else {
+    const options = {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-GB', options);
+  }
+}
+
+/**
+ * Format time synchronously using cached preference.
+ * Falls back to 24-hour format if preference not yet cached.
+ * Use this for synchronous rendering contexts.
+ * 
+ * @param {Date|string} date - Date object or ISO date string
+ * @param {boolean} includeSeconds - Whether to include seconds in the output
+ * @returns {string} Formatted time string (e.g., "2:30 PM" or "14:30")
+ */
+function formatTimeSync(date, includeSeconds = false) {
+  const dateObj = date instanceof Date ? date : new Date(date);
+  
+  // Check session storage (synchronous)
+  const timeFormat = sessionStorage.getItem('timeFormat') || '24';
+  
+  // Format based on preference
+  if (timeFormat === '12') {
+    const options = {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-US', options);
+  } else {
+    const options = {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-GB', options);
+  }
+}
+
+/**
  * Format a date/timestamp for display in tooltips.
- * Returns a consistent format across the application: "4 Dec 2025 14:30"
+ * Returns a consistent format across the application: "4 Dec 2025 14:30" or "4 Dec 2025 2:30 PM"
+ * Uses synchronous formatting with cached time format preference.
  * 
  * @param {Date|string} date - Date object or ISO date string
  * @returns {string} Formatted date string
  */
 function formatTooltipDateTime(date) {
   const dateObj = date instanceof Date ? date : new Date(date);
-  return `${dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${dateObj.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+  const datePart = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const timePart = formatTimeSync(dateObj);
+  return `${datePart} ${timePart}`;
 }
 
 /**

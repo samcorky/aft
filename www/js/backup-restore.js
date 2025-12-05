@@ -532,14 +532,13 @@ class BackupRestore {
       
       // Format date
       const date = new Date(backup.created);
-      const formattedDate = date.toLocaleString('en-US', {
+      const datePart = date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
+        day: 'numeric'
       });
+      const timePart = formatTimeSync(date, true);
+      const formattedDate = `${datePart}, ${timePart}`;
       
       // Format size
       const size = backup.size;

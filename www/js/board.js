@@ -1212,10 +1212,7 @@ class BoardManager {
               month: 'short', 
               day: 'numeric' 
             });
-            const timeStr = run.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            });
+            const timeStr = formatTimeSync(run);
             return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
           }).join('');
         }
@@ -1660,10 +1657,7 @@ class BoardManager {
               month: 'short', 
               day: 'numeric' 
             });
-            const timeStr = run.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            });
+            const timeStr = formatTimeSync(run);
             return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
           }).join('');
         }
@@ -3308,8 +3302,7 @@ class BoardManager {
     
     // Format as date/time for older comments (day/month/year format)
     const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
-    const timeOptions = { hour: '2-digit', minute: '2-digit' };
-    return date.toLocaleDateString('en-GB', dateOptions) + ' ' + date.toLocaleTimeString(undefined, timeOptions);
+    return date.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(date);
   }
 
   generateCommentHtml(comment) {

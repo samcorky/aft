@@ -74,6 +74,12 @@ SETTINGS_SCHEMA = {
         "description": "ISO timestamp of the last backup run",
         "validate": lambda value: value is None or isinstance(value, str),
     },
+    "time_format": {
+        "type": "string",
+        "nullable": False,
+        "description": "Time format preference: '12' for 12-hour or '24' for 24-hour",
+        "validate": lambda value: isinstance(value, str) and value in ["12", "24"],
+    },
 }
 
 

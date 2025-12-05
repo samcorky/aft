@@ -279,7 +279,7 @@ function showAlert(message, title) {
  * @example
  * const result = await showConfirm('This action cannot be undone.\n\nAre you sure?', 'Warning');
  */
-function showConfirm(message, title) {
+function showConfirm(message, title = 'Confirm') {
   return modalDialog.confirm(message, title);
 }
 

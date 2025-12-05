@@ -21,6 +21,8 @@ function formatTooltipDateTime(date) {
 class ModalDialog {
   constructor() {
     this.modal = null;
+    this.isOpen = false;
+    this.currentCleanup = null;
     this.createModal();
   }
 
@@ -59,6 +61,15 @@ class ModalDialog {
 
   show(title, message, options = {}) {
     return new Promise((resolve) => {
+      // If modal is already open, wait for it to close first
+      if (this.isOpen) {
+        // Clean up previous modal
+        if (this.currentCleanup) {
+          this.currentCleanup();
+        }
+      }
+
+      this.isOpen = true;
       this.title.textContent = title;
       this.message.textContent = message;
       
@@ -89,6 +100,8 @@ class ModalDialog {
       const handleConfirm = () => {
         cleanup();
         this.modal.classList.remove('show');
+        this.isOpen = false;
+        this.currentCleanup = null;
         if (options.showInput) {
           resolve(this.input.value);
         } else {
@@ -100,6 +113,8 @@ class ModalDialog {
       const handleCancel = () => {
         cleanup();
         this.modal.classList.remove('show');
+        this.isOpen = false;
+        this.currentCleanup = null;
         if (options.showInput) {
           resolve(null);
         } else {
@@ -128,6 +143,9 @@ class ModalDialog {
         document.removeEventListener('keydown', handleEscape);
         this.input.removeEventListener('keydown', handleEnter);
       };
+
+      // Store cleanup function for potential early cleanup
+      this.currentCleanup = cleanup;
 
       // Add event listeners
       this.confirmBtn.addEventListener('click', handleConfirm);

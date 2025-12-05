@@ -142,6 +142,7 @@ class TestNotificationCreationHelper:
             'Backup Error',
             'Backup Completed',
             'Backup Permission',
+            'Backup Scheduler',
             'Backups Disabled',
             'Permissions Restored'
         ]

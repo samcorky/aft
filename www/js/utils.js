@@ -104,12 +104,29 @@ class ModalDialog {
 
       // If modal is already open, wait for it to close first
       if (this.isOpen) {
-        // Clean up previous modal
+        // Clean up previous modal immediately
         if (this.currentCleanup) {
           this.currentCleanup();
         }
+        // Remove show class and wait for animation to complete
+        this.modal.classList.remove('show');
+        
+        // Wait for CSS animation to complete (300ms from modalSlideIn animation)
+        // Adding small buffer for safety
+        setTimeout(() => {
+          this.isOpen = false;
+          this.currentCleanup = null;
+          // Now show the new modal
+          this.showModalContent(title, message, options, resolve);
+        }, 350);
+        return;
       }
 
+      this.showModalContent(title, message, options, resolve);
+    });
+  }
+
+  showModalContent(title, message, options, resolve) {
       this.isOpen = true;
       this.title.textContent = title;
       
@@ -227,7 +244,6 @@ class ModalDialog {
           this.confirmBtn.focus();
         }
       });
-    });
   }
 
   alert(message, title = 'Alert') {

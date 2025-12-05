@@ -129,7 +129,9 @@ class BackupScheduler:
             self.permission_error = error_msg
             create_notification(
                 subject="⚠️ Backup Scheduler Permission Error",
-                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved."
+                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved.",
+                action_title="View Backup Settings",
+                action_url="/backup-restore.html"
             )
             # Clean up lock file before returning
             if self.lock_file.exists():
@@ -233,7 +235,9 @@ class BackupScheduler:
                 logger.warning(f"Disabled backups due to invalid settings: {error_msg}")
                 create_notification(
                     subject="⚠️ Backups Disabled - Invalid Settings",
-                    message=f"Automatic backups have been disabled due to invalid configuration:\n\n{error_msg}\n\nPlease review backup settings and re-enable."
+                    message=f"Automatic backups have been disabled due to invalid configuration:\n\n{error_msg}\n\nPlease review backup settings and re-enable.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
         except Exception as e:
             logger.error(f"Failed to disable backups: {str(e)}")
@@ -541,7 +545,9 @@ class BackupScheduler:
                     overdue_by = time_since_last - frequency
                     create_notification(
                         subject="⚠️ Backup Overdue",
-                        message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues."
+                        message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues.",
+                        action_title="View Backup Settings",
+                        action_url="/backup-restore.html"
                     )
                     logger.warning(f"Backup is overdue by {overdue_by}, notification sent")
             else:
@@ -583,7 +589,9 @@ class BackupScheduler:
                 logger.error(f"Backup skipped: {space_error}")
                 create_notification(
                     subject="❌ Backup Failed - Insufficient Disk Space",
-                    message=f"Automatic backup could not run due to insufficient free disk space.\n\n{space_error}\n\nPlease free up disk space or adjust the minimum free space requirement in backup settings."
+                    message=f"Automatic backup could not run due to insufficient free disk space.\n\n{space_error}\n\nPlease free up disk space or adjust the minimum free space requirement in backup settings.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
                 return
             
@@ -640,7 +648,9 @@ class BackupScheduler:
                 error_msg = f"mysqldump failed: {result.stderr}"
                 create_notification(
                     subject="⚠️ Automatic Backup Failed",
-                    message=f"Scheduled automatic backup failed:\n\n{error_msg}\n\nCheck database connection and mysqldump availability in server logs."
+                    message=f"Scheduled automatic backup failed:\n\n{error_msg}\n\nCheck database connection and mysqldump availability in server logs.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
                 raise Exception(error_msg)
             
@@ -665,7 +675,9 @@ class BackupScheduler:
                         notification_db.rollback()
                     create_notification(
                         subject="✅ Backup Completed",
-                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
+                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule.",
+                        action_title="View Backups",
+                        action_url="/backup-restore.html"
                     )
             finally:
                 notification_db.close()
@@ -676,7 +688,9 @@ class BackupScheduler:
             logger.error(f"Error creating automatic backup: {str(e)}")
             create_notification(
                 subject="⚠️ Automatic Backup Error",
-                message=f"Failed to create scheduled backup:\n\n{str(e)}\n\nCheck server logs for details. Backups will retry on next schedule."
+                message=f"Failed to create scheduled backup:\n\n{str(e)}\n\nCheck server logs for details. Backups will retry on next schedule.",
+                action_title="View Backup Settings",
+                action_url="/backup-restore.html"
             )
             return False
             
@@ -713,7 +727,9 @@ class BackupScheduler:
                         # Create notification when permission error first detected or changes
                         create_notification(
                             subject="⚠️ Backup Permission Error",
-                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved."
+                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved.",
+                            action_title="View Backup Settings",
+                            action_url="/backup-restore.html"
                         )
                     self.permission_error = error_msg
                     # Skip backup if we can't write
@@ -725,7 +741,9 @@ class BackupScheduler:
                     logger.info("Backup directory permissions have been fixed")
                     create_notification(
                         subject="✅ Backup Permissions Restored",
-                        message="Backup directory permissions have been fixed. Automatic backups will resume on schedule."
+                        message="Backup directory permissions have been fixed. Automatic backups will resume on schedule.",
+                        action_title="View Backup Settings",
+                        action_url="/backup-restore.html"
                     )
                 self.permission_error = None
                 

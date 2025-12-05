@@ -92,6 +92,11 @@ class TestNotificationCreationHelper:
                 assert 'insufficient free disk space' in latest['message'].lower()
                 assert 'Available:' in latest['message'] or 'available' in latest['message'].lower()
                 assert 'Required:' in latest['message'] or 'required' in latest['message'].lower()
+                # Verify action button is present
+                assert 'action_title' in latest
+                assert 'action_url' in latest
+                assert latest['action_title'] == 'View Backup Settings'
+                assert latest['action_url'] == '/backup-restore.html'
                 break
         
         # Reset to reasonable settings
@@ -122,6 +127,45 @@ class TestNotificationCreationHelper:
             # Message should not be empty
             assert len(notification['message']) > 0
             assert len(notification['message']) <= 65535
+    
+    def test_backup_notifications_have_action_buttons(self, api_client):
+        """Test that all backup-related notifications include action buttons."""
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        notifications = response.json()['notifications']
+        
+        # Keywords that indicate backup-related notifications
+        backup_keywords = [
+            'Backup Overdue',
+            'Backup Failed',
+            'Backup Error',
+            'Backup Completed',
+            'Backup Permission',
+            'Backups Disabled',
+            'Permissions Restored'
+        ]
+        
+        # Check all backup notifications have action buttons
+        for notification in notifications:
+            is_backup_notification = any(
+                keyword in notification['subject'] 
+                for keyword in backup_keywords
+            )
+            
+            if is_backup_notification:
+                # Verify action button fields are present
+                assert 'action_title' in notification, \
+                    f"Backup notification '{notification['subject']}' missing action_title"
+                assert 'action_url' in notification, \
+                    f"Backup notification '{notification['subject']}' missing action_url"
+                
+                # Verify action button values are reasonable
+                assert notification['action_title'] is not None
+                assert notification['action_url'] is not None
+                assert len(notification['action_title']) > 0
+                assert notification['action_url'] == '/backup-restore.html', \
+                    f"Backup notification has wrong action URL: {notification['action_url']}"
 
 
 @pytest.mark.api
@@ -172,6 +216,11 @@ class TestOverdueNotificationDeduplication:
             assert '✅' in notification['subject']
             assert 'successfully' in notification['message'].lower()
             assert 'overdue' in notification['message'].lower()
+            # Verify action button is present
+            assert 'action_title' in notification
+            assert 'action_url' in notification
+            assert notification['action_title'] == 'View Backups'
+            assert notification['action_url'] == '/backup-restore.html'
     
     def test_overdue_notification_content(self, api_client):
         """Test that overdue notifications contain expected information."""
@@ -192,6 +241,11 @@ class TestOverdueNotificationDeduplication:
             assert 'Last backup:' in notification['message']
             assert 'Expected frequency:' in notification['message']
             assert 'overdue by' in notification['message'].lower()
+            # Verify action button is present
+            assert 'action_title' in notification
+            assert 'action_url' in notification
+            assert notification['action_title'] == 'View Backup Settings'
+            assert notification['action_url'] == '/backup-restore.html'
 
 
 @pytest.mark.api

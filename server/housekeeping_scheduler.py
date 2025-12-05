@@ -54,10 +54,19 @@ class HousekeepingScheduler:
                     logger.warning("Invalid lock file, removing")
                     self.lock_file.unlink()
             
-            # Create lock file with current PID
+            # Create lock file atomically with exclusive creation
             import os
-            with open(self.lock_file, 'w') as f:
-                f.write(str(os.getpid()))
+            try:
+                # Open with O_CREAT | O_EXCL to fail if file exists (atomic check-and-create)
+                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+                try:
+                    os.write(fd, str(os.getpid()).encode())
+                finally:
+                    os.close(fd)
+            except FileExistsError:
+                # Another process created the lock file between our check and creation
+                logger.info("Housekeeping scheduler already started by another process")
+                return
             
             self.running = True
             self.thread = threading.Thread(target=self._run_scheduler, daemon=True)

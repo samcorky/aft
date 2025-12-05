@@ -526,13 +526,13 @@ class BoardManager {
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
                     <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
-                      <div class="card-action-buttons">
+                      <div class="card-action-buttons" draggable="false">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
-                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
-                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
+                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">📂</button>` :
+                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">🗄️</button>`
                         }
-                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
                       </div>
                       <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
@@ -710,11 +710,12 @@ class BoardManager {
       document.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', async (e) => {
           // Don't trigger if clicking the delete button, checklist checkbox, or expand button
-          if (e.target.classList.contains('card-delete-btn')) return;
-          if (e.target.classList.contains('card-checklist-checkbox')) return;
-          if (e.target.classList.contains('card-expand-btn')) return;
-          if (e.target.classList.contains('card-archive-btn')) return;
-          if (e.target.classList.contains('card-unarchive-btn')) return;
+          // Use closest() to handle clicks on button content (like emoji text nodes)
+          if (e.target.closest('.card-delete-btn')) return;
+          if (e.target.closest('.card-checklist-checkbox')) return;
+          if (e.target.closest('.card-expand-btn')) return;
+          if (e.target.closest('.card-archive-btn')) return;
+          if (e.target.closest('.card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
           // Reload card data to get latest state
@@ -760,16 +761,16 @@ class BoardManager {
       document.querySelectorAll('.card-expand-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const card = e.target.closest('.card');
+          const card = e.currentTarget.closest('.card');
           
           if (card.classList.contains('collapsed')) {
             card.classList.remove('collapsed');
-            e.target.textContent = 'Show less...';
-            e.target.setAttribute('aria-expanded', 'true');
+            e.currentTarget.textContent = 'Show less...';
+            e.currentTarget.setAttribute('aria-expanded', 'true');
           } else {
             card.classList.add('collapsed');
-            e.target.textContent = 'Show more...';
-            e.target.setAttribute('aria-expanded', 'false');
+            e.currentTarget.textContent = 'Show more...';
+            e.currentTarget.setAttribute('aria-expanded', 'false');
           }
         });
       });
@@ -806,27 +807,36 @@ class BoardManager {
       
       // Add event listeners for delete card buttons
       document.querySelectorAll('.card-delete-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.deleteCard(cardId);
         });
       });
       
       // Add event listeners for archive card buttons
       document.querySelectorAll('.card-archive-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.archiveCard(cardId);
         });
       });
       
       // Add event listeners for unarchive card buttons
       document.querySelectorAll('.card-unarchive-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
         btn.addEventListener('click', (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           this.unarchiveCard(cardId);
         });
       });
@@ -876,6 +886,17 @@ class BoardManager {
     // Card drag events
     cards.forEach(card => {
       card.addEventListener('dragstart', (e) => {
+        // Don't allow drag if clicking on buttons or interactive elements
+        if (e.target.closest('.card-delete-btn') || 
+            e.target.closest('.card-archive-btn') || 
+            e.target.closest('.card-unarchive-btn') ||
+            e.target.closest('.card-expand-btn') ||
+            e.target.closest('.card-checklist-checkbox') ||
+            e.target.closest('.card-action-buttons')) {
+          e.preventDefault();
+          return false;
+        }
+        
         e.stopPropagation(); // Prevent column from also starting to drag
         draggedCard = card;
         card.classList.add('dragging');

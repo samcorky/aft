@@ -205,8 +205,14 @@ class ModalDialog {
       this.currentCleanup = cleanup;
 
       // Add event listeners
-      this.confirmBtn.addEventListener('click', handleConfirm);
-      this.cancelBtn.addEventListener('click', handleCancel);
+      this.confirmBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleConfirm();
+      });
+      this.cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleCancel();
+      });
       document.addEventListener('keydown', handleEscape);
       this.modal.addEventListener('click', handleBackdropClick);
 

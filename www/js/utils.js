@@ -178,12 +178,9 @@ class ModalDialog {
       const handleEscape = (e) => {
         if (e.key === 'Escape') {
           handleCancel();
-        }
-      };
-
-      // Handle enter key in input
-      const handleEnter = (e) => {
-        if (e.key === 'Enter' && options.showInput) {
+        } else if (e.key === 'Enter') {
+          // Enter key confirms the action for all modal types
+          e.preventDefault();
           handleConfirm();
         }
       };
@@ -201,7 +198,6 @@ class ModalDialog {
         this.confirmBtn.removeEventListener('click', handleConfirm);
         this.cancelBtn.removeEventListener('click', handleCancel);
         document.removeEventListener('keydown', handleEscape);
-        this.input.removeEventListener('keydown', handleEnter);
         this.modal.removeEventListener('click', handleBackdropClick);
       };
 
@@ -212,7 +208,6 @@ class ModalDialog {
       this.confirmBtn.addEventListener('click', handleConfirm);
       this.cancelBtn.addEventListener('click', handleCancel);
       document.addEventListener('keydown', handleEscape);
-      this.input.addEventListener('keydown', handleEnter);
       this.modal.addEventListener('click', handleBackdropClick);
 
       // Focus appropriate element

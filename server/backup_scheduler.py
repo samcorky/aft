@@ -734,8 +734,10 @@ class BackupScheduler:
                 should_run = self._should_run_backup(settings)
                 logger.info(f"Backup check: should_run={should_run}, enabled={settings.get('backup_enabled')}, last_backup={self.last_backup_time}")
                 
-                # Check if backup is overdue and send notification if needed
-                if settings.get('backup_enabled'):
+                # Only check if backup is overdue if we're NOT about to run a backup
+                # This prevents creating an overdue notification and resolution notification
+                # in the same cycle (race condition)
+                if settings.get('backup_enabled') and not should_run:
                     self._check_and_notify_overdue(settings)
                 
                 if should_run:

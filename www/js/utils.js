@@ -260,7 +260,7 @@ const modalDialog = new ModalDialog();
  * @example
  * await showAlert('Error details:\n\nFailed to save data.\nPlease try again.', 'Error');
  */
-function showAlert(message, title) {
+function showAlert(message, title = 'Alert') {
   return modalDialog.alert(message, title);
 }
 

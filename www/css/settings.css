@@ -346,9 +346,62 @@
   margin-top: 15px;
 }
 
+.backups-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.backups-header-left {
+  display: flex;
+  align-items: center;
+}
+
+.backups-header h3 {
+  margin: 0;
+}
+
+.backups-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.backups-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.backups-select-all label {
+  font-size: 14px;
+  color: var(--text-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+#selectAllBackups {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+#deleteSelectedBtn {
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+#deleteSelectedBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .backup-item {
   display: grid;
-  grid-template-columns: 2fr 1fr auto;
+  grid-template-columns: auto 2fr 1fr auto;
   align-items: center;
   gap: 15px;
   padding: 15px;
@@ -363,10 +416,29 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+.backup-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.backup-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+.backup-select-checkbox {
+  cursor: pointer;
+}
+
 .backup-info {
   display: flex;
   flex-direction: column;
   gap: 5px;
+  justify-content: center;
 }
 
 .backup-filename {
@@ -385,6 +457,11 @@
   font-size: 13px;
   color: var(--text-muted);
   text-align: right;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 100%;
 }
 
 .backup-restore-btn {
@@ -413,6 +490,8 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
+  min-height: 100%;
 }
 
 .backup-delete-btn {

@@ -228,6 +228,154 @@ class TestDeleteBackupAPI:
 
 
 @pytest.mark.api
+class TestBulkDeleteBackupAPI:
+    """Test cases for bulk backup deletion endpoint."""
+    
+    def test_delete_multiple_backups_success(self, api_client):
+        """Test deleting multiple backups successfully."""
+        filenames = []
+        
+        try:
+            # Create three manual backups
+            for i in range(3):
+                response = requests.post(f'{api_client}/api/database/backup/manual')
+                assert response.status_code == 200
+                filenames.append(response.json()['filename'])
+                if i < 2:
+                    time.sleep(1.1)  # Ensure unique timestamps
+            
+            # Delete all three
+            response = requests.post(
+                f'{api_client}/api/database/backups/delete-multiple',
+                json={'filenames': filenames}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data['success'] is True
+            assert data['deleted'] == 3
+            assert data['failed'] == 0
+            
+            # Verify all were deleted
+            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_data = list_response.json()
+            remaining_filenames = [b['filename'] for b in list_data['backups']]
+            
+            for filename in filenames:
+                assert filename not in remaining_filenames
+        
+        except Exception:
+            # Cleanup any remaining backups
+            for filename in filenames:
+                try:
+                    requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                except Exception:
+                    pass
+    
+    def test_delete_multiple_with_invalid_filenames(self, api_client):
+        """Test bulk delete with mix of valid and invalid filenames."""
+        valid_filename = None
+        
+        try:
+            # Create one valid backup
+            response = requests.post(f'{api_client}/api/database/backup/manual')
+            assert response.status_code == 200
+            valid_filename = response.json()['filename']
+            
+            # Try to delete with mix of valid and invalid
+            response = requests.post(
+                f'{api_client}/api/database/backups/delete-multiple',
+                json={'filenames': [
+                    valid_filename,
+                    'invalid_backup.sql',
+                    '../etc/passwd'
+                ]}
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data['success'] is True
+            assert data['deleted'] == 1
+            assert data['failed'] == 2
+            assert len(data['errors']) == 2
+            
+            # Verify valid backup was deleted
+            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_data = list_response.json()
+            filenames = [b['filename'] for b in list_data['backups']]
+            assert valid_filename not in filenames
+        
+        except Exception:
+            # Cleanup
+            if valid_filename:
+                try:
+                    requests.delete(f'{api_client}/api/database/backups/delete/{valid_filename}')
+                except Exception:
+                    pass
+    
+    def test_delete_multiple_empty_array(self, api_client):
+        """Test bulk delete with empty array."""
+        response = requests.post(
+            f'{api_client}/api/database/backups/delete-multiple',
+            json={'filenames': []}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'empty' in data['message'].lower()
+    
+    def test_delete_multiple_missing_filenames(self, api_client):
+        """Test bulk delete without filenames parameter."""
+        response = requests.post(
+            f'{api_client}/api/database/backups/delete-multiple',
+            json={}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'missing' in data['message'].lower()
+    
+    def test_delete_multiple_invalid_type(self, api_client):
+        """Test bulk delete with non-array filenames."""
+        response = requests.post(
+            f'{api_client}/api/database/backups/delete-multiple',
+            json={'filenames': 'not_an_array'}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'array' in data['message'].lower()
+    
+    def test_delete_multiple_limit_exceeded(self, api_client):
+        """Test bulk delete with too many filenames."""
+        # Try to delete 101 backups (over the 100 limit)
+        fake_filenames = [f'aft_backup_2024010{i % 10}_120000.sql' for i in range(101)]
+        
+        response = requests.post(
+            f'{api_client}/api/database/backups/delete-multiple',
+            json={'filenames': fake_filenames}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '100' in data['message']
+    
+    def test_delete_multiple_nonexistent_files(self, api_client):
+        """Test bulk delete with files that don't exist."""
+        response = requests.post(
+            f'{api_client}/api/database/backups/delete-multiple',
+            json={'filenames': [
+                'aft_backup_99990101_000000.sql',
+                'aft_backup_99990101_000001.sql'
+            ]}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['deleted'] == 0
+        assert data['failed'] == 2
+        assert len(data['errors']) == 2
+
+
+@pytest.mark.api
 class TestBackupWorkflow:
     """Integration tests for complete backup workflows."""
     

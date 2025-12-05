@@ -1296,6 +1296,113 @@ def delete_backup(filename):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/database/backups/delete-multiple", methods=["POST"])
+def delete_multiple_backups():
+    """Delete multiple backup files.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - filenames
+          properties:
+            filenames:
+              type: array
+              items:
+                type: string
+              description: Array of backup filenames to delete
+    responses:
+      200:
+        description: Backups deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            deleted:
+              type: integer
+              description: Number of backups successfully deleted
+            failed:
+              type: integer
+              description: Number of backups that failed to delete
+            errors:
+              type: array
+              items:
+                type: string
+              description: List of error messages for failed deletions
+      400:
+        description: Invalid request
+      500:
+        description: Failed to delete backups
+    """
+    try:
+        from pathlib import Path
+        import re
+        
+        data = request.get_json()
+        
+        if not data or 'filenames' not in data:
+            return jsonify({"success": False, "message": "Missing filenames array"}), 400
+        
+        filenames = data['filenames']
+        
+        if not isinstance(filenames, list):
+            return jsonify({"success": False, "message": "filenames must be an array"}), 400
+        
+        if len(filenames) == 0:
+            return jsonify({"success": False, "message": "filenames array is empty"}), 400
+        
+        if len(filenames) > 100:
+            return jsonify({"success": False, "message": "Cannot delete more than 100 backups at once"}), 400
+        
+        backup_dir = Path("/app/backups")
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+        
+        for filename in filenames:
+            try:
+                # Validate filename to prevent path traversal
+                if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+                    errors.append(f"{filename}: Invalid backup filename")
+                    failed_count += 1
+                    continue
+                
+                backup_path = backup_dir / filename
+                
+                if not backup_path.exists():
+                    errors.append(f"{filename}: File not found")
+                    failed_count += 1
+                    continue
+                
+                # Delete the backup file
+                backup_path.unlink()
+                deleted_count += 1
+                
+            except Exception as e:
+                errors.append(f"{filename}: {str(e)}")
+                failed_count += 1
+        
+        logger.info(f"Bulk delete completed: {deleted_count} deleted, {failed_count} failed")
+        
+        return jsonify({
+            "success": True,
+            "deleted": deleted_count,
+            "failed": failed_count,
+            "errors": errors,
+            "message": f"Deleted {deleted_count} backup(s)" + (f", {failed_count} failed" if failed_count > 0 else "")
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk delete: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/database", methods=["DELETE"])
 def delete_database():
     """Delete all data from the database.

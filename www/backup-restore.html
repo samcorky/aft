@@ -140,6 +140,16 @@
         <h3>📋 Available Backups</h3>
         <p class="setting-help">Restore from any of the backups listed below. Manual backups are highlighted.</p>
         
+        <div class="backups-controls">
+          <div class="backups-select-all">
+            <input type="checkbox" id="selectAllBackups" aria-label="Select all backups">
+            <label for="selectAllBackups">Select All</label>
+          </div>
+          <button id="deleteSelectedBtn" class="btn btn-danger" disabled aria-label="Delete selected backups">
+            Delete Selected
+          </button>
+        </div>
+        
         <div id="backupsListContainer">
           <div id="backupsLoading" class="backups-loading">Loading backups...</div>
           <div id="backupsEmpty" class="backups-empty" style="display: none;">No backups available</div>

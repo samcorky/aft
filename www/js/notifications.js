@@ -194,7 +194,7 @@ class Notifications {
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
-            <div class="notification-time" data-tooltip="${new Date(notification.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${new Date(notification.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}">${this.formatTime(notification.created_at)}</div>
+            <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}">${this.formatTime(notification.created_at)}</div>
           </div>
           <div class="notification-actions">
             <button class="notification-action-btn read-btn" 

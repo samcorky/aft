@@ -439,7 +439,7 @@ class BackupRestore {
           }
           
           if (this.latestBackup) {
-            this.latestBackup.setAttribute('data-tooltip', backupDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + backupDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+            this.latestBackup.setAttribute('data-tooltip', formatTooltipDateTime(backupDate));
             this.latestBackup.textContent = timeAgo;
           }
         } else {

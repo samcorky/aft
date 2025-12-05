@@ -3296,7 +3296,7 @@ class BoardManager {
     return `
       <div class="comment-item" data-comment-id="${comment.id}">
         <div class="comment-header">
-          <span class="comment-date" data-tooltip="${new Date(comment.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} ${new Date(comment.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}">${this.formatCommentDate(comment.created_at)}</span>
+          <span class="comment-date" data-tooltip="${formatTooltipDateTime(comment.created_at)}">${this.formatCommentDate(comment.created_at)}</span>
           <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
         </div>
         <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${linkifyUrls(this.escapeHtml(comment.comment))}</div>

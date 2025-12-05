@@ -188,12 +188,21 @@ class ModalDialog {
         }
       };
 
+      // Handle backdrop click (click outside modal content)
+      const handleBackdropClick = (e) => {
+        // Only close if clicking directly on the backdrop, not on modal content
+        if (e.target === this.modal) {
+          handleCancel();
+        }
+      };
+
       // Cleanup function
       const cleanup = () => {
         this.confirmBtn.removeEventListener('click', handleConfirm);
         this.cancelBtn.removeEventListener('click', handleCancel);
         document.removeEventListener('keydown', handleEscape);
         this.input.removeEventListener('keydown', handleEnter);
+        this.modal.removeEventListener('click', handleBackdropClick);
       };
 
       // Store cleanup function for potential early cleanup
@@ -204,6 +213,7 @@ class ModalDialog {
       this.cancelBtn.addEventListener('click', handleCancel);
       document.addEventListener('keydown', handleEscape);
       this.input.addEventListener('keydown', handleEnter);
+      this.modal.addEventListener('click', handleBackdropClick);
 
       // Focus appropriate element
       if (options.showInput) {

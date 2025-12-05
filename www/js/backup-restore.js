@@ -438,8 +438,10 @@ class BackupRestore {
             timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
           }
           
-          this.safeSetText(this.latestBackup, timeAgo);
-          this.latestBackup.title = backupDate.toLocaleString();
+          if (this.latestBackup) {
+            this.latestBackup.setAttribute('data-tooltip', backupDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' + backupDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+            this.latestBackup.textContent = timeAgo;
+          }
         } else {
           this.safeSetText(this.latestBackup, 'No backups found');
         }

@@ -36,5 +36,17 @@ def upgrade():
 
 def downgrade():
     """Remove action_title and action_url columns from notifications table."""
-    op.drop_column('notifications', 'action_url')
-    op.drop_column('notifications', 'action_title')
+    # Check if columns exist before dropping (idempotent)
+    from sqlalchemy import inspect
+    
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    
+    if 'notifications' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('notifications')]
+        
+        if 'action_url' in columns:
+            op.drop_column('notifications', 'action_url')
+        
+        if 'action_title' in columns:
+            op.drop_column('notifications', 'action_title')

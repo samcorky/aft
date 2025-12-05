@@ -112,7 +112,19 @@ class ModalDialog {
 
       this.isOpen = true;
       this.title.textContent = title;
-      this.message.textContent = message;
+      
+      // Handle multi-line messages by converting \n to <br> and preserving whitespace
+      // Clear existing content first
+      this.message.innerHTML = '';
+      
+      // Split message by newlines and create text nodes with breaks
+      const lines = message.split('\n');
+      lines.forEach((line, index) => {
+        this.message.appendChild(document.createTextNode(line));
+        if (index < lines.length - 1) {
+          this.message.appendChild(document.createElement('br'));
+        }
+      });
       
       // Handle input field for prompt
       if (options.showInput) {

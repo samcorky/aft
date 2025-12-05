@@ -280,31 +280,19 @@ class Notifications {
   handleNotificationClick(e) {
     const target = e.target;
     
-    // Handle action link clicks (allow normal link behavior for standard clicks)
+    // Handle action link clicks - preserve native link behavior
     if (target.classList.contains('notification-action-link')) {
-      // Only prevent default and handle manually for left-click without modifiers
-      // This preserves middle-click, ctrl+click, right-click, etc.
-      if (e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        const id = parseInt(target.dataset.notificationId);
-        const isUnread = target.dataset.isUnread === 'true';
-        if (isUnread) {
-          // Mark as read asynchronously, don't wait for response
-          this.markAsRead(id, true);
-        }
-        // Navigate to the URL
-        window.location.href = target.href;
-      } else {
-        // For modified clicks (ctrl, shift, middle-click), just mark as read
-        // but let the browser handle the navigation
-        const id = parseInt(target.dataset.notificationId);
-        const isUnread = target.dataset.isUnread === 'true';
-        if (isUnread) {
-          this.markAsRead(id, true);
-        }
+      // Stop propagation to prevent menu from closing in hover mode
+      // but DON'T prevent default - let the browser handle the link navigation
+      e.stopPropagation();
+      
+      const id = parseInt(target.dataset.notificationId);
+      const isUnread = target.dataset.isUnread === 'true';
+      if (isUnread) {
+        // Mark as read asynchronously, don't wait for response
+        this.markAsRead(id, true);
       }
+      // Let the link navigation proceed naturally
       return;
     }
     

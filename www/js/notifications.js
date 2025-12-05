@@ -280,23 +280,37 @@ class Notifications {
   handleNotificationClick(e) {
     const target = e.target;
     
-    // Always prevent default and stop propagation for all notification interactions
-    // to avoid closing the menu in hover mode
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Handle action link clicks (mark as read and stop propagation)
+    // Handle action link clicks (allow normal link behavior for standard clicks)
     if (target.classList.contains('notification-action-link')) {
-      const id = parseInt(target.dataset.notificationId);
-      const isUnread = target.dataset.isUnread === 'true';
-      if (isUnread) {
-        // Mark as read asynchronously, don't wait for response
-        this.markAsRead(id, true);
+      // Only prevent default and handle manually for left-click without modifiers
+      // This preserves middle-click, ctrl+click, right-click, etc.
+      if (e.button === 0 && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const id = parseInt(target.dataset.notificationId);
+        const isUnread = target.dataset.isUnread === 'true';
+        if (isUnread) {
+          // Mark as read asynchronously, don't wait for response
+          this.markAsRead(id, true);
+        }
+        // Navigate to the URL
+        window.location.href = target.href;
+      } else {
+        // For modified clicks (ctrl, shift, middle-click), just mark as read
+        // but let the browser handle the navigation
+        const id = parseInt(target.dataset.notificationId);
+        const isUnread = target.dataset.isUnread === 'true';
+        if (isUnread) {
+          this.markAsRead(id, true);
+        }
       }
-      // Navigate to the URL
-      window.location.href = target.href;
       return;
     }
+    
+    // For non-link elements, prevent default to avoid menu closing in hover mode
+    e.preventDefault();
+    e.stopPropagation();
     
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {

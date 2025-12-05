@@ -13,11 +13,16 @@ function closeAllMenusExcept(exceptMenu = null) {
   const allMenus = [settingsMenu, userMenu, notificationsPopup].filter(Boolean);
   
   allMenus.forEach(menu => {
-    if (menu !== exceptMenu && menu.classList.contains('pinned')) {
-      menu.classList.remove('pinned');
+    if (menu !== exceptMenu) {
+      const wasPinned = menu.classList.contains('pinned');
+      
+      if (wasPinned) {
+        menu.classList.remove('pinned');
+      }
       
       // Sync notifications component state if closing notifications
-      if (menu === notificationsPopup && window.notifications) {
+      // (regardless of whether it was pinned or just had state set)
+      if (menu === notificationsPopup && window.notifications && window.notifications.isPopupOpen) {
         window.notifications.isPopupOpen = false;
       }
     }

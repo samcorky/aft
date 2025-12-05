@@ -174,14 +174,16 @@ class ModalDialog {
         }
       };
 
-      // Handle escape key
+      // Handle escape/Enter key
       const handleEscape = (e) => {
         if (e.key === 'Escape') {
           handleCancel();
         } else if (e.key === 'Enter') {
-          // Enter key confirms the action for all modal types
-          e.preventDefault();
-          handleConfirm();
+          // Only auto-confirm on Enter for alert and prompt modals
+          if (!options.showCancel || options.showInput) {
+            e.preventDefault();
+            handleConfirm();
+          }
         }
       };
 

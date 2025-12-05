@@ -282,26 +282,23 @@ class Notifications {
     
     // Handle action link clicks - preserve native link behavior
     if (target.classList.contains('notification-action-link')) {
-      // Stop propagation to prevent menu from closing in hover mode
-      // but DON'T prevent default - let the browser handle the link navigation
-      e.stopPropagation();
-      
+      // Let the browser handle the link navigation naturally
+      // The document-level click handler in header.js will see this click is inside
+      // the notifications popup and won't close the menu
       const id = parseInt(target.dataset.notificationId);
       const isUnread = target.dataset.isUnread === 'true';
       if (isUnread) {
         // Mark as read asynchronously, don't wait for response
         this.markAsRead(id, true);
       }
-      // Let the link navigation proceed naturally
       return;
     }
     
-    // For non-link elements, prevent default to avoid menu closing in hover mode
-    e.preventDefault();
-    e.stopPropagation();
-    
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {
+      // Prevent default for buttons to avoid any form submission behavior
+      e.preventDefault();
+      
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';

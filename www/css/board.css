@@ -16,7 +16,7 @@
 .board-header h3 {
   margin: 0;
   font-size: 28px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .board-actions {
@@ -123,7 +123,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .card-count {
@@ -180,7 +180,7 @@
 .column-move-left-btn:hover,
 .column-move-right-btn:hover {
   transform: scale(1.2);
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .column-delete-cards-btn {
@@ -248,7 +248,7 @@
 }
 
 .column-menu-btn:hover {
-  color: var(--text-dark);
+  color: var(--text-bold);
   transform: scale(1.2);
 }
 
@@ -281,7 +281,7 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   transition: background-color 0.2s;
 }
 
@@ -309,7 +309,7 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   transition: background-color 0.2s;
   box-sizing: border-box;
 }
@@ -518,14 +518,14 @@
 .card-archive-btn:hover,
 .card-unarchive-btn:hover {
   transform: scale(1.2);
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .card-title {
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
   padding-right: 60px; /* Space for archive + delete buttons */
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -607,7 +607,7 @@
 }
 
 .card-checklist-name {
-  color: var(--text-dark);
+  color: var(--text-bold);
   line-height: 1.3;
   overflow-wrap: break-word;
 }
@@ -719,7 +719,7 @@
 .modal-content h2 {
   margin-top: 0;
   margin-bottom: 20px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .modal-header {
@@ -770,7 +770,7 @@
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .form-group input,
@@ -875,7 +875,7 @@
 
 .next-runs-section h3 {
   margin: 0 0 15px 0;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 18px;
 }
 
@@ -932,7 +932,7 @@
 .checklist-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .checklist-summary {
@@ -999,7 +999,7 @@
 
 .checklist-item-name {
   flex-grow: 1;
-  color: var(--text-dark);
+  color: var(--text-bold);
   overflow-wrap: break-word;
 }
 
@@ -1077,7 +1077,7 @@
 .comments-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .comment-input-container {
@@ -1147,7 +1147,7 @@
 }
 
 .comment-text {
-  color: var(--text-dark);
+  color: var(--text-bold);
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1200,3 +1200,4 @@
   font-style: italic;
   padding: 20px;
 }
+

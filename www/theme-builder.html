@@ -17,7 +17,7 @@
   <main class="canvas">
     <div class="settings-container">
       <h2>Theme Builder</h2>
-      <p class="page-description">Create and customize color themes for the application.</p>
+      <p class="page-description">Create and customise colour themes for the application.</p>
       
       <div class="settings-section">
         <div class="setting-item">
@@ -25,19 +25,19 @@
           <p class="setting-help">Select a theme to edit or create a new one.</p>
           <select id="theme-builder-select" class="setting-select">
             <option value="default">Default</option>
-            <option value="custom1">Custom 1</option>
+            <option value="custom1">At the Beach</option>
           </select>
         </div>
       </div>
 
       <div class="settings-section">
-        <h3>Color Variables</h3>
+        <h3>Colour Variables</h3>
         
         <div class="theme-section">
-          <h4>Primary Colors</h4>
+          <h4>Primary Colours</h4>
           <div class="theme-grid">
             <div class="theme-field">
-              <label for="primary-color">Primary Color</label>
+              <label for="primary-color">Primary Colour</label>
               <div class="color-input-group">
                 <input type="color" id="primary-color" value="#3498db">
                 <input type="text" class="color-text" value="#3498db">
@@ -53,7 +53,7 @@
             </div>
             
             <div class="theme-field">
-              <label for="secondary-color">Secondary Color</label>
+              <label for="secondary-color">Secondary Colour</label>
               <div class="color-input-group">
                 <input type="color" id="secondary-color" value="#95a5a6">
                 <input type="text" class="color-text" value="#95a5a6">
@@ -71,10 +71,10 @@
         </div>
 
         <div class="theme-section">
-          <h4>Status Colors</h4>
+          <h4>Status Colours</h4>
           <div class="theme-grid">
             <div class="theme-field">
-              <label for="success-color">Success Color</label>
+              <label for="success-color">Success Colour</label>
               <div class="color-input-group">
                 <input type="color" id="success-color" value="#28a745">
                 <input type="text" class="color-text" value="#28a745">
@@ -82,7 +82,7 @@
             </div>
             
             <div class="theme-field">
-              <label for="error-color">Error Color</label>
+              <label for="error-color">Error Colour</label>
               <div class="color-input-group">
                 <input type="color" id="error-color" value="#dc3545">
                 <input type="text" class="color-text" value="#dc3545">
@@ -90,7 +90,7 @@
             </div>
             
             <div class="theme-field">
-              <label for="warning-color">Warning Color</label>
+              <label for="warning-color">Warning Colour</label>
               <div class="color-input-group">
                 <input type="color" id="warning-color" value="#ffc107">
                 <input type="text" class="color-text" value="#ffc107">
@@ -100,12 +100,20 @@
         </div>
 
         <div class="theme-section">
-          <h4>Text Colors</h4>
+          <h4>Text Colours</h4>
           <div class="theme-grid">
             <div class="theme-field">
-              <label for="text-color">Text Color</label>
+              <label for="text-color">Text Colour</label>
               <div class="color-input-group">
                 <input type="color" id="text-color" value="#2c3e50">
+                <input type="text" class="color-text" value="#2c3e50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="text-bold">Text Bold</label>
+              <div class="color-input-group">
+                <input type="color" id="text-bold" value="#2c3e50">
                 <input type="text" class="color-text" value="#2c3e50">
               </div>
             </div>
@@ -121,7 +129,7 @@
         </div>
 
         <div class="theme-section">
-          <h4>Background Colors</h4>
+          <h4>Background Colours</h4>
           <div class="theme-grid">
             <div class="theme-field">
               <label for="background-light">Background Light</label>
@@ -132,15 +140,15 @@
             </div>
             
             <div class="theme-field">
-              <label for="card-background">Card Background</label>
+              <label for="page-panel-background">Page Panel Background</label>
               <div class="color-input-group">
-                <input type="color" id="card-background" value="#ffffff">
+                <input type="color" id="page-panel-background" value="#ffffff">
                 <input type="text" class="color-text" value="#ffffff">
               </div>
             </div>
             
             <div class="theme-field">
-              <label for="border-color">Border Color</label>
+              <label for="border-color">Border Colour</label>
               <div class="color-input-group">
                 <input type="color" id="border-color" value="#e0e0e0">
                 <input type="text" class="color-text" value="#e0e0e0">
@@ -150,12 +158,57 @@
         </div>
 
         <div class="theme-section">
-          <h4>Card Colors</h4>
+          <h4>Board Card Colours</h4>
           <div class="theme-grid">
             <div class="theme-field">
-              <label for="card-bg-color">Card Background</label>
+              <label for="card-bg-color">Board Card Background</label>
               <div class="color-input-group">
                 <input type="color" id="card-bg-color" value="#ffffff">
+                <input type="text" class="color-text" value="#ffffff">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Header & Icons</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="header-background">Header Background</label>
+              <div class="color-input-group">
+                <input type="color" id="header-background" value="#2c3e50">
+                <input type="text" class="color-text" value="#2c3e50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-text-color">Header Text Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="header-text-color" value="#ffffff">
+                <input type="text" class="color-text" value="#ffffff">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-menu-background">Header Menu Background</label>
+              <div class="color-input-group">
+                <input type="color" id="header-menu-background" value="#ffffff">
+                <input type="text" class="color-text" value="#ffffff">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-menu-hover">Header Menu Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="header-menu-hover" value="#f5f5f5">
+                <input type="text" class="color-text" value="#f5f5f5">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="icon-color">Icon Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="icon-color" value="#ffffff">
                 <input type="text" class="color-text" value="#ffffff">
               </div>
             </div>

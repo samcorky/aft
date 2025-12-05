@@ -135,26 +135,38 @@ class Settings {
         'error-color': '#dc3545',
         'warning-color': '#ffc107',
         'text-color': '#2c3e50',
+        'text-bold': '#2c3e50',
         'text-muted': '#7f8c8d',
         'background-light': '#f5f5f5',
-        'card-background': '#ffffff',
+        'page-panel-background': '#ffffff',
         'border-color': '#e0e0e0',
-        'card-bg-color': '#ffffff'
+        'card-bg-color': '#ffffff',
+        'header-background': '#2c3e50',
+        'header-text-color': '#ffffff',
+        'header-menu-background': '#ffffff',
+        'header-menu-hover': '#f5f5f5',
+        'icon-color': '#ffffff'
       },
       'custom1': {
         'primary-color': '#d4a574',
-        'primary-hover': '#b8945f',
-        'secondary-color': '#1e40af',
-        'secondary-hover': '#1e3a8a',
+        'primary-hover': '#b9945f',
+        'secondary-color': '#06b6d4',
+        'secondary-hover': '#0891b2',
         'success-color': '#14b8a6',
         'error-color': '#f43f5e',
         'warning-color': '#fb923c',
         'text-color': '#0f172a',
-        'text-muted': '#64748b',
+        'text-bold': '#2c3e50',
+        'text-muted': '#64743b',
         'background-light': '#f0f9ff',
-        'card-background': '#ffffff',
+        'page-panel-background': '#ffffff',
         'border-color': '#cbd5e1',
-        'card-bg-color': '#fefce8'
+        'card-bg-color': '#fafaf0',
+        'header-background': '#d4a574',
+        'header-text-color': '#ffffff',
+        'header-menu-background': '#06b6d4',
+        'header-menu-hover': '#0891b2',
+        'icon-color': '#ffffff'
       }
     };
 

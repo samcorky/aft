@@ -8,13 +8,18 @@
   --success-color: #28a745;
   --error-color: #dc3545;
   --warning-color: #ffc107;
-  --text-dark: #2c3e50;
+  --text-bold: #2c3e50;
   --text-color: #2c3e50;
   --text-muted: #7f8c8d;
   --text-secondary: #7f8c8d;
   --border-color: #e0e0e0;
   --background-light: #f5f5f5;
-  --card-background: #ffffff;
+  --page-panel-background: #ffffff;
+  --header-background: #2c3e50;
+  --header-text-color: #ffffff;
+  --header-menu-background: #ffffff;
+  --header-menu-hover: #f5f5f5;
+  --icon-color: #ffffff;
 }
 
 * {

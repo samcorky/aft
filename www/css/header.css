@@ -1,7 +1,7 @@
 /* Header Navigation Bar */
 .header {
-  background-color: var(--text-dark);
-  color: white;
+  background-color: var(--header-background);
+  color: var(--header-text-color);
   padding: 15px 30px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   position: sticky;
@@ -30,7 +30,7 @@
   align-items: center;
   gap: 15px;
   text-decoration: none;
-  color: white;
+  color: var(--header-text-color);
 }
 
 .header-logo {
@@ -81,7 +81,7 @@
 .nav-board-name {
   flex: 1;
   text-align: center;
-  color: white;
+  color: var(--header-text-color);
   font-size: 24px;
   font-weight: 600;
   overflow: hidden;
@@ -118,20 +118,19 @@
 
 .nav-link {
   padding: 10px 20px;
-  color: white;
+  color: var(--header-text-color);
   text-decoration: none;
   border-radius: 5px;
   font-size: 16px;
   font-weight: 500;
-  background-color: rgba(255,255,255,0.1);
+  background-color: var(--header-menu-background);
   transition: all 0.2s;
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid var(--border-color);
   display: inline-block;
 }
 
 .nav-link:hover {
-  background-color: rgba(255,255,255,0.2);
-  border-color: rgba(255,255,255,0.4);
+  background-color: var(--header-menu-hover);
   transform: translateY(-1px);
 }
 
@@ -141,7 +140,7 @@
   top: 100%;
   left: 0;
   padding-top: 5px;
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 250px;
@@ -151,7 +150,7 @@
 }
 
 .boards-dropdown-menu > * {
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
 }
 
@@ -184,7 +183,7 @@
 }
 
 .boards-dropdown-item:hover {
-  background-color: #f5f5f5;
+  background-color: var(--header-menu-hover);
 }
 
 /* Settings Dropdown */
@@ -207,7 +206,7 @@
   top: 100%;
   left: 0;
   padding-top: 5px;
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 200px;
@@ -219,7 +218,7 @@
 }
 
 .settings-dropdown-menu > * {
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
 }
 
@@ -238,7 +237,7 @@
 }
 
 .settings-dropdown-item:hover {
-  background-color: #f5f5f5;
+  background-color: var(--header-menu-hover);
 }
 
 /* User Dropdown */
@@ -261,7 +260,7 @@
   top: 100%;
   left: 0;
   padding-top: 5px;
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 200px;
@@ -273,7 +272,7 @@
 }
 
 .user-dropdown-menu > * {
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
 }
 
@@ -292,7 +291,7 @@
 }
 
 .user-dropdown-item:hover {
-  background-color: #f5f5f5;
+  background-color: var(--header-menu-hover);
 }
 
 /* Notifications Dropdown */
@@ -313,8 +312,8 @@
   position: absolute;
   top: -5px;
   right: -5px;
-  background-color: #e74c3c;
-  color: white;
+  background-color: var(--error-color);
+  color: var(--header-text-color);
   border-radius: 50%;
   min-width: 18px;
   height: 18px;
@@ -331,8 +330,8 @@
   position: absolute;
   top: 100%;
   left: 0;
-  padding-top: 5px;
-  background-color: white;
+  margin-top: 5px;
+  background-color: var(--page-panel-background);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   width: 400px;
@@ -351,7 +350,7 @@
 .notifications-header {
   padding: 15px 20px;
   border-bottom: 1px solid var(--border-color);
-  background-color: #f8f9fa;
+  background-color: var(--header-menu-background);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -377,15 +376,15 @@
 }
 
 .mark-all-read-btn:hover {
-  background-color: #4caf50;
-  border-color: #4caf50;
-  color: white;
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: var(--header-text-color);
 }
 
 .mark-all-read-btn.delete-mode:hover {
-  background-color: #e74c3c;
-  border-color: #e74c3c;
-  color: white;
+  background-color: var(--error-color);
+  border-color: var(--error-color);
+  color: var(--header-text-color);
 }
 
 .mark-all-read-btn:disabled {
@@ -424,6 +423,7 @@
   border-bottom: 1px solid var(--border-color);
   transition: background-color 0.2s;
   cursor: pointer;
+  background-color: var(--page-panel-background);
 }
 
 .notification-item:last-child {
@@ -431,15 +431,16 @@
 }
 
 .notification-item:hover {
-  background-color: #f8f9fa;
+  background-color: var(--background-light);
 }
 
 .notification-item.unread {
-  background-color: #e3f2fd;
+  background-color: var(--background-light);
 }
 
 .notification-item.unread:hover {
-  background-color: #bbdefb;
+  background-color: var(--background-light);
+  opacity: 0.9;
 }
 
 .notification-content {
@@ -449,7 +450,7 @@
 
 .notification-subject {
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 14px;
   margin-bottom: 5px;
 }
@@ -465,7 +466,7 @@
 .notification-action-link {
   display: inline-block;
   background: var(--primary-color);
-  color: white;
+  color: var(--header-text-color);
   padding: 6px 12px;
   border-radius: 4px;
   font-size: 12px;
@@ -500,7 +501,7 @@
   bottom: 100%;
   left: 0;
   background: rgba(0, 0, 0, 0.9);
-  color: white;
+  color: var(--header-text-color);
   padding: 8px 12px;
   border-radius: 4px;
   white-space: normal;
@@ -546,15 +547,15 @@
 }
 
 .notification-action-btn.read-btn:hover {
-  background-color: #4caf50;
-  border-color: #4caf50;
-  color: white;
+  background-color: var(--success-color);
+  border-color: var(--success-color);
+  color: var(--header-text-color);
 }
 
 .notification-action-btn.delete-btn:hover {
-  background-color: #e74c3c;
-  border-color: #e74c3c;
-  color: white;
+  background-color: var(--error-color);
+  border-color: var(--error-color);
+  color: var(--header-text-color);
 }
 
 .header-right {
@@ -579,7 +580,7 @@
   background-color: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
-  color: white;
+  color: var(--header-text-color);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -593,7 +594,7 @@
 }
 
 .views-dropdown-label {
-  color: white;
+  color: var(--header-text-color);
 }
 
 .views-dropdown-icon {
@@ -609,7 +610,7 @@
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  background-color: white;
+  background-color: var(--header-menu-background);
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
   min-width: 200px;
@@ -639,7 +640,7 @@
 }
 
 .views-dropdown-item:hover {
-  background-color: var(--background-color);
+  background-color: var(--header-menu-hover);
 }
 
 .views-dropdown-item.active {
@@ -683,8 +684,8 @@
 .icon-svg {
   width: 24px;
   height: 24px;
-  color: white;
-  stroke: white;
+  color: var(--icon-color);
+  stroke: var(--icon-color);
 }
 
 .icon-link:hover .icon-btn {
@@ -698,15 +699,16 @@
   align-items: center;
   gap: 2px;
   padding: 8px 15px;
-  background-color: rgba(255,255,255,0.1);
+  background-color: var(--header-menu-background);
   border-radius: 20px;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
+  color: var(--header-text-color);
 }
 
 .db-status:hover {
-  background-color: rgba(255,255,255,0.15);
+  background-color: var(--header-menu-hover);
   transform: translateY(-1px);
 }
 
@@ -725,6 +727,7 @@
 
 .status-text {
   font-size: 12px;
+  color: var(--header-text-color);
 }
 
 .version-line {
@@ -735,11 +738,13 @@
 
 .version-info {
   font-size: 10px;
+  color: var(--header-text-color);
   opacity: 0.7;
 }
 
 .more-info-link {
   font-size: 10px;
+  color: var(--header-text-color);
   opacity: 0.7;
   text-decoration: underline;
   font-style: italic;
@@ -764,17 +769,13 @@
   50% { opacity: 0.5; }
 }
 
-.status-text {
-  font-size: 12px;
-}
-
 .header-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
   background-color: var(--primary-color);
-  color: white;
+  color: var(--header-text-color);
   text-decoration: none;
   border-radius: 5px;
   font-size: 13px;
@@ -792,3 +793,5 @@
   padding: 20px;
   min-height: calc(100vh - 80px);
 }
+
+

@@ -13,7 +13,7 @@
 }
 
 .settings-section {
-  background: white;
+  background: var(--page-panel-background);
   border-radius: 8px;
   padding: 30px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);

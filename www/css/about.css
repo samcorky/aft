@@ -7,7 +7,7 @@
 }
 
 .about-section {
-  background: white;
+  background: var(--page-panel-background);
   border-radius: 8px;
   padding: 24px;
   margin-bottom: 20px;

@@ -19,26 +19,38 @@ class ThemeBuilder {
         'error-color': '#dc3545',
         'warning-color': '#ffc107',
         'text-color': '#2c3e50',
+        'text-bold': '#2c3e50',
         'text-muted': '#7f8c8d',
         'background-light': '#f5f5f5',
-        'card-background': '#ffffff',
+        'page-panel-background': '#ffffff',
         'border-color': '#e0e0e0',
-        'card-bg-color': '#ffffff'
+        'card-bg-color': '#ffffff',
+        'header-background': '#2c3e50',
+        'header-text-color': '#ffffff',
+        'header-menu-background': '#ffffff',
+        'header-menu-hover': '#f5f5f5',
+        'icon-color': '#ffffff'
       },
       'custom1': {
         'primary-color': '#d4a574',
-        'primary-hover': '#b8945f',
-        'secondary-color': '#1e40af',
-        'secondary-hover': '#1e3a8a',
+        'primary-hover': '#b9945f',
+        'secondary-color': '#06b6d4',
+        'secondary-hover': '#0891b2',
         'success-color': '#14b8a6',
         'error-color': '#f43f5e',
         'warning-color': '#fb923c',
         'text-color': '#0f172a',
-        'text-muted': '#64748b',
+        'text-bold': '#2c3e50',
+        'text-muted': '#64743b',
         'background-light': '#f0f9ff',
-        'card-background': '#ffffff',
+        'page-panel-background': '#ffffff',
         'border-color': '#cbd5e1',
-        'card-bg-color': '#fefce8'
+        'card-bg-color': '#fafaf0',
+        'header-background': '#d4a574',
+        'header-text-color': '#ffffff',
+        'header-menu-background': '#06b6d4',
+        'header-menu-hover': '#0891b2',
+        'icon-color': '#ffffff'
       }
     };
     this.defaultTheme = this.themes['default'];
@@ -55,9 +67,9 @@ class ThemeBuilder {
     const colorFields = [
       'primary-color', 'primary-hover', 'secondary-color', 'secondary-hover',
       'success-color', 'error-color', 'warning-color',
-      'text-color', 'text-muted',
-      'background-light', 'card-background', 'border-color',
-      'card-bg-color'
+      'text-color', 'text-bold', 'text-muted',
+      'background-light', 'page-panel-background', 'border-color',
+      'card-bg-color', 'header-background', 'header-text-color', 'header-menu-background', 'header-menu-hover', 'icon-color'
     ];
 
     colorFields.forEach(field => {
@@ -71,12 +83,34 @@ class ThemeBuilder {
         this.applyThemeToPage();
       });
 
-      // Also sync text input to color picker
+      // Also sync text input to color picker on input (live typing)
       textInput.addEventListener('input', (e) => {
         const value = e.target.value;
         if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
           colorInput.value = value;
           this.applyThemeToPage();
+        }
+      });
+
+      // Apply color on blur even if incomplete during typing
+      textInput.addEventListener('blur', (e) => {
+        const value = e.target.value.trim();
+        // Allow with or without # prefix
+        const hexValue = value.startsWith('#') ? value : '#' + value;
+        
+        if (/^#[0-9A-Fa-f]{6}$/.test(hexValue)) {
+          colorInput.value = hexValue;
+          textInput.value = hexValue.toUpperCase();
+          this.applyThemeToPage();
+        } else if (/^#[0-9A-Fa-f]{3}$/.test(hexValue)) {
+          // Convert 3-digit hex to 6-digit
+          const expanded = '#' + hexValue[1] + hexValue[1] + hexValue[2] + hexValue[2] + hexValue[3] + hexValue[3];
+          colorInput.value = expanded;
+          textInput.value = expanded.toUpperCase();
+          this.applyThemeToPage();
+        } else {
+          // Invalid hex, revert to current color picker value
+          textInput.value = colorInput.value.toUpperCase();
         }
       });
     });
@@ -118,9 +152,22 @@ class ThemeBuilder {
       this.themeSelect.value = selectedTheme;
     }
     
-    // Load the base theme for the selector (don't apply session customizations)
-    // This allows user to see and edit the base theme without session overrides
-    this.loadSelectedTheme();
+    // Check if there are saved customizations in session
+    const savedTheme = sessionStorage.getItem('currentTheme');
+    
+    if (savedTheme) {
+      // Load the customized theme from session
+      try {
+        const theme = JSON.parse(savedTheme);
+        this.applyTheme(theme);
+      } catch (e) {
+        console.error('Error loading saved theme:', e);
+        this.loadSelectedTheme();
+      }
+    } else {
+      // Load the base theme for the selector
+      this.loadSelectedTheme();
+    }
   }
 
   loadSelectedTheme() {
@@ -190,7 +237,11 @@ class ThemeBuilder {
     const selectedTheme = this.themeSelect ? this.themeSelect.value : 'default';
     const theme = this.themes[selectedTheme] || this.defaultTheme;
     this.applyTheme(theme);
-    this.showStatus('Preview reset to base theme', 'success');
+    
+    // Clear any saved customizations from session
+    sessionStorage.removeItem('currentTheme');
+    
+    this.showStatus('Reset to base theme and cleared session customizations', 'success');
   }
 
   showStatus(message, type = 'success') {

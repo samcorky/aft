@@ -79,7 +79,15 @@ body {
   cursor: help;
 }
 
-[data-tooltip]:hover::after {
+/* Custom focus outline for tooltip elements */
+[data-tooltip]:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: 100%;
@@ -97,7 +105,8 @@ body {
   pointer-events: none;
 }
 
-[data-tooltip]:hover::before {
+[data-tooltip]:hover::before,
+[data-tooltip]:focus::before {
   content: '';
   position: absolute;
   bottom: 100%;

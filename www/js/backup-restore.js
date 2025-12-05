@@ -439,7 +439,10 @@ class BackupRestore {
           }
           
           if (this.latestBackup) {
-            this.latestBackup.setAttribute('data-tooltip', formatTooltipDateTime(backupDate));
+            const tooltipText = formatTooltipDateTime(backupDate);
+            this.latestBackup.setAttribute('data-tooltip', tooltipText);
+            this.latestBackup.setAttribute('aria-label', `Latest backup on ${tooltipText}`);
+            this.latestBackup.setAttribute('tabindex', '0');
             this.latestBackup.textContent = timeAgo;
           }
         } else {

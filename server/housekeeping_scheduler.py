@@ -4,6 +4,7 @@ import time
 import logging
 import requests
 import json
+import tempfile
 from typing import Optional
 from pathlib import Path
 from packaging import version
@@ -24,7 +25,7 @@ class HousekeepingScheduler:
     def __init__(self, app_version: str):
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.lock_file = Path("/tmp/aft_housekeeping_scheduler.lock")
+        self.lock_file = Path(tempfile.gettempdir()) / "aft_housekeeping_scheduler.lock"
         self.app_version = app_version
         self.check_interval = 3600  # Run every hour (3600 seconds)
     

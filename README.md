@@ -115,6 +115,8 @@ Use at your own risk.
 - **System Notifications** - Receive alerts about important events
 - **Backup Notifications** - Alerts for overdue backups or backup failures
 - **Schedule Notifications** - Alerts for schedule errors or when schedules end
+- **Version Notifications** - Automatic alerts when new AFT releases are available
+- **Action Buttons** - Optional action buttons on notifications with secure URL validation
 - **Notification Center** - View and manage all notifications from the header
 - **Mark as Read** - Individual or bulk mark notifications as read and delete
 - **Notification Badge** - Unread count indicator in header
@@ -140,6 +142,11 @@ Use at your own risk.
   - Auto-disables schedules past their end date
   - Creates notifications on errors
   - Adds tracking comments to created cards
+- **Housekeeping Scheduler** - Automatic maintenance service running every hour
+  - Checks GitHub for new AFT releases
+  - Creates notifications when updates are available
+  - Prevents duplicate notifications for the same version
+  - Can be enabled/disabled via System Info page
 
 ### 🔌 API Documentation
 - **Interactive API Docs** - Built-in Swagger UI at `/api/docs`

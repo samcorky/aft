@@ -74,6 +74,12 @@ SETTINGS_SCHEMA = {
         "description": "ISO timestamp of the last backup run",
         "validate": lambda value: value is None or isinstance(value, str),
     },
+    "housekeeping_enabled": {
+        "type": "boolean",
+        "nullable": False,
+        "description": "Enable or disable housekeeping scheduler for version checks",
+        "validate": lambda value: isinstance(value, bool),
+    },
     "time_format": {
         "type": "string",
         "nullable": False,
@@ -2016,6 +2022,88 @@ def get_backup_status():
     except Exception as e:
         logger.error(f"Error getting backup status: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/status", methods=["GET"])
+def get_housekeeping_status():
+    """Get housekeeping scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Housekeeping scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        status = scheduler.get_status()
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting housekeeping status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/config", methods=["PUT"])
+def update_housekeeping_config():
+    """Update housekeeping scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="housekeeping_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Housekeeping configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating housekeeping config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards", methods=["GET"])
@@ -6052,9 +6140,20 @@ def init_card_scheduler():
     except Exception as e:
         logger.error(f"Failed to initialize card scheduler: {str(e)}")
 
+# Initialize housekeeping scheduler on app startup
+def init_housekeeping_scheduler():
+    """Initialize and start the housekeeping scheduler."""
+    try:
+        from housekeeping_scheduler import start_housekeeping_scheduler
+        start_housekeeping_scheduler(APP_VERSION)
+        logger.info("Housekeeping scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize housekeeping scheduler: {str(e)}")
+
 # Start schedulers when module is loaded
 init_backup_scheduler()
 init_card_scheduler()
+init_housekeeping_scheduler()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

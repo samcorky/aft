@@ -73,6 +73,30 @@
         <div id="backupPermissionError" class="backup-status error" style="display: none; margin-top: 15px;"></div>
       </div>
 
+      <!-- Housekeeping Module Card -->
+      <div class="info-card">
+        <h2>Housekeeping Module</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Status:</span>
+            <span class="status-value">
+              <span id="housekeeping-module-health" class="status-badge">Loading...</span>
+            </span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Enabled:</span>
+            <span class="status-value">
+              <div class="backup-toggle-wrapper">
+                <label class="backup-toggle-label">
+                  <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input">
+                  <span class="backup-toggle-slider"></span>
+                </label>
+              </div>
+            </span>
+          </div>
+        </div>
+      </div>
+
       <!-- Database Statistics Card -->
       <div class="info-card full-width">
         <h2>Database Statistics</h2>

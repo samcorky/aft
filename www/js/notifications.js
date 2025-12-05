@@ -231,9 +231,10 @@ class Notifications {
           <a href="${escapedUrl}" 
              class="notification-action-link" 
              data-tooltip="${escapedTitle}"
+             data-notification-id="${notification.id}"
+             data-is-unread="${notification.unread}"
              aria-label="${escapedTitle}"
-             tabindex="0"
-             onclick="event.stopPropagation()">
+             tabindex="0">
             ${escapedTitle}
           </a>
         `;
@@ -278,6 +279,19 @@ class Notifications {
    */
   handleNotificationClick(e) {
     const target = e.target;
+    
+    // Handle action link clicks (mark as read and stop propagation)
+    if (target.classList.contains('notification-action-link')) {
+      e.stopPropagation(); // Prevent notification item click
+      const id = parseInt(target.dataset.notificationId);
+      const isUnread = target.dataset.isUnread === 'true';
+      if (isUnread) {
+        // Mark as read asynchronously, don't wait for response
+        this.markAsRead(id, true);
+      }
+      // Let the link navigation proceed
+      return;
+    }
     
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {

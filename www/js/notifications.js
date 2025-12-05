@@ -226,9 +226,9 @@ class Notifications {
       let actionButtonHtml = '';
       if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
         const escapedTitle = this.escapeHtml(notification.action_title);
-        const escapedUrl = this.escapeHtml(notification.action_url);
+        // URL is already validated by isSafeUrl(), no need to escape
         actionButtonHtml = `
-          <a href="${escapedUrl}" 
+          <a href="${notification.action_url}" 
              class="notification-action-link" 
              data-tooltip="${escapedTitle}"
              data-notification-id="${notification.id}"

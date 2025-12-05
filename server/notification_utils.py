@@ -6,39 +6,6 @@ from models import Notification
 logger = logging.getLogger(__name__)
 
 
-def validate_safe_url(url):
-    """Validate that a URL uses a safe protocol.
-    
-    Allows:
-    - Relative paths starting with /
-    - http:// and https:// protocols
-    
-    Rejects:
-    - javascript:, data:, vbscript:, file:, and other dangerous protocols
-    
-    Args:
-        url: The URL string to validate
-        
-    Returns:
-        bool: True if URL is safe, False otherwise
-    """
-    if not url or not isinstance(url, str):
-        return False
-    
-    url_lower = url.strip().lower()
-    
-    # Allow relative paths starting with /
-    if url_lower.startswith('/'):
-        return True
-    
-    # Allow http and https
-    if url_lower.startswith('http://') or url_lower.startswith('https://'):
-        return True
-    
-    # Reject all other protocols
-    return False
-
-
 def create_notification(subject: str, message: str, action_title: str = None, action_url: str = None) -> bool:
     """Create a notification in the database.
     
@@ -63,6 +30,9 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
         If truncation occurs, an info message is logged with details about
         the truncated content.
     """
+    # Import here to avoid circular dependency
+    from app import validate_safe_url
+    
     db = SessionLocal()
     try:
         # Preserve original values before any processing
@@ -95,8 +65,6 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
                     f"Truncated: '{action_title[:100][:50]}{preview_suffix}'"
                 )
                 action_title = action_title[:100]
-        else:
-            action_title = None
             
         if action_url is not None:
             action_url = action_url.strip()
@@ -105,8 +73,7 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
                 action_url = None
             else:
                 # Truncate first
-                url_was_truncated = len(action_url) > 500
-                if url_was_truncated:
+                if len(action_url) > 500:
                     truncated_chars = len(action_url) - 500
                     preview_suffix = '...' if len(action_url) > 50 else ''
                     logger.info(
@@ -117,11 +84,10 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
                     action_url = action_url[:500]
                 
                 # Validate URL safety on the (possibly truncated) value
-                if not validate_safe_url(action_url):
+                is_valid, error_msg = validate_safe_url(action_url)
+                if not is_valid:
                     logger.warning(f"Notification action_url rejected due to unsafe protocol: {action_url[:50]}")
                     action_url = None
-        else:
-            action_url = None
         
         # Log info messages if truncation occurred (INFO level for routine internal operations)
         if len(original_subject_raw.strip()) > 255:

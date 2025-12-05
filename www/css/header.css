@@ -486,7 +486,15 @@
   transform: translateY(-1px);
 }
 
-.notification-action-link:hover::after {
+.notification-action-link:focus {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.notification-action-link:hover::after,
+.notification-action-link:focus::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: 100%;

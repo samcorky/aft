@@ -438,7 +438,13 @@ class BackupRestore {
             timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
           }
           
-          this.safeSetText(this.latestBackup, timeAgo);
+          if (this.latestBackup) {
+            const tooltipText = formatTooltipDateTime(backupDate);
+            this.latestBackup.setAttribute('data-tooltip', tooltipText);
+            this.latestBackup.setAttribute('aria-label', `Latest backup on ${tooltipText}`);
+            this.latestBackup.setAttribute('tabindex', '0');
+            this.latestBackup.textContent = timeAgo;
+          }
         } else {
           this.safeSetText(this.latestBackup, 'No backups found');
         }

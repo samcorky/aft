@@ -72,3 +72,48 @@ body {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* Custom tooltips */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+}
+
+/* Custom focus outline for tooltip elements */
+[data-tooltip]:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  background-color: var(--text-dark);
+  color: white;
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  margin-bottom: 5px;
+  pointer-events: none;
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:focus::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--text-dark);
+  z-index: 1000;
+  pointer-events: none;
+}

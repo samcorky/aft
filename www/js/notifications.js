@@ -194,7 +194,7 @@ class Notifications {
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
-            <div class="notification-time">${this.formatTime(notification.created_at)}</div>
+            <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}" aria-label="Created on ${formatTooltipDateTime(notification.created_at)}" tabindex="0">${this.formatTime(notification.created_at)}</div>
           </div>
           <div class="notification-actions">
             <button class="notification-action-btn read-btn" 

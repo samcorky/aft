@@ -3,6 +3,7 @@ class Settings {
   constructor() {
     this.defaultBoardSelect = document.getElementById('default-board');
     this.timeFormatRadios = document.querySelectorAll('input[name="time-format"]');
+    this.themeSelect = document.getElementById('theme-select');
     this.statusElement = document.getElementById('settings-status');
     this.saveTimeout = null;
   }
@@ -10,6 +11,7 @@ class Settings {
   async init() {
     await this.loadBoards();
     await this.loadSettings();
+    this.loadThemeSelection();
     this.attachEventListeners();
   }
 
@@ -90,6 +92,82 @@ class Settings {
     } catch (err) {
       console.error('Error loading settings:', err);
     }
+  }
+
+  loadThemeSelection() {
+    // For now, use session storage since themes aren't in database yet
+    // TODO: Load from API when theme system is connected to database
+    const savedTheme = sessionStorage.getItem('selectedTheme') || 'default';
+    if (savedTheme && this.themeSelect) {
+      this.themeSelect.value = savedTheme;
+    }
+  }
+
+  saveThemeSelection() {
+    // For now, save to session storage since themes aren't in database yet
+    // TODO: Save to API when theme system is connected to database
+    if (this.themeSelect) {
+      const selectedTheme = this.themeSelect.value;
+      sessionStorage.setItem('selectedTheme', selectedTheme);
+      
+      // Load the theme colors
+      this.applyThemeColors(selectedTheme);
+      
+      this.showStatus('Theme saved', 'success');
+      
+      // Clear status after 2 seconds
+      setTimeout(() => {
+        this.statusElement.textContent = '';
+        this.statusElement.className = 'settings-status';
+      }, 2000);
+    }
+  }
+
+  applyThemeColors(themeName) {
+    // Define available themes (matching theme-builder.js)
+    const themes = {
+      'default': {
+        'primary-color': '#3498db',
+        'primary-hover': '#2980b9',
+        'secondary-color': '#95a5a6',
+        'secondary-hover': '#7f8c8d',
+        'success-color': '#28a745',
+        'error-color': '#dc3545',
+        'warning-color': '#ffc107',
+        'text-color': '#2c3e50',
+        'text-muted': '#7f8c8d',
+        'background-light': '#f5f5f5',
+        'card-background': '#ffffff',
+        'border-color': '#e0e0e0',
+        'card-bg-color': '#ffffff'
+      },
+      'custom1': {
+        'primary-color': '#d4a574',
+        'primary-hover': '#b8945f',
+        'secondary-color': '#1e40af',
+        'secondary-hover': '#1e3a8a',
+        'success-color': '#14b8a6',
+        'error-color': '#f43f5e',
+        'warning-color': '#fb923c',
+        'text-color': '#0f172a',
+        'text-muted': '#64748b',
+        'background-light': '#f0f9ff',
+        'card-background': '#ffffff',
+        'border-color': '#cbd5e1',
+        'card-bg-color': '#fefce8'
+      }
+    };
+
+    const theme = themes[themeName] || themes['default'];
+    
+    // Apply CSS variables to the page
+    const root = document.documentElement;
+    Object.keys(theme).forEach(key => {
+      root.style.setProperty(`--${key}`, theme[key]);
+    });
+
+    // Save to session storage
+    sessionStorage.setItem('currentTheme', JSON.stringify(theme));
   }
 
   async saveSettings() {
@@ -211,6 +289,24 @@ class Settings {
         }, 500);
       });
     });
+
+    // Theme selector
+    if (this.themeSelect) {
+      this.themeSelect.addEventListener('change', () => {
+        // Clear any pending save
+        if (this.saveTimeout) {
+          clearTimeout(this.saveTimeout);
+        }
+        
+        // Show pending status immediately
+        this.showStatus('Pending...', 'info');
+        
+        // Debounce save by 500ms
+        this.saveTimeout = setTimeout(() => {
+          this.saveThemeSelection();
+        }, 500);
+      });
+    }
   }
 
   showStatus(message, type = 'info') {

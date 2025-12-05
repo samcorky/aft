@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theme Builder - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/theme-builder.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <div class="settings-container">
+      <h2>Theme Builder</h2>
+      <p class="page-description">Create and customize color themes for the application.</p>
+      
+      <div class="settings-section">
+        <div class="setting-item">
+          <label for="theme-builder-select">Theme</label>
+          <p class="setting-help">Select a theme to edit or create a new one.</p>
+          <select id="theme-builder-select" class="setting-select">
+            <option value="default">Default</option>
+            <option value="custom1">Custom 1</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Color Variables</h3>
+        
+        <div class="theme-section">
+          <h4>Primary Colors</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="primary-color">Primary Color</label>
+              <div class="color-input-group">
+                <input type="color" id="primary-color" value="#3498db">
+                <input type="text" class="color-text" value="#3498db">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="primary-hover">Primary Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="primary-hover" value="#2980b9">
+                <input type="text" class="color-text" value="#2980b9">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="secondary-color">Secondary Color</label>
+              <div class="color-input-group">
+                <input type="color" id="secondary-color" value="#95a5a6">
+                <input type="text" class="color-text" value="#95a5a6">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="secondary-hover">Secondary Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="secondary-hover" value="#7f8c8d">
+                <input type="text" class="color-text" value="#7f8c8d">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Status Colors</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="success-color">Success Color</label>
+              <div class="color-input-group">
+                <input type="color" id="success-color" value="#28a745">
+                <input type="text" class="color-text" value="#28a745">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="error-color">Error Color</label>
+              <div class="color-input-group">
+                <input type="color" id="error-color" value="#dc3545">
+                <input type="text" class="color-text" value="#dc3545">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="warning-color">Warning Color</label>
+              <div class="color-input-group">
+                <input type="color" id="warning-color" value="#ffc107">
+                <input type="text" class="color-text" value="#ffc107">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Text Colors</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="text-color">Text Color</label>
+              <div class="color-input-group">
+                <input type="color" id="text-color" value="#2c3e50">
+                <input type="text" class="color-text" value="#2c3e50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="text-muted">Text Muted</label>
+              <div class="color-input-group">
+                <input type="color" id="text-muted" value="#7f8c8d">
+                <input type="text" class="color-text" value="#7f8c8d">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Background Colors</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="background-light">Background Light</label>
+              <div class="color-input-group">
+                <input type="color" id="background-light" value="#f5f5f5">
+                <input type="text" class="color-text" value="#f5f5f5">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="card-background">Card Background</label>
+              <div class="color-input-group">
+                <input type="color" id="card-background" value="#ffffff">
+                <input type="text" class="color-text" value="#ffffff">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="border-color">Border Color</label>
+              <div class="color-input-group">
+                <input type="color" id="border-color" value="#e0e0e0">
+                <input type="text" class="color-text" value="#e0e0e0">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Card Colors</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="card-bg-color">Card Background</label>
+              <div class="color-input-group">
+                <input type="color" id="card-bg-color" value="#ffffff">
+                <input type="text" class="color-text" value="#ffffff">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="save-theme-btn">Save Theme</button>
+        <button class="btn btn-secondary" id="reset-theme-btn">Reset to Defaults</button>
+        <div id="theme-status" class="settings-status"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+  <script src="/js/theme-builder.js"></script>
+</body>
+</html>

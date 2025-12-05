@@ -106,11 +106,10 @@ class Notifications {
    * Open the notifications popup (pin it).
    */
   openPopup() {
-    // Close other pinned menus
-    const settingsMenu = document.getElementById('settings-dropdown-menu');
-    const userMenu = document.getElementById('user-dropdown-menu');
-    if (settingsMenu) settingsMenu.classList.remove('pinned');
-    if (userMenu) userMenu.classList.remove('pinned');
+    // Close other menus through centralized coordination
+    if (typeof closeAllMenusExcept === 'function') {
+      closeAllMenusExcept(this.popup);
+    }
     
     this.popup.classList.add('pinned');
     this.isPopupOpen = true;

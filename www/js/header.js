@@ -1,6 +1,30 @@
 // Header component functionality
 
 /**
+ * Close all pinned dropdown menus except the specified one.
+ * This provides centralized coordination of menu states.
+ * @param {HTMLElement|null} exceptMenu - Menu to keep open (null to close all)
+ * @global
+ */
+function closeAllMenusExcept(exceptMenu = null) {
+  const settingsMenu = document.getElementById('settings-dropdown-menu');
+  const userMenu = document.getElementById('user-dropdown-menu');
+  const notificationsPopup = document.getElementById('notifications-popup');
+  const allMenus = [settingsMenu, userMenu, notificationsPopup].filter(Boolean);
+  
+  allMenus.forEach(menu => {
+    if (menu !== exceptMenu && menu.classList.contains('pinned')) {
+      menu.classList.remove('pinned');
+      
+      // Sync notifications component state if closing notifications
+      if (menu === notificationsPopup && window.notifications) {
+        window.notifications.isPopupOpen = false;
+      }
+    }
+  });
+}
+
+/**
  * Update hover state for all dropdown menus based on whether any are pinned.
  * This is shared between header dropdowns and notifications.
  * @global
@@ -118,23 +142,17 @@ class Header {
         
         const wasPinned = menu.classList.contains('pinned');
         
-        // Close other pinned menus (including notifications)
-        allMenus.forEach((otherMenu) => {
-          if (otherMenu && otherMenu !== menu) {
-            otherMenu.classList.remove('pinned');
-          }
-        });
-        
-        // Toggle this menu
-        menu.classList.toggle('pinned', !wasPinned);
+        if (wasPinned) {
+          // Close this menu
+          menu.classList.remove('pinned');
+        } else {
+          // Close other menus and open this one
+          closeAllMenusExcept(menu);
+          menu.classList.add('pinned');
+        }
         
         // Update hover state for all menus
         updateMenuHoverState();
-        
-        // Also update notifications isPopupOpen state if we closed it
-        if (notificationsPopup && !notificationsPopup.classList.contains('pinned') && window.notifications) {
-          window.notifications.isPopupOpen = false;
-        }
       });
     });
 
@@ -149,17 +167,7 @@ class Header {
          document.getElementById('notifications-icon-link')?.contains(e.target));
 
       if (!clickedInsideAnyMenu && !clickedInNotifications) {
-        allMenus.forEach((menu) => {
-          if (menu) {
-            menu.classList.remove('pinned');
-          }
-        });
-        
-        // Sync notifications isPopupOpen state
-        if (window.notifications && notificationsPopup && !notificationsPopup.classList.contains('pinned')) {
-          window.notifications.isPopupOpen = false;
-        }
-        
+        closeAllMenusExcept(null); // Close all menus
         updateMenuHoverState();
       }
     });
@@ -167,20 +175,10 @@ class Header {
     // Close pinned menus on Escape key
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        let hadPinned = false;
-        allMenus.forEach((menu) => {
-          if (menu && menu.classList.contains('pinned')) {
-            menu.classList.remove('pinned');
-            hadPinned = true;
-          }
-        });
-        
-        // Sync notifications isPopupOpen state
-        if (hadPinned && window.notifications && notificationsPopup && !notificationsPopup.classList.contains('pinned')) {
-          window.notifications.isPopupOpen = false;
-        }
+        const hadPinned = allMenus.some(menu => menu && menu.classList.contains('pinned'));
         
         if (hadPinned) {
+          closeAllMenusExcept(null); // Close all menus
           updateMenuHoverState();
         }
       }

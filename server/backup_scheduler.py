@@ -656,6 +656,13 @@ class BackupScheduler:
                 ).first()
                 
                 if existing_overdue:
+                    # Mark the overdue notification as read to prevent duplicate resolution messages
+                    existing_overdue.unread = False
+                    try:
+                        notification_db.commit()
+                    except Exception as e:
+                        logger.error(f"Error marking overdue notification as read: {str(e)}")
+                        notification_db.rollback()
                     create_notification(
                         subject="✅ Backup Completed",
                         message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."

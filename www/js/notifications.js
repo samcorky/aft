@@ -280,22 +280,25 @@ class Notifications {
   handleNotificationClick(e) {
     const target = e.target;
     
-    // Handle action link clicks (mark as read and stop propagation)
+    // Handle action link clicks - preserve native link behavior
     if (target.classList.contains('notification-action-link')) {
-      e.stopPropagation(); // Prevent notification item click
+      // Let the browser handle the link navigation naturally
+      // The document-level click handler in header.js will see this click is inside
+      // the notifications popup and won't close the menu
       const id = parseInt(target.dataset.notificationId);
       const isUnread = target.dataset.isUnread === 'true';
       if (isUnread) {
         // Mark as read asynchronously, don't wait for response
         this.markAsRead(id, true);
       }
-      // Let the link navigation proceed
       return;
     }
     
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {
-      e.stopPropagation();
+      // Prevent default for buttons to avoid any form submission behavior
+      e.preventDefault();
+      
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';
@@ -311,7 +314,6 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
-      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

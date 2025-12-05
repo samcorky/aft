@@ -31,7 +31,7 @@ class Notifications {
     this.iconLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.togglePopup();
+      this.togglePin();
     });
 
     // Mark all as read button
@@ -43,19 +43,20 @@ class Notifications {
       });
     }
 
-    // Close popup when clicking outside
-    document.addEventListener('click', (e) => {
-      if (this.isPopupOpen && !this.popup.contains(e.target) && !this.iconLink.contains(e.target)) {
-        this.closePopup();
-      }
-    });
-
-    // Close popup on Escape key for accessibility
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isPopupOpen) {
-        this.closePopup();
-      }
-    });
+    // Hover behavior - load notifications when hovering
+    const notificationsDropdown = document.querySelector('.notifications-dropdown');
+    if (notificationsDropdown) {
+      notificationsDropdown.addEventListener('mouseenter', () => {
+        // Only reload if last load was more than 5 seconds ago
+        const now = Date.now();
+        const timeSinceLastLoad = now - this.lastLoadTime;
+        const RELOAD_THRESHOLD = 5000; // 5 seconds
+        
+        if (timeSinceLastLoad > RELOAD_THRESHOLD) {
+          this.loadNotifications();
+        }
+      });
+    }
 
     // Event delegation for notification actions
     this.list.addEventListener('click', (e) => this.handleNotificationClick(e));
@@ -91,9 +92,9 @@ class Notifications {
   }
 
   /**
-   * Toggle the notifications popup.
+   * Toggle the pin state of the notifications popup.
    */
-  togglePopup() {
+  togglePin() {
     if (this.isPopupOpen) {
       this.closePopup();
     } else {
@@ -102,11 +103,21 @@ class Notifications {
   }
 
   /**
-   * Open the notifications popup.
+   * Open the notifications popup (pin it).
    */
   openPopup() {
-    this.popup.classList.add('show');
+    // Close other menus through centralized coordination
+    if (typeof closeAllMenusExcept === 'function') {
+      closeAllMenusExcept(this.popup);
+    }
+    
+    this.popup.classList.add('pinned');
     this.isPopupOpen = true;
+    
+    // Update hover state - disable hover on all menus when one is pinned
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
+    }
     
     // Only reload if last load was more than 5 seconds ago
     const now = Date.now();
@@ -128,19 +139,19 @@ class Notifications {
         this.popup.setAttribute('tabindex', '-1');
         this.popup.focus();
       }
-    }, 50); // Small delay to ensure DOM is updated after show class
+    }, 50); // Small delay to ensure DOM is updated after pinned class
   }
 
   /**
-   * Close the notifications popup.
+   * Close the notifications popup (unpin it).
    */
   closePopup() {
-    this.popup.classList.remove('show');
+    this.popup.classList.remove('pinned');
     this.isPopupOpen = false;
     
-    // Return focus to the trigger button
-    if (this.iconLink) {
-      this.iconLink.focus();
+    // Update hover state - re-enable hover when no menus are pinned
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
     }
     
     // Return focus to the trigger button for accessibility

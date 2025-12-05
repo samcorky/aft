@@ -1,4 +1,58 @@
 // Header component functionality
+
+/**
+ * Close all pinned dropdown menus except the specified one.
+ * This provides centralized coordination of menu states.
+ * @param {HTMLElement|null} exceptMenu - Menu to keep open (null to close all)
+ * @global
+ */
+function closeAllMenusExcept(exceptMenu = null) {
+  const settingsMenu = document.getElementById('settings-dropdown-menu');
+  const userMenu = document.getElementById('user-dropdown-menu');
+  const notificationsPopup = document.getElementById('notifications-popup');
+  const allMenus = [settingsMenu, userMenu, notificationsPopup].filter(Boolean);
+  
+  allMenus.forEach(menu => {
+    if (menu !== exceptMenu) {
+      const wasPinned = menu.classList.contains('pinned');
+      
+      if (wasPinned) {
+        menu.classList.remove('pinned');
+      }
+      
+      // Sync notifications component state if closing notifications
+      // (regardless of whether it was pinned or just had state set)
+      if (menu === notificationsPopup && window.notifications && window.notifications.isPopupOpen) {
+        window.notifications.isPopupOpen = false;
+      }
+    }
+  });
+}
+
+/**
+ * Update hover state for all dropdown menus based on whether any are pinned.
+ * This is shared between header dropdowns and notifications.
+ * @global
+ */
+function updateMenuHoverState() {
+  const settingsMenu = document.getElementById('settings-dropdown-menu');
+  const userMenu = document.getElementById('user-dropdown-menu');
+  const notificationsPopup = document.getElementById('notifications-popup');
+  const allMenus = [settingsMenu, userMenu, notificationsPopup].filter(Boolean);
+  
+  // Check if any menu is pinned
+  const anyPinned = allMenus.some(menu => menu.classList.contains('pinned'));
+  
+  // Add/remove no-hover class on all menus
+  allMenus.forEach(menu => {
+    if (anyPinned) {
+      menu.classList.add('no-hover');
+    } else {
+      menu.classList.remove('no-hover');
+    }
+  });
+}
+
 class Header {
   constructor() {
     this.statusIcon = null;
@@ -31,6 +85,9 @@ class Header {
       window.notifications = new Notifications();
     }
     
+    // Initialize dropdown pin behavior for settings and user menus
+    this.initializeDropdownPin();
+    
     // Initialize views dropdown
     this.initializeViewsDropdown();
     
@@ -61,6 +118,76 @@ class Header {
     if (viewsDropdown) {
       viewsDropdown.style.display = show ? 'block' : 'none';
     }
+  }
+
+  // Initialize dropdown pin behavior for settings and user menus
+  initializeDropdownPin() {
+    const dropdowns = [
+      {
+        trigger: document.querySelector('.settings-dropdown .icon-link'),
+        menu: document.getElementById('settings-dropdown-menu')
+      },
+      {
+        trigger: document.querySelector('.user-dropdown .icon-link'),
+        menu: document.getElementById('user-dropdown-menu')
+      }
+    ];
+
+    // Get notifications popup for coordinated hover prevention
+    const notificationsPopup = document.getElementById('notifications-popup');
+    const allMenus = [...dropdowns.map(d => d.menu), notificationsPopup].filter(Boolean);
+
+    dropdowns.forEach(({ trigger, menu }) => {
+      if (!trigger || !menu) return;
+
+      // Toggle pinned state on click
+      trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const wasPinned = menu.classList.contains('pinned');
+        
+        if (wasPinned) {
+          // Close this menu
+          menu.classList.remove('pinned');
+        } else {
+          // Close other menus and open this one
+          closeAllMenusExcept(menu);
+          menu.classList.add('pinned');
+        }
+        
+        // Update hover state for all menus
+        updateMenuHoverState();
+      });
+    });
+
+    // Close pinned menus when clicking outside
+    document.addEventListener('click', (e) => {
+      const clickedInsideAnyMenu = dropdowns.some(({ trigger, menu }) => {
+        return trigger && menu && (trigger.contains(e.target) || menu.contains(e.target));
+      });
+      
+      const clickedInNotifications = notificationsPopup && 
+        (notificationsPopup.contains(e.target) || 
+         document.getElementById('notifications-icon-link')?.contains(e.target));
+
+      if (!clickedInsideAnyMenu && !clickedInNotifications) {
+        closeAllMenusExcept(null); // Close all menus
+        updateMenuHoverState();
+      }
+    });
+
+    // Close pinned menus on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const hadPinned = allMenus.some(menu => menu && menu.classList.contains('pinned'));
+        
+        if (hadPinned) {
+          closeAllMenusExcept(null); // Close all menus
+          updateMenuHoverState();
+        }
+      }
+    });
   }
 
   // Initialize views dropdown functionality

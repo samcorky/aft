@@ -3,6 +3,39 @@
  */
 
 /**
+ * Apply time formatting based on user's preference.
+ * Helper function used by both formatTime and formatTimeSync.
+ * 
+ * @param {Date} dateObj - Date object to format
+ * @param {string} timeFormat - Either '12' or '24'
+ * @param {boolean} includeSeconds - Whether to include seconds in the output
+ * @returns {string} Formatted time string
+ */
+function applyTimeFormat(dateObj, timeFormat, includeSeconds) {
+  if (timeFormat === '12') {
+    const options = {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-US', options);
+  } else {
+    const options = {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    };
+    if (includeSeconds) {
+      options.second = '2-digit';
+    }
+    return dateObj.toLocaleTimeString('en-GB', options);
+  }
+}
+
+/**
  * Preload the time format preference into session storage.
  * Call this early on page load to avoid fallbacks in synchronous formatting.
  * @returns {Promise<void>}
@@ -61,28 +94,8 @@ async function formatTime(date, includeSeconds = false) {
     }
   }
   
-  // Format based on preference
-  if (timeFormat === '12') {
-    const options = {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    };
-    if (includeSeconds) {
-      options.second = '2-digit';
-    }
-    return dateObj.toLocaleTimeString('en-US', options);
-  } else {
-    const options = {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    };
-    if (includeSeconds) {
-      options.second = '2-digit';
-    }
-    return dateObj.toLocaleTimeString('en-GB', options);
-  }
+  // Format using helper function
+  return applyTimeFormat(dateObj, timeFormat, includeSeconds);
 }
 
 /**
@@ -101,28 +114,8 @@ function formatTimeSync(date, includeSeconds = false) {
   const cachedFormat = sessionStorage.getItem('timeFormat') || '24';
   const timeFormat = (cachedFormat === '12' || cachedFormat === '24') ? cachedFormat : '24';
   
-  // Format based on preference
-  if (timeFormat === '12') {
-    const options = {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    };
-    if (includeSeconds) {
-      options.second = '2-digit';
-    }
-    return dateObj.toLocaleTimeString('en-US', options);
-  } else {
-    const options = {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    };
-    if (includeSeconds) {
-      options.second = '2-digit';
-    }
-    return dateObj.toLocaleTimeString('en-GB', options);
-  }
+  // Format using helper function
+  return applyTimeFormat(dateObj, timeFormat, includeSeconds);
 }
 
 /**

@@ -564,3 +564,205 @@ class TestNotificationsSecurity:
         assert len(notification['message']) == 65535
         assert notification['subject'] == subject
         assert notification['message'] == message
+
+
+@pytest.mark.api
+class TestNotificationActions:
+    """Test cases for notification action fields."""
+    
+    def test_create_notification_with_action(self, api_client):
+        """Test creating a notification with action title and URL."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "New Feature",
+                "message": "Check out our new feature!",
+                "action_title": "Learn More",
+                "action_url": "/features"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == "Learn More"
+        assert data['notification']['action_url'] == "/features"
+    
+    def test_create_notification_without_action(self, api_client):
+        """Test creating a notification without action fields."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Simple Notification",
+                "message": "Just a message"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] is None
+        assert data['notification']['action_url'] is None
+    
+    def test_create_notification_action_title_too_long(self, api_client):
+        """Test creating a notification with action title exceeding 100 characters."""
+        long_title = "A" * 101
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": long_title,
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '100' in data['message']
+    
+    def test_create_notification_action_url_too_long(self, api_client):
+        """Test creating a notification with action URL exceeding 500 characters."""
+        long_url = "A" * 501
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": long_url
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '500' in data['message']
+    
+    def test_create_notification_action_title_max_length(self, api_client):
+        """Test creating a notification with action title at max length (100 chars)."""
+        max_title = "A" * 100
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": max_title,
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == max_title
+    
+    def test_create_notification_action_url_max_length(self, api_client):
+        """Test creating a notification with action URL at max length (500 chars)."""
+        max_url = "A" * 500
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": max_url
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == max_url
+    
+    def test_create_notification_action_title_strips_whitespace(self, api_client):
+        """Test that action title has whitespace stripped."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "  Click Here  ",
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == "Click Here"
+    
+    def test_create_notification_empty_action_title(self, api_client):
+        """Test creating a notification with empty action title after stripping."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "   ",
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        # Empty after stripping should be treated as None
+        assert data['notification']['action_title'] is None
+    
+    def test_create_notification_empty_action_url(self, api_client):
+        """Test creating a notification with empty action URL after stripping."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "   "
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        # Empty after stripping should be treated as None
+        assert data['notification']['action_url'] is None
+    
+    def test_get_notifications_includes_action_fields(self, api_client):
+        """Test that GET /api/notifications includes action fields."""
+        # Create notification with action
+        requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "View Details",
+                "action_url": "/details"
+            }
+        )
+        
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        
+        # Find our notification
+        notification = next(
+            (n for n in data['notifications'] if n['subject'] == 'Test'),
+            None
+        )
+        assert notification is not None
+        assert notification['action_title'] == "View Details"
+        assert notification['action_url'] == "/details"
+    
+    def test_create_notification_action_title_over_recommended_length(self, api_client):
+        """Test that action title over 50 chars (recommended max) still succeeds but logs warning."""
+        # 51 chars (over recommended but under hard limit)
+        title = "A" * 51
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": title,
+                "action_url": "/test"
+            }
+        )
+        # Should succeed since it's under hard limit of 100
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == title

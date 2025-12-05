@@ -196,6 +196,23 @@ class Notifications {
     });
 
     this.list.innerHTML = sortedNotifications.map(notification => {
+      // Build action button HTML if action is present
+      let actionButtonHtml = '';
+      if (notification.action_title && notification.action_url) {
+        const escapedTitle = this.escapeHtml(notification.action_title);
+        const escapedUrl = this.escapeHtml(notification.action_url);
+        actionButtonHtml = `
+          <a href="${escapedUrl}" 
+             class="notification-action-link" 
+             data-tooltip="${escapedTitle}"
+             aria-label="${escapedTitle}"
+             tabindex="0"
+             onclick="event.stopPropagation()">
+            ${escapedTitle}
+          </a>
+        `;
+      }
+      
       return `
         <div class="notification-item ${notification.unread ? 'unread' : ''}" 
              data-id="${notification.id}"
@@ -205,6 +222,7 @@ class Notifications {
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
+            ${actionButtonHtml}
             <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}" aria-label="Created on ${formatTooltipDateTime(notification.created_at)}" tabindex="0">${this.formatTime(notification.created_at)}</div>
           </div>
           <div class="notification-actions">

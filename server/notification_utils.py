@@ -6,7 +6,7 @@ from models import Notification
 logger = logging.getLogger(__name__)
 
 
-def create_notification(subject: str, message: str) -> bool:
+def create_notification(subject: str, message: str, action_title: str = None, action_url: str = None) -> bool:
     """Create a notification in the database.
     
     This is a shared utility function for internal use (backup scheduler, 
@@ -20,6 +20,8 @@ def create_notification(subject: str, message: str) -> bool:
     Args:
         subject: Notification subject (truncated to 255 chars if longer)
         message: Notification message (truncated to 65535 chars if longer)
+        action_title: Optional action button title (truncated to 100 chars if longer)
+        action_url: Optional action button URL (truncated to 500 chars if longer)
         
     Returns:
         True if notification created successfully, False otherwise
@@ -36,6 +38,31 @@ def create_notification(subject: str, message: str) -> bool:
         
         subject = original_subject[:255]
         message = original_message[:65535]
+        
+        # Process action fields if provided
+        if action_title is not None:
+            original_action_title = action_title.strip()
+            action_title = original_action_title[:100] if original_action_title else None
+            if original_action_title and len(original_action_title) > 100:
+                truncated_chars = len(original_action_title) - 100
+                logger.info(
+                    f"Notification action_title truncated: {truncated_chars} characters removed. "
+                    f"Original: '{original_action_title[:50]}...', Truncated: '{action_title[:50]}...'"
+                )
+        else:
+            action_title = None
+            
+        if action_url is not None:
+            original_action_url = action_url.strip()
+            action_url = original_action_url[:500] if original_action_url else None
+            if original_action_url and len(original_action_url) > 500:
+                truncated_chars = len(original_action_url) - 500
+                logger.info(
+                    f"Notification action_url truncated: {truncated_chars} characters removed. "
+                    f"Original: '{original_action_url[:50]}...', Truncated: '{action_url[:50]}...'"
+                )
+        else:
+            action_url = None
         
         # Log info messages if truncation occurred (INFO level for routine internal operations)
         if len(original_subject) > 255:
@@ -59,7 +86,9 @@ def create_notification(subject: str, message: str) -> bool:
         notification = Notification(
             subject=subject,
             message=message,
-            unread=True
+            unread=True,
+            action_title=action_title,
+            action_url=action_url
         )
         
         db.add(notification)

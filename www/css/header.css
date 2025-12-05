@@ -462,6 +462,33 @@
   word-wrap: break-word;
 }
 
+.notification-action-link {
+  display: inline-block;
+  background: var(--primary-color);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  margin-top: 5px;
+  margin-bottom: 8px;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.notification-action-link:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
 .notification-time {
   color: var(--text-muted);
   font-size: 11px;

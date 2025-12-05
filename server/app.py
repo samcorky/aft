@@ -5432,6 +5432,8 @@ def get_notifications():
                         "message": n.message,
                         "unread": n.unread,
                         "created_at": n.created_at.isoformat() if n.created_at else None,
+                        "action_title": n.action_title,
+                        "action_url": n.action_url,
                     }
                     for n in notifications
                 ],
@@ -5473,6 +5475,14 @@ def create_notification():
               type: string
               description: Message content of the notification
               example: "Check out our new dark mode feature!"
+            action_title:
+              type: string
+              description: Optional action button title (recommended max 50 chars, hard limit 100)
+              example: "Learn More"
+            action_url:
+              type: string
+              description: Optional action button URL (max 500 chars)
+              example: "/settings"
     responses:
       201:
         description: Notification created successfully
@@ -5496,6 +5506,10 @@ def create_notification():
                 created_at:
                   type: string
                   format: date-time
+                action_title:
+                  type: string
+                action_url:
+                  type: string
       400:
         description: Invalid request
       500:
@@ -5525,11 +5539,33 @@ def create_notification():
         if len(message) > 65535:
             return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
 
+        # Process optional action fields
+        action_title = data.get('action_title', '').strip() if 'action_title' in data else None
+        action_url = data.get('action_url', '').strip() if 'action_url' in data else None
+        
+        # Validate action fields if provided
+        if action_title is not None and action_title:
+            if len(action_title) > 100:
+                return jsonify({"success": False, "message": "Action title must be 100 characters or less"}), 400
+            # Recommend max 50 chars for better UX
+            if len(action_title) > 50:
+                logger.warning(f"Action title exceeds recommended length of 50 chars: {len(action_title)} chars")
+        else:
+            action_title = None
+            
+        if action_url is not None and action_url:
+            if len(action_url) > 500:
+                return jsonify({"success": False, "message": "Action URL must be 500 characters or less"}), 400
+        else:
+            action_url = None
+
         # Create notification
         notification = Notification(
             subject=subject,
             message=message,
-            unread=True
+            unread=True,
+            action_title=action_title,
+            action_url=action_url
         )
         
         db.add(notification)
@@ -5546,6 +5582,8 @@ def create_notification():
                 "message": notification.message,
                 "unread": notification.unread,
                 "created_at": notification.created_at.isoformat() if notification.created_at else None,
+                "action_title": notification.action_title,
+                "action_url": notification.action_url,
             }
         }), 201
 

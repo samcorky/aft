@@ -216,12 +216,15 @@ class ModalDialog {
       document.addEventListener('keydown', handleEscape);
       this.modal.addEventListener('click', handleBackdropClick);
 
-      // Focus appropriate element
-      if (options.showInput) {
-        setTimeout(() => this.input.focus(), 100);
-      } else {
-        setTimeout(() => this.confirmBtn.focus(), 100);
-      }
+      // Focus appropriate element after ensuring DOM is ready
+      // Using requestAnimationFrame for more reliable focus timing
+      requestAnimationFrame(() => {
+        if (options.showInput) {
+          this.input.focus();
+        } else {
+          this.confirmBtn.focus();
+        }
+      });
     });
   }
 

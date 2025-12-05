@@ -207,7 +207,7 @@ class HousekeepingScheduler:
             try:
                 existing = session.query(Notification).filter(
                     Notification.subject == subject_pattern,
-                    Notification.is_read.is_(False)
+                    Notification.unread.is_(True)
                 ).first()
                 
                 return existing is not None

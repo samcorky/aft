@@ -430,9 +430,6 @@
   accent-color: var(--primary-color);
 }
 
-.backup-select-checkbox {
-  cursor: pointer;
-}
 
 .backup-info {
   display: flex;

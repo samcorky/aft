@@ -65,59 +65,79 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
     """
     db = SessionLocal()
     try:
-        # Validate and warn about truncation if necessary
-        original_subject = subject.strip()
-        original_message = message.strip()
+        # Preserve original values before any processing
+        original_subject_raw = subject
+        original_message_raw = message
+        original_action_title_raw = action_title
+        original_action_url_raw = action_url
         
-        subject = original_subject[:255]
-        message = original_message[:65535]
+        # Strip whitespace
+        subject = subject.strip()
+        message = message.strip()
+        
+        # Truncate subject and message
+        subject = subject[:255]
+        message = message[:65535]
         
         # Process action fields if provided
         if action_title is not None:
-            original_action_title = action_title.strip()
-            action_title = original_action_title[:100] if original_action_title else None
-            if original_action_title and len(original_action_title) > 100:
-                truncated_chars = len(original_action_title) - 100
+            action_title = action_title.strip()
+            # Set to None if empty after stripping
+            if not action_title:
+                action_title = None
+            elif len(action_title) > 100:
+                # Log truncation before truncating
+                truncated_chars = len(action_title) - 100
+                preview_suffix = '...' if len(action_title) > 50 else ''
                 logger.info(
                     f"Notification action_title truncated: {truncated_chars} characters removed. "
-                    f"Original: '{original_action_title[:50]}{'...' if len(original_action_title) > 50 else ''}', "
-                    f"Truncated: '{action_title[:50]}{'...' if len(action_title) > 50 else ''}'"
+                    f"Original: '{action_title[:50]}{preview_suffix}', "
+                    f"Truncated: '{action_title[:100][:50]}{preview_suffix}'"
                 )
+                action_title = action_title[:100]
         else:
             action_title = None
             
         if action_url is not None:
-            original_action_url = action_url.strip()
-            action_url = original_action_url[:500] if original_action_url else None
-            
-            # Validate URL safety
-            if action_url and not validate_safe_url(action_url):
-                logger.warning(f"Notification action_url rejected due to unsafe protocol: {action_url[:50]}")
+            action_url = action_url.strip()
+            # Set to None if empty after stripping
+            if not action_url:
                 action_url = None
-            elif original_action_url and len(original_action_url) > 500:
-                truncated_chars = len(original_action_url) - 500
-                logger.info(
-                    f"Notification action_url truncated: {truncated_chars} characters removed. "
-                    f"Original: '{original_action_url[:50]}{'...' if len(original_action_url) > 50 else ''}', "
-                    f"Truncated: '{action_url[:50]}{'...' if len(action_url) > 50 else ''}'"
-                )
+            else:
+                # Truncate first
+                url_was_truncated = len(action_url) > 500
+                if url_was_truncated:
+                    truncated_chars = len(action_url) - 500
+                    preview_suffix = '...' if len(action_url) > 50 else ''
+                    logger.info(
+                        f"Notification action_url truncated: {truncated_chars} characters removed. "
+                        f"Original: '{action_url[:50]}{preview_suffix}', "
+                        f"Truncated: '{action_url[:500][:50]}{preview_suffix}'"
+                    )
+                    action_url = action_url[:500]
+                
+                # Validate URL safety on the (possibly truncated) value
+                if not validate_safe_url(action_url):
+                    logger.warning(f"Notification action_url rejected due to unsafe protocol: {action_url[:50]}")
+                    action_url = None
         else:
             action_url = None
         
         # Log info messages if truncation occurred (INFO level for routine internal operations)
-        if len(original_subject) > 255:
-            truncated_chars = len(original_subject) - 255
+        if len(original_subject_raw.strip()) > 255:
+            truncated_chars = len(original_subject_raw.strip()) - 255
+            preview_suffix = '...' if len(original_subject_raw.strip()) > 50 else ''
             logger.info(
                 f"Notification subject truncated: {truncated_chars} characters removed. "
-                f"Original: '{original_subject[:50]}{'...' if len(original_subject) > 50 else ''}', "
-                f"Truncated: '{subject[:50]}{'...' if len(subject) > 50 else ''}'"
+                f"Original: '{original_subject_raw.strip()[:50]}{preview_suffix}', "
+                f"Truncated: '{subject[:50]}{preview_suffix}'"
             )
         
-        if len(original_message) > 65535:
-            truncated_chars = len(original_message) - 65535
+        if len(original_message_raw.strip()) > 65535:
+            truncated_chars = len(original_message_raw.strip()) - 65535
             logger.info(
                 f"Notification message truncated: {truncated_chars} characters removed. "
-                f"Original length: {len(original_message)}, Truncated length: {len(message)}"
+                f"Original length: {len(original_message_raw.strip())}, Truncated length: {len(message)}"
             )
         
         if not subject or not message:

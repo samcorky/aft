@@ -5580,28 +5580,24 @@ def create_notification():
             return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
 
         # Process optional action fields
-        action_title = data.get('action_title', '').strip() if 'action_title' in data else None
-        action_url = data.get('action_url', '').strip() if 'action_url' in data else None
+        action_title = data.get('action_title', '').strip() or None if 'action_title' in data else None
+        action_url = data.get('action_url', '').strip() or None if 'action_url' in data else None
         
         # Validate action fields if provided
-        if action_title is not None and action_title:
+        if action_title is not None:
             if len(action_title) > 100:
                 return jsonify({"success": False, "message": "Action title must be 100 characters or less"}), 400
             # Recommend max 50 chars for better UX
             if len(action_title) > 50:
                 logger.warning(f"Action title exceeds recommended length of 50 chars: {len(action_title)} chars")
-        else:
-            action_title = None
             
-        if action_url is not None and action_url:
+        if action_url is not None:
             if len(action_url) > 500:
                 return jsonify({"success": False, "message": "Action URL must be 500 characters or less"}), 400
             # Validate URL safety
             is_valid, error_msg = validate_safe_url(action_url)
             if not is_valid:
                 return jsonify({"success": False, "message": f"Invalid action URL: {error_msg}"}), 400
-        else:
-            action_url = None
 
         # Create notification
         notification = Notification(

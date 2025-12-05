@@ -303,6 +303,6 @@ function showConfirm(message, title = 'Confirm') {
  * @example
  * const boardName = await showPrompt('Enter board name:', '', 'Create Board');
  */
-function showPrompt(message, defaultValue, title) {
+function showPrompt(message, defaultValue = '', title = 'Input') {
   return modalDialog.prompt(message, defaultValue, title);
 }

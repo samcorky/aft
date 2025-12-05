@@ -182,6 +182,32 @@ class Notifications {
   }
 
   /**
+   * Validate that a URL uses a safe protocol.
+   * @param {string} url - The URL to validate
+   * @returns {boolean} - True if URL is safe, false otherwise
+   */
+  isSafeUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+    
+    const urlLower = url.trim().toLowerCase();
+    
+    // Allow relative paths starting with /
+    if (urlLower.startsWith('/')) {
+      return true;
+    }
+    
+    // Allow http and https
+    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+      return true;
+    }
+    
+    // Reject everything else including dangerous protocols
+    return false;
+  }
+
+  /**
    * Render the notifications list.
    */
   renderNotifications() {
@@ -196,9 +222,9 @@ class Notifications {
     });
 
     this.list.innerHTML = sortedNotifications.map(notification => {
-      // Build action button HTML if action is present
+      // Build action button HTML if action is present and URL is safe
       let actionButtonHtml = '';
-      if (notification.action_title && notification.action_url) {
+      if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
         const escapedTitle = this.escapeHtml(notification.action_title);
         const escapedUrl = this.escapeHtml(notification.action_url);
         actionButtonHtml = `

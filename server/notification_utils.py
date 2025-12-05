@@ -6,6 +6,39 @@ from models import Notification
 logger = logging.getLogger(__name__)
 
 
+def validate_safe_url(url):
+    """Validate that a URL uses a safe protocol.
+    
+    Allows:
+    - Relative paths starting with /
+    - http:// and https:// protocols
+    
+    Rejects:
+    - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    
+    Args:
+        url: The URL string to validate
+        
+    Returns:
+        bool: True if URL is safe, False otherwise
+    """
+    if not url or not isinstance(url, str):
+        return False
+    
+    url_lower = url.strip().lower()
+    
+    # Allow relative paths starting with /
+    if url_lower.startswith('/'):
+        return True
+    
+    # Allow http and https
+    if url_lower.startswith('http://') or url_lower.startswith('https://'):
+        return True
+    
+    # Reject all other protocols
+    return False
+
+
 def create_notification(subject: str, message: str, action_title: str = None, action_url: str = None) -> bool:
     """Create a notification in the database.
     
@@ -56,7 +89,12 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
         if action_url is not None:
             original_action_url = action_url.strip()
             action_url = original_action_url[:500] if original_action_url else None
-            if original_action_url and len(original_action_url) > 500:
+            
+            # Validate URL safety
+            if action_url and not validate_safe_url(action_url):
+                logger.warning(f"Notification action_url rejected due to unsafe protocol: {action_url[:50]}")
+                action_url = None
+            elif original_action_url and len(original_action_url) > 500:
                 truncated_chars = len(original_action_url) - 500
                 logger.info(
                     f"Notification action_url truncated: {truncated_chars} characters removed. "

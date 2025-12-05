@@ -655,7 +655,8 @@ class TestNotificationActions:
     
     def test_create_notification_action_url_max_length(self, api_client):
         """Test creating a notification with action URL at max length (500 chars)."""
-        max_url = "A" * 500
+        # Create a valid relative URL at max length (500 chars starting with /)
+        max_url = "/" + "a" * 499
         response = requests.post(
             f'{api_client}/api/notifications',
             json={
@@ -669,6 +670,7 @@ class TestNotificationActions:
         data = response.json()
         assert data['success'] is True
         assert data['notification']['action_url'] == max_url
+        assert len(data['notification']['action_url']) == 500
     
     def test_create_notification_action_title_strips_whitespace(self, api_client):
         """Test that action title has whitespace stripped."""
@@ -766,3 +768,195 @@ class TestNotificationActions:
         data = response.json()
         assert data['success'] is True
         assert data['notification']['action_title'] == title
+
+
+@pytest.mark.api
+class TestNotificationSecurityURLValidation:
+    """Security tests for notification action URL validation."""
+    
+    def test_create_notification_with_javascript_protocol(self, api_client):
+        """Test that javascript: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "javascript:alert('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'javascript:' in data['message'].lower()
+    
+    def test_create_notification_with_data_protocol(self, api_client):
+        """Test that data: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "data:text/html,<script>alert('XSS')</script>"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'data:' in data['message'].lower()
+    
+    def test_create_notification_with_vbscript_protocol(self, api_client):
+        """Test that vbscript: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "vbscript:msgbox('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'vbscript:' in data['message'].lower()
+    
+    def test_create_notification_with_file_protocol(self, api_client):
+        """Test that file: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "file:///etc/passwd"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'file:' in data['message'].lower()
+    
+    def test_create_notification_with_about_protocol(self, api_client):
+        """Test that about: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "about:blank"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_blob_protocol(self, api_client):
+        """Test that blob: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "blob:https://example.com/test"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_relative_url(self, api_client):
+        """Test that relative URLs starting with / are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "View Page",
+                "action_url": "/settings"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "/settings"
+    
+    def test_create_notification_with_http_url(self, api_client):
+        """Test that http:// URLs are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Visit",
+                "action_url": "http://example.com"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "http://example.com"
+    
+    def test_create_notification_with_https_url(self, api_client):
+        """Test that https:// URLs are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Visit",
+                "action_url": "https://example.com"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "https://example.com"
+    
+    def test_create_notification_with_uppercase_javascript_protocol(self, api_client):
+        """Test that JavaScript: URLs (case variation) are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "JavaScript:alert('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_mixed_case_data_protocol(self, api_client):
+        """Test that DaTa: URLs (case variation) are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "DaTa:text/html,<script>alert('XSS')</script>"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_protocol_only_url(self, api_client):
+        """Test that URLs without proper structure after protocol are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "ftp://test.com"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False

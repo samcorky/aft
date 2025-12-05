@@ -136,6 +136,46 @@ def validate_setting(key, value):
     return True, None
 
 
+def validate_safe_url(url):
+    """Validate that a URL uses a safe protocol.
+    
+    Allows:
+    - Relative paths starting with /
+    - http:// and https:// protocols
+    
+    Rejects:
+    - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    - URLs without proper structure
+    
+    Args:
+        url: The URL string to validate
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not url or not isinstance(url, str):
+        return False, "URL must be a non-empty string"
+    
+    url_lower = url.strip().lower()
+    
+    # Allow relative paths starting with /
+    if url_lower.startswith('/'):
+        return True, None
+    
+    # Allow http and https
+    if url_lower.startswith('http://') or url_lower.startswith('https://'):
+        return True, None
+    
+    # Reject all other protocols including dangerous ones
+    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
+    for protocol in dangerous_protocols:
+        if url_lower.startswith(protocol):
+            return False, f"URL protocol '{protocol}' is not allowed for security reasons"
+    
+    # Reject anything that doesn't match allowed patterns
+    return False, "URL must be a relative path starting with / or use http:// or https:// protocol"
+
+
 app = Flask(__name__)
 
 # Configure maximum upload size (110MB)
@@ -5556,6 +5596,10 @@ def create_notification():
         if action_url is not None and action_url:
             if len(action_url) > 500:
                 return jsonify({"success": False, "message": "Action URL must be 500 characters or less"}), 400
+            # Validate URL safety
+            is_valid, error_msg = validate_safe_url(action_url)
+            if not is_valid:
+                return jsonify({"success": False, "message": f"Invalid action URL: {error_msg}"}), 400
         else:
             action_url = None
 

@@ -1813,7 +1813,6 @@ def get_backup_config():
             "backup_start_time",
             "backup_retention_count",
             "backup_minimum_free_space_mb",
-            "housekeeping_enabled",
             "backup_last_run"
         ]
         

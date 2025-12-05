@@ -1,5 +1,11 @@
 /* About page styles */
 
+/* Constrain about page content width for better readability */
+.canvas {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
 .about-section {
   background: white;
   border-radius: 8px;

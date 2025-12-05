@@ -1,4 +1,29 @@
 // Header component functionality
+
+/**
+ * Update hover state for all dropdown menus based on whether any are pinned.
+ * This is shared between header dropdowns and notifications.
+ * @global
+ */
+function updateMenuHoverState() {
+  const settingsMenu = document.getElementById('settings-dropdown-menu');
+  const userMenu = document.getElementById('user-dropdown-menu');
+  const notificationsPopup = document.getElementById('notifications-popup');
+  const allMenus = [settingsMenu, userMenu, notificationsPopup].filter(Boolean);
+  
+  // Check if any menu is pinned
+  const anyPinned = allMenus.some(menu => menu.classList.contains('pinned'));
+  
+  // Add/remove no-hover class on all menus
+  allMenus.forEach(menu => {
+    if (anyPinned) {
+      menu.classList.add('no-hover');
+    } else {
+      menu.classList.remove('no-hover');
+    }
+  });
+}
+
 class Header {
   constructor() {
     this.statusIcon = null;
@@ -83,20 +108,6 @@ class Header {
     const notificationsPopup = document.getElementById('notifications-popup');
     const allMenus = [...dropdowns.map(d => d.menu), notificationsPopup].filter(Boolean);
 
-    const updateHoverState = () => {
-      // Check if any menu is pinned
-      const anyPinned = allMenus.some(menu => menu.classList.contains('pinned'));
-      
-      // Add/remove no-hover class on all menus
-      allMenus.forEach(menu => {
-        if (anyPinned) {
-          menu.classList.add('no-hover');
-        } else {
-          menu.classList.remove('no-hover');
-        }
-      });
-    };
-
     dropdowns.forEach(({ trigger, menu }) => {
       if (!trigger || !menu) return;
 
@@ -118,7 +129,7 @@ class Header {
         menu.classList.toggle('pinned', !wasPinned);
         
         // Update hover state for all menus
-        updateHoverState();
+        updateMenuHoverState();
         
         // Also update notifications isPopupOpen state if we closed it
         if (notificationsPopup && notificationsPopup.classList.contains('pinned') === false && window.notifications) {
@@ -143,7 +154,7 @@ class Header {
             menu.classList.remove('pinned');
           }
         });
-        updateHoverState();
+        updateMenuHoverState();
       }
     });
 
@@ -158,7 +169,7 @@ class Header {
           }
         });
         if (hadPinned) {
-          updateHoverState();
+          updateMenuHoverState();
         }
       }
     });

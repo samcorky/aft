@@ -130,7 +130,9 @@ class Notifications {
     this.isPopupOpen = true;
     
     // Update hover state - disable hover on all menus when one is pinned
-    this.updateHoverState();
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
+    }
     
     // Only reload if last load was more than 5 seconds ago
     const now = Date.now();
@@ -163,33 +165,14 @@ class Notifications {
     this.isPopupOpen = false;
     
     // Update hover state - re-enable hover when no menus are pinned
-    this.updateHoverState();
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
+    }
     
     // Return focus to the trigger button for accessibility
     if (this.iconLink) {
       this.iconLink.focus();
     }
-  }
-
-  /**
-   * Update hover state for all menus based on whether any are pinned.
-   */
-  updateHoverState() {
-    const settingsMenu = document.getElementById('settings-dropdown-menu');
-    const userMenu = document.getElementById('user-dropdown-menu');
-    const allMenus = [this.popup, settingsMenu, userMenu].filter(Boolean);
-    
-    // Check if any menu is pinned
-    const anyPinned = allMenus.some(menu => menu.classList.contains('pinned'));
-    
-    // Add/remove no-hover class on all menus
-    allMenus.forEach(menu => {
-      if (anyPinned) {
-        menu.classList.add('no-hover');
-      } else {
-        menu.classList.remove('no-hover');
-      }
-    });
   }
 
   /**

@@ -480,6 +480,10 @@ class BackupRestore {
   }
 
   async loadAvailableBackups() {
+    // Save current scroll position
+    const scrollElement = this.backupsList.parentElement;
+    const savedScrollTop = scrollElement ? scrollElement.scrollTop : 0;
+    
     try {
       if (this.backupsLoading) this.backupsLoading.style.display = 'block';
       if (this.backupsEmpty) this.backupsEmpty.style.display = 'none';
@@ -499,6 +503,13 @@ class BackupRestore {
         } else {
           this.backupsList.style.display = 'flex';
           this.renderBackupsList(data.backups);
+          
+          // Restore scroll position after DOM update
+          if (scrollElement && savedScrollTop > 0) {
+            requestAnimationFrame(() => {
+              scrollElement.scrollTop = savedScrollTop;
+            });
+          }
         }
       }
     } catch (err) {
@@ -695,122 +706,46 @@ class BackupRestore {
     confirmBtn.addEventListener('click', handleOk);
   }
 
-  deleteBackup(filename) {
-    // Show confirmation modal
-    const modal = document.getElementById('restoreModal');
-    const titleElement = document.getElementById('restoreModalTitle');
-    const messageElement = document.getElementById('restoreModalMessage');
-    const confirmBtn = document.getElementById('restoreModalConfirmBtn');
-    const cancelBtn = document.getElementById('restoreModalCancelBtn');
-
-    // Set confirmation content
-    titleElement.textContent = 'Confirm Delete';
-    titleElement.style.color = 'var(--error-color)';
-    messageElement.innerHTML = `Are you sure you want to delete <strong>"${this.escapeHtml(filename)}"</strong>?<br><br>This action cannot be undone.`;
+  async deleteBackup(filename) {
+    // Show confirmation dialog
+    const confirmed = await showConfirm(
+      `Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`,
+      'Confirm Delete'
+    );
     
-    confirmBtn.textContent = 'Delete';
-    confirmBtn.style.display = 'inline-block';
-    confirmBtn.style.background = 'var(--error-color)';
-    cancelBtn.style.display = 'inline-block';
+    if (!confirmed) {
+      return;
+    }
 
-    modal.classList.add('active');
+    try {
+      const response = await fetch(`/api/database/backups/delete/${filename}`, {
+        method: 'DELETE'
+      });
 
-    // Handle cancel
-    const handleCancel = () => {
-      modal.classList.remove('active');
-      confirmBtn.style.background = '';
-      confirmBtn.removeEventListener('click', handleConfirm);
-      cancelBtn.removeEventListener('click', handleCancel);
-    };
-
-    // Handle confirm
-    const handleConfirm = async () => {
-      // Remove event listeners
-      confirmBtn.removeEventListener('click', handleConfirm);
-      cancelBtn.removeEventListener('click', handleCancel);
-      
-      // Update modal to show progress
-      titleElement.textContent = 'Deleting Backup';
-      titleElement.style.color = 'var(--primary-color)';
-      messageElement.textContent = 'Deleting backup file...';
-      confirmBtn.style.display = 'none';
-      confirmBtn.style.background = '';
-      cancelBtn.style.display = 'none';
-
-      try {
-        const response = await fetch(`/api/database/backups/delete/${filename}`, {
-          method: 'DELETE'
-        });
-
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          throw new Error('Server returned an invalid response.');
-        }
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.message || `HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.success) {
-          // Show success in modal
-          titleElement.textContent = 'Delete Successful';
-          titleElement.style.color = 'var(--success-color)';
-          messageElement.textContent = data.message;
-          
-          confirmBtn.textContent = 'OK';
-          confirmBtn.style.display = 'inline-block';
-          
-          const handleOk = async () => {
-            modal.classList.remove('active');
-            confirmBtn.removeEventListener('click', handleOk);
-            
-            // Reload the backups list
-            await this.loadAvailableBackups();
-          };
-          
-          confirmBtn.addEventListener('click', handleOk);
-        } else {
-          // Show error in modal
-          titleElement.textContent = 'Delete Failed';
-          titleElement.style.color = 'var(--error-color)';
-          messageElement.textContent = data.message;
-          
-          confirmBtn.textContent = 'OK';
-          confirmBtn.style.display = 'inline-block';
-          
-          const handleOk = () => {
-            modal.classList.remove('active');
-            confirmBtn.removeEventListener('click', handleOk);
-          };
-          
-          confirmBtn.addEventListener('click', handleOk);
-        }
-
-      } catch (error) {
-        console.error('Error deleting backup:', error);
-        
-        // Show error in modal
-        titleElement.textContent = 'Delete Failed';
-        titleElement.style.color = 'var(--error-color)';
-        messageElement.textContent = error.message;
-        
-        confirmBtn.textContent = 'OK';
-        confirmBtn.style.display = 'inline-block';
-        
-        const handleOk = () => {
-          modal.classList.remove('active');
-          confirmBtn.removeEventListener('click', handleOk);
-        };
-        
-        confirmBtn.addEventListener('click', handleOk);
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned an invalid response.');
       }
-    };
 
-    confirmBtn.addEventListener('click', handleConfirm);
-    cancelBtn.addEventListener('click', handleCancel);
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        await showAlert('Backup deleted successfully!', 'Delete Successful');
+        // Refresh backup list
+        await this.loadAvailableBackups();
+      } else {
+        throw new Error(data.message || 'Failed to delete backup.');
+      }
+
+    } catch (error) {
+      console.error('Error deleting backup:', error);
+      await showAlert(`Failed to delete backup:\n\n${error.message}`, 'Error');
+    }
   }
 
   async toggleBackupEnabled(enabled) {
@@ -856,6 +791,16 @@ class BackupRestore {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
+  // Save initial scroll position (browser may have restored it)
+  const savedScrollY = window.scrollY;
+  const savedScrollX = window.scrollX;
+  
   const backupRestore = new BackupRestore();
-  backupRestore.init();
+  backupRestore.init().then(() => {
+    // Restore scroll position after initialization
+    // This prevents form updates from scrolling the page
+    requestAnimationFrame(() => {
+      window.scrollTo(savedScrollX, savedScrollY);
+    });
+  });
 });

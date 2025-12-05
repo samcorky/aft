@@ -162,6 +162,11 @@ class ModalDialog {
       // Set confirm button text
       this.confirmBtn.textContent = options.confirmText || 'OK';
 
+      // Blur currently focused element to prevent scroll on modal close
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+      }
+
       // Show modal
       this.modal.classList.add('show');
 
@@ -171,6 +176,12 @@ class ModalDialog {
         this.modal.classList.remove('show');
         this.isOpen = false;
         this.currentCleanup = null;
+        
+        // Ensure no element receives focus that could cause scrolling
+        if (document.activeElement && document.activeElement !== document.body) {
+          document.activeElement.blur();
+        }
+        
         if (options.showInput) {
           resolve(this.input.value);
         } else {
@@ -184,6 +195,12 @@ class ModalDialog {
         this.modal.classList.remove('show');
         this.isOpen = false;
         this.currentCleanup = null;
+        
+        // Ensure no element receives focus that could cause scrolling
+        if (document.activeElement && document.activeElement !== document.body) {
+          document.activeElement.blur();
+        }
+        
         if (options.showInput) {
           resolve(null);
         } else {
@@ -237,11 +254,12 @@ class ModalDialog {
 
       // Focus appropriate element after ensuring DOM is ready
       // Using requestAnimationFrame for more reliable focus timing
+      // preventScroll prevents the browser from scrolling to the focused element
       requestAnimationFrame(() => {
         if (options.showInput) {
-          this.input.focus();
+          this.input.focus({ preventScroll: true });
         } else {
-          this.confirmBtn.focus();
+          this.confirmBtn.focus({ preventScroll: true });
         }
       });
   }

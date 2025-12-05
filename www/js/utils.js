@@ -21,12 +21,28 @@ function formatTooltipDateTime(date) {
 class ModalDialog {
   constructor() {
     this.modal = null;
+    this.title = null;
+    this.message = null;
+    this.input = null;
+    this.cancelBtn = null;
+    this.confirmBtn = null;
     this.isOpen = false;
     this.currentCleanup = null;
-    this.createModal();
+    this.isInitialized = false;
   }
 
-  createModal() {
+  ensureInitialized() {
+    // Lazy initialization - only create modal when first needed
+    if (this.isInitialized && this.modal) {
+      return true;
+    }
+
+    // Check if DOM is ready
+    if (typeof document === 'undefined' || !document.body) {
+      console.error('ModalDialog: Document body not available yet');
+      return false;
+    }
+
     // Create modal HTML structure
     const modalHTML = `
       <div id="appModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="appModalTitle" aria-describedby="appModalMessage">
@@ -51,16 +67,41 @@ class ModalDialog {
       document.body.insertAdjacentHTML('beforeend', modalHTML);
     }
 
+    // Get references to modal elements
     this.modal = document.getElementById('appModal');
     this.title = document.getElementById('appModalTitle');
     this.message = document.getElementById('appModalMessage');
     this.input = document.getElementById('appModalInput');
     this.cancelBtn = document.getElementById('appModalCancelBtn');
     this.confirmBtn = document.getElementById('appModalConfirmBtn');
+
+    // Verify all elements were found
+    if (!this.modal || !this.title || !this.message || !this.input || !this.cancelBtn || !this.confirmBtn) {
+      console.error('ModalDialog: Failed to initialize modal elements');
+      return false;
+    }
+
+    this.isInitialized = true;
+    return true;
   }
 
   show(title, message, options = {}) {
     return new Promise((resolve) => {
+      // Ensure modal is initialized
+      if (!this.ensureInitialized()) {
+        console.error('ModalDialog: Cannot show modal - initialization failed');
+        // Fallback to browser alert/confirm
+        if (options.showInput) {
+          resolve(prompt(message, options.defaultValue || ''));
+        } else if (options.showCancel) {
+          resolve(confirm(message));
+        } else {
+          alert(message);
+          resolve(true);
+        }
+        return;
+      }
+
       // If modal is already open, wait for it to close first
       if (this.isOpen) {
         // Clean up previous modal

@@ -21,7 +21,7 @@
 .about-section p {
   margin: 12px 0;
   line-height: 1.6;
-  color: #555;
+  color: var(--text-color);
 }
 
 .about-section ul {
@@ -32,7 +32,7 @@
 .about-section li {
   margin: 8px 0;
   line-height: 1.6;
-  color: #555;
+  color: var(--text-color);
 }
 
 .about-section a {

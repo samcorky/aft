@@ -564,3 +564,399 @@ class TestNotificationsSecurity:
         assert len(notification['message']) == 65535
         assert notification['subject'] == subject
         assert notification['message'] == message
+
+
+@pytest.mark.api
+class TestNotificationActions:
+    """Test cases for notification action fields."""
+    
+    def test_create_notification_with_action(self, api_client):
+        """Test creating a notification with action title and URL."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "New Feature",
+                "message": "Check out our new feature!",
+                "action_title": "Learn More",
+                "action_url": "/features"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == "Learn More"
+        assert data['notification']['action_url'] == "/features"
+    
+    def test_create_notification_without_action(self, api_client):
+        """Test creating a notification without action fields."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Simple Notification",
+                "message": "Just a message"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] is None
+        assert data['notification']['action_url'] is None
+    
+    def test_create_notification_action_title_too_long(self, api_client):
+        """Test creating a notification with action title exceeding 100 characters."""
+        long_title = "A" * 101
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": long_title,
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '100' in data['message']
+    
+    def test_create_notification_action_url_too_long(self, api_client):
+        """Test creating a notification with action URL exceeding 500 characters."""
+        long_url = "A" * 501
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": long_url
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert '500' in data['message']
+    
+    def test_create_notification_action_title_max_length(self, api_client):
+        """Test creating a notification with action title at max length (100 chars)."""
+        max_title = "A" * 100
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": max_title,
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == max_title
+    
+    def test_create_notification_action_url_max_length(self, api_client):
+        """Test creating a notification with action URL at max length (500 chars)."""
+        # Create a valid relative URL at max length (500 chars starting with /)
+        max_url = "/" + "a" * 499
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": max_url
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == max_url
+        assert len(data['notification']['action_url']) == 500
+    
+    def test_create_notification_action_title_strips_whitespace(self, api_client):
+        """Test that action title has whitespace stripped."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "  Click Here  ",
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == "Click Here"
+    
+    def test_create_notification_empty_action_title(self, api_client):
+        """Test creating a notification with empty action title after stripping."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "   ",
+                "action_url": "/test"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        # Empty after stripping should be treated as None
+        assert data['notification']['action_title'] is None
+    
+    def test_create_notification_empty_action_url(self, api_client):
+        """Test creating a notification with empty action URL after stripping."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "   "
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        # Empty after stripping should be treated as None
+        assert data['notification']['action_url'] is None
+    
+    def test_get_notifications_includes_action_fields(self, api_client):
+        """Test that GET /api/notifications includes action fields."""
+        # Create notification with action
+        requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "View Details",
+                "action_url": "/details"
+            }
+        )
+        
+        # Get all notifications
+        response = requests.get(f'{api_client}/api/notifications')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        
+        # Find our notification
+        notification = next(
+            (n for n in data['notifications'] if n['subject'] == 'Test'),
+            None
+        )
+        assert notification is not None
+        assert notification['action_title'] == "View Details"
+        assert notification['action_url'] == "/details"
+    
+    def test_create_notification_action_title_over_recommended_length(self, api_client):
+        """Test that action title over 50 chars (recommended max) still succeeds but logs warning."""
+        # 51 chars (over recommended but under hard limit)
+        title = "A" * 51
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": title,
+                "action_url": "/test"
+            }
+        )
+        # Should succeed since it's under hard limit of 100
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_title'] == title
+
+
+@pytest.mark.api
+class TestNotificationSecurityURLValidation:
+    """Security tests for notification action URL validation."""
+    
+    def test_create_notification_with_javascript_protocol(self, api_client):
+        """Test that javascript: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "javascript:alert('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'javascript:' in data['message'].lower()
+    
+    def test_create_notification_with_data_protocol(self, api_client):
+        """Test that data: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "data:text/html,<script>alert('XSS')</script>"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'data:' in data['message'].lower()
+    
+    def test_create_notification_with_vbscript_protocol(self, api_client):
+        """Test that vbscript: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "vbscript:msgbox('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'vbscript:' in data['message'].lower()
+    
+    def test_create_notification_with_file_protocol(self, api_client):
+        """Test that file: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "file:///etc/passwd"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'file:' in data['message'].lower()
+    
+    def test_create_notification_with_about_protocol(self, api_client):
+        """Test that about: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "about:blank"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_blob_protocol(self, api_client):
+        """Test that blob: URLs are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "blob:https://example.com/test"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_relative_url(self, api_client):
+        """Test that relative URLs starting with / are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "View Page",
+                "action_url": "/settings"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "/settings"
+    
+    def test_create_notification_with_http_url(self, api_client):
+        """Test that http:// URLs are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Visit",
+                "action_url": "http://example.com"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "http://example.com"
+    
+    def test_create_notification_with_https_url(self, api_client):
+        """Test that https:// URLs are accepted."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Visit",
+                "action_url": "https://example.com"
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['notification']['action_url'] == "https://example.com"
+    
+    def test_create_notification_with_uppercase_javascript_protocol(self, api_client):
+        """Test that JavaScript: URLs (case variation) are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "JavaScript:alert('XSS')"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_mixed_case_data_protocol(self, api_client):
+        """Test that DaTa: URLs (case variation) are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "DaTa:text/html,<script>alert('XSS')</script>"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+    
+    def test_create_notification_with_protocol_only_url(self, api_client):
+        """Test that URLs without proper structure after protocol are rejected."""
+        response = requests.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "ftp://test.com"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False

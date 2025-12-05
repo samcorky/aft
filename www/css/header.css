@@ -462,6 +462,56 @@
   word-wrap: break-word;
 }
 
+.notification-action-link {
+  display: inline-block;
+  background: var(--primary-color);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  margin-top: 5px;
+  margin-bottom: 8px;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.2s, transform 0.1s;
+  position: relative;
+}
+
+.notification-action-link:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.notification-action-link:focus {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+.notification-action-link:hover::after,
+.notification-action-link:focus::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  white-space: normal;
+  max-width: 300px;
+  font-size: 12px;
+  margin-bottom: 5px;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  pointer-events: none;
+}
+
 .notification-time {
   color: var(--text-muted);
   font-size: 11px;

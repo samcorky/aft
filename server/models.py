@@ -134,6 +134,8 @@ class Notification(Base):
     message = Column(Text, nullable=False)
     unread = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
+    action_title = Column(String(100), nullable=True)
+    action_url = Column(String(500), nullable=True)
     
     def __repr__(self):
         return f"<Notification(id={self.id}, subject='{self.subject}', unread={self.unread})>"

@@ -182,6 +182,32 @@ class Notifications {
   }
 
   /**
+   * Validate that a URL uses a safe protocol.
+   * @param {string} url - The URL to validate
+   * @returns {boolean} - True if URL is safe, false otherwise
+   */
+  isSafeUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+    
+    const urlLower = url.trim().toLowerCase();
+    
+    // Allow relative paths starting with /
+    if (urlLower.startsWith('/')) {
+      return true;
+    }
+    
+    // Allow http and https
+    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+      return true;
+    }
+    
+    // Reject everything else including dangerous protocols
+    return false;
+  }
+
+  /**
    * Render the notifications list.
    */
   renderNotifications() {
@@ -196,6 +222,24 @@ class Notifications {
     });
 
     this.list.innerHTML = sortedNotifications.map(notification => {
+      // Build action button HTML if action is present and URL is safe
+      let actionButtonHtml = '';
+      if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
+        const escapedTitle = this.escapeHtml(notification.action_title);
+        // URL is already validated by isSafeUrl(), no need to escape
+        actionButtonHtml = `
+          <a href="${notification.action_url}" 
+             class="notification-action-link" 
+             data-tooltip="${escapedTitle}"
+             data-notification-id="${notification.id}"
+             data-is-unread="${notification.unread}"
+             aria-label="${escapedTitle}"
+             tabindex="0">
+            ${escapedTitle}
+          </a>
+        `;
+      }
+      
       return `
         <div class="notification-item ${notification.unread ? 'unread' : ''}" 
              data-id="${notification.id}"
@@ -205,6 +249,7 @@ class Notifications {
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
+            ${actionButtonHtml}
             <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}" aria-label="Created on ${formatTooltipDateTime(notification.created_at)}" tabindex="0">${this.formatTime(notification.created_at)}</div>
           </div>
           <div class="notification-actions">
@@ -234,6 +279,19 @@ class Notifications {
    */
   handleNotificationClick(e) {
     const target = e.target;
+    
+    // Handle action link clicks (mark as read and stop propagation)
+    if (target.classList.contains('notification-action-link')) {
+      e.stopPropagation(); // Prevent notification item click
+      const id = parseInt(target.dataset.notificationId);
+      const isUnread = target.dataset.isUnread === 'true';
+      if (isUnread) {
+        // Mark as read asynchronously, don't wait for response
+        this.markAsRead(id, true);
+      }
+      // Let the link navigation proceed
+      return;
+    }
     
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {

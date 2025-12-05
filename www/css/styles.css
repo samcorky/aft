@@ -119,7 +119,7 @@ body {
 }
 
 /* App Modal Dialog Styles */
-#appModal {
+.modal-app {
   display: none;
   position: fixed;
   z-index: 10000;
@@ -132,11 +132,11 @@ body {
   justify-content: center;
 }
 
-#appModal.show {
+.modal-app.show {
   display: flex;
 }
 
-#appModal .modal-content {
+.modal-app .modal-content {
   background-color: white;
   padding: 30px;
   border-radius: 8px;
@@ -159,30 +159,30 @@ body {
   }
 }
 
-#appModal .modal-header {
+.modal-app .modal-header {
   margin-bottom: 20px;
   padding-bottom: 15px;
   border-bottom: 2px solid var(--border-color);
 }
 
-#appModal .modal-header h2 {
+.modal-app .modal-header h2 {
   margin: 0;
   color: var(--text-dark);
   font-size: 20px;
 }
 
-#appModal .modal-body {
+.modal-app .modal-body {
   margin-bottom: 20px;
 }
 
-#appModal .modal-body p {
+.modal-app .modal-body p {
   margin: 0 0 15px 0;
   color: var(--text-color);
   line-height: 1.5;
   white-space: pre-line;
 }
 
-#appModal .modal-input {
+.modal-app .modal-input {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-color);
@@ -191,13 +191,13 @@ body {
   box-sizing: border-box;
 }
 
-#appModal .modal-input:focus {
+.modal-app .modal-input:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
-#appModal .modal-actions {
+.modal-app .modal-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;

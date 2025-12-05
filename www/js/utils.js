@@ -45,7 +45,7 @@ class ModalDialog {
 
     // Create modal HTML structure
     const modalHTML = `
-      <div id="appModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="appModalTitle" aria-describedby="appModalMessage">
+      <div id="appModal" class="modal modal-app" role="dialog" aria-modal="true" aria-labelledby="appModalTitle" aria-describedby="appModalMessage">
         <div class="modal-content">
           <div class="modal-header">
             <h2 id="appModalTitle"></h2>

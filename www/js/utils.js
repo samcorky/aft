@@ -162,10 +162,9 @@ class ModalDialog {
       // Set confirm button text
       this.confirmBtn.textContent = options.confirmText || 'OK';
 
-      // Store currently focused element and blur it to prevent scroll on modal close
-      const previouslyFocused = document.activeElement;
-      if (previouslyFocused && previouslyFocused !== document.body) {
-        previouslyFocused.blur();
+      // Blur currently focused element to prevent scroll on modal close
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
       }
 
       // Show modal

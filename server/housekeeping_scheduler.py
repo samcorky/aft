@@ -224,7 +224,7 @@ class HousekeepingScheduler:
         """Get current scheduler status."""
         from database import SessionLocal
         from models import Setting
-        import os
+        import psutil
         
         # Get enabled setting from database
         db = SessionLocal()
@@ -247,9 +247,8 @@ class HousekeepingScheduler:
                 with open(self.lock_file, 'r') as f:
                     pid = int(f.read().strip())
                 try:
-                    os.kill(pid, 0)  # Check if process exists
-                    is_running = True
-                except OSError:
+                    is_running = psutil.pid_exists(pid)
+                except Exception:
                     is_running = False
             except (ValueError, FileNotFoundError):
                 is_running = False

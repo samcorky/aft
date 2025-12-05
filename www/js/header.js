@@ -121,7 +121,7 @@ class Header {
         updateHoverState();
         
         // Also update notifications isPopupOpen state if we closed it
-        if (notificationsPopup && notificationsPopup.classList.contains('pinned') === false && window.notifications) {
+        if (notificationsPopup && !notificationsPopup.classList.contains('pinned') && window.notifications) {
           window.notifications.isPopupOpen = false;
         }
       });

@@ -235,15 +235,63 @@ class ModalDialog {
 // Create global modal instance
 const modalDialog = new ModalDialog();
 
-// Wrapper functions to match browser API
+/**
+ * Display a styled alert modal dialog (replacement for browser alert()).
+ * Supports multi-line messages using \n characters.
+ * 
+ * @param {string} message - The message to display. Use \n for line breaks.
+ * @param {string} [title='Alert'] - The title of the alert dialog.
+ * @returns {Promise<boolean>} Promise that resolves to true when dismissed.
+ * 
+ * @example
+ * await showAlert('Operation completed successfully!');
+ * 
+ * @example
+ * await showAlert('Error details:\n\nFailed to save data.\nPlease try again.', 'Error');
+ */
 function showAlert(message, title) {
   return modalDialog.alert(message, title);
 }
 
+/**
+ * Display a styled confirmation modal dialog (replacement for browser confirm()).
+ * Supports multi-line messages using \n characters.
+ * 
+ * @param {string} message - The message to display. Use \n for line breaks.
+ * @param {string} [title='Confirm'] - The title of the confirmation dialog.
+ * @returns {Promise<boolean>} Promise that resolves to true if OK is clicked, false if Cancel is clicked or dialog is dismissed.
+ * 
+ * @example
+ * const confirmed = await showConfirm('Are you sure you want to delete this item?');
+ * if (confirmed) {
+ *   // Proceed with deletion
+ * }
+ * 
+ * @example
+ * const result = await showConfirm('This action cannot be undone.\n\nAre you sure?', 'Warning');
+ */
 function showConfirm(message, title) {
   return modalDialog.confirm(message, title);
 }
 
+/**
+ * Display a styled prompt modal dialog (replacement for browser prompt()).
+ * Allows user to input text with an optional default value.
+ * 
+ * @param {string} message - The message to display.
+ * @param {string} [defaultValue=''] - The default value for the input field.
+ * @param {string} [title='Input'] - The title of the prompt dialog.
+ * @returns {Promise<string|null>} Promise that resolves to the input value if OK is clicked, null if Cancel is clicked or dialog is dismissed.
+ * 
+ * @example
+ * const name = await showPrompt('Enter your name:', 'John Doe');
+ * if (name !== null) {
+ *   console.log('User entered:', name);
+ * }
+ * 
+ * @example
+ * const boardName = await showPrompt('Enter board name:', '', 'Create Board');
+ */
 function showPrompt(message, defaultValue, title) {
   return modalDialog.prompt(message, defaultValue, title);
 }

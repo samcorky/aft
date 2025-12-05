@@ -47,7 +47,8 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
                 truncated_chars = len(original_action_title) - 100
                 logger.info(
                     f"Notification action_title truncated: {truncated_chars} characters removed. "
-                    f"Original: '{original_action_title[:50]}...', Truncated: '{action_title[:50]}...'"
+                    f"Original: '{original_action_title[:50]}{'...' if len(original_action_title) > 50 else ''}', "
+                    f"Truncated: '{action_title[:50]}{'...' if len(action_title) > 50 else ''}'"
                 )
         else:
             action_title = None
@@ -59,7 +60,8 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
                 truncated_chars = len(original_action_url) - 500
                 logger.info(
                     f"Notification action_url truncated: {truncated_chars} characters removed. "
-                    f"Original: '{original_action_url[:50]}...', Truncated: '{action_url[:50]}...'"
+                    f"Original: '{original_action_url[:50]}{'...' if len(original_action_url) > 50 else ''}', "
+                    f"Truncated: '{action_url[:50]}{'...' if len(action_url) > 50 else ''}'"
                 )
         else:
             action_url = None
@@ -69,7 +71,8 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
             truncated_chars = len(original_subject) - 255
             logger.info(
                 f"Notification subject truncated: {truncated_chars} characters removed. "
-                f"Original: '{original_subject[:50]}...', Truncated: '{subject[:50]}...'"
+                f"Original: '{original_subject[:50]}{'...' if len(original_subject) > 50 else ''}', "
+                f"Truncated: '{subject[:50]}{'...' if len(subject) > 50 else ''}'"
             )
         
         if len(original_message) > 65535:

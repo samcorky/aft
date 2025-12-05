@@ -118,7 +118,6 @@ class ModalDialog {
       if (options.showInput) {
         this.input.style.display = 'block';
         this.input.value = options.defaultValue || '';
-        this.input.focus();
       } else {
         this.input.style.display = 'none';
       }

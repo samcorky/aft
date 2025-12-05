@@ -192,12 +192,12 @@
   position: relative;
 }
 
-.settings-dropdown:hover .settings-dropdown-menu {
+.settings-dropdown:hover .settings-dropdown-menu:not(.no-hover) {
   display: block;
   animation: fadeIn 0.3s ease-in-out;
 }
 
-.settings-dropdown-menu:hover {
+.settings-dropdown-menu:hover:not(.no-hover) {
   display: block;
 }
 
@@ -212,6 +212,10 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 200px;
   z-index: 1000;
+}
+
+.settings-dropdown-menu.pinned {
+  display: block;
 }
 
 .settings-dropdown-menu > * {
@@ -242,12 +246,12 @@
   position: relative;
 }
 
-.user-dropdown:hover .user-dropdown-menu {
+.user-dropdown:hover .user-dropdown-menu:not(.no-hover) {
   display: block;
   animation: fadeIn 0.3s ease-in-out;
 }
 
-.user-dropdown-menu:hover {
+.user-dropdown-menu:hover:not(.no-hover) {
   display: block;
 }
 
@@ -262,6 +266,10 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 200px;
   z-index: 1000;
+}
+
+.user-dropdown-menu.pinned {
+  display: block;
 }
 
 .user-dropdown-menu > * {
@@ -290,6 +298,15 @@
 /* Notifications Dropdown */
 .notifications-dropdown {
   position: relative;
+}
+
+.notifications-dropdown:hover .notifications-popup:not(.no-hover) {
+  display: flex;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.notifications-popup:hover:not(.no-hover) {
+  display: flex;
 }
 
 .notification-badge {
@@ -323,11 +340,12 @@
   overflow: hidden;
   z-index: 1000;
   animation: fadeIn 0.3s ease-in-out;
+  flex-direction: column;
 }
 
-.notifications-popup.show {
+.notifications-popup.show,
+.notifications-popup.pinned {
   display: flex;
-  flex-direction: column;
 }
 
 .notifications-header {

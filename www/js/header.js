@@ -31,6 +31,9 @@ class Header {
       window.notifications = new Notifications();
     }
     
+    // Initialize dropdown pin behavior for settings and user menus
+    this.initializeDropdownPin();
+    
     // Initialize views dropdown
     this.initializeViewsDropdown();
     
@@ -61,6 +64,104 @@ class Header {
     if (viewsDropdown) {
       viewsDropdown.style.display = show ? 'block' : 'none';
     }
+  }
+
+  // Initialize dropdown pin behavior for settings and user menus
+  initializeDropdownPin() {
+    const dropdowns = [
+      {
+        trigger: document.querySelector('.settings-dropdown .icon-link'),
+        menu: document.getElementById('settings-dropdown-menu')
+      },
+      {
+        trigger: document.querySelector('.user-dropdown .icon-link'),
+        menu: document.getElementById('user-dropdown-menu')
+      }
+    ];
+
+    // Get notifications popup for coordinated hover prevention
+    const notificationsPopup = document.getElementById('notifications-popup');
+    const allMenus = [...dropdowns.map(d => d.menu), notificationsPopup].filter(Boolean);
+
+    const updateHoverState = () => {
+      // Check if any menu is pinned
+      const anyPinned = allMenus.some(menu => menu.classList.contains('pinned'));
+      
+      // Add/remove no-hover class on all menus
+      allMenus.forEach(menu => {
+        if (anyPinned) {
+          menu.classList.add('no-hover');
+        } else {
+          menu.classList.remove('no-hover');
+        }
+      });
+    };
+
+    dropdowns.forEach(({ trigger, menu }) => {
+      if (!trigger || !menu) return;
+
+      // Toggle pinned state on click
+      trigger.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const wasPinned = menu.classList.contains('pinned');
+        
+        // Close other pinned menus (including notifications)
+        allMenus.forEach((otherMenu) => {
+          if (otherMenu && otherMenu !== menu) {
+            otherMenu.classList.remove('pinned');
+          }
+        });
+        
+        // Toggle this menu
+        menu.classList.toggle('pinned', !wasPinned);
+        
+        // Update hover state for all menus
+        updateHoverState();
+        
+        // Also update notifications isPopupOpen state if we closed it
+        if (notificationsPopup && notificationsPopup.classList.contains('pinned') === false && window.notifications) {
+          window.notifications.isPopupOpen = false;
+        }
+      });
+    });
+
+    // Close pinned menus when clicking outside
+    document.addEventListener('click', (e) => {
+      const clickedInsideAnyMenu = dropdowns.some(({ trigger, menu }) => {
+        return trigger && menu && (trigger.contains(e.target) || menu.contains(e.target));
+      });
+      
+      const clickedInNotifications = notificationsPopup && 
+        (notificationsPopup.contains(e.target) || 
+         document.getElementById('notifications-icon-link')?.contains(e.target));
+
+      if (!clickedInsideAnyMenu && !clickedInNotifications) {
+        allMenus.forEach((menu) => {
+          if (menu) {
+            menu.classList.remove('pinned');
+          }
+        });
+        updateHoverState();
+      }
+    });
+
+    // Close pinned menus on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        let hadPinned = false;
+        allMenus.forEach((menu) => {
+          if (menu && menu.classList.contains('pinned')) {
+            menu.classList.remove('pinned');
+            hadPinned = true;
+          }
+        });
+        if (hadPinned) {
+          updateHoverState();
+        }
+      }
+    });
   }
 
   // Initialize views dropdown functionality

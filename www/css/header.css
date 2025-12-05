@@ -477,7 +477,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background-color 0.2s, transform 0.1s;
+  transition: background 0.2s, transform 0.1s;
   position: relative;
 }
 

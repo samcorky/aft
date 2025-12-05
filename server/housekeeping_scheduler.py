@@ -26,7 +26,7 @@ class HousekeepingScheduler:
         self.thread: Optional[threading.Thread] = None
         self.lock_file = Path("/tmp/aft_housekeeping_scheduler.lock")
         self.app_version = app_version
-        self.check_interval = 60  # Run every 60 seconds
+        self.check_interval = 3600  # Run every hour (3600 seconds)
     
     def start(self):
         """Start the housekeeping scheduler thread."""

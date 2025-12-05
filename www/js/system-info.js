@@ -9,6 +9,7 @@ class SystemInfo {
     this.confirmInput = null;
     this.errorMessage = null;
     this.backupToggle = null;
+    this.housekeepingToggle = null;
   }
 
   async init() {
@@ -18,6 +19,7 @@ class SystemInfo {
     this.confirmInput = document.getElementById('delete-confirmation-input');
     this.errorMessage = document.getElementById('delete-error');
     this.backupToggle = document.getElementById('backupToggle');
+    this.housekeepingToggle = document.getElementById('housekeepingToggle');
     
     // Set up event listeners
     this.setupEventListeners();
@@ -67,22 +69,31 @@ class SystemInfo {
         await this.toggleBackup(e.target.checked);
       });
     }
+
+    // Housekeeping toggle
+    if (this.housekeepingToggle) {
+      this.housekeepingToggle.addEventListener('change', async (e) => {
+        await this.toggleHousekeeping(e.target.checked);
+      });
+    }
   }
 
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse, backupStatusResponse] = await Promise.all([
+      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse] = await Promise.all([
         fetch('/api/test'),
         fetch('/api/version'),
         fetch('/api/stats'),
-        fetch('/api/settings/backup/status')
+        fetch('/api/settings/backup/status'),
+        fetch('/api/settings/housekeeping/status')
       ]);
 
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
       const statsData = await statsResponse.json();
       const backupStatusData = await backupStatusResponse.json();
+      const housekeepingStatusData = await housekeepingStatusResponse.json();
 
       // Update connection status
       const connectionElement = document.getElementById('db-connection');
@@ -145,6 +156,28 @@ class SystemInfo {
           } else {
             errorDiv.style.display = 'none';
           }
+        }
+      }
+
+      // Update housekeeping module status
+      if (housekeepingStatusData.success && housekeepingStatusData.status) {
+        const status = housekeepingStatusData.status;
+        const healthBadge = document.getElementById('housekeeping-module-health');
+        
+        if (healthBadge) {
+          // Update health status
+          if (status.running) {
+            healthBadge.textContent = 'Healthy';
+            healthBadge.className = 'status-badge status-healthy';
+          } else {
+            healthBadge.textContent = 'Unhealthy';
+            healthBadge.className = 'status-badge status-unhealthy';
+          }
+        }
+        
+        // Update toggle state
+        if (this.housekeepingToggle) {
+          this.housekeepingToggle.checked = status.enabled;
         }
       }
     } catch (error) {
@@ -233,6 +266,31 @@ class SystemInfo {
       console.error('Error toggling backup:', error);
       // Revert toggle on error
       this.backupToggle.checked = !enabled;
+      await showAlert(error.message, 'Error');
+    }
+  }
+
+  async toggleHousekeeping(enabled) {
+    try {
+      const response = await fetch('/api/settings/housekeeping/config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        // Revert toggle on error
+        this.housekeepingToggle.checked = !enabled;
+        await showAlert(data.message, 'Error');
+      }
+    } catch (error) {
+      console.error('Error toggling housekeeping:', error);
+      // Revert toggle on error
+      this.housekeepingToggle.checked = !enabled;
       await showAlert(error.message, 'Error');
     }
   }

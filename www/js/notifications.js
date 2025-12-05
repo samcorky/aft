@@ -280,22 +280,26 @@ class Notifications {
   handleNotificationClick(e) {
     const target = e.target;
     
+    // Always prevent default and stop propagation for all notification interactions
+    // to avoid closing the menu in hover mode
+    e.preventDefault();
+    e.stopPropagation();
+    
     // Handle action link clicks (mark as read and stop propagation)
     if (target.classList.contains('notification-action-link')) {
-      e.stopPropagation(); // Prevent notification item click
       const id = parseInt(target.dataset.notificationId);
       const isUnread = target.dataset.isUnread === 'true';
       if (isUnread) {
         // Mark as read asynchronously, don't wait for response
         this.markAsRead(id, true);
       }
-      // Let the link navigation proceed
+      // Navigate to the URL
+      window.location.href = target.href;
       return;
     }
     
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {
-      e.stopPropagation();
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';
@@ -311,7 +315,6 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
-      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

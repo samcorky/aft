@@ -791,6 +791,16 @@ class BackupRestore {
 
 // Initialize when page loads
 document.addEventListener('DOMContentLoaded', () => {
+  // Save initial scroll position (browser may have restored it)
+  const savedScrollY = window.scrollY;
+  const savedScrollX = window.scrollX;
+  
   const backupRestore = new BackupRestore();
-  backupRestore.init();
+  backupRestore.init().then(() => {
+    // Restore scroll position after initialization
+    // This prevents form updates from scrolling the page
+    requestAnimationFrame(() => {
+      window.scrollTo(savedScrollX, savedScrollY);
+    });
+  });
 });

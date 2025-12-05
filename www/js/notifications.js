@@ -43,20 +43,6 @@ class Notifications {
       });
     }
 
-    // Close popup when clicking outside (only if pinned)
-    document.addEventListener('click', (e) => {
-      if (this.isPopupOpen && !this.popup.contains(e.target) && !this.iconLink.contains(e.target)) {
-        this.closePopup();
-      }
-    });
-
-    // Close popup on Escape key for accessibility (only if pinned)
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isPopupOpen) {
-        this.closePopup();
-      }
-    });
-
     // Hover behavior - load notifications when hovering
     const notificationsDropdown = document.querySelector('.notifications-dropdown');
     if (notificationsDropdown) {

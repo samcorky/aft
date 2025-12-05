@@ -154,6 +154,12 @@ class Header {
             menu.classList.remove('pinned');
           }
         });
+        
+        // Sync notifications isPopupOpen state
+        if (window.notifications && notificationsPopup && !notificationsPopup.classList.contains('pinned')) {
+          window.notifications.isPopupOpen = false;
+        }
+        
         updateMenuHoverState();
       }
     });
@@ -168,6 +174,12 @@ class Header {
             hadPinned = true;
           }
         });
+        
+        // Sync notifications isPopupOpen state
+        if (hadPinned && window.notifications && notificationsPopup && !notificationsPopup.classList.contains('pinned')) {
+          window.notifications.isPopupOpen = false;
+        }
+        
         if (hadPinned) {
           updateMenuHoverState();
         }

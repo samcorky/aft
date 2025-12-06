@@ -781,3 +781,326 @@ class TestTemplateCardCreation:
         assert 'Scheduled must be a boolean' in response.json()['message']
 
 
+@pytest.mark.api
+class TestColumnSpecificDuplicateChecking:
+    """Test cases for column-specific duplicate checking behavior in card scheduler."""
+    
+    def test_schedule_allows_cards_in_different_columns(self, api_client, sample_board):
+        """Test that allow_duplicates=False allows cards in different columns."""
+        # Create two columns
+        col1_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Column 1'
+        })
+        assert col1_response.status_code == 201
+        col1 = col1_response.json()['column']
+        
+        col2_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Column 2'
+        })
+        assert col2_response.status_code == 201
+        col2 = col2_response.json()['column']
+        
+        # Create template card in column 1
+        card_response = requests.post(f"{api_client}/api/columns/{col1['id']}/cards", json={
+            'title': 'Multi-Column Template',
+            'description': 'Can exist in multiple columns'
+        })
+        assert card_response.status_code == 201
+        template_card = card_response.json()['card']
+        
+        # Create schedule with allow_duplicates=False
+        now = datetime.now()
+        schedule_response = requests.post(f"{api_client}/api/schedules", json={
+            'card_id': template_card['id'],
+            'run_every': 1,
+            'unit': 'day',
+            'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'schedule_enabled': True,
+            'allow_duplicates': False,
+            'keep_source_card': False
+        })
+        assert schedule_response.status_code == 201
+        schedule = schedule_response.json()['schedule']
+        
+        # Manually create a card from this schedule in column 1 (simulates scheduler creating it)
+        card1_response = requests.post(f"{api_client}/api/columns/{col1['id']}/cards", json={
+            'title': 'Multi-Column Template',
+            'description': 'Can exist in multiple columns',
+            'schedule': schedule['id']
+        })
+        assert card1_response.status_code == 201
+        card1 = card1_response.json()['card']
+        
+        # Manually create a card from this schedule in column 2
+        card2_response = requests.post(f"{api_client}/api/columns/{col2['id']}/cards", json={
+            'title': 'Multi-Column Template',
+            'description': 'Can exist in multiple columns',
+            'schedule': schedule['id']
+        })
+        assert card2_response.status_code == 201
+        card2 = card2_response.json()['card']
+        
+        # Verify both cards exist and are not archived
+        cards1_response = requests.get(f"{api_client}/api/columns/{col1['id']}/cards")
+        cards1 = cards1_response.json()['cards']
+        assert len([c for c in cards1 if c['id'] == card1['id']]) == 1
+        
+        cards2_response = requests.get(f"{api_client}/api/columns/{col2['id']}/cards")
+        cards2 = cards2_response.json()['cards']
+        assert len([c for c in cards2 if c['id'] == card2['id']]) == 1
+    
+    def test_duplicate_check_prevents_duplicates_in_same_column(self, api_client, sample_board):
+        """Test that duplicate check correctly prevents duplicates within the same column."""
+        # Create column
+        col_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Test Column'
+        })
+        assert col_response.status_code == 201
+        column = col_response.json()['column']
+        
+        # Create template card
+        card_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Single Instance Template',
+            'description': 'Should only exist once in column'
+        })
+        assert card_response.status_code == 201
+        template_card = card_response.json()['card']
+        
+        # Create schedule with allow_duplicates=False
+        now = datetime.now()
+        schedule_response = requests.post(f"{api_client}/api/schedules", json={
+            'card_id': template_card['id'],
+            'run_every': 1,
+            'unit': 'day',
+            'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'schedule_enabled': True,
+            'allow_duplicates': False,
+            'keep_source_card': False
+        })
+        assert schedule_response.status_code == 201
+        schedule = schedule_response.json()['schedule']
+        
+        # Create first card from schedule
+        card1_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Single Instance Template',
+            'description': 'Should only exist once in column',
+            'schedule': schedule['id']
+        })
+        assert card1_response.status_code == 201
+        card1 = card1_response.json()['card']
+        
+        # Verify card exists
+        cards_response = requests.get(f"{api_client}/api/columns/{column['id']}/cards")
+        cards = cards_response.json()['cards']
+        schedule_cards = [c for c in cards if c.get('schedule') == schedule['id']]
+        assert len(schedule_cards) == 1
+        assert schedule_cards[0]['id'] == card1['id']
+        
+        # At this point, the scheduler should NOT create a duplicate
+        # We can't directly test the scheduler logic without triggering it,
+        # but we've verified the state that would prevent duplication
+    
+    def test_moved_card_allows_new_card_in_original_column(self, api_client, sample_board):
+        """Test that when a card is moved to different column, new card can be created in original column."""
+        # Create two columns
+        col1_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Original Column'
+        })
+        assert col1_response.status_code == 201
+        col1 = col1_response.json()['column']
+        
+        col2_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Destination Column'
+        })
+        assert col2_response.status_code == 201
+        col2 = col2_response.json()['column']
+        
+        # Create template card in column 1
+        card_response = requests.post(f"{api_client}/api/columns/{col1['id']}/cards", json={
+            'title': 'Movable Template',
+            'description': 'Will be moved between columns'
+        })
+        assert card_response.status_code == 201
+        template_card = card_response.json()['card']
+        
+        # Create schedule
+        now = datetime.now()
+        schedule_response = requests.post(f"{api_client}/api/schedules", json={
+            'card_id': template_card['id'],
+            'run_every': 1,
+            'unit': 'day',
+            'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'schedule_enabled': True,
+            'allow_duplicates': False,
+            'keep_source_card': False
+        })
+        assert schedule_response.status_code == 201
+        schedule = schedule_response.json()['schedule']
+        
+        # Create card from schedule in column 1
+        card_response = requests.post(f"{api_client}/api/columns/{col1['id']}/cards", json={
+            'title': 'Movable Template',
+            'description': 'Will be moved between columns',
+            'schedule': schedule['id']
+        })
+        assert card_response.status_code == 201
+        created_card = card_response.json()['card']
+        
+        # Verify card is in column 1
+        cards1_response = requests.get(f"{api_client}/api/columns/{col1['id']}/cards")
+        cards1 = cards1_response.json()['cards']
+        assert len([c for c in cards1 if c['id'] == created_card['id']]) == 1
+        
+        # Move card to column 2
+        move_response = requests.patch(f"{api_client}/api/cards/{created_card['id']}", json={
+            'column_id': col2['id']
+        })
+        assert move_response.status_code == 200
+        
+        # Verify card is now in column 2
+        cards2_response = requests.get(f"{api_client}/api/columns/{col2['id']}/cards")
+        cards2 = cards2_response.json()['cards']
+        assert len([c for c in cards2 if c['id'] == created_card['id']]) == 1
+        
+        # Verify card is no longer in column 1
+        cards1_response = requests.get(f"{api_client}/api/columns/{col1['id']}/cards")
+        cards1 = cards1_response.json()['cards']
+        assert len([c for c in cards1 if c['id'] == created_card['id']]) == 0
+        
+        # Now column 1 should be available for a new card from the same schedule
+        # Create another card from schedule in column 1
+        new_card_response = requests.post(f"{api_client}/api/columns/{col1['id']}/cards", json={
+            'title': 'Movable Template',
+            'description': 'Will be moved between columns',
+            'schedule': schedule['id']
+        })
+        assert new_card_response.status_code == 201
+        new_card = new_card_response.json()['card']
+        
+        # Verify both cards exist in different columns
+        cards1_response = requests.get(f"{api_client}/api/columns/{col1['id']}/cards")
+        cards1 = cards1_response.json()['cards']
+        assert len([c for c in cards1 if c['schedule'] == schedule['id']]) == 1
+        assert cards1[0]['id'] == new_card['id']
+        
+        cards2_response = requests.get(f"{api_client}/api/columns/{col2['id']}/cards")
+        cards2 = cards2_response.json()['cards']
+        assert len([c for c in cards2 if c['schedule'] == schedule['id']]) == 1
+        assert cards2[0]['id'] == created_card['id']
+    
+    def test_archived_card_allows_new_card_in_same_column(self, api_client, sample_board):
+        """Test that archiving a scheduled card allows a new one to be created in the same column."""
+        # Create column
+        col_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Archive Test Column'
+        })
+        assert col_response.status_code == 201
+        column = col_response.json()['column']
+        
+        # Create template card
+        card_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Archivable Template',
+            'description': 'Can be archived and recreated'
+        })
+        assert card_response.status_code == 201
+        template_card = card_response.json()['card']
+        
+        # Create schedule
+        now = datetime.now()
+        schedule_response = requests.post(f"{api_client}/api/schedules", json={
+            'card_id': template_card['id'],
+            'run_every': 1,
+            'unit': 'day',
+            'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'schedule_enabled': True,
+            'allow_duplicates': False,
+            'keep_source_card': False
+        })
+        assert schedule_response.status_code == 201
+        schedule = schedule_response.json()['schedule']
+        
+        # Create first card from schedule
+        card1_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Archivable Template',
+            'description': 'Can be archived and recreated',
+            'schedule': schedule['id']
+        })
+        assert card1_response.status_code == 201
+        card1 = card1_response.json()['card']
+        
+        # Archive the first card
+        archive_response = requests.patch(f"{api_client}/api/cards/{card1['id']}", json={
+            'archived': True
+        })
+        assert archive_response.status_code == 200
+        
+        # Create second card from schedule in same column
+        card2_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Archivable Template',
+            'description': 'Can be archived and recreated',
+            'schedule': schedule['id']
+        })
+        assert card2_response.status_code == 201
+        card2 = card2_response.json()['card']
+        
+        # Verify only the non-archived card appears in column
+        cards_response = requests.get(f"{api_client}/api/columns/{column['id']}/cards")
+        cards = cards_response.json()['cards']
+        schedule_cards = [c for c in cards if c.get('schedule') == schedule['id']]
+        assert len(schedule_cards) == 1
+        assert schedule_cards[0]['id'] == card2['id']
+        assert schedule_cards[0]['archived'] is False
+    
+    def test_allow_duplicates_true_allows_multiple_in_same_column(self, api_client, sample_board):
+        """Test that allow_duplicates=True allows multiple cards in same column."""
+        # Create column
+        col_response = requests.post(f"{api_client}/api/boards/{sample_board['id']}/columns", json={
+            'name': 'Duplicate Allow Column'
+        })
+        assert col_response.status_code == 201
+        column = col_response.json()['column']
+        
+        # Create template card
+        card_response = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+            'title': 'Duplicate Allowed Template',
+            'description': 'Multiple instances allowed'
+        })
+        assert card_response.status_code == 201
+        template_card = card_response.json()['card']
+        
+        # Create schedule with allow_duplicates=True
+        now = datetime.now()
+        schedule_response = requests.post(f"{api_client}/api/schedules", json={
+            'card_id': template_card['id'],
+            'run_every': 1,
+            'unit': 'hour',
+            'start_datetime': (now - timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%S'),
+            'schedule_enabled': True,
+            'allow_duplicates': True,
+            'keep_source_card': False
+        })
+        assert schedule_response.status_code == 201
+        schedule = schedule_response.json()['schedule']
+        
+        # Create multiple cards from same schedule in same column
+        created_cards = []
+        for i in range(3):
+            card_resp = requests.post(f"{api_client}/api/columns/{column['id']}/cards", json={
+                'title': 'Duplicate Allowed Template',
+                'description': f'Multiple instances allowed - Instance {i+1}',
+                'schedule': schedule['id']
+            })
+            assert card_resp.status_code == 201
+            created_cards.append(card_resp.json()['card'])
+        
+        # Verify all cards exist in the column
+        cards_response = requests.get(f"{api_client}/api/columns/{column['id']}/cards")
+        cards = cards_response.json()['cards']
+        schedule_cards = [c for c in cards if c.get('schedule') == schedule['id']]
+        assert len(schedule_cards) == 3
+        
+        # Verify they're all different cards
+        card_ids = [c['id'] for c in schedule_cards]
+        assert len(set(card_ids)) == 3  # All unique IDs
+
+

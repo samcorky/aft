@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -3312,13 +3312,20 @@ def create_card(column_id):
         if scheduled is not None and not isinstance(scheduled, bool):
             return create_error_response("Scheduled must be a boolean", 400)
 
+        # Validate schedule parameter if provided
+        schedule = data.get("schedule")
+        if schedule is not None:
+            if not isinstance(schedule, int):
+                return create_error_response("Schedule must be an integer", 400)
+
         # Create card
         card = Card(
             column_id=column_id, 
             title=title, 
             description=description, 
             order=order,
-            scheduled=scheduled
+            scheduled=scheduled,
+            schedule=schedule
         )
         db.add(card)
         db.commit()
@@ -3330,6 +3337,9 @@ def create_card(column_id):
             "title": card.title,
             "description": card.description,
             "order": card.order,
+            "scheduled": card.scheduled,
+            "schedule": card.schedule,
+            "archived": card.archived
         }
 
         return create_success_response({"card": result}, status_code=201)
@@ -3813,6 +3823,13 @@ def update_card(card_id):
                     return create_error_response(error, 400)
 
             card.description = description
+
+        # Update archived status if provided
+        if "archived" in data:
+            archived = data["archived"]
+            if not isinstance(archived, bool):
+                return create_error_response("Archived must be a boolean", 400)
+            card.archived = archived
 
         # Handle column and order changes
         if "column_id" in data or "order" in data:

@@ -11,30 +11,33 @@ class ThemeBuilder {
     // Available themes
     this.themes = {
       'default': {
-        'primary-color': '#3498db',
-        'primary-hover': '#2980b9',
-        'secondary-color': '#95a5a6',
-        'secondary-hover': '#7f8c8d',
-        'success-color': '#28a745',
-        'error-color': '#dc3545',
-        'warning-color': '#ffc107',
-        'text-color': '#2c3e50',
-        'text-bold': '#2c3e50',
-        'text-muted': '#7f8c8d',
-        'background-light': '#f5f5f5',
-        'page-panel-background': '#ffffff',
-        'border-color': '#e0e0e0',
-        'card-bg-color': '#ffffff',
-        'header-background': '#2c3e50',
-        'header-text-color': '#ffffff',
-        'header-menu-background': '#ffffff',
-        'header-menu-hover': '#f5f5f5',
-        'icon-color': '#ffffff'
+        'primary-color': '#3498DB',
+        'primary-hover': '#2980B9',
+        'secondary-color': '#95A5A6',
+        'secondary-hover': '#7F8C8D',
+        'success-color': '#28A745',
+        'error-color': '#DC3545',
+        'warning-color': '#FFC107',
+        'text-color': '#2C3E50',
+        'text-bold': '#2C3E50',
+        'text-muted': '#7F8C8D',
+        'background-light': '#F5F5F5',
+        'page-panel-background': '#FFFFFF',
+        'border-color': '#E0E0E0',
+        'card-bg-color': '#FFFFFF',
+        'header-background': '#2C3E50',
+        'header-text-color': '#FFFFFF',
+        'header-menu-background': '#FFFFFF',
+        'header-menu-hover': '#F5F5F5',
+        'header-menu-text-color': '#2C3E50',
+        'header-button-background': '#404E5C',
+        'header-button-hover': '#384552',
+        'icon-color': '#FFFFFF'
       },
       'custom1': {
         'primary-color': '#d4a574',
         'primary-hover': '#b9945f',
-        'secondary-color': '#06b6d4',
+        'secondary-color': '#06B6D4',
         'secondary-hover': '#0891b2',
         'success-color': '#14b8a6',
         'error-color': '#f43f5e',
@@ -48,8 +51,11 @@ class ThemeBuilder {
         'card-bg-color': '#fafaf0',
         'header-background': '#d4a574',
         'header-text-color': '#ffffff',
-        'header-menu-background': '#06b6d4',
+        'header-menu-background': '#06B6D4',
         'header-menu-hover': '#0891b2',
+        'header-menu-text-color': '#ffffff',
+        'header-button-background': '#06B6D4',
+        'header-button-hover': '#0891b2',
         'icon-color': '#ffffff'
       }
     };
@@ -69,7 +75,7 @@ class ThemeBuilder {
       'success-color', 'error-color', 'warning-color',
       'text-color', 'text-bold', 'text-muted',
       'background-light', 'page-panel-background', 'border-color',
-      'card-bg-color', 'header-background', 'header-text-color', 'header-menu-background', 'header-menu-hover', 'icon-color'
+      'card-bg-color', 'header-background', 'header-text-color', 'header-menu-background', 'header-menu-hover', 'header-menu-text-color', 'header-button-background', 'header-button-hover', 'icon-color'
     ];
 
     colorFields.forEach(field => {

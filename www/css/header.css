@@ -123,14 +123,14 @@
   border-radius: 5px;
   font-size: 16px;
   font-weight: 500;
-  background-color: var(--header-menu-background);
+  background-color: var(--header-button-background);
   transition: all 0.2s;
   border: 1px solid var(--border-color);
   display: inline-block;
 }
 
 .nav-link:hover {
-  background-color: var(--header-menu-hover);
+  background-color: var(--header-button-hover);
   transform: translateY(-1px);
 }
 
@@ -170,7 +170,7 @@
 
 .boards-dropdown-item {
   padding: 12px 20px;
-  color: var(--text-dark);
+  color: var(--header-menu-text-color);
   text-decoration: none;
   display: block;
   font-size: 14px;
@@ -224,7 +224,7 @@
 
 .settings-dropdown-item {
   padding: 12px 20px;
-  color: var(--text-dark);
+  color: var(--header-menu-text-color);
   text-decoration: none;
   display: block;
   font-size: 14px;
@@ -278,7 +278,7 @@
 
 .user-dropdown-item {
   padding: 12px 20px;
-  color: var(--text-dark);
+  color: var(--header-menu-text-color);
   text-decoration: none;
   display: block;
   font-size: 14px;
@@ -350,7 +350,7 @@
 .notifications-header {
   padding: 15px 20px;
   border-bottom: 1px solid var(--border-color);
-  background-color: var(--header-menu-background);
+  background-color: var(--header-button-background);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -577,7 +577,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--header-button-background);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
   color: var(--header-text-color);
@@ -589,7 +589,7 @@
 }
 
 .views-dropdown-btn:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--header-button-hover);
   border-color: rgba(255, 255, 255, 0.3);
 }
 
@@ -633,7 +633,7 @@
   border: none;
   text-align: left;
   cursor: pointer;
-  color: var(--text-dark);
+  color: var(--header-menu-text-color);
   font-size: 14px;
   font-weight: 500;
   transition: background-color 0.2s;
@@ -699,7 +699,7 @@
   align-items: center;
   gap: 2px;
   padding: 8px 15px;
-  background-color: var(--header-menu-background);
+  background-color: var(--header-button-background);
   border-radius: 20px;
   font-size: 13px;
   cursor: pointer;
@@ -708,7 +708,7 @@
 }
 
 .db-status:hover {
-  background-color: var(--header-menu-hover);
+  background-color: var(--header-button-hover);
   transform: translateY(-1px);
 }
 

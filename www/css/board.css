@@ -507,18 +507,30 @@
 
 .card-delete-btn:hover {
   transform: scale(1.2);
-  color: var(--error-hover);
+  color: var(--error-color);
+  opacity: 0.8;
 }
 
 .card-archive-btn,
 .card-unarchive-btn {
-  color: var(--text-muted);
+  color: var(--primary-color);
+}
+
+.card-archive-btn svg,
+.card-unarchive-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--primary-color);
 }
 
 .card-archive-btn:hover,
 .card-unarchive-btn:hover {
   transform: scale(1.2);
-  color: var(--text-bold);
+}
+
+.card-archive-btn:hover svg,
+.card-unarchive-btn:hover svg {
+  stroke: var(--primary-hover);
 }
 
 .card-title {

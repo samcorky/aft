@@ -171,23 +171,23 @@
 }
 
 .status-healthy {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-color);
+  color: var(--header-text-color);
 }
 
 .status-unhealthy {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--error-color);
+  color: var(--header-text-color);
 }
 
 .status-running {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-color);
+  color: var(--header-text-color);
 }
 
 .status-stopped {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--error-color);
+  color: var(--header-text-color);
 }
 
 /* Backup Toggle Switch */
@@ -211,7 +211,7 @@
   position: relative;
   width: 44px;
   height: 24px;
-  background-color: #dc3545;
+  background-color: var(--error-color);
   border-radius: 24px;
   transition: background-color 0.3s;
 }
@@ -229,7 +229,7 @@
 }
 
 .backup-toggle-input:checked + .backup-toggle-slider {
-  background-color: #28a745;
+  background-color: var(--success-color);
 }
 
 .backup-toggle-input:checked + .backup-toggle-slider::before {

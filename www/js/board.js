@@ -529,8 +529,22 @@ class BoardManager {
                       <div class="card-action-buttons" draggable="false">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
-                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">📂</button>` :
-                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">🗄️</button>`
+                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <path d="M12 14v-2"></path>
+                                <path d="M9 14l3 2 3-2"></path>
+                              </svg>
+                            </button>` :
+                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <path d="M12 14v2"></path>
+                                <path d="M9 16l3-2 3 2"></path>
+                              </svg>
+                            </button>`
                         }
                         <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
                       </div>

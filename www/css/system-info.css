@@ -102,13 +102,13 @@
 }
 
 .status-badge.status-healthy {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-color);
+  color: var(--header-text-color);
 }
 
 .status-badge.status-unhealthy {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--error-color);
+  color: var(--header-text-color);
 }
 
 .status-text {
@@ -125,7 +125,7 @@
 .stat-item {
   text-align: center;
   padding: 20px;
-  background-color: #f8f9fa;
+  background-color: var(--card-bg-color);
   border-radius: 8px;
 }
 

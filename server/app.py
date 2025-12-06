@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {

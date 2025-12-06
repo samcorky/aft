@@ -199,10 +199,17 @@ class CardScheduler:
                 # This prevents creating duplicate cards if the scheduler runs multiple times
                 # within the lookback window (e.g., after a restart)
                 if not schedule.allow_duplicates:  # type: ignore
-                    # For non-duplicate schedules, check if any active cards exist from this schedule
+                    # Get the template card to check its column
+                    template = db.query(Card).filter(Card.id == schedule.card_id).first()
+                    if not template:
+                        logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
+                        return
+                    
+                    # For non-duplicate schedules, check if any active cards exist from this schedule IN THE SAME COLUMN
                     # This is a simple but effective way to prevent duplicates without needing timestamps
                     existing_card = (
                         db.query(Card)
+                        .filter(Card.column_id == template.column_id)  # Check same column only
                         .filter(Card.schedule == schedule.id)
                         .filter(Card.scheduled.is_(False))  # Don't count template cards
                         .filter(Card.archived.is_(False))  # Only check active cards
@@ -210,8 +217,8 @@ class CardScheduler:
                     )
                     
                     if existing_card:
-                        # Already have an active card for this schedule, skip
-                        logger.debug(f"Skipping schedule {schedule.id} - active card already exists")
+                        # Already have an active card for this schedule in this column, skip
+                        logger.debug(f"Skipping schedule {schedule.id} - active card already exists in column {template.column_id}")
                         return
                 
                 logger.info(f"Creating card for schedule {schedule.id} (missed by {time_since_run:.0f} seconds)")

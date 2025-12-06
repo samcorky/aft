@@ -168,6 +168,26 @@
   margin-bottom: 15px;
 }
 
+.settings-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-dark);
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-icon {
+  width: 24px;
+  height: 24px;
+  stroke: var(--primary-color);
+  flex-shrink: 0;
+}
+
 .backup-btn,
 .restore-btn {
   background-color: var(--primary-color);
@@ -182,6 +202,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.btn-icon {
+  width: 18px;
+  height: 18px;
+  stroke: var(--icon-color);
+  flex-shrink: 0;
 }
 
 .backup-btn:hover,
@@ -250,8 +277,20 @@
   gap: 10px;
 }
 
+.warning-icon {
+  width: 24px;
+  height: 24px;
+  stroke: var(--error-color);
+  flex-shrink: 0;
+}
+
+.plane-icon {
+  width: 20px;
+  height: 20px;
+  stroke: var(--error-color);
+}
+
 .plane-link {
-  font-size: 20px;
   text-decoration: none;
   opacity: 0.6;
   transition: all 0.2s;

@@ -271,19 +271,30 @@ class Header {
   }
 
   // Update the database status indicator
-  updateStatus(status, message, count = null) {
+  updateStatus(status, message, count = null, housekeepingHealthy = true) {
     if (!this.statusIcon || !this.statusText) return;
+
+    // If housekeeping is unhealthy, override to show error
+    if (status === 'success' && !housekeepingHealthy) {
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Housekeeping Error';
+      this.statusText.title = 'Housekeeping scheduler is not running or unhealthy';
+      this.dbConnected = false;
+      return;
+    }
 
     this.statusIcon.className = `status-icon ${status}`;
     this.dbConnected = (status === 'success');
     
     if (status === 'success') {
       this.statusText.textContent = 'DB connected';
+      this.statusText.title = ''; // Clear any previous error message
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
       this.statusText.title = message; // Show full error on hover
     } else {
       this.statusText.textContent = message;
+      this.statusText.title = '';
     }
   }
 
@@ -293,20 +304,28 @@ class Header {
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     try {
-      const [testResponse, versionResponse] = await Promise.all([
+      const [testResponse, versionResponse, healthResponse] = await Promise.all([
         fetch('/api/test', { signal: controller.signal }),
-        fetch('/api/version', { signal: controller.signal })
+        fetch('/api/version', { signal: controller.signal }),
+        fetch('/api/scheduler/health', { signal: controller.signal })
       ]);
       
       clearTimeout(timeoutId);
       
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
+      const healthData = await healthResponse.json();
       
       if (testData.success) {
-        this.updateStatus('success', 'Connected', testData.boards_count);
+        // Check housekeeping scheduler health
+        const housekeepingHealth = healthData.housekeeping_scheduler;
+        const isHousekeepingHealthy = housekeepingHealth && 
+                                       housekeepingHealth.running && 
+                                       housekeepingHealth.thread_alive;
+        
+        this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
       } else {
-        this.updateStatus('error', testData.message);
+        this.updateStatus('error', testData.message, null, false);
       }
       
       // Update version display
@@ -317,9 +336,9 @@ class Header {
       clearTimeout(timeoutId);
       
       if (err.name === 'AbortError') {
-        this.updateStatus('error', 'Connection timeout (5s)');
+        this.updateStatus('error', 'Connection timeout (5s)', null, false);
       } else {
-        this.updateStatus('error', err.message);
+        this.updateStatus('error', err.message, null, false);
       }
     }
   }

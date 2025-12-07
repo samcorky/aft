@@ -950,7 +950,23 @@ class BoardManager {
         // Only update if position or column changed
         const oldOrder = parseInt(draggedCard.getAttribute('data-order'));
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
-          await this.updateCardPosition(cardId, targetColumnId, newOrder);
+          // Store original position for rollback
+          const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+          const originalPosition = {
+            columnId: oldColumnId,
+            order: oldOrder,
+            container: originalColumnContainer,
+            nextSibling: null
+          };
+          
+          // Find the original next sibling for precise restoration
+          if (originalColumnContainer) {
+            const originalCards = Array.from(originalColumnContainer.querySelectorAll('.card'));
+            const cardAtOldOrder = originalCards.find(c => parseInt(c.getAttribute('data-order')) === oldOrder + 1);
+            originalPosition.nextSibling = cardAtOldOrder || null;
+          }
+          
+          await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
         }
       });
     });
@@ -971,7 +987,7 @@ class BoardManager {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  async updateCardPosition(cardId, columnId, order) {
+  async updateCardPosition(cardId, columnId, order, originalPosition = null) {
     const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
     
     // Add loading state with 500ms delay to avoid flashing on fast connections
@@ -1007,6 +1023,12 @@ class BoardManager {
       
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
+        
+        // Restore card to original position
+        if (cardElement && originalPosition) {
+          this.restoreCardPosition(cardElement, originalPosition);
+        }
+        
         if (cardElement) {
           cardElement.classList.add('update-failed');
           cardElement.style.opacity = '';
@@ -1014,8 +1036,11 @@ class BoardManager {
           setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
         }
         await showAlert(`Failed to move card: ${data.message}`, 'Error');
-        // Reload board to restore correct state
-        await this.loadBoard();
+        
+        // If restoration failed or no original position, reload board
+        if (!originalPosition) {
+          await this.loadBoard();
+        }
       } else {
         // Update local data attributes
         if (cardElement) {
@@ -1034,6 +1059,11 @@ class BoardManager {
       clearTimeout(timeoutId);
       clearTimeout(loadingTimeout);
       
+      // Restore card to original position
+      if (cardElement && originalPosition) {
+        this.restoreCardPosition(cardElement, originalPosition);
+      }
+      
       if (cardElement) {
         cardElement.classList.remove('updating');
         cardElement.classList.add('update-failed');
@@ -1050,8 +1080,39 @@ class BoardManager {
         await showAlert(`Failed to move card: ${err.message}`, 'Error');
       }
       
-      // Reload board to restore correct state
-      await this.loadBoard();
+      // If restoration failed or no original position, reload board
+      if (!originalPosition) {
+        await this.loadBoard();
+      }
+    }
+  }
+
+  restoreCardPosition(cardElement, originalPosition) {
+    try {
+      // Restore data attributes
+      cardElement.setAttribute('data-column-id', originalPosition.columnId);
+      cardElement.setAttribute('data-order', originalPosition.order);
+      
+      // Move card back to original container
+      if (originalPosition.container) {
+        if (originalPosition.nextSibling && originalPosition.container.contains(originalPosition.nextSibling)) {
+          // Insert before the next sibling (exact original position)
+          originalPosition.container.insertBefore(cardElement, originalPosition.nextSibling);
+        } else {
+          // If next sibling is gone, append at end
+          const addCardBtn = originalPosition.container.querySelector('.add-card-btn');
+          if (addCardBtn) {
+            originalPosition.container.insertBefore(cardElement, addCardBtn);
+          } else {
+            originalPosition.container.appendChild(cardElement);
+          }
+        }
+        
+        console.log('Card restored to original position');
+      }
+    } catch (err) {
+      console.error('Failed to restore card position:', err);
+      // Will fall back to board reload in calling function
     }
   }
 

@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
@@ -229,15 +230,20 @@ class BackupScheduler:
         is_actually_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                try:
-                    os.kill(pid, 0)
-                    is_actually_running = True
-                except OSError:
-                    # Process doesn't exist, lock file is stale
-                    pass
-            except (ValueError, FileNotFoundError):
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                # Check if same container
+                if container_id == current_container:
+                    try:
+                        os.kill(pid, 0)
+                        is_actually_running = True
+                    except OSError:
+                        # Process doesn't exist, lock file is stale
+                        pass
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError):
                 # Invalid lock file or file disappeared
                 pass
         
@@ -869,22 +875,31 @@ class BackupScheduler:
                 logger.info("Backup directory permissions are now OK, clearing error")
             self.permission_error = None
         
-        # Check if scheduler is actually running by checking lock file and process
+        # Check if scheduler is actually running by checking lock file
         is_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                logger.info(f"Lock file exists with PID {pid}, checking if process is alive")
-                try:
-                    os.kill(pid, 0)  # Check if process exists
-                    is_running = True
-                    logger.info(f"Process {pid} is alive, scheduler is running")
-                except OSError as e:
-                    # Process doesn't exist
-                    logger.warning(f"Process {pid} not found (errno {e.errno}), scheduler not running")
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                logger.info(f"Lock file exists with PID {pid}, container {container_id}, checking if process is alive")
+                
+                # Check if same container
+                if container_id != current_container:
+                    logger.warning(f"Lock file from different container: {container_id} vs {current_container}")
                     is_running = False
-            except (ValueError, FileNotFoundError) as e:
+                else:
+                    try:
+                        os.kill(pid, 0)  # Check if process exists
+                        is_running = True
+                        logger.info(f"Process {pid} is alive, scheduler is running")
+                    except OSError as e:
+                        # Process doesn't exist
+                        logger.warning(f"Process {pid} not found (errno {e.errno}), scheduler not running")
+                        is_running = False
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError) as e:
                 logger.error(f"Error reading lock file: {str(e)}")
                 is_running = False
         else:

@@ -4,6 +4,7 @@ import time
 import logging
 import requests
 import json
+import os
 import tempfile
 from typing import Optional
 from pathlib import Path
@@ -23,6 +24,7 @@ class HousekeepingScheduler:
     """Manages periodic housekeeping tasks."""
     
     def __init__(self, app_version: str):
+        from datetime import datetime
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.lock_file = Path(tempfile.gettempdir()) / "aft_housekeeping_scheduler.lock"
@@ -45,6 +47,8 @@ class HousekeepingScheduler:
             'housekeeping_scheduler': None
         }
         self.health_notification_cooldown = 1800  # 30 minutes between notifications
+        self.startup_time = datetime.now()  # Track when scheduler started
+        self.startup_grace_period = 120  # Wait 2 minutes after startup before checking health
     
     def _is_lock_stale(self) -> bool:
         """Check if existing lock file is stale.
@@ -228,6 +232,12 @@ class HousekeepingScheduler:
     def _check_scheduler_health(self):
         """Check health of all schedulers and create notifications if unhealthy."""
         from datetime import datetime
+        
+        # Skip health checks during startup grace period
+        time_since_startup = (datetime.now() - self.startup_time).total_seconds()
+        if time_since_startup < self.startup_grace_period:
+            logger.debug(f"Skipping health check during startup grace period ({int(time_since_startup)}s / {self.startup_grace_period}s)")
+            return
         
         temp_dir = Path(tempfile.gettempdir())
         schedulers_to_check = [
@@ -447,13 +457,18 @@ class HousekeepingScheduler:
         is_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                try:
-                    is_running = psutil.pid_exists(pid)
-                except Exception:
-                    is_running = False
-            except (ValueError, FileNotFoundError):
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                # Check if same container
+                if container_id == current_container:
+                    try:
+                        is_running = psutil.pid_exists(pid)
+                    except Exception:
+                        is_running = False
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError):
                 is_running = False
         
         return {

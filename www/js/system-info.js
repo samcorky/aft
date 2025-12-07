@@ -10,6 +10,7 @@ class SystemInfo {
     this.errorMessage = null;
     this.backupToggle = null;
     this.housekeepingToggle = null;
+    this.cardSchedulerToggle = null;
   }
 
   async init() {
@@ -20,6 +21,7 @@ class SystemInfo {
     this.errorMessage = document.getElementById('delete-error');
     this.backupToggle = document.getElementById('backupToggle');
     this.housekeepingToggle = document.getElementById('housekeepingToggle');
+    this.cardSchedulerToggle = document.getElementById('cardSchedulerToggle');
     
     // Set up event listeners
     this.setupEventListeners();
@@ -76,17 +78,25 @@ class SystemInfo {
         await this.toggleHousekeeping(e.target.checked);
       });
     }
+
+    // Card scheduler toggle
+    if (this.cardSchedulerToggle) {
+      this.cardSchedulerToggle.addEventListener('change', async (e) => {
+        await this.toggleCardScheduler(e.target.checked);
+      });
+    }
   }
 
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse, schedulerHealthResponse] = await Promise.all([
+      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse, cardSchedulerStatusResponse, schedulerHealthResponse] = await Promise.all([
         fetch('/api/test'),
         fetch('/api/version'),
         fetch('/api/stats'),
         fetch('/api/settings/backup/status'),
         fetch('/api/settings/housekeeping/status'),
+        fetch('/api/settings/card-scheduler/status'),
         fetch('/api/scheduler/health')
       ]);
 
@@ -95,6 +105,7 @@ class SystemInfo {
       const statsData = await statsResponse.json();
       const backupStatusData = await backupStatusResponse.json();
       const housekeepingStatusData = await housekeepingStatusResponse.json();
+      const cardSchedulerStatusData = await cardSchedulerStatusResponse.json();
       const schedulerHealthData = await schedulerHealthResponse.json();
 
       // Update connection status
@@ -135,7 +146,7 @@ class SystemInfo {
       this.updateHousekeepingModuleStatus(housekeepingStatusData, schedulerHealthData.housekeeping_scheduler);
       
       // Update card scheduler status
-      this.updateCardSchedulerStatus(schedulerHealthData.card_scheduler);
+      this.updateCardSchedulerStatus(cardSchedulerStatusData, schedulerHealthData.card_scheduler);
       
     } catch (error) {
       console.error('Error loading system info:', error);
@@ -272,7 +283,7 @@ class SystemInfo {
     }
   }
   
-  updateCardSchedulerStatus(schedulerHealth) {
+  updateCardSchedulerStatus(cardSchedulerStatusData, schedulerHealth) {
     const healthBadge = document.getElementById('card-module-health');
     
     if (healthBadge) {
@@ -285,6 +296,13 @@ class SystemInfo {
         } else {
           healthBadge.textContent = 'Unhealthy';
           healthBadge.className = 'status-badge status-unhealthy';
+        }
+        
+        // Update toggle state
+        if (this.cardSchedulerToggle && cardSchedulerStatusData.success && cardSchedulerStatusData.status) {
+          this.cardSchedulerToggle.checked = cardSchedulerStatusData.status.enabled;
+          // Show toggle wrapper after data loads
+          document.getElementById('card-toggle-wrapper').style.display = 'block';
         }
         
         // Update scheduler details
@@ -428,13 +446,38 @@ class SystemInfo {
 
       if (!data.success) {
         // Revert toggle on error
-        this.housekeepingToggle.checked = !enabled;
+        this.housekeekingToggle.checked = !enabled;
         await showAlert(data.message, 'Error');
       }
     } catch (error) {
       console.error('Error toggling housekeeping:', error);
       // Revert toggle on error
       this.housekeepingToggle.checked = !enabled;
+      await showAlert(error.message, 'Error');
+    }
+  }
+
+  async toggleCardScheduler(enabled) {
+    try {
+      const response = await fetch('/api/settings/card-scheduler/config', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled })
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        // Revert toggle on error
+        this.cardSchedulerToggle.checked = !enabled;
+        await showAlert(data.message, 'Error');
+      }
+    } catch (error) {
+      console.error('Error toggling card scheduler:', error);
+      // Revert toggle on error
+      this.cardSchedulerToggle.checked = !enabled;
       await showAlert(error.message, 'Error');
     }
   }

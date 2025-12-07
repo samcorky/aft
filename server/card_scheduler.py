@@ -20,9 +20,10 @@ class CardScheduler:
     """Manages automatic card creation on a schedule."""
     
     def __init__(self):
+        import tempfile
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.lock_file = Path("/tmp/aft_card_scheduler.lock")
+        self.lock_file = Path(tempfile.gettempdir()) / "aft_card_scheduler.lock"
     
     def _is_lock_stale(self) -> bool:
         """Check if existing lock file is stale.
@@ -167,7 +168,11 @@ class CardScheduler:
                 # Update heartbeat to prove we're alive
                 self._update_heartbeat()
                 
-                self._check_and_create_cards()
+                # Check if card scheduler is enabled
+                if self._is_enabled():
+                    self._check_and_create_cards()
+                else:
+                    logger.debug("Card scheduler is disabled, skipping card creation")
             except Exception as e:
                 logger.error(f"Error in card scheduler loop: {str(e)}")
                 create_notification(
@@ -180,6 +185,24 @@ class CardScheduler:
                 if not self.running:
                     break
                 time.sleep(1)
+    
+    def _is_enabled(self) -> bool:
+        """Check if card scheduler is enabled in settings."""
+        try:
+            import json
+            from models import Setting
+            
+            db = SessionLocal()
+            try:
+                setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+                if setting is not None and setting.value is not None:
+                    return json.loads(str(setting.value))
+                return True  # Default to enabled
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error checking card_scheduler_enabled setting: {e}")
+            return True  # Default to enabled on error
     
     def _check_and_create_cards(self):
         """Check all enabled schedules and create cards if needed."""

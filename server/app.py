@@ -2265,6 +2265,104 @@ def update_housekeeping_config():
         db.close()
 
 
+@app.route("/api/settings/card-scheduler/status", methods=["GET"])
+def get_card_scheduler_status():
+    """Get card scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Card scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # Get enabled setting
+        db = SessionLocal()
+        try:
+            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+            if setting is not None and setting.value is not None:
+                enabled = json.loads(str(setting.value))
+            else:
+                enabled = True  # Default to enabled
+        finally:
+            db.close()
+        
+        status = {
+            "running": scheduler.running,
+            "enabled": enabled
+        }
+        
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting card scheduler status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/card-scheduler/config", methods=["PUT"])
+def update_card_scheduler_config():
+    """Update card scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="card_scheduler_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card scheduler config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/boards", methods=["GET"])
 def get_boards():
     """Get all boards.
@@ -6360,29 +6458,26 @@ from pathlib import Path
 import time
 import tempfile
 
+# Only initialize schedulers in the first worker to start
+# Use a combination of lock file AND worker tracking
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
-max_wait_time = 5  # seconds
-check_interval = 0.1  # seconds
+should_init = False
 
-# Try to acquire init lock
-acquired_lock = False
-waited = 0
+try:
+    # Try to create lock file exclusively (fails if already exists)
+    fd = os.open(init_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    should_init = True
+    logger.info(f"Worker PID {os.getpid()}: Acquired scheduler init lock")
+except FileExistsError:
+    # Lock already exists - another worker is initializing or already initialized
+    logger.info(f"Worker PID {os.getpid()}: Init lock exists, skipping scheduler initialization")
+    should_init = False
 
-while waited < max_wait_time:
+if should_init:
     try:
-        # Try to create lock file exclusively (fails if already exists)
-        with open(init_lock_file, 'x') as f:
-            f.write(str(os.getpid()))
-        acquired_lock = True
-        break
-    except FileExistsError:
-        # Another worker is initializing, wait
-        time.sleep(check_interval)
-        waited += check_interval
-
-if acquired_lock:
-    try:
-        logger.info(f"Worker PID {os.getpid()}: Initializing schedulers (acquired init lock)")
+        logger.info(f"Worker PID {os.getpid()}: Initializing schedulers")
         
         # Clean up any stale lock files from previous container instances
         cleanup_stale_scheduler_locks()
@@ -6394,16 +6489,12 @@ if acquired_lock:
         
         # Give schedulers a moment to create their lock files
         time.sleep(0.5)
-    finally:
-        # Release init lock
-        try:
-            init_lock_file.unlink()
-        except:
-            pass
+    except Exception as e:
+        logger.error(f"Error initializing schedulers: {e}")
 else:
-    logger.info(f"Worker PID {os.getpid()}: Skipping scheduler initialization (another worker is initializing)")
-    # Wait a bit for the first worker to finish initializing
-    time.sleep(1)
+    logger.info(f"Worker PID {os.getpid()}: Waiting for first worker to initialize schedulers")
+    # Wait for the first worker to finish initializing
+    time.sleep(2)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

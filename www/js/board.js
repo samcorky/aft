@@ -752,11 +752,20 @@ class BoardManager {
           if (e.target.closest('.card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
+          
+          // Show loading state on the card
+          card.classList.add('updating');
+          
           // Reload card data to get latest state
           const cardData = await this.getCardData(cardId);
+          
+          // Remove loading state
+          card.classList.remove('updating');
+          
           if (cardData) {
             this.openEditCardModal(cardId, cardData);
           }
+          // Error toast already shown by getCardData if it failed
         });
       });
 
@@ -3314,18 +3323,33 @@ class BoardManager {
 
   async getCardData(cardId) {
     // Fetch single card data from dedicated endpoint
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch(`/api/cards/${cardId}`);
+      const response = await fetch(`/api/cards/${cardId}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       const data = await response.json();
       
       if (data.success) {
         return data.card;
       } else {
         console.error('Failed to get card data:', data.message);
+        this.showErrorToast(`Failed to load card: ${data.message}`);
         return null;
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error('Error getting card data:', err.message);
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Load card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error loading card: ${err.message}`);
+      }
       return null;
     }
   }

@@ -1199,15 +1199,33 @@ class BoardManager {
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
     if (hasSchedule && cardData.schedule) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       try {
-        const response = await fetch(`/api/schedules/${cardData.schedule}`);
+        const response = await fetch(`/api/schedules/${cardData.schedule}`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
+        
         if (data.success) {
           scheduleData = data.schedule;
+        } else {
+          this.showErrorToast(`Failed to load schedule: ${data.message}`);
+          return;
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error fetching schedule:', err);
-        return null;
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Load schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast(`Error loading schedule: ${err.message}`);
+        }
+        return;
       }
     }
 
@@ -1399,11 +1417,20 @@ class BoardManager {
           return;
         }
 
+        // Show deleting state
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = 'Deleting...';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         try {
           const response = await fetch(`/api/schedules/${scheduleData.id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            signal: controller.signal
           });
 
+          clearTimeout(timeoutId);
           const data = await this.parseResponse(response);
 
           if (data.success) {
@@ -1413,11 +1440,21 @@ class BoardManager {
             if (editModal) editModal.remove();
             await this.loadBoard();
           } else {
-            await showAlert('Failed to delete schedule: ' + data.message, 'Error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = 'Delete Schedule';
+            this.showErrorToast(`Failed to delete schedule: ${data.message}`);
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error deleting schedule:', err);
-          await showAlert('An error occurred while deleting the schedule', 'Error');
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = 'Delete Schedule';
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Delete schedule timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast('An error occurred while deleting the schedule');
+          }
         }
       });
     }
@@ -1428,21 +1465,43 @@ class BoardManager {
       editTemplateBtn.addEventListener('click', async () => {
         const templateCardId = parseInt(editTemplateBtn.getAttribute('data-card-id'));
         if (templateCardId) {
+          // Show loading state
+          editTemplateBtn.disabled = true;
+          editTemplateBtn.textContent = 'Loading...';
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           // Fetch the template card data
           try {
-            const response = await fetch(`/api/cards/${templateCardId}`);
+            const response = await fetch(`/api/cards/${templateCardId}`, {
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
             const data = await this.parseResponse(response);
+            
             if (data.success) {
               // Close schedule modal
               modal.remove();
               // Open edit card modal for the template
               this.openEditCardModal(templateCardId, data.card);
             } else {
-              await showAlert('Failed to load template card: ' + data.message, 'Error');
+              editTemplateBtn.disabled = false;
+              editTemplateBtn.textContent = 'Edit Template';
+              this.showErrorToast(`Failed to load template card: ${data.message}`);
             }
           } catch (err) {
+            clearTimeout(timeoutId);
             console.error('Error loading template card:', err);
-            await showAlert('Error loading template card', 'Error');
+            editTemplateBtn.disabled = false;
+            editTemplateBtn.textContent = 'Edit Template';
+            
+            if (err.name === 'AbortError') {
+              this.showErrorToast('Load template card timed out (5s). Please check your connection.');
+            } else {
+              this.showErrorToast('Error loading template card');
+            }
           }
         }
       });
@@ -1461,6 +1520,14 @@ class BoardManager {
         allow_duplicates: document.getElementById('schedule-allow-duplicates').checked
       };
 
+      // Show saving state
+      const saveBtn = modal.querySelector('button[type="submit"]');
+      saveBtn.disabled = true;
+      saveBtn.textContent = hasSchedule ? 'Updating...' : 'Creating...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       try {
         let response;
         
@@ -1469,7 +1536,8 @@ class BoardManager {
           response = await fetch(`/api/schedules/${scheduleData.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
+            body: JSON.stringify(formData),
+            signal: controller.signal
           });
         } else {
           // Create new schedule
@@ -1481,10 +1549,12 @@ class BoardManager {
               card_id: cardId,
               keep_source_card: keepSourceCheckbox ? keepSourceCheckbox.checked : true,
               ...formData
-            })
+            }),
+            signal: controller.signal
           });
         }
 
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
 
         if (data.success) {
@@ -1494,11 +1564,21 @@ class BoardManager {
           if (editModal) editModal.remove();
           await this.loadBoard();
         } else {
-          await showAlert('Failed to save schedule: ' + data.message, 'Error');
+          saveBtn.disabled = false;
+          saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+          this.showErrorToast(`Failed to save schedule: ${data.message}`);
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error saving schedule:', err);
-        await showAlert('An error occurred while saving the schedule', 'Error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Save schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast('An error occurred while saving the schedule');
+        }
       }
     });
 
@@ -2758,14 +2838,24 @@ class BoardManager {
             return;
           }
         }
+        
         const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = editScheduleFromTemplateBtn.innerHTML;
+        editScheduleFromTemplateBtn.disabled = true;
+        editScheduleFromTemplateBtn.innerHTML = '<span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+          // Re-enable button on error
+          editScheduleFromTemplateBtn.disabled = false;
+          editScheduleFromTemplateBtn.innerHTML = originalText;
         }
       });
     }
@@ -2780,14 +2870,24 @@ class BoardManager {
             return;
           }
         }
+        
         const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = scheduleBtn.innerHTML;
+        scheduleBtn.disabled = true;
+        scheduleBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px; opacity: 0.6;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+          // Re-enable button on error
+          scheduleBtn.disabled = false;
+          scheduleBtn.innerHTML = originalText;
         }
       });
     }

@@ -1710,6 +1710,12 @@ class BoardManager {
   }
 
   openAddColumnModal() {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot add column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="add-column-modal">
@@ -1762,6 +1768,12 @@ class BoardManager {
   }
 
   async openAddTemplateWithScheduleModal(columnId, order = null) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create scheduled card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Track the last used column for keyboard shortcuts
     this.lastUsedColumnId = columnId;
     
@@ -2293,6 +2305,12 @@ class BoardManager {
   }
 
   async openMoveAllCardsModal(sourceColumnId) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot move cards: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Get source column and its cards
     const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
     if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
@@ -2441,6 +2459,12 @@ class BoardManager {
   }
 
   openEditColumnModal(columnId, currentName) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="edit-column-modal">
@@ -2795,6 +2819,12 @@ class BoardManager {
   }
 
   openEditCardModal(cardId, cardData) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     const checklistItems = cardData.checklist_items || [];
     const comments = cardData.comments || [];
     const hasChecklist = checklistItems.length > 0;

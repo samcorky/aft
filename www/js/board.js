@@ -356,6 +356,9 @@ class BoardManager {
     window.addEventListener('viewChanged', async (e) => {
       const newView = e.detail.view;
       
+      // Show loading overlay
+      this.showBoardLoading();
+      
       // Map view names to internal state
       if (newView === 'archived') {
         this.currentView = 'task';
@@ -384,31 +387,51 @@ class BoardManager {
   }
 
   async loadBoard() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       let response;
       
       if (this.currentView === 'scheduled') {
         // Load board with all scheduled cards in a single request
-        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`);
+        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`, {
+          signal: controller.signal
+        });
       } else {
         // Load board with nested structure (board -> columns -> cards)
         // Add archived parameter to filter cards based on showArchived state
         const archivedParam = this.showArchived ? 'true' : 'false';
-        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
+        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`, {
+          signal: controller.signal
+        });
       }
       
+      clearTimeout(timeoutId);
       const data = await this.parseResponse(response);
       
       if (!data.success) {
+        this.hideBoardLoading();
+        this.showErrorToast('Failed to load board: ' + data.message);
         this.showError('Failed to load board: ' + data.message);
         return;
       }
 
       const board = data.board;
       this.processBoard(board);
+      this.hideBoardLoading();
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error('Error loading board:', error);
-      this.showError('An error occurred while loading the board');
+      this.hideBoardLoading();
+      
+      if (error.name === 'AbortError') {
+        this.showErrorToast('Load board timed out (5s). Please check your connection.');
+        this.showError('Load board timed out. Please check your connection.');
+      } else {
+        this.showErrorToast(`Error loading board: ${error.message}`);
+        this.showError('An error occurred while loading the board');
+      }
     }
   }
 
@@ -3855,6 +3878,30 @@ class BoardManager {
         <button class="btn btn-secondary" onclick="window.location.href='/'">← Back to Boards</button>
       </div>
     `;
+  }
+
+  showBoardLoading() {
+    // Add or show loading overlay
+    let overlay = this.container.querySelector('.board-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'board-loading-overlay';
+      overlay.innerHTML = `
+        <div class="board-loading-content">
+          <div class="board-loading-spinner">⏳</div>
+          <div class="board-loading-text">Loading...</div>
+        </div>
+      `;
+      this.container.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+  }
+
+  hideBoardLoading() {
+    const overlay = this.container.querySelector('.board-loading-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
   }
 
   escapeHtml(text) {

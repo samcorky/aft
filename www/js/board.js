@@ -1217,8 +1217,8 @@ class BoardManager {
       cardElement.setAttribute('data-column-id', originalPosition.columnId);
       cardElement.setAttribute('data-order', originalPosition.order);
       
-      // Move card back to original container
-      if (originalPosition.container) {
+      // Validate container is still attached to the document
+      if (originalPosition.container && document.contains(originalPosition.container)) {
         if (originalPosition.nextSibling && originalPosition.container.contains(originalPosition.nextSibling)) {
           // Insert before the next sibling (exact original position)
           originalPosition.container.insertBefore(cardElement, originalPosition.nextSibling);
@@ -1233,6 +1233,10 @@ class BoardManager {
         }
         
         console.log('Card restored to original position');
+      } else {
+        console.warn('Cannot restore card: original container is no longer in the document');
+        // Container was removed (column deleted or board reloaded)
+        // The calling function will reload the board to get fresh state
       }
     } catch (err) {
       console.error('Failed to restore card position:', err);

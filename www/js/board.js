@@ -2893,23 +2893,35 @@ class BoardManager {
         const saveEdit = async () => {
           const newName = input.value.trim();
           if (newName && newName !== currentName) {
-            await this.updateChecklistItem(itemId, { name: newName });
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = newName;
-            input.replaceWith(newNameSpan);
-            hasUnsavedChanges = false; // This action was already saved
+            // Show saving state
+            input.disabled = true;
+            
+            const success = await this.updateChecklistItem(itemId, { name: newName });
+            
+            if (success) {
+              const newNameSpan = document.createElement('span');
+              newNameSpan.className = 'checklist-item-name';
+              newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(newName));
+              input.replaceWith(newNameSpan);
+              hasUnsavedChanges = false; // This action was already saved
+            } else {
+              // Error toast already shown, restore input and re-enable
+              input.disabled = false;
+              input.focus();
+              input.select();
+              return; // Stay in edit mode to allow retry
+            }
           } else if (newName) {
             // No change, just restore
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           } else {
             // Empty name, restore original
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           }
           // Re-enable dragging
@@ -2943,41 +2955,94 @@ class BoardManager {
       btn.addEventListener('click', async (e) => {
         if (await showConfirm('Delete this checklist item?', 'Confirm Deletion')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
-          await this.deleteChecklistItem(itemId);
-          // Remove the item element in-place instead of closing modal
           const itemElement = e.target.closest('.checklist-item');
-          itemElement.remove();
-          // Update summary after deletion
-          updateEditModalSummary();
-          hasUnsavedChanges = false; // This action was already saved
           
-          // Update the card in board view to reflect deletion
-          const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
-          if (cardElement) {
-            const checklistElement = cardElement.querySelector('.card-checklist');
-            const remainingItems = modal.querySelectorAll('.checklist-item').length;
+          // Store item data for potential restoration
+          const itemData = {
+            id: itemId,
+            html: itemElement.outerHTML,
+            parentNode: itemElement.parentNode,
+            nextSibling: itemElement.nextSibling
+          };
+          
+          // Remove item from DOM
+          itemElement.remove();
+          updateEditModalSummary();
+          
+          // Attempt to delete from server
+          const success = await this.deleteChecklistItem(itemId);
+          
+          if (success) {
+            hasUnsavedChanges = false; // This action was already saved
             
-            // If no items left, remove the entire checklist section
-            if (remainingItems === 0 && checklistElement) {
-              checklistElement.remove();
-            } else if (checklistElement) {
-              // Update the checklist item count and remove this specific item from board view
-              const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
-              if (boardChecklistItem) {
-                boardChecklistItem.remove();
-              }
+            // Update the card in board view to reflect deletion
+            const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+            if (cardElement) {
+              const checklistElement = cardElement.querySelector('.card-checklist');
+              const remainingItems = modal.querySelectorAll('.checklist-item').length;
               
-              // Update summary in board view
-              const summaryElement = checklistElement.querySelector('.card-checklist-summary');
-              if (summaryElement) {
-                const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
-                const total = boardCheckboxes.length;
-                const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
-                const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
-                const percentage = calculateChecklistPercentage(items);
-                summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+              // If no items left, remove the entire checklist section
+              if (remainingItems === 0 && checklistElement) {
+                checklistElement.remove();
+              } else if (checklistElement) {
+                // Update the checklist item count and remove this specific item from board view
+                const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
+                if (boardChecklistItem) {
+                  boardChecklistItem.remove();
+                }
+                
+                // Update summary in board view
+                const summaryElement = checklistElement.querySelector('.card-checklist-summary');
+                if (summaryElement) {
+                  const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
+                  const total = boardCheckboxes.length;
+                  const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
+                  const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
+                  const percentage = calculateChecklistPercentage(items);
+                  summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+                }
               }
             }
+          } else {
+            // Restore item to DOM on failure
+            if (itemData.nextSibling) {
+              itemData.parentNode.insertBefore(document.createRange().createContextualFragment(itemData.html).firstChild, itemData.nextSibling);
+            } else {
+              itemData.parentNode.appendChild(document.createRange().createContextualFragment(itemData.html).firstChild);
+            }
+            
+            // Reattach event listeners to restored element
+            const restoredElement = itemData.parentNode.querySelector(`[data-item-id="${itemId}"]`);
+            if (restoredElement) {
+              const deleteBtn = restoredElement.querySelector('.checklist-delete-btn');
+              const editBtn = restoredElement.querySelector('.checklist-edit-btn');
+              const checkbox = restoredElement.querySelector('.checklist-checkbox');
+              
+              // Re-attach delete handler
+              if (deleteBtn) {
+                deleteBtn.addEventListener('click', e.target.parentElement.parentElement.querySelector('.checklist-delete-btn').onclick);
+              }
+              
+              // Re-attach edit handler (simplified - full handler is complex, just show it's restorable)
+              if (editBtn) {
+                editBtn.addEventListener('click', async (e) => {
+                  this.showErrorToast('Please refresh the modal to edit this item after a failed delete.');
+                });
+              }
+              
+              // Re-attach checkbox handler
+              if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                  const itemId = parseInt(e.target.getAttribute('data-item-id'));
+                  const checked = e.target.checked;
+                  checklistCheckboxChanges.set(itemId, checked);
+                  hasUnsavedChanges = true;
+                  updateEditModalSummary();
+                });
+              }
+            }
+            
+            updateEditModalSummary();
           }
         }
       });
@@ -2999,15 +3064,24 @@ class BoardManager {
           return;
         }
         
+        // Show posting state
+        postCommentBtn.disabled = true;
+        postCommentBtn.textContent = 'Posting...';
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
         try {
           const response = await fetch(`/api/cards/${cardId}/comments`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ comment: commentText })
+            body: JSON.stringify({ comment: commentText }),
+            signal: controller.signal
           });
           
+          clearTimeout(timeoutId);
           const data = await response.json();
           
           if (data.success) {
@@ -3018,7 +3092,7 @@ class BoardManager {
               noCommentsMsg.remove();
             }
             
-            const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
+            const isLongComment = data.comment.comment.split('\\n').length > 10 || data.comment.comment.length > 500;
             const newCommentHtml = this.generateCommentHtml(data.comment);
             
             commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
@@ -3037,14 +3111,27 @@ class BoardManager {
               });
             }
             
-            // Clear input
+            // Clear input and reset button
             newCommentInput.value = '';
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           } else {
-            await showAlert('Failed to post comment: ' + data.message, 'Error');
+            this.showErrorToast(`Failed to post comment: ${data.message}`);
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error posting comment:', err);
-          await showAlert('Error posting comment', 'Error');
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Post comment timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast(`Error posting comment: ${err.message}`);
+          }
+          
+          postCommentBtn.disabled = false;
+          postCommentBtn.textContent = 'Post Comment';
         }
       });
     }
@@ -3076,25 +3163,39 @@ class BoardManager {
       
       const title = titleInput.value.trim();
       const description = document.getElementById('edit-card-description').value.trim();
+      // Save button is in modal header, not in form
+      const saveBtn = modal.querySelector('button[type="submit"]');
       
       if (title) {
         // Validate that template cards have a schedule
         if (isTemplate && !cardData.schedule) {
           const createSchedule = await showConfirm(
-            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\nWould you like to create a schedule for this template now?',
+            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\\n\\nWould you like to create a schedule for this template now?',
             'Create Schedule?'
           );
           
           if (createSchedule) {
             // Save changes first, then open schedule modal
-            await this.updateCard(cardId, title, description);
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+            
+            const success = await this.updateCard(cardId, title, description);
+            
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+            
+            if (!success) {
+              // Error toast already shown by updateCard
+              return; // Stay in modal to allow retry
+            }
+            
             modal.remove();
             
             // Open schedule modal for this template
             try {
               this.openScheduleModal(cardData.id);
             } catch (err) {
-              await showAlert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err), 'Error');
+              await showAlert('Failed to open the schedule modal. Please try again.\\n\\nError: ' + (err && err.message ? err.message : err), 'Error');
             }
             return;
           } else {
@@ -3105,6 +3206,12 @@ class BoardManager {
             }
           }
         }
+        
+        // Show saving state
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        let allSuccessful = true;
         
         // TODO: PERFORMANCE - Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
         // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
@@ -3118,12 +3225,23 @@ class BoardManager {
         // Current implementation: N sequential API calls (can be slow for cards with many checklist items)
         
         // 1. Update the card
-        await this.updateCard(cardId, title, description);
+        const cardUpdateSuccess = await this.updateCard(cardId, title, description);
+        if (!cardUpdateSuccess) {
+          allSuccessful = false;
+        }
         
         // 2. Save checkbox changes for existing items
         // PERF: Sequential updates - could be batched
         for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
-          await this.updateChecklistItem(itemId, { checked });
+          const success = await this.updateChecklistItem(itemId, { checked });
+          if (!success) {
+            allSuccessful = false;
+            // Rollback checkbox in UI
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox) {
+              checkbox.checked = !checked;
+            }
+          }
         }
         
         // 3. Save any pending new checklist items in their current DOM order
@@ -3139,7 +3257,12 @@ class BoardManager {
             const pendingItem = pendingNewItems.find(item => item.tempId === Number(tempId));
             if (pendingItem && pendingItem.name) {
               // Save with the current position index and checked state
-              await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              const success = await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              if (!success) {
+                allSuccessful = false;
+                // Mark the item as failed (keep it in UI so user can retry)
+                el.classList.add('update-failed');
+              }
             }
           }
         }
@@ -3151,17 +3274,37 @@ class BoardManager {
             const el = allItems[i];
             const itemId = el.getAttribute('data-item-id');
             if (itemId && itemId !== 'null') {
-              await this.updateChecklistItem(parseInt(itemId), { order: i });
+              const success = await this.updateChecklistItem(parseInt(itemId), { order: i });
+              if (!success) {
+                allSuccessful = false;
+              }
             }
           }
         }
         
-        hasUnsavedChanges = false;
-        checklistOrderChanged = false;
-        modal.remove();
+        // Re-enable save button
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
         
-        // Reload board to show updated data
-        await this.loadBoard();
+        if (allSuccessful) {
+          hasUnsavedChanges = false;
+          checklistOrderChanged = false;
+          checklistCheckboxChanges.clear();
+          modal.remove();
+          
+          // Reload board to show updated data
+          await this.loadBoard();
+        } else {
+          // Stay in modal to allow retry - errors already shown via toasts
+          // Clear the checkbox changes that succeeded so they won't be retried
+          for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox && checkbox.checked === checked) {
+              // This one succeeded, remove from pending changes
+              checklistCheckboxChanges.delete(itemId);
+            }
+          }
+        }
       }
     });
 
@@ -3188,6 +3331,9 @@ class BoardManager {
   }
 
   async createChecklistItem(cardId, name, order = null, checked = false) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { name, checked };
       if (order !== null) {
@@ -3199,75 +3345,122 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to create checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to create checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error creating checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Create checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error creating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateChecklistItem(itemId, updates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updates)
+        body: JSON.stringify(updates),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to update checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to update checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error updating checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async deleteChecklistItem(itemId) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to delete checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to delete checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error deleting checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateCard(cardId, title, description) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title, description })
+        body: JSON.stringify({ title, description }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
-        // Reload board to show the updated card
-        await this.loadBoard();
+        return true;
       } else {
-        await showAlert('Failed to update card: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to update card: ${data.message}`);
+        return false;
       }
     } catch (err) {
-      await showAlert('Error updating card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating card: ${err.message}`);
+      }
+      return false;
     }
   }
 

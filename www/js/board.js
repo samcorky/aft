@@ -311,7 +311,7 @@ class BoardManager {
     toast.className = 'error-toast';
     toast.textContent = message;
     toast.setAttribute('role', 'alert');
-    toast.setAttribute('aria-live', 'polite');
+    toast.setAttribute('aria-live', 'assertive');
     toast.setAttribute('aria-atomic', 'true');
     toast.style.cssText = `
       position: fixed;
@@ -3271,7 +3271,7 @@ class BoardManager {
               noCommentsMsg.remove();
             }
             
-            const isLongComment = data.comment.comment.split('\\n').length > 10 || data.comment.comment.length > 500;
+            const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
             const newCommentHtml = this.generateCommentHtml(data.comment);
             
             commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
@@ -3349,7 +3349,7 @@ class BoardManager {
         // Validate that template cards have a schedule
         if (isTemplate && !cardData.schedule) {
           const createSchedule = await showConfirm(
-            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\\n\\nWould you like to create a schedule for this template now?',
+            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\nWould you like to create a schedule for this template now?',
             'Create Schedule?'
           );
           
@@ -3374,7 +3374,7 @@ class BoardManager {
             try {
               this.openScheduleModal(cardData.id);
             } catch (err) {
-              await showAlert('Failed to open the schedule modal. Please try again.\\n\\nError: ' + (err && err.message ? err.message : err), 'Error');
+              await showAlert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err), 'Error');
             }
             return;
           } else {
@@ -3704,10 +3704,12 @@ class BoardManager {
   }
 
   async archiveCard(cardId, cardElement = null) {
-    // Show loading state
-    if (cardElement) {
-      cardElement.classList.add('updating');
-    }
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -3722,9 +3724,11 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        clearTimeout(loadingTimeout);
         // Reload board to reflect archiving
         await this.loadBoard();
       } else {
+        clearTimeout(loadingTimeout);
         if (cardElement) {
           cardElement.classList.remove('updating');
         }
@@ -3732,6 +3736,7 @@ class BoardManager {
       }
     } catch (err) {
       clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       if (cardElement) {
         cardElement.classList.remove('updating');
       }
@@ -3745,10 +3750,12 @@ class BoardManager {
   }
 
   async unarchiveCard(cardId, cardElement = null) {
-    // Show loading state
-    if (cardElement) {
-      cardElement.classList.add('updating');
-    }
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -3760,6 +3767,7 @@ class BoardManager {
       });
 
       clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       const data = await response.json();
 
       if (data.success) {
@@ -3773,6 +3781,7 @@ class BoardManager {
       }
     } catch (err) {
       clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       if (cardElement) {
         cardElement.classList.remove('updating');
       }

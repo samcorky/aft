@@ -20,7 +20,7 @@ The header component continuously monitors database connectivity:
 
 ```javascript
 // In header.js constructor
-this.dbConnected = true; // Track connection status
+this.dbConnected = false; // Track connection status
 
 // Poll every 5 seconds
 setInterval(() => {
@@ -71,7 +71,7 @@ async checkDatabaseStatus() {
 // Check before opening modals
 openAddCardModal(columnId) {
   // Block if database disconnected
-  if (!window.headerManager || !window.headerManager.dbConnected) {
+  if (!window.header || !window.header.dbConnected) {
     this.showErrorToast('Cannot create card: Database not connected');
     return;
   }

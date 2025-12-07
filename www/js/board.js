@@ -1196,6 +1196,12 @@ class BoardManager {
   }
 
   async openScheduleModal(cardId, cardData, hasSchedule) {
+    // Check database connection before opening modal
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot open schedule editor: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
     if (hasSchedule && cardData.schedule) {

@@ -94,8 +94,13 @@ class Header {
     // Load boards dropdown
     this.loadBoardsDropdown();
     
-    // Check database status
+    // Check database status immediately
     this.checkDatabaseStatus();
+    
+    // Poll database status every 5 seconds
+    this.statusCheckInterval = setInterval(() => {
+      this.checkDatabaseStatus();
+    }, 5000);
   }
 
   // Set the board name in the header
@@ -282,11 +287,16 @@ class Header {
 
   // Check database connection status
   async checkDatabaseStatus() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const [testResponse, versionResponse] = await Promise.all([
-        fetch('/api/test'),
-        fetch('/api/version')
+        fetch('/api/test', { signal: controller.signal }),
+        fetch('/api/version', { signal: controller.signal })
       ]);
+      
+      clearTimeout(timeoutId);
       
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
@@ -302,7 +312,13 @@ class Header {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
-      this.updateStatus('error', err.message);
+      clearTimeout(timeoutId);
+      
+      if (err.name === 'AbortError') {
+        this.updateStatus('error', 'Connection timeout (5s)');
+      } else {
+        this.updateStatus('error', err.message);
+      }
     }
   }
 

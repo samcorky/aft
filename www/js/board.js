@@ -1009,6 +1009,7 @@ class BoardManager {
     const columnCards = document.querySelectorAll('.column-cards');
     
     let draggedCard = null;
+    let originalPosition = null; // Store original position before drag
     
     // Card drag events
     cards.forEach(card => {
@@ -1029,11 +1030,25 @@ class BoardManager {
         card.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/html', card.innerHTML);
+        
+        // Capture original position NOW, before any DOM manipulation
+        const oldColumnId = parseInt(card.getAttribute('data-column-id'));
+        const oldOrder = parseInt(card.getAttribute('data-order'));
+        const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+        const actualNextSibling = card.nextElementSibling;
+        
+        originalPosition = {
+          columnId: oldColumnId,
+          order: oldOrder,
+          container: originalColumnContainer,
+          nextSibling: actualNextSibling
+        };
       });
       
       card.addEventListener('dragend', (e) => {
         card.classList.remove('dragging');
         draggedCard = null;
+        originalPosition = null; // Clear stored position
       });
     });
     
@@ -1064,33 +1079,19 @@ class BoardManager {
       columnContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
         
-        if (!draggedCard) return;
+        if (!draggedCard || !originalPosition) return;
         
         const targetColumnId = parseInt(columnContainer.getAttribute('data-column-id'));
         const cardId = parseInt(draggedCard.getAttribute('data-card-id'));
-        const oldColumnId = parseInt(draggedCard.getAttribute('data-column-id'));
+        const oldColumnId = originalPosition.columnId;
         
         // Calculate new order based on position in DOM
         const cardsInColumn = Array.from(columnContainer.querySelectorAll('.card'));
         const newOrder = cardsInColumn.indexOf(draggedCard);
         
         // Only update if position or column changed
-        const oldOrder = parseInt(draggedCard.getAttribute('data-order'));
+        const oldOrder = originalPosition.order;
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
-          // Store original position for rollback
-          const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
-          
-          // Capture the actual next sibling DOM node before the move
-          // This is more reliable than searching by order, which may have gaps
-          const actualNextSibling = draggedCard.nextElementSibling;
-          
-          const originalPosition = {
-            columnId: oldColumnId,
-            order: oldOrder,
-            container: originalColumnContainer,
-            nextSibling: actualNextSibling
-          };
-          
           await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
         }
       });

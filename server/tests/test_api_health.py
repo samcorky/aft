@@ -2,7 +2,6 @@
 
 import pytest
 import requests
-import time
 
 
 @pytest.mark.api
@@ -320,11 +319,9 @@ class TestSchedulerHealthEndpoint:
         data = response.json()
         
         # At least one scheduler should have container ID (if running in Docker)
-        found_container = False
         for scheduler_name in ["backup_scheduler", "card_scheduler", "housekeeping_scheduler"]:
             scheduler = data[scheduler_name]
             if "lock_container" in scheduler:
-                found_container = True
                 # Container ID should be a non-empty string
                 assert isinstance(scheduler["lock_container"], str)
                 assert len(scheduler["lock_container"]) > 0

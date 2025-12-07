@@ -60,7 +60,6 @@ class HousekeepingScheduler:
             lock_data = json.loads(self.lock_file.read_text())
             
             # Check container ID (hostname in Docker)
-            import os
             current_container = os.environ.get('HOSTNAME', 'unknown')
             lock_container = lock_data.get('container_id', 'unknown')
             if lock_container != current_container:
@@ -96,8 +95,6 @@ class HousekeepingScheduler:
     def _update_heartbeat(self):
         """Update lock file with current timestamp to prove thread is alive."""
         try:
-            import os
-            from datetime import datetime
             lock_data = {
                 "pid": os.getpid(),
                 "container_id": os.environ.get('HOSTNAME', 'unknown'),
@@ -110,7 +107,6 @@ class HousekeepingScheduler:
     
     def start(self):
         """Start the housekeeping scheduler thread."""
-        import os
         logger.info("=== Housekeeping Scheduler Start Attempt ===")
         logger.info(f"PID: {os.getpid()}, Container: {os.environ.get('HOSTNAME', 'unknown')}")
         
@@ -142,7 +138,6 @@ class HousekeepingScheduler:
             }
             
             # Atomic write: write to temp file then rename
-            import tempfile
             with tempfile.NamedTemporaryFile(mode='w', dir=tempfile.gettempdir(), delete=False) as tf:
                 json.dump(lock_data, tf, indent=2)
                 temp_path = tf.name

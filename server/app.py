@@ -1,6 +1,10 @@
 from flask import Flask, jsonify, request
 import logging
 import json
+import os
+import time
+import tempfile
+from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
@@ -6453,10 +6457,6 @@ def init_housekeeping_scheduler():
 # Start schedulers when module is loaded
 # Use file lock to ensure only one worker initializes schedulers
 # This prevents race conditions with Gunicorn multi-worker setup
-import os
-from pathlib import Path
-import time
-import tempfile
 
 # Clean up any stale lock files from previous container instances BEFORE any worker tries to initialize
 # This must happen before the init lock to avoid race conditions

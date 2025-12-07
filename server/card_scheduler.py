@@ -43,7 +43,6 @@ class CardScheduler:
                 return True  # Different container = stale
             
             # Check heartbeat age
-            from datetime import datetime, timedelta
             last_heartbeat_str = lock_data.get('last_heartbeat')
             if last_heartbeat_str:
                 last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
@@ -71,8 +70,6 @@ class CardScheduler:
     def _update_heartbeat(self):
         """Update lock file with current timestamp to prove thread is alive."""
         try:
-            import json
-            from datetime import datetime
             lock_data = {
                 "pid": os.getpid(),
                 "container_id": os.environ.get('HOSTNAME', 'unknown'),

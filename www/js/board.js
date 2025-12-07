@@ -2449,12 +2449,27 @@ class BoardManager {
       
       const title = titleInput.value.trim();
       const description = document.getElementById('card-description').value.trim();
+      const submitBtn = form.querySelector('button[type="submit"]');
       
       if (title) {
+        // Disable button and show loading state
+        const originalText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+        submitBtn.style.opacity = '0.6';
+        
         // Filter out empty checklist items
         const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
-        await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
-        modal.remove();
+        const success = await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
+        
+        if (success) {
+          modal.remove();
+        } else {
+          // Re-enable button on failure - keep modal open
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+          submitBtn.style.opacity = '';
+        }
       }
     });
 
@@ -2463,6 +2478,10 @@ class BoardManager {
   }
 
   async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
+    // Set 5 second timeout for the request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { title, description };
       if (order !== null) {
@@ -2477,9 +2496,11 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
@@ -2512,19 +2533,27 @@ class BoardManager {
               this.openScheduleModal(cardId);
             } catch (err) {
               console.error('Error opening schedule modal:', err);
-              await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+              this.showErrorToast('Failed to open schedule editor');
             }
           }
         }
         
-        return cardId;
+        return true;
       } else {
-        await showAlert('Failed to create card: ' + data.message, 'Error');
-        return null;
+        console.error('Failed to create card:', data.message);
+        this.showErrorToast('Failed to create card');
+        return false;
       }
     } catch (err) {
-      await showAlert('Error creating card: ' + err.message, 'Error');
-      return null;
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error('Create card timeout after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error creating card:', err);
+        this.showErrorToast('Failed to create card');
+      }
+      return false;
     }
   }
 

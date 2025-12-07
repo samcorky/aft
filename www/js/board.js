@@ -274,6 +274,8 @@ class BoardManager {
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
+    this.currentLoadController = null; // Track in-flight board load requests
+    this.currentViewState = null; // Track the view state for the current load
   }
 
   /**
@@ -390,7 +392,22 @@ class BoardManager {
   }
 
   async loadBoard() {
+    // Cancel any in-flight board load request
+    if (this.currentLoadController) {
+      this.currentLoadController.abort();
+    }
+    
+    // Create new controller for this request
     const controller = new AbortController();
+    this.currentLoadController = controller;
+    
+    // Capture current view state
+    const viewState = {
+      currentView: this.currentView,
+      showArchived: this.showArchived
+    };
+    this.currentViewState = viewState;
+    
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     try {
@@ -411,7 +428,19 @@ class BoardManager {
       }
       
       clearTimeout(timeoutId);
+      
+      // Check if this request is stale (view changed while loading)
+      if (this.currentViewState !== viewState) {
+        // View changed during load, ignore this response
+        return;
+      }
+      
       const data = await this.parseResponse(response);
+      
+      // Check again after parsing in case view changed
+      if (this.currentViewState !== viewState) {
+        return;
+      }
       
       if (!data.success) {
         this.hideBoardLoading();
@@ -423,17 +452,36 @@ class BoardManager {
       const board = data.board;
       this.processBoard(board);
       this.hideBoardLoading();
+      
+      // Clear current load controller if this was the active request
+      if (this.currentLoadController === controller) {
+        this.currentLoadController = null;
+      }
     } catch (error) {
       clearTimeout(timeoutId);
-      console.error('Error loading board:', error);
-      this.hideBoardLoading();
       
+      // Ignore aborted requests (they were intentionally cancelled)
       if (error.name === 'AbortError') {
-        this.showErrorToast('Load board timed out (5s). Please check your connection.');
-        this.showError('Load board timed out. Please check your connection.');
-      } else {
+        // Only show error if this was the timeout abort, not a cancellation
+        if (this.currentViewState === viewState) {
+          this.hideBoardLoading();
+          this.showErrorToast('Load board timed out (5s). Please check your connection.');
+          this.showError('Load board timed out. Please check your connection.');
+        }
+        return;
+      }
+      
+      // Only process errors for non-stale requests
+      if (this.currentViewState === viewState) {
+        console.error('Error loading board:', error);
+        this.hideBoardLoading();
         this.showErrorToast(`Error loading board: ${error.message}`);
         this.showError('An error occurred while loading the board');
+      }
+      
+      // Clear current load controller if this was the active request
+      if (this.currentLoadController === controller) {
+        this.currentLoadController = null;
       }
     }
   }

@@ -459,11 +459,6 @@ class BoardManager {
       const board = data.board;
       this.processBoard(board);
       this.hideBoardLoading();
-      
-      // Clear current load controller if this was the active request
-      if (this.currentLoadController === controller) {
-        this.currentLoadController = null;
-      }
     } catch (error) {
       clearTimeout(timeoutId);
       
@@ -485,8 +480,9 @@ class BoardManager {
         this.showErrorToast(`Error loading board: ${error.message}`);
         this.showError('An error occurred while loading the board');
       }
-      
-      // Clear current load controller if this was the active request
+    } finally {
+      // Always clear current load controller if this was the active request
+      // This ensures cleanup even if there's an unexpected error path
       if (this.currentLoadController === controller) {
         this.currentLoadController = null;
       }

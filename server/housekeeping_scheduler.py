@@ -265,8 +265,8 @@ class HousekeepingScheduler:
             last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
             lock_age = (datetime.now() - last_heartbeat).total_seconds()
             
-            # Consider healthy if heartbeat is less than 2 minutes old
-            return lock_age < 120
+            # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+            return lock_age < 150
         except Exception as e:
             logger.warning(f"Error reading lock file {lock_file}: {e}")
             return False

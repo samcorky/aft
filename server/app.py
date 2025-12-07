@@ -539,8 +539,8 @@ def get_scheduler_health():
                 lock_data = json.loads(scheduler.lock_file.read_text())
                 last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
                 lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                # Consider healthy if heartbeat is less than 2 minutes old
-                is_healthy = lock_age < 120
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
                 
                 health['backup_scheduler'] = {
                     'running': is_healthy,
@@ -586,8 +586,8 @@ def get_scheduler_health():
                 lock_data = json.loads(scheduler.lock_file.read_text())
                 last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
                 lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                # Consider healthy if heartbeat is less than 2 minutes old
-                is_healthy = lock_age < 120
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval for consistency)
+                is_healthy = lock_age < 150
                 
                 health['card_scheduler'] = {
                     'running': is_healthy,
@@ -628,8 +628,8 @@ def get_scheduler_health():
                 lock_data = json.loads(scheduler.lock_file.read_text())
                 last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
                 lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                # Consider healthy if heartbeat is less than 2 minutes old
-                is_healthy = lock_age < 120
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
                 
                 health['housekeeping_scheduler'] = {
                     'running': is_healthy,

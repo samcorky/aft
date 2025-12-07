@@ -6458,10 +6458,6 @@ def init_housekeeping_scheduler():
 # Use file lock to ensure only one worker initializes schedulers
 # This prevents race conditions with Gunicorn multi-worker setup
 
-# Clean up any stale lock files from previous container instances BEFORE any worker tries to initialize
-# This must happen before the init lock to avoid race conditions
-cleanup_stale_scheduler_locks()
-
 # Only initialize schedulers in the first worker to start
 # Use a combination of lock file AND worker tracking
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
@@ -6482,6 +6478,10 @@ except FileExistsError:
 if should_init:
     try:
         logger.info(f"Worker PID {os.getpid()}: Initializing schedulers")
+        
+        # Clean up any stale lock files from previous container instances
+        # This must happen AFTER acquiring init lock to prevent race conditions
+        cleanup_stale_scheduler_locks()
         
         # Now start all schedulers
         init_backup_scheduler()

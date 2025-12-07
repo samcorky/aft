@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -87,9 +88,6 @@ class CardScheduler:
             bool: True if lock acquired, False otherwise
         """
         try:
-            import json
-            from datetime import datetime
-            
             if self.lock_file.exists():
                 if self._is_lock_stale():
                     logger.info("Removing stale lock file")

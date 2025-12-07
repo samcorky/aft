@@ -853,10 +853,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.deleteCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.deleteCard(cardId, cardElement);
         });
       });
       
@@ -865,10 +866,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.archiveCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.archiveCard(cardId, cardElement);
         });
       });
       
@@ -877,10 +879,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.unarchiveCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.unarchiveCard(cardId, cardElement);
         });
       });
       
@@ -2728,16 +2731,20 @@ class BoardManager {
     // Handle archive button
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.archiveCard(cardId);
+        await this.archiveCard(cardId, cardElement);
       });
     }
 
     // Handle unarchive button
     if (unarchiveBtn) {
       unarchiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.unarchiveCard(cardId);
+        await this.unarchiveCard(cardId, cardElement);
       });
     }
 
@@ -3494,64 +3501,130 @@ class BoardManager {
     }
   }
 
-  async deleteCard(cardId) {
+  async deleteCard(cardId, cardElement = null) {
     if (!await showConfirm('Are you sure you want to delete this card?', 'Confirm Deletion')) {
       return;
     }
 
+    // Show loading state
+    if (cardElement) {
+      cardElement.classList.add('updating');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        await showAlert('Failed to delete card: ' + data.message, 'Error');
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to delete card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error deleting card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting card: ${err.message}`);
+      }
     }
   }
 
-  async archiveCard(cardId) {
+  async archiveCard(cardId, cardElement = null) {
+    // Show loading state
+    if (cardElement) {
+      cardElement.classList.add('updating');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/archive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect archiving
         await this.loadBoard();
       } else {
-        await showAlert('Failed to archive card: ' + data.message, 'Error');
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to archive card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error archiving card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Archive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error archiving card: ${err.message}`);
+      }
     }
   }
 
-  async unarchiveCard(cardId) {
+  async unarchiveCard(cardId, cardElement = null) {
+    // Show loading state
+    if (cardElement) {
+      cardElement.classList.add('updating');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/unarchive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect unarchiving
         await this.loadBoard();
       } else {
-        await showAlert('Failed to unarchive card: ' + data.message, 'Error');
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to unarchive card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error unarchiving card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Unarchive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error unarchiving card: ${err.message}`);
+      }
     }
   }
 

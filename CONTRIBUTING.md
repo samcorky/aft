@@ -9,13 +9,14 @@ Before submitting any code contribution, **verify ALL items** are complete:
 - [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
 - [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](./TESTING.md))
 - [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
+- [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md))
 - [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
 - [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
 - [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
 - [ ] **Documentation** - README/docs updated if behavior changed
 - [ ] **All Tests Pass** - Run `pytest -v` and verify all tests pass
 
-**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md) before implementing ANY feature.
+**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md) before implementing ANY feature.
 
 ## Table of Contents
 
@@ -468,6 +469,29 @@ All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](./ACCES
 2. Test keyboard navigation (Tab, Enter, Escape, Arrow keys)
 3. Test with a screen reader
 4. Run automated tools (axe DevTools, Lighthouse)
+
+## Frontend Error Handling
+
+All frontend API interactions must follow error handling best practices to ensure a consistent user experience when the database or API is unavailable.
+
+See [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md) for comprehensive guidelines on:
+
+- **Database Connection Monitoring**: Continuous polling and status tracking
+- **API Call Patterns**: 5-second timeouts with AbortController
+- **Visual Feedback**: Loading states, toast notifications, loading overlays
+- **State Preservation**: Keep modals open on failure, rollback UI changes
+- **Error Notifications**: Non-blocking toasts instead of blocking alerts
+- **Testing Guidelines**: Manual and automated testing requirements
+
+### Quick Reference
+
+All API calls must:
+1. Use AbortController with 5-second timeout
+2. Show loading state (with 500ms delay to avoid flashing)
+3. Display non-blocking toast on error (never use `alert()`)
+4. Preserve user work on failure (keep modals open)
+5. Rollback UI changes for optimistic updates
+6. Check database connection before opening modals
 
 ## Security Guidelines
 

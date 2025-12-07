@@ -16,6 +16,7 @@ function calculateChecklistPercentage(items) {
  * Prevents modal from closing when user drags to select text and releases outside modal
  * @param {HTMLElement} modal - The modal element
  * @param {Function} closeHandler - Function to call when modal should close (e.g., handleCancel or modal.remove)
+ *                                  Can be async - promise rejections are handled gracefully
  */
 function setupModalBackgroundClose(modal, closeHandler) {
   let mouseDownOnBackground = false;
@@ -25,12 +26,18 @@ function setupModalBackgroundClose(modal, closeHandler) {
     mouseDownOnBackground = e.target === modal;
   });
   
-  modal.addEventListener('click', (e) => {
+  modal.addEventListener('click', async (e) => {
     // Only close if:
     // 1. Click target is the background
     // 2. Mousedown also started on the background (not a drag from inside)
     if (e.target === modal && mouseDownOnBackground) {
-      closeHandler();
+      try {
+        // Handle both sync and async closeHandler functions
+        await closeHandler();
+      } catch (error) {
+        console.error('Error in modal close handler:', error);
+        // Don't close modal if there was an error
+      }
     }
     mouseDownOnBackground = false;
   });
@@ -274,6 +281,8 @@ class BoardManager {
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
+    this.currentLoadController = null; // Track in-flight board load requests
+    this.currentViewState = null; // Track the view state for the current load
   }
 
   /**
@@ -300,6 +309,43 @@ class BoardManager {
     }
   }
 
+  /**
+   * Show a non-blocking error toast notification
+   * @param {string} message - The error message to display
+   * @param {number} duration - How long to show the toast in milliseconds (default 3000)
+   */
+  showErrorToast(message, duration = 3000) {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #e74c3c;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after specified duration
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -321,6 +367,9 @@ class BoardManager {
     // Listen for view changes from header
     window.addEventListener('viewChanged', async (e) => {
       const newView = e.detail.view;
+      
+      // Show loading overlay
+      this.showBoardLoading();
       
       // Map view names to internal state
       if (newView === 'archived') {
@@ -350,31 +399,93 @@ class BoardManager {
   }
 
   async loadBoard() {
+    // Cancel any in-flight board load request
+    if (this.currentLoadController) {
+      this.currentLoadController.abort();
+    }
+    
+    // Create new controller for this request
+    const controller = new AbortController();
+    this.currentLoadController = controller;
+    
+    // Capture current view state
+    const viewState = {
+      currentView: this.currentView,
+      showArchived: this.showArchived
+    };
+    this.currentViewState = viewState;
+    
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       let response;
       
       if (this.currentView === 'scheduled') {
         // Load board with all scheduled cards in a single request
-        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`);
+        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`, {
+          signal: controller.signal
+        });
       } else {
         // Load board with nested structure (board -> columns -> cards)
         // Add archived parameter to filter cards based on showArchived state
         const archivedParam = this.showArchived ? 'true' : 'false';
-        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
+        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`, {
+          signal: controller.signal
+        });
+      }
+      
+      clearTimeout(timeoutId);
+      
+      // Check if this request is stale (view changed while loading)
+      if (this.currentViewState !== viewState) {
+        // View changed during load, ignore this response
+        return;
       }
       
       const data = await this.parseResponse(response);
       
+      // Check again after parsing in case view changed
+      if (this.currentViewState !== viewState) {
+        return;
+      }
+      
       if (!data.success) {
+        this.hideBoardLoading();
+        this.showErrorToast('Failed to load board: ' + data.message);
         this.showError('Failed to load board: ' + data.message);
         return;
       }
 
       const board = data.board;
       this.processBoard(board);
+      this.hideBoardLoading();
     } catch (error) {
-      console.error('Error loading board:', error);
-      this.showError('An error occurred while loading the board');
+      clearTimeout(timeoutId);
+      
+      // Ignore aborted requests (they were intentionally cancelled)
+      if (error.name === 'AbortError') {
+        // Only show error if this was the timeout abort, not a cancellation
+        if (this.currentViewState === viewState) {
+          this.hideBoardLoading();
+          this.showErrorToast('Load board timed out (5s). Please check your connection.');
+          this.showError('Load board timed out. Please check your connection.');
+        }
+        return;
+      }
+      
+      // Only process errors for non-stale requests
+      if (this.currentViewState === viewState) {
+        console.error('Error loading board:', error);
+        this.hideBoardLoading();
+        this.showErrorToast(`Error loading board: ${error.message}`);
+        this.showError('An error occurred while loading the board');
+      }
+    } finally {
+      // Always clear current load controller if this was the active request
+      // This ensures cleanup even if there's an unexpected error path
+      if (this.currentLoadController === controller) {
+        this.currentLoadController = null;
+      }
     }
   }
 
@@ -718,11 +829,20 @@ class BoardManager {
           if (e.target.closest('.card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
+          
+          // Show loading state on the card
+          card.classList.add('updating');
+          
           // Reload card data to get latest state
           const cardData = await this.getCardData(cardId);
+          
+          // Remove loading state
+          card.classList.remove('updating');
+          
           if (cardData) {
             this.openEditCardModal(cardId, cardData);
           }
+          // Error toast already shown by getCardData if it failed
         });
       });
 
@@ -810,10 +930,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.deleteCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.deleteCard(cardId, cardElement);
         });
       });
       
@@ -822,10 +943,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.archiveCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.archiveCard(cardId, cardElement);
         });
       });
       
@@ -834,10 +956,11 @@ class BoardManager {
         btn.addEventListener('mousedown', (e) => {
           e.stopPropagation(); // Prevent drag from starting
         });
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
-          this.unarchiveCard(cardId);
+          const cardElement = e.currentTarget.closest('.card');
+          await this.unarchiveCard(cardId, cardElement);
         });
       });
       
@@ -882,6 +1005,7 @@ class BoardManager {
     const columnCards = document.querySelectorAll('.column-cards');
     
     let draggedCard = null;
+    let originalPosition = null; // Store original position before drag
     
     // Card drag events
     cards.forEach(card => {
@@ -902,11 +1026,25 @@ class BoardManager {
         card.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/html', card.innerHTML);
+        
+        // Capture original position NOW, before any DOM manipulation
+        const oldColumnId = parseInt(card.getAttribute('data-column-id'));
+        const oldOrder = parseInt(card.getAttribute('data-order'));
+        const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+        const actualNextSibling = card.nextElementSibling;
+        
+        originalPosition = {
+          columnId: oldColumnId,
+          order: oldOrder,
+          container: originalColumnContainer,
+          nextSibling: actualNextSibling
+        };
       });
       
       card.addEventListener('dragend', (e) => {
         card.classList.remove('dragging');
         draggedCard = null;
+        originalPosition = null; // Clear stored position
       });
     });
     
@@ -937,20 +1075,20 @@ class BoardManager {
       columnContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
         
-        if (!draggedCard) return;
+        if (!draggedCard || !originalPosition) return;
         
         const targetColumnId = parseInt(columnContainer.getAttribute('data-column-id'));
         const cardId = parseInt(draggedCard.getAttribute('data-card-id'));
-        const oldColumnId = parseInt(draggedCard.getAttribute('data-column-id'));
+        const oldColumnId = originalPosition.columnId;
         
         // Calculate new order based on position in DOM
         const cardsInColumn = Array.from(columnContainer.querySelectorAll('.card'));
         const newOrder = cardsInColumn.indexOf(draggedCard);
         
         // Only update if position or column changed
-        const oldOrder = parseInt(draggedCard.getAttribute('data-order'));
+        const oldOrder = originalPosition.order;
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
-          await this.updateCardPosition(cardId, targetColumnId, newOrder);
+          await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
         }
       });
     });
@@ -971,7 +1109,22 @@ class BoardManager {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  async updateCardPosition(cardId, columnId, order) {
+  async updateCardPosition(cardId, columnId, order, originalPosition = null) {
+    const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
+    
+    // Add loading state with 500ms delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+        cardElement.style.opacity = '0.6';
+        cardElement.style.pointerEvents = 'none';
+      }
+    }, 500);
+    
+    // Set 5 second timeout for the request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
         method: 'PATCH',
@@ -981,29 +1134,109 @@ class BoardManager {
         body: JSON.stringify({
           column_id: columnId,
           order: order
-        })
+        }),
+        signal: controller.signal
       });
+      
+      // Clear timeouts immediately after fetch completes, before processing response
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       
       const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
-        // Reload board to restore correct state
-        await this.loadBoard();
+        
+        // Restore card to original position (DOM only, no API call)
+        if (cardElement && originalPosition) {
+          this.restoreCardPosition(cardElement, originalPosition);
+        }
+        
+        if (cardElement) {
+          cardElement.classList.remove('updating'); // Remove loading state
+          cardElement.classList.add('update-failed');
+          cardElement.style.opacity = '';
+          cardElement.style.pointerEvents = '';
+          setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
+        }
+        
+        // Show non-blocking error toast instead of blocking alert
+        this.showErrorToast('Failed to move card');
+        
+        // Don't reload board - restoration is DOM-only
       } else {
         // Update local data attributes
-        const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
         if (cardElement) {
           cardElement.setAttribute('data-column-id', columnId);
           cardElement.setAttribute('data-order', order);
+          cardElement.classList.remove('updating');
+          cardElement.classList.add('update-success');
+          cardElement.style.opacity = '';
+          cardElement.style.pointerEvents = '';
+          setTimeout(() => cardElement.classList.remove('update-success'), 1000);
         }
         // Reload board to update card counts
         await this.loadBoard();
       }
     } catch (err) {
-      console.error('Error updating card position:', err);
-      // Reload board to restore correct state
-      await this.loadBoard();
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      // Restore card to original position
+      if (cardElement && originalPosition) {
+        this.restoreCardPosition(cardElement, originalPosition);
+      }
+      
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+        cardElement.classList.add('update-failed');
+        cardElement.style.opacity = '';
+        cardElement.style.pointerEvents = '';
+        setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
+      }
+      
+      if (err.name === 'AbortError') {
+        console.error('Card update timeout after 5 seconds');
+        this.showErrorToast('Card update timed out. Check your connection.');
+      } else {
+        console.error('Error updating card position:', err);
+        this.showErrorToast('Failed to move card');
+      }
+      
+      // Don't reload board - restoration is DOM-only
+    }
+  }
+
+  restoreCardPosition(cardElement, originalPosition) {
+    try {
+      // Restore data attributes
+      cardElement.setAttribute('data-column-id', originalPosition.columnId);
+      cardElement.setAttribute('data-order', originalPosition.order);
+      
+      // Validate container is still attached to the document
+      if (originalPosition.container && document.contains(originalPosition.container)) {
+        if (originalPosition.nextSibling && originalPosition.container.contains(originalPosition.nextSibling)) {
+          // Insert before the next sibling (exact original position)
+          originalPosition.container.insertBefore(cardElement, originalPosition.nextSibling);
+        } else {
+          // If next sibling is gone, append at end
+          const addCardBtn = originalPosition.container.querySelector('.add-card-btn');
+          if (addCardBtn) {
+            originalPosition.container.insertBefore(cardElement, addCardBtn);
+          } else {
+            originalPosition.container.appendChild(cardElement);
+          }
+        }
+        
+        console.log('Card restored to original position');
+      } else {
+        console.warn('Cannot restore card: original container is no longer in the document');
+        // Container was removed (column deleted or board reloaded)
+        // The calling function will reload the board to get fresh state
+      }
+    } catch (err) {
+      console.error('Failed to restore card position:', err);
+      // Will fall back to board reload in calling function
     }
   }
 
@@ -1044,18 +1277,42 @@ class BoardManager {
   }
 
   async openScheduleModal(cardId, cardData, hasSchedule) {
+    // Check database connection before opening modal
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot open schedule editor: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
     if (hasSchedule && cardData.schedule) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       try {
-        const response = await fetch(`/api/schedules/${cardData.schedule}`);
+        const response = await fetch(`/api/schedules/${cardData.schedule}`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
+        
         if (data.success) {
           scheduleData = data.schedule;
+        } else {
+          this.showErrorToast(`Failed to load schedule: ${data.message}`);
+          return;
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error fetching schedule:', err);
-        return null;
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Load schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast(`Error loading schedule: ${err.message}`);
+        }
+        return;
       }
     }
 
@@ -1225,20 +1482,64 @@ class BoardManager {
     // Initial calculation
     updateNextRuns();
 
+    // Track changes
+    let hasUnsavedChanges = false;
+    
     // Update on input changes
     [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
-      input.addEventListener('change', updateNextRuns);
+      input.addEventListener('change', () => {
+        hasUnsavedChanges = true;
+        updateNextRuns();
+      });
       input.addEventListener('input', () => {
+        hasUnsavedChanges = true;
         // Debounce for text inputs
         clearTimeout(input.updateTimeout);
         input.updateTimeout = setTimeout(updateNextRuns, 500);
       });
     });
-
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
+    
+    // Track checkbox changes
+    const enabledCheckbox = document.getElementById('schedule-enabled');
+    const duplicatesCheckbox = document.getElementById('schedule-allow-duplicates');
+    [enabledCheckbox, duplicatesCheckbox].forEach(checkbox => {
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          hasUnsavedChanges = true;
+        });
+      }
     });
+
+    // Handle cancel with warning
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        if (hasUnsavedChanges) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+            return;
+          }
+        }
+        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle delete
     if (deleteBtn) {
@@ -1247,11 +1548,20 @@ class BoardManager {
           return;
         }
 
+        // Show deleting state
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = 'Deleting...';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         try {
           const response = await fetch(`/api/schedules/${scheduleData.id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            signal: controller.signal
           });
 
+          clearTimeout(timeoutId);
           const data = await this.parseResponse(response);
 
           if (data.success) {
@@ -1261,11 +1571,21 @@ class BoardManager {
             if (editModal) editModal.remove();
             await this.loadBoard();
           } else {
-            await showAlert('Failed to delete schedule: ' + data.message, 'Error');
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = 'Delete Schedule';
+            this.showErrorToast(`Failed to delete schedule: ${data.message}`);
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error deleting schedule:', err);
-          await showAlert('An error occurred while deleting the schedule', 'Error');
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = 'Delete Schedule';
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Delete schedule timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast('An error occurred while deleting the schedule');
+          }
         }
       });
     }
@@ -1276,21 +1596,43 @@ class BoardManager {
       editTemplateBtn.addEventListener('click', async () => {
         const templateCardId = parseInt(editTemplateBtn.getAttribute('data-card-id'));
         if (templateCardId) {
+          // Show loading state
+          editTemplateBtn.disabled = true;
+          editTemplateBtn.textContent = 'Loading...';
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           // Fetch the template card data
           try {
-            const response = await fetch(`/api/cards/${templateCardId}`);
+            const response = await fetch(`/api/cards/${templateCardId}`, {
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
             const data = await this.parseResponse(response);
+            
             if (data.success) {
               // Close schedule modal
               modal.remove();
               // Open edit card modal for the template
               this.openEditCardModal(templateCardId, data.card);
             } else {
-              await showAlert('Failed to load template card: ' + data.message, 'Error');
+              editTemplateBtn.disabled = false;
+              editTemplateBtn.textContent = 'Edit Template';
+              this.showErrorToast(`Failed to load template card: ${data.message}`);
             }
           } catch (err) {
+            clearTimeout(timeoutId);
             console.error('Error loading template card:', err);
-            await showAlert('Error loading template card', 'Error');
+            editTemplateBtn.disabled = false;
+            editTemplateBtn.textContent = 'Edit Template';
+            
+            if (err.name === 'AbortError') {
+              this.showErrorToast('Load template card timed out (5s). Please check your connection.');
+            } else {
+              this.showErrorToast('Error loading template card');
+            }
           }
         }
       });
@@ -1309,6 +1651,14 @@ class BoardManager {
         allow_duplicates: document.getElementById('schedule-allow-duplicates').checked
       };
 
+      // Show saving state
+      const saveBtn = modal.querySelector('button[type="submit"]');
+      saveBtn.disabled = true;
+      saveBtn.textContent = hasSchedule ? 'Updating...' : 'Creating...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       try {
         let response;
         
@@ -1317,7 +1667,8 @@ class BoardManager {
           response = await fetch(`/api/schedules/${scheduleData.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
+            body: JSON.stringify(formData),
+            signal: controller.signal
           });
         } else {
           // Create new schedule
@@ -1329,10 +1680,12 @@ class BoardManager {
               card_id: cardId,
               keep_source_card: keepSourceCheckbox ? keepSourceCheckbox.checked : true,
               ...formData
-            })
+            }),
+            signal: controller.signal
           });
         }
 
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
 
         if (data.success) {
@@ -1342,19 +1695,35 @@ class BoardManager {
           if (editModal) editModal.remove();
           await this.loadBoard();
         } else {
-          await showAlert('Failed to save schedule: ' + data.message, 'Error');
+          saveBtn.disabled = false;
+          saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+          this.showErrorToast(`Failed to save schedule: ${data.message}`);
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error saving schedule:', err);
-        await showAlert('An error occurred while saving the schedule', 'Error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Save schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast('An error occurred while saving the schedule');
+        }
       }
     });
 
     // Close modal when clicking outside (ignore text selection drags)
-    setupModalBackgroundClose(modal, () => modal.remove());
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   openAddColumnModal() {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot add column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="add-column-modal">
@@ -1407,6 +1776,12 @@ class BoardManager {
   }
 
   async openAddTemplateWithScheduleModal(columnId, order = null) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create scheduled card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Track the last used column for keyboard shortcuts
     this.lastUsedColumnId = columnId;
     
@@ -1677,16 +2052,36 @@ class BoardManager {
     updateNextRuns();
 
     // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
     const handleCancel = async () => {
-      // Check if there's any content or checklist items
-      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
       
-      if (hasContent) {
-        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -1774,6 +2169,12 @@ class BoardManager {
   }
 
   async createColumn(name) {
+    // Check database connection before creating column
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     try {
       const response = await fetch(`/api/boards/${this.boardId}/columns`, {
         method: 'POST',
@@ -1930,6 +2331,12 @@ class BoardManager {
   }
 
   async openMoveAllCardsModal(sourceColumnId) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot move cards: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Get source column and its cards
     const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
     if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
@@ -2078,6 +2485,12 @@ class BoardManager {
   }
 
   openEditColumnModal(columnId, currentName) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="edit-column-modal">
@@ -2154,6 +2567,12 @@ class BoardManager {
   }
 
   openAddCardModal(columnId, order = null, scheduled = false) {
+    // Check if database is connected
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // If we're in scheduled view, open the combined template+schedule modal instead
     if (scheduled) {
       this.openAddTemplateWithScheduleModal(columnId, order);
@@ -2288,16 +2707,36 @@ class BoardManager {
     }
 
     // Handle cancel with warning if there are unsaved changes
-    const handleCancel = () => {
-      // Check if there's any content or checklist items
-      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
       
-      if (hasContent) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -2309,12 +2748,27 @@ class BoardManager {
       
       const title = titleInput.value.trim();
       const description = document.getElementById('card-description').value.trim();
+      const submitBtn = form.querySelector('button[type="submit"]');
       
       if (title) {
+        // Disable button and show loading state
+        const originalText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+        submitBtn.style.opacity = '0.6';
+        
         // Filter out empty checklist items
         const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
-        await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
-        modal.remove();
+        const success = await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
+        
+        if (success) {
+          modal.remove();
+        } else {
+          // Re-enable button on failure - keep modal open
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+          submitBtn.style.opacity = '';
+        }
       }
     });
 
@@ -2323,6 +2777,10 @@ class BoardManager {
   }
 
   async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
+    // Set 5 second timeout for the request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { title, description };
       if (order !== null) {
@@ -2337,9 +2795,11 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
@@ -2372,23 +2832,37 @@ class BoardManager {
               this.openScheduleModal(cardId);
             } catch (err) {
               console.error('Error opening schedule modal:', err);
-              await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+              this.showErrorToast('Failed to open schedule editor');
             }
           }
         }
         
-        return cardId;
+        return true;
       } else {
-        await showAlert('Failed to create card: ' + data.message, 'Error');
-        return null;
+        console.error('Failed to create card:', data.message);
+        this.showErrorToast('Failed to create card');
+        return false;
       }
     } catch (err) {
-      await showAlert('Error creating card: ' + err.message, 'Error');
-      return null;
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error('Create card timeout after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error creating card:', err);
+        this.showErrorToast('Failed to create card');
+      }
+      return false;
     }
   }
 
   openEditCardModal(cardId, cardData) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     const checklistItems = cardData.checklist_items || [];
     const comments = cardData.comments || [];
     const hasChecklist = checklistItems.length > 0;
@@ -2544,16 +3018,20 @@ class BoardManager {
     // Handle archive button
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.archiveCard(cardId);
+        await this.archiveCard(cardId, cardElement);
       });
     }
 
     // Handle unarchive button
     if (unarchiveBtn) {
       unarchiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.unarchiveCard(cardId);
+        await this.unarchiveCard(cardId, cardElement);
       });
     }
 
@@ -2567,14 +3045,24 @@ class BoardManager {
             return;
           }
         }
+        
         const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = editScheduleFromTemplateBtn.innerHTML;
+        editScheduleFromTemplateBtn.disabled = true;
+        editScheduleFromTemplateBtn.innerHTML = '<span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+          // Re-enable button on error
+          editScheduleFromTemplateBtn.disabled = false;
+          editScheduleFromTemplateBtn.innerHTML = originalText;
         }
       });
     }
@@ -2589,31 +3077,64 @@ class BoardManager {
             return;
           }
         }
+        
         const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = scheduleBtn.innerHTML;
+        scheduleBtn.disabled = true;
+        scheduleBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px; opacity: 0.6;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          await showAlert('Failed to open schedule editor. Please try again.', 'Error');
+          // Re-enable button on error
+          scheduleBtn.disabled = false;
+          scheduleBtn.innerHTML = originalText;
         }
       });
     }
 
     // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
     const handleCancel = async () => {
-      if (hasUnpostedComment()) {
-        if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
-          return;
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        if (hasUnpostedComment()) {
+          if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+            return;
+          }
         }
-      }
-      if (hasUnsavedChanges || checklistOrderChanged) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        if (hasUnsavedChanges || checklistOrderChanged) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -2724,23 +3245,35 @@ class BoardManager {
         const saveEdit = async () => {
           const newName = input.value.trim();
           if (newName && newName !== currentName) {
-            await this.updateChecklistItem(itemId, { name: newName });
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = newName;
-            input.replaceWith(newNameSpan);
-            hasUnsavedChanges = false; // This action was already saved
+            // Show saving state
+            input.disabled = true;
+            
+            const success = await this.updateChecklistItem(itemId, { name: newName });
+            
+            if (success) {
+              const newNameSpan = document.createElement('span');
+              newNameSpan.className = 'checklist-item-name';
+              newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(newName));
+              input.replaceWith(newNameSpan);
+              hasUnsavedChanges = false; // This action was already saved
+            } else {
+              // Error toast already shown, restore input and re-enable
+              input.disabled = false;
+              input.focus();
+              input.select();
+              return; // Stay in edit mode to allow retry
+            }
           } else if (newName) {
             // No change, just restore
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           } else {
             // Empty name, restore original
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           }
           // Re-enable dragging
@@ -2770,48 +3303,106 @@ class BoardManager {
     });
 
     // Handle delete checklist item buttons
-    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+    const createDeleteHandler = (btn) => {
+      return async (e) => {
         if (await showConfirm('Delete this checklist item?', 'Confirm Deletion')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
-          await this.deleteChecklistItem(itemId);
-          // Remove the item element in-place instead of closing modal
           const itemElement = e.target.closest('.checklist-item');
-          itemElement.remove();
-          // Update summary after deletion
-          updateEditModalSummary();
-          hasUnsavedChanges = false; // This action was already saved
           
-          // Update the card in board view to reflect deletion
-          const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
-          if (cardElement) {
-            const checklistElement = cardElement.querySelector('.card-checklist');
-            const remainingItems = modal.querySelectorAll('.checklist-item').length;
+          // Store item data for potential restoration
+          const itemData = {
+            id: itemId,
+            html: itemElement.outerHTML,
+            parentNode: itemElement.parentNode,
+            nextSibling: itemElement.nextSibling
+          };
+          
+          // Remove item from DOM
+          itemElement.remove();
+          updateEditModalSummary();
+          
+          // Attempt to delete from server
+          const success = await this.deleteChecklistItem(itemId);
+          
+          if (success) {
+            hasUnsavedChanges = false; // This action was already saved
             
-            // If no items left, remove the entire checklist section
-            if (remainingItems === 0 && checklistElement) {
-              checklistElement.remove();
-            } else if (checklistElement) {
-              // Update the checklist item count and remove this specific item from board view
-              const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
-              if (boardChecklistItem) {
-                boardChecklistItem.remove();
-              }
+            // Update the card in board view to reflect deletion
+            const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+            if (cardElement) {
+              const checklistElement = cardElement.querySelector('.card-checklist');
+              const remainingItems = modal.querySelectorAll('.checklist-item').length;
               
-              // Update summary in board view
-              const summaryElement = checklistElement.querySelector('.card-checklist-summary');
-              if (summaryElement) {
-                const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
-                const total = boardCheckboxes.length;
-                const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
-                const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
-                const percentage = calculateChecklistPercentage(items);
-                summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+              // If no items left, remove the entire checklist section
+              if (remainingItems === 0 && checklistElement) {
+                checklistElement.remove();
+              } else if (checklistElement) {
+                // Update the checklist item count and remove this specific item from board view
+                const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
+                if (boardChecklistItem) {
+                  boardChecklistItem.remove();
+                }
+                
+                // Update summary in board view
+                const summaryElement = checklistElement.querySelector('.card-checklist-summary');
+                if (summaryElement) {
+                  const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
+                  const total = boardCheckboxes.length;
+                  const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
+                  const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
+                  const percentage = calculateChecklistPercentage(items);
+                  summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+                }
               }
             }
+          } else {
+            // Restore item to DOM on failure
+            if (itemData.nextSibling) {
+              itemData.parentNode.insertBefore(document.createRange().createContextualFragment(itemData.html).firstChild, itemData.nextSibling);
+            } else {
+              itemData.parentNode.appendChild(document.createRange().createContextualFragment(itemData.html).firstChild);
+            }
+            
+            // Reattach event listeners to restored element
+            const restoredElement = itemData.parentNode.querySelector(`[data-item-id="${itemId}"]`);
+            if (restoredElement) {
+              const deleteBtn = restoredElement.querySelector('.checklist-delete-btn');
+              const editBtn = restoredElement.querySelector('.checklist-edit-btn');
+              const checkbox = restoredElement.querySelector('.checklist-checkbox');
+              
+              // Re-attach delete handler using the factory function
+              if (deleteBtn) {
+                deleteBtn.addEventListener('click', createDeleteHandler(deleteBtn));
+              }
+              
+              // Re-attach edit handler (simplified - full handler is complex, just show it's restorable)
+              if (editBtn) {
+                editBtn.addEventListener('click', async (e) => {
+                  this.showErrorToast('Please refresh the modal to edit this item after a failed delete.');
+                });
+              }
+              
+              // Re-attach checkbox handler
+              if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                  const itemId = parseInt(e.target.getAttribute('data-item-id'));
+                  const checked = e.target.checked;
+                  checklistCheckboxChanges.set(itemId, checked);
+                  hasUnsavedChanges = true;
+                  updateEditModalSummary();
+                });
+              }
+            }
+            
+            updateEditModalSummary();
           }
         }
-      });
+      };
+    };
+    
+    // Attach delete handlers to all delete buttons
+    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
+      btn.addEventListener('click', createDeleteHandler(btn));
     });
 
     // Handle post comment button (only if comments section exists)
@@ -2830,15 +3421,24 @@ class BoardManager {
           return;
         }
         
+        // Show posting state
+        postCommentBtn.disabled = true;
+        postCommentBtn.textContent = 'Posting...';
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
         try {
           const response = await fetch(`/api/cards/${cardId}/comments`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ comment: commentText })
+            body: JSON.stringify({ comment: commentText }),
+            signal: controller.signal
           });
           
+          clearTimeout(timeoutId);
           const data = await response.json();
           
           if (data.success) {
@@ -2868,14 +3468,27 @@ class BoardManager {
               });
             }
             
-            // Clear input
+            // Clear input and reset button
             newCommentInput.value = '';
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           } else {
-            await showAlert('Failed to post comment: ' + data.message, 'Error');
+            this.showErrorToast(`Failed to post comment: ${data.message}`);
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error posting comment:', err);
-          await showAlert('Error posting comment', 'Error');
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Post comment timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast(`Error posting comment: ${err.message}`);
+          }
+          
+          postCommentBtn.disabled = false;
+          postCommentBtn.textContent = 'Post Comment';
         }
       });
     }
@@ -2907,6 +3520,8 @@ class BoardManager {
       
       const title = titleInput.value.trim();
       const description = document.getElementById('edit-card-description').value.trim();
+      // Save button is in modal header, not in form
+      const saveBtn = modal.querySelector('button[type="submit"]');
       
       if (title) {
         // Validate that template cards have a schedule
@@ -2918,7 +3533,19 @@ class BoardManager {
           
           if (createSchedule) {
             // Save changes first, then open schedule modal
-            await this.updateCard(cardId, title, description);
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+            
+            const success = await this.updateCard(cardId, title, description);
+            
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+            
+            if (!success) {
+              // Error toast already shown by updateCard
+              return; // Stay in modal to allow retry
+            }
+            
             modal.remove();
             
             // Open schedule modal for this template
@@ -2937,6 +3564,12 @@ class BoardManager {
           }
         }
         
+        // Show saving state
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        let allSuccessful = true;
+        
         // TODO: PERFORMANCE - Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
         // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
         // transaction. This would:
@@ -2949,12 +3582,23 @@ class BoardManager {
         // Current implementation: N sequential API calls (can be slow for cards with many checklist items)
         
         // 1. Update the card
-        await this.updateCard(cardId, title, description);
+        const cardUpdateSuccess = await this.updateCard(cardId, title, description);
+        if (!cardUpdateSuccess) {
+          allSuccessful = false;
+        }
         
         // 2. Save checkbox changes for existing items
         // PERF: Sequential updates - could be batched
         for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
-          await this.updateChecklistItem(itemId, { checked });
+          const success = await this.updateChecklistItem(itemId, { checked });
+          if (!success) {
+            allSuccessful = false;
+            // Rollback checkbox in UI
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox) {
+              checkbox.checked = !checked;
+            }
+          }
         }
         
         // 3. Save any pending new checklist items in their current DOM order
@@ -2970,7 +3614,12 @@ class BoardManager {
             const pendingItem = pendingNewItems.find(item => item.tempId === Number(tempId));
             if (pendingItem && pendingItem.name) {
               // Save with the current position index and checked state
-              await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              const success = await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              if (!success) {
+                allSuccessful = false;
+                // Mark the item as failed (keep it in UI so user can retry)
+                el.classList.add('update-failed');
+              }
             }
           }
         }
@@ -2982,17 +3631,47 @@ class BoardManager {
             const el = allItems[i];
             const itemId = el.getAttribute('data-item-id');
             if (itemId && itemId !== 'null') {
-              await this.updateChecklistItem(parseInt(itemId), { order: i });
+              const success = await this.updateChecklistItem(parseInt(itemId), { order: i });
+              if (!success) {
+                allSuccessful = false;
+              }
             }
           }
         }
         
-        hasUnsavedChanges = false;
-        checklistOrderChanged = false;
-        modal.remove();
+        // Re-enable save button
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
         
-        // Reload board to show updated data
-        await this.loadBoard();
+        // Reload board if card update succeeded, even if checklist operations failed
+        // This ensures the card title/description changes are visible
+        if (cardUpdateSuccess || allSuccessful) {
+          await this.loadBoard();
+        }
+        
+        if (allSuccessful) {
+          hasUnsavedChanges = false;
+          checklistOrderChanged = false;
+          checklistCheckboxChanges.clear();
+          modal.remove();
+        } else {
+          // Some operations failed - stay in modal for retry
+          // Clear the checkbox changes that succeeded so they won't be retried
+          for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox && checkbox.checked === checked) {
+              // This one succeeded, remove from pending changes
+              checklistCheckboxChanges.delete(itemId);
+            }
+          }
+          
+          // Show appropriate message based on what succeeded
+          if (cardUpdateSuccess) {
+            this.showErrorToast('Card updated, but some checklist changes failed. Please review and try again.');
+          } else {
+            this.showErrorToast('Failed to save changes. Please try again.');
+          }
+        }
       }
     });
 
@@ -3002,23 +3681,41 @@ class BoardManager {
 
   async getCardData(cardId) {
     // Fetch single card data from dedicated endpoint
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch(`/api/cards/${cardId}`);
+      const response = await fetch(`/api/cards/${cardId}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       const data = await response.json();
       
       if (data.success) {
         return data.card;
       } else {
         console.error('Failed to get card data:', data.message);
+        this.showErrorToast(`Failed to load card: ${data.message}`);
         return null;
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error('Error getting card data:', err.message);
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Load card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error loading card: ${err.message}`);
+      }
       return null;
     }
   }
 
   async createChecklistItem(cardId, name, order = null, checked = false) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { name, checked };
       if (order !== null) {
@@ -3030,136 +3727,258 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to create checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to create checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error creating checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Create checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error creating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateChecklistItem(itemId, updates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updates)
+        body: JSON.stringify(updates),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to update checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to update checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error updating checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async deleteChecklistItem(itemId) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        await showAlert('Failed to delete checklist item: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to delete checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      await showAlert('Error deleting checklist item: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateCard(cardId, title, description) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title, description })
+        body: JSON.stringify({ title, description }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
-        // Reload board to show the updated card
-        await this.loadBoard();
+        return true;
       } else {
-        await showAlert('Failed to update card: ' + data.message, 'Error');
+        this.showErrorToast(`Failed to update card: ${data.message}`);
+        return false;
       }
     } catch (err) {
-      await showAlert('Error updating card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating card: ${err.message}`);
+      }
+      return false;
     }
   }
 
-  async deleteCard(cardId) {
+  async deleteCard(cardId, cardElement = null) {
     if (!await showConfirm('Are you sure you want to delete this card?', 'Confirm Deletion')) {
       return;
     }
 
+    // Show loading state
+    if (cardElement) {
+      cardElement.classList.add('updating');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        await showAlert('Failed to delete card: ' + data.message, 'Error');
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to delete card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error deleting card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting card: ${err.message}`);
+      }
     }
   }
 
-  async archiveCard(cardId) {
+  async archiveCard(cardId, cardElement = null) {
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/archive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
+        clearTimeout(loadingTimeout);
         // Reload board to reflect archiving
         await this.loadBoard();
       } else {
-        await showAlert('Failed to archive card: ' + data.message, 'Error');
+        clearTimeout(loadingTimeout);
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to archive card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error archiving card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Archive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error archiving card: ${err.message}`);
+      }
     }
   }
 
-  async unarchiveCard(cardId) {
+  async unarchiveCard(cardId, cardElement = null) {
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/unarchive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect unarchiving
         await this.loadBoard();
       } else {
-        await showAlert('Failed to unarchive card: ' + data.message, 'Error');
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to unarchive card: ${data.message}`);
       }
     } catch (err) {
-      await showAlert('Error unarchiving card: ' + err.message, 'Error');
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Unarchive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error unarchiving card: ${err.message}`);
+      }
     }
   }
 
@@ -3259,6 +4078,30 @@ class BoardManager {
         <button class="btn btn-secondary" onclick="window.location.href='/'">← Back to Boards</button>
       </div>
     `;
+  }
+
+  showBoardLoading() {
+    // Add or show loading overlay
+    let overlay = this.container.querySelector('.board-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'board-loading-overlay';
+      overlay.innerHTML = `
+        <div class="board-loading-content">
+          <div class="board-loading-spinner">⏳</div>
+          <div class="board-loading-text">Loading...</div>
+        </div>
+      `;
+      this.container.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+  }
+
+  hideBoardLoading() {
+    const overlay = this.container.querySelector('.board-loading-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
   }
 
   escapeHtml(text) {

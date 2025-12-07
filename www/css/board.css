@@ -428,6 +428,81 @@
   max-width: 270px;
 }
 
+/* Card update states */
+.card.updating {
+  position: relative;
+}
+
+.card.updating::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  z-index: 10;
+}
+
+.card.updating::before {
+  content: "⏳";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 24px;
+  z-index: 11;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.card.update-success {
+  animation: successFlash 0.5s ease-in-out;
+}
+
+.card.update-failed {
+  animation: errorShake 0.5s ease-in-out;
+  border: 2px solid var(--error-color, #e74c3c);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.6; transform: translate(-50%, -50%) scale(1.1); }
+}
+
+@keyframes successFlash {
+  0%, 100% { background-color: var(--card-bg-color, white); }
+  50% { background-color: #d4edda; border-color: var(--success-color, #28a745); }
+}
+
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-10px); }
+  75% { transform: translateX(10px); }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
+
 .card:hover {
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
   transform: translateY(-2px);
@@ -1199,4 +1274,44 @@
   color: var(--text-muted);
   font-style: italic;
   padding: 20px;
+}
+
+/* Board Loading Overlay */
+.board-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  backdrop-filter: blur(2px);
+}
+
+.board-loading-content {
+  background: white;
+  padding: 30px 50px;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  text-align: center;
+}
+
+.board-loading-spinner {
+  font-size: 48px;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.board-loading-text {
+  font-size: 18px;
+  color: var(--text-dark);
+  font-weight: 500;
+  margin: 0;
+  padding: 0;
 }

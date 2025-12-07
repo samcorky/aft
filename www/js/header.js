@@ -59,6 +59,7 @@ class Header {
     this.statusText = null;
     this.versionInfo = null;
     this.currentView = 'task'; // Default view
+    this.dbConnected = false; // Track database connection status
   }
 
   // Load the header HTML component
@@ -94,8 +95,13 @@ class Header {
     // Load boards dropdown
     this.loadBoardsDropdown();
     
-    // Check database status
+    // Check database status immediately
     this.checkDatabaseStatus();
+    
+    // Poll database status every 5 seconds
+    this.statusCheckInterval = setInterval(() => {
+      this.checkDatabaseStatus();
+    }, 5000);
   }
 
   // Set the board name in the header
@@ -265,36 +271,61 @@ class Header {
   }
 
   // Update the database status indicator
-  updateStatus(status, message, count = null) {
+  updateStatus(status, message, count = null, housekeepingHealthy = true) {
     if (!this.statusIcon || !this.statusText) return;
 
+    // If housekeeping is unhealthy, override to show error
+    if (status === 'success' && !housekeepingHealthy) {
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Housekeeping Error';
+      this.statusText.title = 'Housekeeping scheduler is not running or unhealthy';
+      this.dbConnected = false;
+      return;
+    }
+
     this.statusIcon.className = `status-icon ${status}`;
+    this.dbConnected = (status === 'success');
     
     if (status === 'success') {
       this.statusText.textContent = 'DB connected';
+      this.statusText.title = ''; // Clear any previous error message
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
       this.statusText.title = message; // Show full error on hover
     } else {
       this.statusText.textContent = message;
+      this.statusText.title = '';
     }
   }
 
   // Check database connection status
   async checkDatabaseStatus() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const [testResponse, versionResponse] = await Promise.all([
-        fetch('/api/test'),
-        fetch('/api/version')
+      const [testResponse, versionResponse, healthResponse] = await Promise.all([
+        fetch('/api/test', { signal: controller.signal }),
+        fetch('/api/version', { signal: controller.signal }),
+        fetch('/api/scheduler/health', { signal: controller.signal })
       ]);
+      
+      clearTimeout(timeoutId);
       
       const testData = await testResponse.json();
       const versionData = await versionResponse.json();
+      const healthData = await healthResponse.json();
       
       if (testData.success) {
-        this.updateStatus('success', 'Connected', testData.boards_count);
+        // Check housekeeping scheduler health
+        const housekeepingHealth = healthData.housekeeping_scheduler;
+        const isHousekeepingHealthy = housekeepingHealth && 
+                                       housekeepingHealth.running && 
+                                       housekeepingHealth.thread_alive;
+        
+        this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
       } else {
-        this.updateStatus('error', testData.message);
+        this.updateStatus('error', testData.message, null, false);
       }
       
       // Update version display
@@ -302,7 +333,13 @@ class Header {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
-      this.updateStatus('error', err.message);
+      clearTimeout(timeoutId);
+      
+      if (err.name === 'AbortError') {
+        this.updateStatus('error', 'Connection timeout (5s)', null, false);
+      } else {
+        this.updateStatus('error', err.message, null, false);
+      }
     }
   }
 
@@ -346,6 +383,14 @@ class Header {
       }
     }
   }
+
+  // Cleanup method to prevent memory leaks
+  destroy() {
+    if (this.statusCheckInterval) {
+      clearInterval(this.statusCheckInterval);
+      this.statusCheckInterval = null;
+    }
+  }
 }
 
 // Initialize header on page load
@@ -357,4 +402,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof preloadTimeFormat === 'function') {
     preloadTimeFormat();
   }
+});
+
+// Cleanup on page unload to prevent memory leaks
+window.addEventListener('beforeunload', () => {
+  header.destroy();
 });

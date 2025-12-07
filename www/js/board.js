@@ -1513,13 +1513,21 @@ class BoardManager {
     });
 
     // Handle cancel with warning
+    let isCancelling = false;
     const handleCancel = async () => {
-      if (hasUnsavedChanges) {
-        if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
-          return;
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      try {
+        if (hasUnsavedChanges) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            return;
+          }
         }
+        modal.remove();
+      } finally {
+        isCancelling = false;
       }
-      modal.remove();
     };
     
     cancelBtn.addEventListener('click', handleCancel);
@@ -2023,16 +2031,24 @@ class BoardManager {
     updateNextRuns();
 
     // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
     const handleCancel = async () => {
-      // Check if there's any content or checklist items
-      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+      if (isCancelling) return;
+      isCancelling = true;
       
-      if (hasContent) {
-        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } finally {
+        isCancelling = false;
       }
     };
     
@@ -2640,16 +2656,24 @@ class BoardManager {
     }
 
     // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
     const handleCancel = async () => {
-      // Check if there's any content or checklist items
-      const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+      if (isCancelling) return;
+      isCancelling = true;
       
-      if (hasContent) {
-        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } finally {
+        isCancelling = false;
       }
     };
     
@@ -3007,18 +3031,26 @@ class BoardManager {
     }
 
     // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
     const handleCancel = async () => {
-      if (hasUnpostedComment()) {
-        if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
-          return;
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      try {
+        if (hasUnpostedComment()) {
+          if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
+            return;
+          }
         }
-      }
-      if (hasUnsavedChanges || checklistOrderChanged) {
-        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+        if (hasUnsavedChanges || checklistOrderChanged) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } finally {
+        isCancelling = false;
       }
     };
     

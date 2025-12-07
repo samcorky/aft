@@ -37,7 +37,6 @@ async checkDatabaseStatus() {
   
   try {
     const response = await fetch('/api/test', {
-      method: 'GET',
       signal: controller.signal
     });
     

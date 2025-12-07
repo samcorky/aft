@@ -81,12 +81,13 @@ class SystemInfo {
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse] = await Promise.all([
+      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse, schedulerHealthResponse] = await Promise.all([
         fetch('/api/test'),
         fetch('/api/version'),
         fetch('/api/stats'),
         fetch('/api/settings/backup/status'),
-        fetch('/api/settings/housekeeping/status')
+        fetch('/api/settings/housekeeping/status'),
+        fetch('/api/scheduler/health')
       ]);
 
       const testData = await testResponse.json();
@@ -94,6 +95,7 @@ class SystemInfo {
       const statsData = await statsResponse.json();
       const backupStatusData = await backupStatusResponse.json();
       const housekeepingStatusData = await housekeepingStatusResponse.json();
+      const schedulerHealthData = await schedulerHealthResponse.json();
 
       // Update connection status
       const connectionElement = document.getElementById('db-connection');
@@ -126,60 +128,15 @@ class SystemInfo {
         document.getElementById('checklist-items-unchecked').textContent = statsData.checklist_items_unchecked || 0;
       }
 
-      // Update backup module status
-      if (backupStatusData.success && backupStatusData.status) {
-        const status = backupStatusData.status;
-        const healthBadge = document.getElementById('backup-module-health');
-        
-        if (healthBadge) {
-          // Update health status
-          if (status.running) {
-            healthBadge.textContent = 'Healthy';
-            healthBadge.className = 'status-badge status-healthy';
-          } else {
-            healthBadge.textContent = 'Unhealthy';
-            healthBadge.className = 'status-badge status-unhealthy';
-          }
-        }
-        
-        // Update toggle state
-        if (this.backupToggle) {
-          this.backupToggle.checked = status.enabled;
-        }
-        
-        // Display permission error if present
-        const errorDiv = document.getElementById('backupPermissionError');
-        if (errorDiv) {
-          if (status.permission_error) {
-            errorDiv.textContent = status.permission_error;
-            errorDiv.style.display = 'block';
-          } else {
-            errorDiv.style.display = 'none';
-          }
-        }
-      }
-
-      // Update housekeeping module status
-      if (housekeepingStatusData.success && housekeepingStatusData.status) {
-        const status = housekeepingStatusData.status;
-        const healthBadge = document.getElementById('housekeeping-module-health');
-        
-        if (healthBadge) {
-          // Update health status
-          if (status.running) {
-            healthBadge.textContent = 'Healthy';
-            healthBadge.className = 'status-badge status-healthy';
-          } else {
-            healthBadge.textContent = 'Unhealthy';
-            healthBadge.className = 'status-badge status-unhealthy';
-          }
-        }
-        
-        // Update toggle state
-        if (this.housekeepingToggle) {
-          this.housekeepingToggle.checked = status.enabled;
-        }
-      }
+      // Update backup module status with scheduler health
+      this.updateBackupModuleStatus(backupStatusData, schedulerHealthData.backup_scheduler);
+      
+      // Update housekeeping module status with scheduler health
+      this.updateHousekeepingModuleStatus(housekeepingStatusData, schedulerHealthData.housekeeping_scheduler);
+      
+      // Update card scheduler status
+      this.updateCardSchedulerStatus(schedulerHealthData.card_scheduler);
+      
     } catch (error) {
       console.error('Error loading system info:', error);
       const connectionElement = document.getElementById('db-connection');
@@ -188,6 +145,193 @@ class SystemInfo {
         <span>Error</span>
       `;
     }
+  }
+  
+  updateBackupModuleStatus(backupStatusData, schedulerHealth) {
+    if (backupStatusData.success && backupStatusData.status) {
+      const status = backupStatusData.status;
+      const healthBadge = document.getElementById('backup-module-health');
+      
+      if (healthBadge) {
+        // Update health status based on scheduler health
+        const isHealthy = schedulerHealth && schedulerHealth.running && schedulerHealth.thread_alive;
+        
+        if (isHealthy) {
+          healthBadge.textContent = 'Healthy';
+          healthBadge.className = 'status-badge status-healthy';
+        } else {
+          healthBadge.textContent = 'Unhealthy';
+          healthBadge.className = 'status-badge status-unhealthy';
+        }
+      }
+      
+      // Update toggle state
+      if (this.backupToggle) {
+        this.backupToggle.checked = status.enabled;
+        // Show toggle wrapper after data loads
+        document.getElementById('backup-toggle-wrapper').style.display = 'block';
+      }
+      
+      // Display permission error if present
+      const errorDiv = document.getElementById('backupPermissionError');
+      if (errorDiv) {
+        if (status.permission_error) {
+          errorDiv.textContent = status.permission_error;
+          errorDiv.style.display = 'block';
+        } else {
+          errorDiv.style.display = 'none';
+        }
+      }
+      
+      // Update scheduler details
+      if (schedulerHealth && !schedulerHealth.error) {
+        document.getElementById('backup-scheduler-details').style.display = 'block';
+        
+        // Populate tooltip with full health data
+        const tooltip = document.getElementById('backup-tooltip');
+        tooltip.textContent = 'Full Health Data:\n' + JSON.stringify(schedulerHealth, null, 2);
+        
+        // Thread status
+        const threadStatus = schedulerHealth.thread_alive ? '✓ Running' : '✗ Stopped';
+        document.getElementById('backup-thread-status').textContent = threadStatus;
+        document.getElementById('backup-thread-status').style.color = schedulerHealth.thread_alive ? '#27ae60' : '#e74c3c';
+        
+        // Last backup
+        if (schedulerHealth.last_backup) {
+          const lastBackup = new Date(schedulerHealth.last_backup);
+          document.getElementById('backup-last-run').textContent = this.formatDateTime(lastBackup);
+        } else {
+          document.getElementById('backup-last-run').textContent = 'Never';
+        }
+        
+        // Heartbeat age
+        if (schedulerHealth.lock_file_age_seconds !== undefined) {
+          const age = Math.round(schedulerHealth.lock_file_age_seconds);
+          document.getElementById('backup-heartbeat').textContent = `${age}s ago`;
+          document.getElementById('backup-heartbeat').style.color = age < 120 ? '#27ae60' : '#e67e22';
+        } else {
+          document.getElementById('backup-heartbeat').textContent = 'Unknown';
+        }
+        
+        // Container ID
+        document.getElementById('backup-container').textContent = schedulerHealth.lock_container || 'Unknown';
+      }
+    }
+  }
+  
+  updateHousekeepingModuleStatus(housekeepingStatusData, schedulerHealth) {
+    if (housekeepingStatusData.success && housekeepingStatusData.status) {
+      const status = housekeepingStatusData.status;
+      const healthBadge = document.getElementById('housekeeping-module-health');
+      
+      if (healthBadge) {
+        // Update health status based on scheduler health
+        const isHealthy = schedulerHealth && schedulerHealth.running && schedulerHealth.thread_alive;
+        
+        if (isHealthy) {
+          healthBadge.textContent = 'Healthy';
+          healthBadge.className = 'status-badge status-healthy';
+        } else {
+          healthBadge.textContent = 'Unhealthy';
+          healthBadge.className = 'status-badge status-unhealthy';
+        }
+      }
+      
+      // Update toggle state
+      if (this.housekeepingToggle) {
+        this.housekeepingToggle.checked = status.enabled;
+        // Show toggle wrapper after data loads
+        document.getElementById('housekeeping-toggle-wrapper').style.display = 'block';
+      }
+      
+      // Update scheduler details
+      if (schedulerHealth && !schedulerHealth.error) {
+        document.getElementById('housekeeping-scheduler-details').style.display = 'block';
+        
+        // Populate tooltip with full health data
+        const tooltip = document.getElementById('housekeeping-tooltip');
+        tooltip.textContent = 'Full Health Data:\n' + JSON.stringify(schedulerHealth, null, 2);
+        
+        // Thread status
+        const threadStatus = schedulerHealth.thread_alive ? '✓ Running' : '✗ Stopped';
+        document.getElementById('housekeeping-thread-status').textContent = threadStatus;
+        document.getElementById('housekeeping-thread-status').style.color = schedulerHealth.thread_alive ? '#27ae60' : '#e74c3c';
+        
+        // Heartbeat age
+        if (schedulerHealth.lock_file_age_seconds !== undefined) {
+          const age = Math.round(schedulerHealth.lock_file_age_seconds);
+          document.getElementById('housekeeping-heartbeat').textContent = `${age}s ago`;
+          document.getElementById('housekeeping-heartbeat').style.color = age < 7200 ? '#27ae60' : '#e67e22'; // 2 hour threshold
+        } else {
+          document.getElementById('housekeeping-heartbeat').textContent = 'Unknown';
+        }
+        
+        // Container ID
+        document.getElementById('housekeeping-container').textContent = schedulerHealth.lock_container || 'Unknown';
+      }
+    }
+  }
+  
+  updateCardSchedulerStatus(schedulerHealth) {
+    const healthBadge = document.getElementById('card-module-health');
+    
+    if (healthBadge) {
+      if (schedulerHealth && !schedulerHealth.error) {
+        const isHealthy = schedulerHealth.running && schedulerHealth.thread_alive;
+        
+        if (isHealthy) {
+          healthBadge.textContent = 'Healthy';
+          healthBadge.className = 'status-badge status-healthy';
+        } else {
+          healthBadge.textContent = 'Unhealthy';
+          healthBadge.className = 'status-badge status-unhealthy';
+        }
+        
+        // Update scheduler details
+        document.getElementById('card-scheduler-details').style.display = 'block';
+        
+        // Populate tooltip with full health data
+        const tooltip = document.getElementById('card-tooltip');
+        tooltip.textContent = 'Full Health Data:\n' + JSON.stringify(schedulerHealth, null, 2);
+        
+        // Thread status
+        const threadStatus = schedulerHealth.thread_alive ? '✓ Running' : '✗ Stopped';
+        document.getElementById('card-thread-status').textContent = threadStatus;
+        document.getElementById('card-thread-status').style.color = schedulerHealth.thread_alive ? '#27ae60' : '#e74c3c';
+        
+        // Heartbeat age
+        if (schedulerHealth.lock_file_age_seconds !== undefined) {
+          const age = Math.round(schedulerHealth.lock_file_age_seconds);
+          document.getElementById('card-heartbeat').textContent = `${age}s ago`;
+          document.getElementById('card-heartbeat').style.color = age < 120 ? '#27ae60' : '#e67e22';
+        } else {
+          document.getElementById('card-heartbeat').textContent = 'Unknown';
+        }
+        
+        // Container ID
+        document.getElementById('card-container').textContent = schedulerHealth.lock_container || 'Unknown';
+      } else {
+        healthBadge.textContent = 'Error';
+        healthBadge.className = 'status-badge status-unhealthy';
+      }
+    }
+  }
+  
+  formatDateTime(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    
+    return date.toLocaleString();
   }
 
   openDeleteModal() {

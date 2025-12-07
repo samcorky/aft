@@ -49,6 +49,60 @@ class BackupScheduler:
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
     
+    def _is_lock_stale(self) -> bool:
+        """Check if existing lock file is stale.
+        
+        Returns:
+            True if lock file is stale and should be removed, False otherwise.
+        """
+        try:
+            lock_data = json.loads(self.lock_file.read_text())
+            
+            # Check container ID (hostname in Docker)
+            current_container = os.environ.get('HOSTNAME', 'unknown')
+            lock_container = lock_data.get('container_id', 'unknown')
+            if lock_container != current_container:
+                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
+                return True  # Different container = stale
+            
+            # Check heartbeat age
+            last_heartbeat_str = lock_data.get('last_heartbeat')
+            if last_heartbeat_str:
+                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
+                
+                if age_seconds > 300:  # 5 minutes without heartbeat = stale
+                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
+                    return True
+                
+                # Lock is fresh and from same container
+                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
+                return False
+            
+            # No heartbeat in lock file = old format or invalid
+            logger.info("Lock file has no heartbeat, considering stale")
+            return True
+            
+        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
+            logger.info(f"Lock file is invalid or corrupted: {e}")
+            return True  # Invalid lock file = stale
+        except Exception as e:
+            logger.warning(f"Error checking lock staleness: {e}")
+            return True  # Error reading = assume stale for safety
+    
+    def _update_heartbeat(self):
+        """Update lock file with current timestamp to prove thread is alive."""
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "backup"
+            }
+            self.lock_file.write_text(json.dumps(lock_data, indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to update heartbeat: {e}")
+    
     def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
         """Check if backup directory is writable.
         
@@ -88,38 +142,47 @@ class BackupScheduler:
         
     def start(self):
         """Start the backup scheduler thread."""
+        logger.info("=== Backup Scheduler Start Attempt ===")
+        logger.info(f"PID: {os.getpid()}, Container: {os.environ.get('HOSTNAME', 'unknown')}")
+        
         if self.running:
-            logger.warning("Backup scheduler already running")
+            logger.warning("Backup scheduler already running in this instance")
             return
         
-        # Use file lock to ensure only one worker starts the scheduler
-        try:
-            # Check if lock file exists and if the process is still running
-            if self.lock_file.exists():
+        # Check if lock file exists and if it's stale
+        if self.lock_file.exists():
+            if self._is_lock_stale():
+                logger.info("Removing stale lock file")
                 try:
-                    with open(self.lock_file, 'r') as f:
-                        old_pid = int(f.read().strip())
-                    # Check if process is still running
-                    try:
-                        os.kill(old_pid, 0)  # Signal 0 doesn't kill, just checks if process exists
-                        logger.info("Backup scheduler lock file exists, another worker is handling backups")
-                        return
-                    except OSError:
-                        # Process doesn't exist, remove stale lock file
-                        logger.info("Removing stale backup scheduler lock file")
-                        self.lock_file.unlink()
-                except (ValueError, FileNotFoundError):
-                    # Invalid lock file, remove it
                     self.lock_file.unlink()
+                except Exception as e:
+                    logger.error(f"Failed to remove stale lock file: {e}")
+                    return
+            else:
+                logger.info("Another scheduler instance is active, not starting")
+                return
+        
+        # Try to create lock file with initial heartbeat
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "backup"
+            }
             
-            # Try to create lock file exclusively (fails if already exists)
-            with open(self.lock_file, 'x') as f:
-                f.write(str(os.getpid()))
-        except FileExistsError:
-            logger.info("Backup scheduler lock file exists, another worker is handling backups")
-            return
+            # Atomic write: write to temp file then rename
+            # Use same directory as lock file for atomic rename
+            lock_dir = self.lock_file.parent
+            with tempfile.NamedTemporaryFile(mode='w', dir=str(lock_dir), delete=False) as tf:
+                json.dump(lock_data, tf, indent=2)
+                temp_path = tf.name
+            
+            os.rename(temp_path, str(self.lock_file))
+            logger.info(f"Created lock file: {self.lock_file}")
+            
         except Exception as e:
-            logger.error(f"Error creating scheduler lock file: {str(e)}")
+            logger.error(f"Error creating scheduler lock file: {e}")
             return
         
         # Check if backup directory is writable (force check on startup)
@@ -719,6 +782,9 @@ class BackupScheduler:
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
+                # Update heartbeat to prove we're alive
+                self._update_heartbeat()
+                
                 # Recheck permissions periodically to detect if they've been fixed or broken (force check)
                 is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
                 if not is_writable:

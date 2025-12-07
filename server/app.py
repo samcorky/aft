@@ -495,6 +495,165 @@ def get_version():
         db.close()
 
 
+@app.route("/api/scheduler/health")
+def get_scheduler_health():
+    """Get health status of all background schedulers.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Scheduler health information
+        schema:
+          type: object
+          properties:
+            backup_scheduler:
+              type: object
+            card_scheduler:
+              type: object
+            housekeeping_scheduler:
+              type: object
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    
+    health = {}
+    
+    # Backup scheduler
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2 minutes old
+                is_healthy = lock_age < 120
+                
+                health['backup_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id'),
+                    'permission_error': scheduler.permission_error
+                }
+            except Exception as e:
+                health['backup_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e),
+                    'permission_error': scheduler.permission_error
+                }
+        else:
+            health['backup_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                'lock_file_exists': False,
+                'permission_error': scheduler.permission_error
+            }
+    except Exception as e:
+        health['backup_scheduler'] = {'error': str(e)}
+    
+    # Card scheduler
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2 minutes old
+                is_healthy = lock_age < 120
+                
+                health['card_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['card_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['card_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['card_scheduler'] = {'error': str(e)}
+    
+    # Housekeeping scheduler
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2 minutes old
+                is_healthy = lock_age < 120
+                
+                health['housekeeping_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['housekeeping_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['housekeeping_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['housekeeping_scheduler'] = {'error': str(e)}
+    
+    return jsonify(health), 200
+
+
 @app.route("/api/test")
 def test_db():
     """Test database connection and schema.
@@ -6136,6 +6295,32 @@ def internal_error(error):
 
 
 # Initialize backup scheduler on app startup
+def cleanup_stale_scheduler_locks():
+    """Remove all scheduler lock files on application startup.
+    
+    This ensures clean state after container restarts where lock files
+    from previous containers may persist but are no longer valid.
+    Called once before any scheduler initialization.
+    """
+    from pathlib import Path
+    import tempfile
+    
+    temp_dir = Path(tempfile.gettempdir())
+    lock_files = [
+        temp_dir / "aft_backup_scheduler.lock",
+        temp_dir / "aft_card_scheduler.lock",
+        temp_dir / "aft_housekeeping_scheduler.lock",
+    ]
+    
+    for lock_file in lock_files:
+        try:
+            if lock_file.exists():
+                lock_file.unlink()
+                logger.info(f"Cleaned up stale lock file: {lock_file}")
+        except Exception as e:
+            logger.warning(f"Failed to clean lock file {lock_file}: {e}")
+
+
 def init_backup_scheduler():
     """Initialize and start the backup scheduler."""
     try:
@@ -6168,9 +6353,57 @@ def init_housekeeping_scheduler():
         logger.error(f"Failed to initialize housekeeping scheduler: {str(e)}")
 
 # Start schedulers when module is loaded
-init_backup_scheduler()
-init_card_scheduler()
-init_housekeeping_scheduler()
+# Use file lock to ensure only one worker initializes schedulers
+# This prevents race conditions with Gunicorn multi-worker setup
+import os
+from pathlib import Path
+import time
+import tempfile
+
+init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
+max_wait_time = 5  # seconds
+check_interval = 0.1  # seconds
+
+# Try to acquire init lock
+acquired_lock = False
+waited = 0
+
+while waited < max_wait_time:
+    try:
+        # Try to create lock file exclusively (fails if already exists)
+        with open(init_lock_file, 'x') as f:
+            f.write(str(os.getpid()))
+        acquired_lock = True
+        break
+    except FileExistsError:
+        # Another worker is initializing, wait
+        time.sleep(check_interval)
+        waited += check_interval
+
+if acquired_lock:
+    try:
+        logger.info(f"Worker PID {os.getpid()}: Initializing schedulers (acquired init lock)")
+        
+        # Clean up any stale lock files from previous container instances
+        cleanup_stale_scheduler_locks()
+        
+        # Now start all schedulers
+        init_backup_scheduler()
+        init_card_scheduler()
+        init_housekeeping_scheduler()  # Housekeeping also monitors other schedulers' health
+        
+        # Give schedulers a moment to create their lock files
+        time.sleep(0.5)
+    finally:
+        # Release init lock
+        try:
+            init_lock_file.unlink()
+        except:
+            pass
+else:
+    logger.info(f"Worker PID {os.getpid()}: Skipping scheduler initialization (another worker is initializing)")
+    # Wait a bit for the first worker to finish initializing
+    time.sleep(1)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

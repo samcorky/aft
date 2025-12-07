@@ -2569,7 +2569,7 @@ class BoardManager {
   openAddCardModal(columnId, order = null, scheduled = false) {
     // Check if database is connected
     if (window.header && !window.header.dbConnected) {
-      showAlert('Cannot create card: Database is not connected. Please wait for the connection to be restored.', 'Database Error');
+      this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
       return;
     }
     

@@ -1401,20 +1401,45 @@ class BoardManager {
     // Initial calculation
     updateNextRuns();
 
+    // Track changes
+    let hasUnsavedChanges = false;
+    
     // Update on input changes
     [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
-      input.addEventListener('change', updateNextRuns);
+      input.addEventListener('change', () => {
+        hasUnsavedChanges = true;
+        updateNextRuns();
+      });
       input.addEventListener('input', () => {
+        hasUnsavedChanges = true;
         // Debounce for text inputs
         clearTimeout(input.updateTimeout);
         input.updateTimeout = setTimeout(updateNextRuns, 500);
       });
     });
-
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
+    
+    // Track checkbox changes
+    const enabledCheckbox = document.getElementById('schedule-enabled');
+    const duplicatesCheckbox = document.getElementById('schedule-allow-duplicates');
+    [enabledCheckbox, duplicatesCheckbox].forEach(checkbox => {
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          hasUnsavedChanges = true;
+        });
+      }
     });
+
+    // Handle cancel with warning
+    const handleCancel = async () => {
+      if (hasUnsavedChanges) {
+        if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+          return;
+        }
+      }
+      modal.remove();
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle delete
     if (deleteBtn) {
@@ -1589,7 +1614,7 @@ class BoardManager {
     });
 
     // Close modal when clicking outside (ignore text selection drags)
-    setupModalBackgroundClose(modal, () => modal.remove());
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   openAddColumnModal() {

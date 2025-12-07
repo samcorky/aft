@@ -3604,6 +3604,7 @@ class BoardManager {
         return false;
       }
       return true;
+      return true;
     } catch (err) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {

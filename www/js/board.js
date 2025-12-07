@@ -300,6 +300,40 @@ class BoardManager {
     }
   }
 
+  /**
+   * Show a non-blocking error toast notification
+   * @param {string} message - The error message to display
+   * @param {number} duration - How long to show the toast in milliseconds (default 3000)
+   */
+  showErrorToast(message, duration = 3000) {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #e74c3c;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after specified duration
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -1024,23 +1058,23 @@ class BoardManager {
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
         
-        // Restore card to original position
+        // Restore card to original position (DOM only, no API call)
         if (cardElement && originalPosition) {
           this.restoreCardPosition(cardElement, originalPosition);
         }
         
         if (cardElement) {
+          cardElement.classList.remove('updating'); // Remove loading state
           cardElement.classList.add('update-failed');
           cardElement.style.opacity = '';
           cardElement.style.pointerEvents = '';
           setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
         }
-        await showAlert(`Failed to move card: ${data.message}`, 'Error');
         
-        // If restoration failed or no original position, reload board
-        if (!originalPosition) {
-          await this.loadBoard();
-        }
+        // Show non-blocking error toast instead of blocking alert
+        this.showErrorToast('Failed to move card');
+        
+        // Don't reload board - restoration is DOM-only
       } else {
         // Update local data attributes
         if (cardElement) {
@@ -1074,16 +1108,13 @@ class BoardManager {
       
       if (err.name === 'AbortError') {
         console.error('Card update timeout after 5 seconds');
-        await showAlert('Card update timed out. Please check your connection and try again.', 'Error');
+        this.showErrorToast('Card update timed out. Check your connection.');
       } else {
         console.error('Error updating card position:', err);
-        await showAlert(`Failed to move card: ${err.message}`, 'Error');
+        this.showErrorToast('Failed to move card');
       }
       
-      // If restoration failed or no original position, reload board
-      if (!originalPosition) {
-        await this.loadBoard();
-      }
+      // Don't reload board - restoration is DOM-only
     }
   }
 

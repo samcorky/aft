@@ -16,6 +16,7 @@ function calculateChecklistPercentage(items) {
  * Prevents modal from closing when user drags to select text and releases outside modal
  * @param {HTMLElement} modal - The modal element
  * @param {Function} closeHandler - Function to call when modal should close (e.g., handleCancel or modal.remove)
+ *                                  Can be async - promise rejections are handled gracefully
  */
 function setupModalBackgroundClose(modal, closeHandler) {
   let mouseDownOnBackground = false;
@@ -25,12 +26,18 @@ function setupModalBackgroundClose(modal, closeHandler) {
     mouseDownOnBackground = e.target === modal;
   });
   
-  modal.addEventListener('click', (e) => {
+  modal.addEventListener('click', async (e) => {
     // Only close if:
     // 1. Click target is the background
     // 2. Mousedown also started on the background (not a drag from inside)
     if (e.target === modal && mouseDownOnBackground) {
-      closeHandler();
+      try {
+        // Handle both sync and async closeHandler functions
+        await closeHandler();
+      } catch (error) {
+        console.error('Error in modal close handler:', error);
+        // Don't close modal if there was an error
+      }
     }
     mouseDownOnBackground = false;
   });

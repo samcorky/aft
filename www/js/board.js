@@ -3178,8 +3178,8 @@ class BoardManager {
     });
 
     // Handle delete checklist item buttons
-    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+    const createDeleteHandler = (btn) => {
+      return async (e) => {
         if (await showConfirm('Delete this checklist item?', 'Confirm Deletion')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
           const itemElement = e.target.closest('.checklist-item');
@@ -3245,9 +3245,9 @@ class BoardManager {
               const editBtn = restoredElement.querySelector('.checklist-edit-btn');
               const checkbox = restoredElement.querySelector('.checklist-checkbox');
               
-              // Re-attach delete handler
+              // Re-attach delete handler using the factory function
               if (deleteBtn) {
-                deleteBtn.addEventListener('click', e.target.parentElement.parentElement.querySelector('.checklist-delete-btn').onclick);
+                deleteBtn.addEventListener('click', createDeleteHandler(deleteBtn));
               }
               
               // Re-attach edit handler (simplified - full handler is complex, just show it's restorable)
@@ -3272,7 +3272,12 @@ class BoardManager {
             updateEditModalSummary();
           }
         }
-      });
+      };
+    };
+    
+    // Attach delete handlers to all delete buttons
+    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
+      btn.addEventListener('click', createDeleteHandler(btn));
     });
 
     // Handle post comment button (only if comments section exists)

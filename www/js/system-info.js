@@ -446,7 +446,7 @@ class SystemInfo {
 
       if (!data.success) {
         // Revert toggle on error
-        this.housekeekingToggle.checked = !enabled;
+        this.housekeepingToggle.checked = !enabled;
         await showAlert(data.message, 'Error');
       }
     } catch (error) {

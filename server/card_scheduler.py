@@ -107,7 +107,7 @@ class CardScheduler:
             
             # Atomic write: write to temp file then rename
             import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', dir='/tmp', delete=False) as tf:
+            with tempfile.NamedTemporaryFile(mode='w', dir=tempfile.gettempdir(), delete=False) as tf:
                 json.dump(lock_data, tf, indent=2)
                 temp_path = tf.name
             

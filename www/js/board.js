@@ -2428,12 +2428,12 @@ class BoardManager {
     }
 
     // Handle cancel with warning if there are unsaved changes
-    const handleCancel = () => {
+    const handleCancel = async () => {
       // Check if there's any content or checklist items
       const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
       
       if (hasContent) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
           modal.remove();
         }
       } else {
@@ -2778,7 +2778,7 @@ class BoardManager {
         }
       }
       if (hasUnsavedChanges || checklistOrderChanged) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
           modal.remove();
         }
       } else {

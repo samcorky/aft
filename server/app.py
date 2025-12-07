@@ -74,6 +74,18 @@ SETTINGS_SCHEMA = {
         "description": "ISO timestamp of the last backup run",
         "validate": lambda value: value is None or isinstance(value, str),
     },
+    "housekeeping_enabled": {
+        "type": "boolean",
+        "nullable": False,
+        "description": "Enable or disable housekeeping scheduler for version checks",
+        "validate": lambda value: isinstance(value, bool),
+    },
+    "time_format": {
+        "type": "string",
+        "nullable": False,
+        "description": "Time format preference: '12' for 12-hour or '24' for 24-hour",
+        "validate": lambda value: isinstance(value, str) and value in ["12", "24"],
+    },
 }
 
 
@@ -128,6 +140,46 @@ def validate_setting(key, value):
             )
 
     return True, None
+
+
+def validate_safe_url(url):
+    """Validate that a URL uses a safe protocol.
+    
+    Allows:
+    - Relative paths starting with /
+    - http:// and https:// protocols
+    
+    Rejects:
+    - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    - URLs without proper structure
+    
+    Args:
+        url: The URL string to validate
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not url or not isinstance(url, str):
+        return False, "URL must be a non-empty string"
+    
+    url_lower = url.strip().lower()
+    
+    # Allow relative paths starting with /
+    if url_lower.startswith('/'):
+        return True, None
+    
+    # Allow http and https
+    if url_lower.startswith('http://') or url_lower.startswith('https://'):
+        return True, None
+    
+    # Reject all other protocols including dangerous ones
+    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
+    for protocol in dangerous_protocols:
+        if url_lower.startswith(protocol):
+            return False, f"URL protocol '{protocol}' is not allowed for security reasons"
+    
+    # Reject anything that doesn't match allowed patterns
+    return False, "URL must be a relative path starting with / or use http:// or https:// protocol"
 
 
 app = Flask(__name__)
@@ -1290,6 +1342,113 @@ def delete_backup(filename):
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/api/database/backups/delete-multiple", methods=["POST"])
+def delete_multiple_backups():
+    """Delete multiple backup files.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - filenames
+          properties:
+            filenames:
+              type: array
+              items:
+                type: string
+              description: Array of backup filenames to delete
+    responses:
+      200:
+        description: Backups deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            deleted:
+              type: integer
+              description: Number of backups successfully deleted
+            failed:
+              type: integer
+              description: Number of backups that failed to delete
+            errors:
+              type: array
+              items:
+                type: string
+              description: List of error messages for failed deletions
+      400:
+        description: Invalid request
+      500:
+        description: Failed to delete backups
+    """
+    try:
+        from pathlib import Path
+        import re
+        
+        data = request.get_json()
+        
+        if not data or 'filenames' not in data:
+            return jsonify({"success": False, "message": "Missing filenames array"}), 400
+        
+        filenames = data['filenames']
+        
+        if not isinstance(filenames, list):
+            return jsonify({"success": False, "message": "filenames must be an array"}), 400
+        
+        if len(filenames) == 0:
+            return jsonify({"success": False, "message": "filenames array is empty"}), 400
+        
+        if len(filenames) > 100:
+            return jsonify({"success": False, "message": "Cannot delete more than 100 backups at once"}), 400
+        
+        backup_dir = Path("/app/backups")
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+        
+        for filename in filenames:
+            try:
+                # Validate filename to prevent path traversal
+                if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+                    errors.append(f"{filename}: Invalid backup filename")
+                    failed_count += 1
+                    continue
+                
+                backup_path = backup_dir / filename
+                
+                if not backup_path.exists():
+                    errors.append(f"{filename}: File not found")
+                    failed_count += 1
+                    continue
+                
+                # Delete the backup file
+                backup_path.unlink()
+                deleted_count += 1
+                
+            except Exception as e:
+                errors.append(f"{filename}: {str(e)}")
+                failed_count += 1
+        
+        logger.info(f"Bulk delete completed: {deleted_count} deleted, {failed_count} failed")
+        
+        return jsonify({
+            "success": True,
+            "deleted": deleted_count,
+            "failed": failed_count,
+            "errors": errors,
+            "message": f"Deleted {deleted_count} backup(s)" + (f", {failed_count} failed" if failed_count > 0 else "")
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk delete: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 @app.route("/api/database", methods=["DELETE"])
 def delete_database():
     """Delete all data from the database.
@@ -1863,6 +2022,88 @@ def get_backup_status():
     except Exception as e:
         logger.error(f"Error getting backup status: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/status", methods=["GET"])
+def get_housekeeping_status():
+    """Get housekeeping scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Housekeeping scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        status = scheduler.get_status()
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting housekeeping status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/config", methods=["PUT"])
+def update_housekeeping_config():
+    """Update housekeeping scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="housekeeping_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Housekeeping configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating housekeeping config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards", methods=["GET"])
@@ -5443,6 +5684,8 @@ def get_notifications():
                         "message": n.message,
                         "unread": n.unread,
                         "created_at": n.created_at.isoformat() if n.created_at else None,
+                        "action_title": n.action_title,
+                        "action_url": n.action_url,
                     }
                     for n in notifications
                 ],
@@ -5484,6 +5727,14 @@ def create_notification():
               type: string
               description: Message content of the notification
               example: "Check out our new dark mode feature!"
+            action_title:
+              type: string
+              description: Optional action button title (recommended max 50 chars, hard limit 100)
+              example: "Learn More"
+            action_url:
+              type: string
+              description: Optional action button URL (max 500 chars)
+              example: "/settings"
     responses:
       201:
         description: Notification created successfully
@@ -5507,6 +5758,10 @@ def create_notification():
                 created_at:
                   type: string
                   format: date-time
+                action_title:
+                  type: string
+                action_url:
+                  type: string
       400:
         description: Invalid request
       500:
@@ -5536,11 +5791,33 @@ def create_notification():
         if len(message) > 65535:
             return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
 
+        # Process optional action fields
+        action_title = data.get('action_title', '').strip() or None if 'action_title' in data else None
+        action_url = data.get('action_url', '').strip() or None if 'action_url' in data else None
+        
+        # Validate action fields if provided
+        if action_title is not None:
+            if len(action_title) > 100:
+                return jsonify({"success": False, "message": "Action title must be 100 characters or less"}), 400
+            # Recommend max 50 chars for better UX
+            if len(action_title) > 50:
+                logger.warning(f"Action title exceeds recommended length of 50 chars: {len(action_title)} chars")
+            
+        if action_url is not None:
+            if len(action_url) > 500:
+                return jsonify({"success": False, "message": "Action URL must be 500 characters or less"}), 400
+            # Validate URL safety
+            is_valid, error_msg = validate_safe_url(action_url)
+            if not is_valid:
+                return jsonify({"success": False, "message": f"Invalid action URL: {error_msg}"}), 400
+
         # Create notification
         notification = Notification(
             subject=subject,
             message=message,
-            unread=True
+            unread=True,
+            action_title=action_title,
+            action_url=action_url
         )
         
         db.add(notification)
@@ -5557,6 +5834,8 @@ def create_notification():
                 "message": notification.message,
                 "unread": notification.unread,
                 "created_at": notification.created_at.isoformat() if notification.created_at else None,
+                "action_title": notification.action_title,
+                "action_url": notification.action_url,
             }
         }), 201
 
@@ -5878,9 +6157,20 @@ def init_card_scheduler():
     except Exception as e:
         logger.error(f"Failed to initialize card scheduler: {str(e)}")
 
+# Initialize housekeeping scheduler on app startup
+def init_housekeeping_scheduler():
+    """Initialize and start the housekeeping scheduler."""
+    try:
+        from housekeeping_scheduler import start_housekeeping_scheduler
+        start_housekeeping_scheduler(APP_VERSION)
+        logger.info("Housekeeping scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize housekeeping scheduler: {str(e)}")
+
 # Start schedulers when module is loaded
 init_backup_scheduler()
 init_card_scheduler()
+init_housekeeping_scheduler()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

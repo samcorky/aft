@@ -1138,6 +1138,7 @@ class BoardManager {
         signal: controller.signal
       });
       
+      // Clear timeouts immediately after fetch completes, before processing response
       clearTimeout(timeoutId);
       clearTimeout(loadingTimeout);
       

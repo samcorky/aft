@@ -55,19 +55,40 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="backup-module-health" class="status-badge">Loading...</span>
+              <span id="backup-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
             <span class="status-label">Enabled:</span>
             <span class="status-value">
-              <div class="backup-toggle-wrapper">
+              <div class="backup-toggle-wrapper" id="backup-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
                   <input type="checkbox" id="backupToggle" class="backup-toggle-input">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
             </span>
+          </div>
+          <div class="status-row" id="backup-scheduler-details" style="display: none;">
+            <div class="scheduler-details">
+              <div class="scheduler-tooltip" id="backup-tooltip"></div>
+              <div class="detail-item">
+                <span class="detail-label">Thread:</span>
+                <span class="detail-value" id="backup-thread-status">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Last Backup:</span>
+                <span class="detail-value" id="backup-last-run">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Heartbeat:</span>
+                <span class="detail-value" id="backup-heartbeat">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Container:</span>
+                <span class="detail-value" id="backup-container">-</span>
+              </div>
+            </div>
           </div>
         </div>
         <div id="backupPermissionError" class="backup-status error" style="display: none; margin-top: 15px;"></div>
@@ -80,19 +101,77 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="housekeeping-module-health" class="status-badge">Loading...</span>
+              <span id="housekeeping-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
             <span class="status-label">Enabled:</span>
             <span class="status-value">
-              <div class="backup-toggle-wrapper">
+              <div class="backup-toggle-wrapper" id="housekeeping-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
                   <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
             </span>
+          </div>
+          <div class="status-row" id="housekeeping-scheduler-details" style="display: none;">
+            <div class="scheduler-details">
+              <div class="scheduler-tooltip" id="housekeeping-tooltip"></div>
+              <div class="detail-item">
+                <span class="detail-label">Thread:</span>
+                <span class="detail-value" id="housekeeping-thread-status">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Heartbeat:</span>
+                <span class="detail-value" id="housekeeping-heartbeat">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Container:</span>
+                <span class="detail-value" id="housekeeping-container">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card Scheduler Module Card -->
+      <div class="info-card">
+        <h2>Card Scheduler Module</h2>
+        <div class="info-content">
+          <div class="status-row">
+            <span class="status-label">Status:</span>
+            <span class="status-value">
+              <span id="card-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+            </span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Enabled:</span>
+            <span class="status-value">
+              <div class="backup-toggle-wrapper" id="card-toggle-wrapper" style="display: none;">
+                <label class="backup-toggle-label">
+                  <input type="checkbox" id="cardSchedulerToggle" class="backup-toggle-input">
+                  <span class="backup-toggle-slider"></span>
+                </label>
+              </div>
+            </span>
+          </div>
+          <div class="status-row" id="card-scheduler-details" style="display: none;">
+            <div class="scheduler-details">
+              <div class="scheduler-tooltip" id="card-tooltip"></div>
+              <div class="detail-item">
+                <span class="detail-label">Thread:</span>
+                <span class="detail-value" id="card-thread-status">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Heartbeat:</span>
+                <span class="detail-value" id="card-heartbeat">-</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">Container:</span>
+                <span class="detail-value" id="card-container">-</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

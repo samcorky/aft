@@ -21,7 +21,7 @@ class TestHousekeepingAPI:
         assert isinstance(data['status']['running'], bool)
         assert isinstance(data['status']['enabled'], bool)
         assert isinstance(data['status']['check_interval'], int)
-        assert data['status']['check_interval'] == 3600  # 1 hour
+        assert data['status']['check_interval'] == 60  # Thread runs every 60 seconds
     
     def test_enable_housekeeping(self, api_client):
         """Test enabling housekeeping scheduler."""

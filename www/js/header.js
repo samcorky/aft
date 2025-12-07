@@ -59,6 +59,7 @@ class Header {
     this.statusText = null;
     this.versionInfo = null;
     this.currentView = 'task'; // Default view
+    this.dbConnected = false; // Track database connection status
   }
 
   // Load the header HTML component
@@ -274,6 +275,7 @@ class Header {
     if (!this.statusIcon || !this.statusText) return;
 
     this.statusIcon.className = `status-icon ${status}`;
+    this.dbConnected = (status === 'success');
     
     if (status === 'success') {
       this.statusText.textContent = 'DB connected';

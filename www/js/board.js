@@ -1079,19 +1079,17 @@ class BoardManager {
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
           // Store original position for rollback
           const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+          
+          // Capture the actual next sibling DOM node before the move
+          // This is more reliable than searching by order, which may have gaps
+          const actualNextSibling = draggedCard.nextElementSibling;
+          
           const originalPosition = {
             columnId: oldColumnId,
             order: oldOrder,
             container: originalColumnContainer,
-            nextSibling: null
+            nextSibling: actualNextSibling
           };
-          
-          // Find the original next sibling for precise restoration
-          if (originalColumnContainer) {
-            const originalCards = Array.from(originalColumnContainer.querySelectorAll('.card'));
-            const cardAtOldOrder = originalCards.find(c => parseInt(c.getAttribute('data-order')) === oldOrder + 1);
-            originalPosition.nextSibling = cardAtOldOrder || null;
-          }
           
           await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
         }

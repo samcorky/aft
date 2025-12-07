@@ -310,6 +310,9 @@ class BoardManager {
     const toast = document.createElement('div');
     toast.className = 'error-toast';
     toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'polite');
+    toast.setAttribute('aria-atomic', 'true');
     toast.style.cssText = `
       position: fixed;
       bottom: 20px;

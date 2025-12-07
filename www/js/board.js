@@ -1513,18 +1513,29 @@ class BoardManager {
     // Handle cancel with warning
     let isCancelling = false;
     const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
       if (isCancelling) return;
       isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
       
       try {
         if (hasUnsavedChanges) {
           if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
             return;
           }
         }
         modal.remove();
-      } finally {
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
         isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -2043,8 +2054,13 @@ class BoardManager {
     // Handle cancel with warning if there are unsaved changes
     let isCancelling = false;
     const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
       if (isCancelling) return;
       isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
       
       try {
         // Check if there's any content or checklist items
@@ -2053,12 +2069,19 @@ class BoardManager {
         if (hasContent) {
           if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
             modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
           }
         } else {
           modal.remove();
         }
-      } finally {
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
         isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -2680,8 +2703,13 @@ class BoardManager {
     // Handle cancel with warning if there are unsaved changes
     let isCancelling = false;
     const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
       if (isCancelling) return;
       isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
       
       try {
         // Check if there's any content or checklist items
@@ -2690,12 +2718,19 @@ class BoardManager {
         if (hasContent) {
           if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
             modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
           }
         } else {
           modal.remove();
         }
-      } finally {
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
         isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -3061,24 +3096,39 @@ class BoardManager {
     // Handle cancel with warning if there are unsaved changes
     let isCancelling = false;
     const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
       if (isCancelling) return;
       isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
       
       try {
         if (hasUnpostedComment()) {
           if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
             return;
           }
         }
         if (hasUnsavedChanges || checklistOrderChanged) {
           if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
             modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
           }
         } else {
           modal.remove();
         }
-      } finally {
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
         isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     

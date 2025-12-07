@@ -364,6 +364,14 @@ class Header {
       }
     }
   }
+
+  // Cleanup method to prevent memory leaks
+  destroy() {
+    if (this.statusCheckInterval) {
+      clearInterval(this.statusCheckInterval);
+      this.statusCheckInterval = null;
+    }
+  }
 }
 
 // Initialize header on page load
@@ -375,4 +383,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (typeof preloadTimeFormat === 'function') {
     preloadTimeFormat();
   }
+});
+
+// Cleanup on page unload to prevent memory leaks
+window.addEventListener('beforeunload', () => {
+  header.destroy();
 });

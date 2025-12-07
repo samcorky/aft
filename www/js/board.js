@@ -3525,16 +3525,19 @@ class BoardManager {
         saveBtn.disabled = false;
         saveBtn.textContent = 'Save';
         
+        // Reload board if card update succeeded, even if checklist operations failed
+        // This ensures the card title/description changes are visible
+        if (cardUpdateSuccess || allSuccessful) {
+          await this.loadBoard();
+        }
+        
         if (allSuccessful) {
           hasUnsavedChanges = false;
           checklistOrderChanged = false;
           checklistCheckboxChanges.clear();
           modal.remove();
-          
-          // Reload board to show updated data
-          await this.loadBoard();
         } else {
-          // Stay in modal to allow retry - errors already shown via toasts
+          // Some operations failed - stay in modal for retry
           // Clear the checkbox changes that succeeded so they won't be retried
           for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
             const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
@@ -3542,6 +3545,13 @@ class BoardManager {
               // This one succeeded, remove from pending changes
               checklistCheckboxChanges.delete(itemId);
             }
+          }
+          
+          // Show appropriate message based on what succeeded
+          if (cardUpdateSuccess) {
+            this.showErrorToast('Card updated, but some checklist changes failed. Please review and try again.');
+          } else {
+            this.showErrorToast('Failed to save changes. Please try again.');
           }
         }
       }

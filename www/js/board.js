@@ -2169,6 +2169,12 @@ class BoardManager {
   }
 
   async createColumn(name) {
+    // Check database connection before creating column
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     try {
       const response = await fetch(`/api/boards/${this.boardId}/columns`, {
         method: 'POST',

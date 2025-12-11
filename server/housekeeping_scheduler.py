@@ -4,7 +4,9 @@ import time
 import logging
 import requests
 import json
+import os
 import tempfile
+from datetime import datetime
 from typing import Optional
 from pathlib import Path
 from packaging import version
@@ -23,58 +25,135 @@ class HousekeepingScheduler:
     """Manages periodic housekeeping tasks."""
     
     def __init__(self, app_version: str):
+        from datetime import datetime
         self.running = False
         self.thread: Optional[threading.Thread] = None
         self.lock_file = Path(tempfile.gettempdir()) / "aft_housekeeping_scheduler.lock"
         self.app_version = app_version
-        self.check_interval = 3600  # Run every hour (3600 seconds)
+        self.check_interval = 60  # Thread runs every 60 seconds to update heartbeat
+        
+        # Track last run times for individual tasks
+        self.last_version_check = None  # Last time version was checked
+        self.version_check_interval = 3600  # Check for updates every hour
+        
+        # Track scheduler health states for notifications
+        self.scheduler_health_states: dict = {
+            'backup_scheduler': True,
+            'card_scheduler': True,
+            'housekeeping_scheduler': True
+        }
+        self.last_health_notification: dict = {
+            'backup_scheduler': None,
+            'card_scheduler': None,
+            'housekeeping_scheduler': None
+        }
+        self.health_notification_cooldown = 1800  # 30 minutes between notifications
+        self.startup_time = datetime.now()  # Track when scheduler started
+        self.startup_grace_period = 120  # Wait 2 minutes after startup before checking health
+    
+    def _is_lock_stale(self) -> bool:
+        """Check if existing lock file is stale.
+        
+        Returns:
+            True if lock file is stale and should be removed, False otherwise.
+        """
+        try:
+            lock_data = json.loads(self.lock_file.read_text())
+            
+            # Check container ID (hostname in Docker)
+            current_container = os.environ.get('HOSTNAME', 'unknown')
+            lock_container = lock_data.get('container_id', 'unknown')
+            if lock_container != current_container:
+                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
+                return True  # Different container = stale
+            
+            # Check heartbeat age
+            from datetime import datetime, timedelta
+            last_heartbeat_str = lock_data.get('last_heartbeat')
+            if last_heartbeat_str:
+                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
+                
+                if age_seconds > 300:  # 5 minutes without heartbeat = stale
+                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
+                    return True
+                
+                # Lock is fresh and from same container
+                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
+                return False
+            
+            # No heartbeat in lock file = old format or invalid
+            logger.info("Lock file has no heartbeat, considering stale")
+            return True
+            
+        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
+            logger.info(f"Lock file is invalid or corrupted: {e}")
+            return True  # Invalid lock file = stale
+        except Exception as e:
+            logger.warning(f"Error checking lock staleness: {e}")
+            return True  # Error reading = assume stale for safety
+    
+    def _update_heartbeat(self):
+        """Update lock file with current timestamp to prove thread is alive."""
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "housekeeping"
+            }
+            self.lock_file.write_text(json.dumps(lock_data, indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to update heartbeat: {e}")
     
     def start(self):
         """Start the housekeeping scheduler thread."""
+        logger.info("=== Housekeeping Scheduler Start Attempt ===")
+        logger.info(f"PID: {os.getpid()}, Container: {os.environ.get('HOSTNAME', 'unknown')}")
+        
         if self.running:
-            logger.warning("Housekeeping scheduler already running")
+            logger.warning("Housekeeping scheduler already running in this instance")
             return
         
-        # Use file lock to ensure only one worker starts the scheduler
-        try:
-            if self.lock_file.exists():
+        # Check if lock file exists and if it's stale
+        if self.lock_file.exists():
+            if self._is_lock_stale():
+                logger.info("Removing stale lock file")
                 try:
-                    with open(self.lock_file, 'r') as f:
-                        pid = int(f.read().strip())
-                    
-                    # Check if process is still running
-                    import psutil
-                    if psutil.pid_exists(pid):
-                        logger.info(f"Housekeeping scheduler already running in process {pid}")
-                        return
-                    else:
-                        logger.info(f"Removing stale lock file for process {pid}")
-                        self.lock_file.unlink()
-                except (ValueError, FileNotFoundError):
-                    logger.warning("Invalid lock file, removing")
                     self.lock_file.unlink()
-            
-            # Create lock file atomically with exclusive creation
-            import os
-            try:
-                # Open with O_CREAT | O_EXCL to fail if file exists (atomic check-and-create)
-                fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-                try:
-                    os.write(fd, str(os.getpid()).encode())
-                finally:
-                    os.close(fd)
-            except FileExistsError:
-                # Another process created the lock file between our check and creation
-                logger.info("Housekeeping scheduler already started by another process")
+                except Exception as e:
+                    logger.error(f"Failed to remove stale lock file: {e}")
+                    return
+            else:
+                logger.info("Another scheduler instance is active, not starting")
                 return
+        
+        # Create lock file with heartbeat
+        try:
+            from datetime import datetime
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "housekeeping"
+            }
             
-            self.running = True
-            self.thread = threading.Thread(target=self._run_scheduler, daemon=True)
-            self.thread.start()
-            logger.info("Housekeeping scheduler started")
+            # Atomic write: write to temp file then rename
+            with tempfile.NamedTemporaryFile(mode='w', dir=tempfile.gettempdir(), delete=False) as tf:
+                json.dump(lock_data, tf, indent=2)
+                temp_path = tf.name
+            
+            os.rename(temp_path, str(self.lock_file))
+            logger.info(f"Created lock file: {self.lock_file}")
             
         except Exception as e:
-            logger.error(f"Failed to start housekeeping scheduler: {e}")
+            logger.error(f"Error creating scheduler lock file: {e}")
+            return
+        
+        self.running = True
+        self.thread = threading.Thread(target=self._run_scheduler, daemon=True)
+        self.thread.start()
+        logger.info(f"✓ Housekeeping scheduler started successfully - PID: {os.getpid()}, Thread ID: {self.thread.ident}")
     
     def stop(self):
         """Stop the housekeeping scheduler thread."""
@@ -95,24 +174,145 @@ class HousekeepingScheduler:
         logger.info("Housekeeping scheduler stopped")
     
     def _run_scheduler(self):
-        """Main scheduler loop - runs every minute."""
+        """Main scheduler loop - runs every 60 seconds."""
         logger.info("Housekeeping scheduler thread started")
         
         while self.running:
             try:
+                # Update heartbeat every loop iteration to prove we're alive
+                self._update_heartbeat()
+                
                 # Check if housekeeping is enabled
                 if self._is_enabled():
-                    # Run housekeeping tasks
-                    self._check_for_updates()
+                    # Run version check if enough time has passed
+                    self._run_version_check_if_needed()
+                    
+                    # Check health of other schedulers and create notifications if needed
+                    self._check_scheduler_health()
+                    
+                    # Future tasks can be added here with similar patterns:
+                    # self._run_cleanup_if_needed()
+                    # self._run_backup_rotation_if_needed()
                 else:
                     logger.debug("Housekeeping scheduler is disabled, skipping checks")
                 
-                # Sleep for the check interval
-                time.sleep(self.check_interval)
+                # Sleep for 60 seconds before next heartbeat update
+                time.sleep(60)
                 
             except Exception as e:
                 logger.error(f"Error in housekeeping scheduler loop: {e}", exc_info=True)
-                time.sleep(self.check_interval)
+                time.sleep(60)
+    
+    def _run_version_check_if_needed(self):
+        """Run version check only if enough time has passed since last check."""
+        from datetime import datetime
+        
+        now = datetime.now()
+        
+        # Check if we should run version check
+        if self.last_version_check is None:
+            # First run
+            should_check = True
+        else:
+            time_since_last_check = (now - self.last_version_check).total_seconds()
+            should_check = time_since_last_check >= self.version_check_interval
+        
+        if should_check:
+            logger.info(f"Running version check (last check: {self.last_version_check})")
+            self._check_for_updates()
+            self.last_version_check = now
+        else:
+            time_since_last = (now - self.last_version_check).total_seconds()
+            logger.debug(f"Skipping version check ({int(time_since_last)}s since last check, need {self.version_check_interval}s)")
+    
+    def _check_scheduler_health(self):
+        """Check health of all schedulers and create notifications if unhealthy."""
+        from datetime import datetime
+        
+        # Skip health checks during startup grace period
+        time_since_startup = (datetime.now() - self.startup_time).total_seconds()
+        if time_since_startup < self.startup_grace_period:
+            logger.debug(f"Skipping health check during startup grace period ({int(time_since_startup)}s / {self.startup_grace_period}s)")
+            return
+        
+        temp_dir = Path(tempfile.gettempdir())
+        schedulers_to_check = [
+            ('backup_scheduler', temp_dir / 'aft_backup_scheduler.lock', 'Backup Scheduler'),
+            ('card_scheduler', temp_dir / 'aft_card_scheduler.lock', 'Card Scheduler'),
+        ]
+        
+        for scheduler_key, lock_file, display_name in schedulers_to_check:
+            try:
+                is_healthy = self._is_scheduler_healthy(lock_file)
+                self._handle_scheduler_health_change(scheduler_key, display_name, is_healthy)
+            except Exception as e:
+                logger.error(f"Error checking {display_name} health: {e}")
+    
+    def _is_scheduler_healthy(self, lock_file: Path) -> bool:
+        """Check if a scheduler is healthy based on its lock file.
+        
+        Args:
+            lock_file: Path to the scheduler's lock file
+            
+        Returns:
+            True if healthy, False otherwise
+        """
+        if not lock_file.exists():
+            return False
+        
+        try:
+            from datetime import datetime
+            lock_data = json.loads(lock_file.read_text())
+            last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+            lock_age = (datetime.now() - last_heartbeat).total_seconds()
+            
+            # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+            return lock_age < 150
+        except Exception as e:
+            logger.warning(f"Error reading lock file {lock_file}: {e}")
+            return False
+    
+    def _handle_scheduler_health_change(self, scheduler_key: str, display_name: str, is_healthy: bool):
+        """Handle state changes and create notifications when scheduler becomes unhealthy.
+        
+        Args:
+            scheduler_key: Internal key for the scheduler
+            display_name: User-facing name for the scheduler
+            is_healthy: Current health status
+        """
+        from datetime import datetime
+        
+        previous_state = self.scheduler_health_states.get(scheduler_key, True)
+        
+        # State changed from healthy to unhealthy
+        if previous_state and not is_healthy:
+            # Check cooldown to avoid notification spam
+            last_notified = self.last_health_notification.get(scheduler_key)
+            should_notify = True
+            
+            if last_notified:
+                time_since_last = (datetime.now() - last_notified).total_seconds()
+                should_notify = time_since_last >= self.health_notification_cooldown
+            
+            if should_notify:
+                logger.warning(f"{display_name} has become unhealthy")
+                create_notification(
+                    subject=f"⚠️ {display_name} Unhealthy",
+                    message=f"The {display_name} service has stopped responding.\n\n"
+                            f"The scheduler's heartbeat has not updated in over 2 minutes. "
+                            f"This may indicate the service has crashed or is stuck.\n\n"
+                            f"Check the system information page for details.",
+                    action_title="View System Status",
+                    action_url="/system-info.html"
+                )
+                self.last_health_notification[scheduler_key] = datetime.now()
+        
+        # State changed from unhealthy to healthy
+        elif not previous_state and is_healthy:
+            logger.info(f"{display_name} recovered and is now healthy")
+        
+        # Update tracked state
+        self.scheduler_health_states[scheduler_key] = is_healthy
     
     def _is_enabled(self) -> bool:
         """Check if housekeeping scheduler is enabled in settings."""
@@ -253,13 +453,18 @@ class HousekeepingScheduler:
         is_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                try:
-                    is_running = psutil.pid_exists(pid)
-                except Exception:
-                    is_running = False
-            except (ValueError, FileNotFoundError):
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                # Check if same container
+                if container_id == current_container:
+                    try:
+                        is_running = psutil.pid_exists(pid)
+                    except Exception:
+                        is_running = False
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError):
                 is_running = False
         
         return {

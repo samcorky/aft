@@ -96,6 +96,21 @@
   background-color: var(--error-color);
 }
 
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Status Badge Styles */
 .status-badge {
   display: inline-block;
@@ -103,6 +118,14 @@
   border-radius: 12px;
   font-size: 13px;
   font-weight: 500;
+}
+
+.status-badge.status-loading {
+  background: #e8e8e8;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .status-badge.status-healthy {
@@ -113,6 +136,79 @@
 .status-badge.status-unhealthy {
   background: var(--error-color);
   color: var(--header-text-color);
+}
+
+/* Scheduler Details */
+.scheduler-details {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--background-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  position: relative;
+  cursor: help;
+}
+
+.scheduler-details:hover .scheduler-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+.scheduler-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 1000;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  background-color: #333;
+  color: #fff;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.2s, visibility 0.2s;
+  max-width: 400px;
+  width: max-content;
+  text-align: left;
+  line-height: 1.6;
+}
+
+.scheduler-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #333;
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.detail-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.detail-value {
+  font-weight: 600;
+  color: var(--text-color);
+  font-family: 'Courier New', monospace;
 }
 
 .status-text {

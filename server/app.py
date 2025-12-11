@@ -1,6 +1,10 @@
 from flask import Flask, jsonify, request
 import logging
 import json
+import os
+import time
+import tempfile
+from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
@@ -21,7 +25,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -493,6 +497,165 @@ def get_version():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
+
+
+@app.route("/api/scheduler/health")
+def get_scheduler_health():
+    """Get health status of all background schedulers.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Scheduler health information
+        schema:
+          type: object
+          properties:
+            backup_scheduler:
+              type: object
+            card_scheduler:
+              type: object
+            housekeeping_scheduler:
+              type: object
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    
+    health = {}
+    
+    # Backup scheduler
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
+                
+                health['backup_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id'),
+                    'permission_error': scheduler.permission_error
+                }
+            except Exception as e:
+                health['backup_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e),
+                    'permission_error': scheduler.permission_error
+                }
+        else:
+            health['backup_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                'lock_file_exists': False,
+                'permission_error': scheduler.permission_error
+            }
+    except Exception as e:
+        health['backup_scheduler'] = {'error': str(e)}
+    
+    # Card scheduler
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval for consistency)
+                is_healthy = lock_age < 150
+                
+                health['card_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['card_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['card_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['card_scheduler'] = {'error': str(e)}
+    
+    # Housekeeping scheduler
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
+                
+                health['housekeeping_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['housekeeping_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['housekeeping_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['housekeeping_scheduler'] = {'error': str(e)}
+    
+    return jsonify(health), 200
 
 
 @app.route("/api/test")
@@ -2106,6 +2269,104 @@ def update_housekeeping_config():
         db.close()
 
 
+@app.route("/api/settings/card-scheduler/status", methods=["GET"])
+def get_card_scheduler_status():
+    """Get card scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Card scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # Get enabled setting
+        db = SessionLocal()
+        try:
+            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+            if setting is not None and setting.value is not None:
+                enabled = json.loads(str(setting.value))
+            else:
+                enabled = True  # Default to enabled
+        finally:
+            db.close()
+        
+        status = {
+            "running": scheduler.running,
+            "enabled": enabled
+        }
+        
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting card scheduler status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/card-scheduler/config", methods=["PUT"])
+def update_card_scheduler_config():
+    """Update card scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="card_scheduler_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card scheduler config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/boards", methods=["GET"])
 def get_boards():
     """Get all boards.
@@ -3553,13 +3814,20 @@ def create_card(column_id):
         if scheduled is not None and not isinstance(scheduled, bool):
             return create_error_response("Scheduled must be a boolean", 400)
 
+        # Validate schedule parameter if provided
+        schedule = data.get("schedule")
+        if schedule is not None:
+            if not isinstance(schedule, int):
+                return create_error_response("Schedule must be an integer", 400)
+
         # Create card
         card = Card(
             column_id=column_id, 
             title=title, 
             description=description, 
             order=order,
-            scheduled=scheduled
+            scheduled=scheduled,
+            schedule=schedule
         )
         db.add(card)
         db.commit()
@@ -3571,6 +3839,9 @@ def create_card(column_id):
             "title": card.title,
             "description": card.description,
             "order": card.order,
+            "scheduled": card.scheduled,
+            "schedule": card.schedule,
+            "archived": card.archived
         }
 
         return create_success_response({"card": result}, status_code=201)
@@ -4054,6 +4325,13 @@ def update_card(card_id):
                     return create_error_response(error, 400)
 
             card.description = description
+
+        # Update archived status if provided
+        if "archived" in data:
+            archived = data["archived"]
+            if not isinstance(archived, bool):
+                return create_error_response("Archived must be a boolean", 400)
+            card.archived = archived
 
         # Handle column and order changes
         if "column_id" in data or "order" in data:
@@ -6119,6 +6397,32 @@ def internal_error(error):
 
 
 # Initialize backup scheduler on app startup
+def cleanup_stale_scheduler_locks():
+    """Remove all scheduler lock files on application startup.
+    
+    This ensures clean state after container restarts where lock files
+    from previous containers may persist but are no longer valid.
+    Called once before any scheduler initialization.
+    """
+    from pathlib import Path
+    import tempfile
+    
+    temp_dir = Path(tempfile.gettempdir())
+    lock_files = [
+        temp_dir / "aft_backup_scheduler.lock",
+        temp_dir / "aft_card_scheduler.lock",
+        temp_dir / "aft_housekeeping_scheduler.lock",
+    ]
+    
+    for lock_file in lock_files:
+        try:
+            if lock_file.exists():
+                lock_file.unlink()
+                logger.info(f"Cleaned up stale lock file: {lock_file}")
+        except Exception as e:
+            logger.warning(f"Failed to clean lock file {lock_file}: {e}")
+
+
 def init_backup_scheduler():
     """Initialize and start the backup scheduler."""
     try:
@@ -6151,9 +6455,47 @@ def init_housekeeping_scheduler():
         logger.error(f"Failed to initialize housekeeping scheduler: {str(e)}")
 
 # Start schedulers when module is loaded
-init_backup_scheduler()
-init_card_scheduler()
-init_housekeeping_scheduler()
+# Use file lock to ensure only one worker initializes schedulers
+# This prevents race conditions with Gunicorn multi-worker setup
+
+# Only initialize schedulers in the first worker to start
+# Use a combination of lock file AND worker tracking
+init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
+should_init = False
+
+try:
+    # Try to create lock file exclusively (fails if already exists)
+    fd = os.open(init_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    should_init = True
+    logger.info(f"Worker PID {os.getpid()}: Acquired scheduler init lock")
+except FileExistsError:
+    # Lock already exists - another worker is initializing or already initialized
+    logger.info(f"Worker PID {os.getpid()}: Init lock exists, skipping scheduler initialization")
+    should_init = False
+
+if should_init:
+    try:
+        logger.info(f"Worker PID {os.getpid()}: Initializing schedulers")
+        
+        # Clean up any stale lock files from previous container instances
+        # This must happen AFTER acquiring init lock to prevent race conditions
+        cleanup_stale_scheduler_locks()
+        
+        # Now start all schedulers
+        init_backup_scheduler()
+        init_card_scheduler()
+        init_housekeeping_scheduler()  # Housekeeping also monitors other schedulers' health
+        
+        # Give schedulers a moment to create their lock files
+        time.sleep(0.5)
+    except Exception as e:
+        logger.error(f"Error initializing schedulers: {e}")
+else:
+    logger.info(f"Worker PID {os.getpid()}: Waiting for first worker to initialize schedulers")
+    # Wait for the first worker to finish initializing
+    time.sleep(2)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

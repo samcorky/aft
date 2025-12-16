@@ -116,6 +116,7 @@ class ThemeBuilder {
     this.saveBtn = document.getElementById('save-theme-btn');
     this.resetBtn = document.getElementById('reset-theme-btn');
     this.statusDiv = document.getElementById('theme-status');
+    this.bgImageSelect = document.getElementById('background-image-select');
 
     // Get all color inputs
     const colorFields = [
@@ -197,6 +198,13 @@ class ThemeBuilder {
         this.loadSelectedTheme();
       });
     }
+
+    // Background image selector
+    if (this.bgImageSelect) {
+      this.bgImageSelect.addEventListener('change', (e) => {
+        this.applyBackgroundImage(e.target.value);
+      });
+    }
   }
 
   loadCurrentTheme() {
@@ -222,6 +230,13 @@ class ThemeBuilder {
       // Load the base theme for the selector
       this.loadSelectedTheme();
     }
+
+    // Load saved background image
+    const savedBgImage = sessionStorage.getItem('backgroundImage') || 'none';
+    if (this.bgImageSelect) {
+      this.bgImageSelect.value = savedBgImage;
+    }
+    this.applyBackgroundImage(savedBgImage);
   }
 
   loadSelectedTheme() {
@@ -260,6 +275,24 @@ class ThemeBuilder {
     Object.keys(theme).forEach(key => {
       root.style.setProperty(`--${key}`, theme[key]);
     });
+  }
+
+  applyBackgroundImage(imageName) {
+    // Apply background image to all pages via CSS variable
+    const root = document.documentElement;
+    
+    if (imageName === 'none') {
+      // Remove background image CSS variable
+      root.style.setProperty('--background-image', 'none');
+      // Save to session
+      sessionStorage.setItem('backgroundImage', 'none');
+    } else {
+      // Apply selected background image
+      const imageUrl = `/images/backgrounds/${imageName}.png`;
+      root.style.setProperty('--background-image', `url('${imageUrl}')`);
+      // Save to session
+      sessionStorage.setItem('backgroundImage', imageName);
+    }
   }
 
   saveTheme() {

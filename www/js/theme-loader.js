@@ -18,6 +18,15 @@
         console.error('Error loading theme:', e);
       }
     }
+
+    // Load and apply background image
+    const savedBgImage = sessionStorage.getItem('backgroundImage');
+    if (savedBgImage && savedBgImage !== 'none') {
+      const imageUrl = `/images/backgrounds/${savedBgImage}.png`;
+      document.documentElement.style.setProperty('--background-image', `url('${imageUrl}')`);
+    } else {
+      document.documentElement.style.setProperty('--background-image', 'none');
+    }
   }
 
   // Apply immediately if DOM is already loaded

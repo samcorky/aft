@@ -201,7 +201,7 @@
 
 .column-delete-cards-btn:hover {
   transform: scale(1.2);
-  color: #e67e22;
+  color: var(--warning-color);
 }
 
 .column-add-card-btn {
@@ -223,7 +223,7 @@
 
 .column-add-card-btn:hover {
   transform: scale(1.2);
-  color: #218838;
+  color: var(--success-color);
 }
 
 /* Column Menu */
@@ -515,12 +515,12 @@
 
 .card.archived-card {
   opacity: 0.7;
-  background: #f5f5f5;
+  background: var(--background-light);
 }
 
 .card.no-schedule {
-  border: 2px dashed #f39c12;
-  background: #fff9e6;
+  border: 2px dashed var(--warning-color);
+  background: color-mix(in srgb, var(--warning-color) 10%, var(--card-bg-color));
 }
 
 .card.no-schedule::before {
@@ -530,11 +530,11 @@
   right: 40px;
   font-size: 10px;
   font-weight: 600;
-  color: #f39c12;
-  background: white;
+  color: var(--warning-color);
+  background: var(--card-bg-color);
   padding: 2px 6px;
   border-radius: 3px;
-  border: 1px solid #f39c12;
+  border: 1px solid var(--warning-color);
 }
 
 .card-action-buttons {
@@ -722,6 +722,8 @@
   resize: vertical;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .form-group textarea:focus {
@@ -793,7 +795,7 @@
 }
 
 .modal-content {
-  background-color: white;
+  background-color: var(--page-panel-background);
   padding: 30px;
   border-radius: 8px;
   max-width: 500px;
@@ -868,7 +870,8 @@
   border-radius: 5px;
   font-size: 16px;
   box-sizing: border-box;
-  background-color: white;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .form-group input:focus,
@@ -879,7 +882,7 @@
 }
 
 .form-group select:hover {
-  border-color: #999;
+  border-color: var(--text-muted);
 }
 
 .form-group label input[type="checkbox"] {
@@ -939,7 +942,7 @@
 }
 
 .checkbox-label:hover {
-  background-color: #e8e8e8;
+  background-color: var(--background-light);
 }
 
 .checkbox-label input[type="checkbox"] {
@@ -1046,7 +1049,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background-color: white;
+  background-color: var(--card-bg-color);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   margin-bottom: 8px;
@@ -1108,6 +1111,8 @@
   font-size: 14px;
   font-family: inherit;
   outline: none;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .checklist-item-input:focus {
@@ -1181,6 +1186,8 @@
   resize: vertical;
   margin-bottom: 10px;
   outline: none;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 #new-comment-input:focus {
@@ -1200,7 +1207,7 @@
 }
 
 .comment-item {
-  background-color: #f8f9fa;
+  background-color: var(--background-light);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   padding: 12px;
@@ -1322,7 +1329,7 @@
 
 .board-loading-text {
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-weight: 500;
   margin: 0;
   padding: 0;

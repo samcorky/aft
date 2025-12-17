@@ -72,7 +72,7 @@ class ThemeBuilder {
         'background-light': '#1F2937',
         'page-panel-background': '#111827',
         'border-color': '#374151',
-        'card-bg-color': '#1F2937',
+        'card-bg-color': '#254065',
         'header-background': '#0F172A',
         'header-text-color': '#F9FAFB',
         'header-menu-background': '#1E293B',

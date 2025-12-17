@@ -13,7 +13,7 @@
 .page-header h1 {
   font-size: 28px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
   margin-bottom: 24px;
   padding-bottom: 12px;
   border-bottom: 3px solid var(--primary-color);
@@ -40,7 +40,7 @@
 .info-card h2 {
   margin-top: 0;
   margin-bottom: 16px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 20px;
   font-weight: 600;
   border-bottom: 2px solid var(--primary-color);
@@ -121,8 +121,8 @@
 }
 
 .status-badge.status-loading {
-  background: #e8e8e8;
-  color: #666;
+  background: var(--background-light);
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -164,8 +164,8 @@
   left: 50%;
   transform: translateX(-50%);
   margin-bottom: 10px;
-  background-color: #333;
-  color: #fff;
+  background-color: var(--text-bold);
+  color: var(--header-text-color);
   padding: 12px 16px;
   border-radius: 6px;
   font-size: 12px;
@@ -185,7 +185,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: #333;
+  border-top-color: var(--text-bold);
 }
 
 .detail-item {
@@ -244,7 +244,7 @@
 /* Backup & Restore */
 .backup-card {
   border: 2px solid var(--primary-color);
-  background-color: #f0f8ff;
+  background-color: var(--page-panel-background);
 }
 
 .backup-card h2 {
@@ -267,7 +267,7 @@
 .settings-section h3 {
   margin-top: 0;
   margin-bottom: 16px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 20px;
   font-weight: 600;
   border-bottom: 2px solid var(--primary-color);
@@ -346,18 +346,18 @@
 }
 
 .backup-status.info {
-  background-color: #e3f2fd;
-  color: #1976d2;
+  background-color: color-mix(in srgb, var(--primary-color) 15%, var(--page-panel-background));
+  color: var(--primary-color);
 }
 
 .backup-status.success {
-  background-color: #e8f5e9;
-  color: #388e3c;
+  background-color: color-mix(in srgb, var(--success-color) 15%, var(--page-panel-background));
+  color: var(--success-color);
 }
 
 .backup-status.error {
-  background-color: #ffebee;
-  color: #d32f2f;
+  background-color: color-mix(in srgb, var(--error-color) 15%, var(--page-panel-background));
+  color: var(--error-color);
 }
 
 /* Danger Zone */
@@ -482,7 +482,7 @@
   padding: 12px;
   border: 2px solid var(--border-color);
   border-radius: 6px;
-  background-color: #ffffff;
+  background-color: var(--page-panel-background);
   color: var(--text-color);
   font-size: 14px;
   margin-bottom: 10px;

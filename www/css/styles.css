@@ -109,7 +109,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 12px;
-  background-color: var(--text-dark);
+  background-color: var(--text-bold);
   color: white;
   font-size: 12px;
   white-space: nowrap;
@@ -128,7 +128,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: var(--text-dark);
+  border-top-color: var(--text-bold);
   z-index: 1000;
   pointer-events: none;
 }

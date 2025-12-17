@@ -446,7 +446,7 @@
 }
 
 .modal-content {
-  background-color: var(--card-background);
+  background-color: var(--page-panel-background);
   border-radius: 12px;
   padding: 30px;
   max-width: 500px;

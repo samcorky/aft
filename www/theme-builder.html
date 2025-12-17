@@ -26,13 +26,18 @@
             <select id="theme-builder-select" class="setting-select">
               <!-- Themes will be populated dynamically -->
             </select>
-            <button class="btn btn-secondary" id="copy-theme-btn" title="Create a copy of the selected theme">Copy Theme</button>
           </div>
-          <div class="theme-actions-group">
-            <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from JSON file">Import Theme</button>
-            <button class="btn btn-secondary" id="export-theme-btn" title="Export current theme as JSON">Export Theme</button>
-            <button class="btn btn-secondary" id="apply-theme-btn" title="Apply this theme to the current session">Apply Theme</button>
-            <button class="btn btn-secondary" id="save-theme-btn">Save Theme</button>
+          <div class="theme-buttons-container">
+            <div class="theme-buttons-row">
+              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename the selected theme">Rename</button>
+              <button class="btn btn-secondary" id="apply-theme-btn" title="Apply this theme to the current session">Apply Theme</button>
+              <button class="btn btn-primary" id="save-theme-btn">Save Theme</button>
+            </div>
+            <div class="theme-buttons-row">
+              <button class="btn btn-secondary" id="copy-theme-btn" title="Create a copy of the selected theme">Copy Theme</button>
+              <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from JSON file">Import Theme</button>
+              <button class="btn btn-secondary" id="export-theme-btn" title="Export current theme as JSON">Export Theme</button>
+            </div>
           </div>
         </div>
         <p class="setting-help">Select a theme to edit. System themes cannot be saved - copy them to create your own version.</p>
@@ -267,6 +272,59 @@
       </div>
     </div>
   </main>
+
+  <!-- Unsaved Changes Modal -->
+  <div id="unsaved-changes-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Unsaved Changes</h3>
+        <span class="modal-close" id="unsaved-changes-close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <p>You have unsaved changes to this theme. What would you like to do?</p>
+      </div>
+      <div class="modal-footer" style="gap: 10px;">
+        <button class="btn btn-secondary" id="unsaved-discard">Discard & Apply</button>
+        <button class="btn btn-primary" id="unsaved-save">Save & Apply</button>
+        <button class="btn btn-secondary" id="unsaved-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Warning Modal -->
+  <div id="import-warning-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Import Error</h3>
+        <span class="modal-close" id="import-warning-close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <p id="import-warning-message"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="import-warning-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Theme Modal -->
+  <div id="rename-theme-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Rename Theme</h3>
+        <span class="modal-close" id="rename-theme-close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <p>Enter a new name for the theme:</p>
+        <input type="text" id="rename-theme-name" class="setting-input" placeholder="Theme Name" maxlength="100">
+        <div id="rename-theme-error" class="error-message" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="rename-theme-cancel">Cancel</button>
+        <button class="btn btn-primary" id="rename-theme-confirm">Rename</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Copy Theme Modal -->
   <div id="copy-theme-modal" class="modal" style="display: none;">

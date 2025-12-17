@@ -6629,6 +6629,71 @@ def update_theme(theme_id):
         session.close()
 
 
+@app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
+def rename_theme(theme_id):
+    """Rename a theme.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: theme_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the theme to rename
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              description: New theme name
+    responses:
+      200:
+        description: Theme renamed successfully
+      400:
+        description: Invalid request or name already exists
+      404:
+        description: Theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot rename system themes", 400)
+        
+        data = request.get_json()
+        new_name = data.get('name')
+        
+        if not new_name:
+            return create_error_response("name is required", 400)
+        
+        # Check if name is unique
+        existing = session.query(Theme).filter(Theme.name == new_name, Theme.id != theme_id).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        theme.name = new_name
+        session.commit()
+        
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error renaming theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error renaming theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
 @app.route("/api/themes/copy", methods=["POST"])
 def copy_theme():
     """Copy an existing theme with a new name.

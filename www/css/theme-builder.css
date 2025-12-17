@@ -124,36 +124,54 @@
 /* Theme Management Bar */
 .theme-management-bar {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 20px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 15px;
   margin-bottom: 10px;
+  padding: 20px;
+  background-color: var(--card-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
 }
 
 .theme-selector-group {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 300px;
+  gap: 12px;
+  width: 100%;
 }
 
 .theme-selector-group label {
   font-weight: 500;
   color: var(--text-color);
   white-space: nowrap;
+  font-size: 1rem;
 }
 
 .theme-selector-group select {
   flex: 1;
-  max-width: 300px;
+  min-width: 250px;
+  max-width: 400px;
+  padding: 10px 12px;
+  font-size: 1rem;
+}
+
+.theme-buttons-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.theme-buttons-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .theme-actions-group {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 /* Background Image Controls */

@@ -102,14 +102,38 @@ class Settings {
       
       const themes = await response.json();
       
+      // Split into user and system themes
+      const userThemes = themes.filter(t => !t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      const systemThemes = themes.filter(t => t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      
       // Populate theme select
       this.themeSelect.innerHTML = '';
-      themes.forEach(theme => {
-        const option = document.createElement('option');
-        option.value = theme.id;
-        option.textContent = theme.name + (theme.system_theme ? ' (System)' : '');
-        this.themeSelect.appendChild(option);
-      });
+      
+      // Add user themes first
+      if (userThemes.length > 0) {
+        const userGroup = document.createElement('optgroup');
+        userGroup.label = 'User Themes';
+        userThemes.forEach(theme => {
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          userGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(userGroup);
+      }
+      
+      // Add system themes
+      if (systemThemes.length > 0) {
+        const systemGroup = document.createElement('optgroup');
+        systemGroup.label = 'System Themes';
+        systemThemes.forEach(theme => {
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          systemGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(systemGroup);
+      }
       
       // Load current theme selection
       const settingsResponse = await fetch('/api/settings/theme');

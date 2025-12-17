@@ -624,6 +624,15 @@
   color: var(--text-bold);
 }
 
+.modal-header.error {
+  background-color: #fee;
+  border-bottom-color: var(--error-color);
+}
+
+.modal-header.error h3 {
+  color: var(--error-color);
+}
+
 .modal-close {
   font-size: 28px;
   font-weight: 300;
@@ -682,4 +691,35 @@
 
 .modal-actions .btn {
   min-width: 100px;
+}
+
+.modal-footer {
+  padding: 20px 30px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-footer .btn {
+  min-width: 100px;
+}
+
+.modal-footer .btn-primary {
+  background: var(--primary-color) !important;
+  color: white !important;
+}
+
+.modal-footer .btn-primary:hover {
+  background: var(--primary-hover) !important;
+}
+
+.modal-footer .btn-secondary {
+  background: var(--page-panel-background);
+  color: var(--text-color);
+  border: 1px solid #ddd;
+}
+
+.modal-footer .btn-secondary:hover {
+  background: var(--background-light);
 }

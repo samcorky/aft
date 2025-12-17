@@ -39,6 +39,12 @@ class ThemeBuilder {
     document.getElementById('copy-theme-cancel').addEventListener('click', () => this.hideCopyModal());
     document.getElementById('copy-theme-confirm').addEventListener('click', () => this.confirmCopyTheme());
     
+    // Rename theme functionality
+    document.getElementById('rename-theme-btn').addEventListener('click', () => this.showRenameModal());
+    document.getElementById('rename-theme-close').addEventListener('click', () => this.hideRenameModal());
+    document.getElementById('rename-theme-cancel').addEventListener('click', () => this.hideRenameModal());
+    document.getElementById('rename-theme-confirm').addEventListener('click', () => this.confirmRenameTheme());
+    
     // Import/Export
     document.getElementById('import-theme-btn').addEventListener('click', () => this.importTheme());
     document.getElementById('export-theme-btn').addEventListener('click', () => this.exportTheme());
@@ -99,17 +105,40 @@ class ThemeBuilder {
       const themes = await response.json();
       this.themes = {};
       
+      // Split into user and system themes
+      const userThemes = themes.filter(t => !t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      const systemThemes = themes.filter(t => t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      
       // Clear existing options
       this.themeSelect.innerHTML = '';
       
-      // Populate themes
-      themes.forEach(theme => {
-        this.themes[theme.id] = theme;
-        const option = document.createElement('option');
-        option.value = theme.id;
-        option.textContent = theme.name + (theme.system_theme ? ' (System)' : '');
-        this.themeSelect.appendChild(option);
-      });
+      // Add user themes first
+      if (userThemes.length > 0) {
+        const userGroup = document.createElement('optgroup');
+        userGroup.label = 'User Themes';
+        userThemes.forEach(theme => {
+          this.themes[theme.id] = theme;
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          userGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(userGroup);
+      }
+      
+      // Add system themes
+      if (systemThemes.length > 0) {
+        const systemGroup = document.createElement('optgroup');
+        systemGroup.label = 'System Themes';
+        systemThemes.forEach(theme => {
+          this.themes[theme.id] = theme;
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          systemGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(systemGroup);
+      }
       
       // Only load current theme selection if no URL parameter
       const urlParams = new URLSearchParams(window.location.search);
@@ -158,12 +187,10 @@ class ThemeBuilder {
   onBackgroundChange() {
     const selectedValue = this.backgroundSelect.value;
     
-    // Update the current theme data
-    if (this.currentThemeData) {
-      this.currentThemeData.background_image = selectedValue === 'none' ? null : selectedValue;
-    }
+    // Don't update currentThemeData - keep original for comparison
+    // The change will be saved when user clicks Save
     
-    // Apply the background change immediately
+    // Apply the background change immediately to preview
     this.applyThemePreview();
     
     // Update download button state
@@ -219,12 +246,38 @@ class ThemeBuilder {
   }
   
   updateSaveButtonState(isSystemTheme) {
+    const renameBtn = document.getElementById('rename-theme-btn');
+    
     if (isSystemTheme) {
       this.saveBtn.disabled = true;
       this.saveBtn.title = 'System themes cannot be modified. Create a copy to edit.';
+      renameBtn.disabled = true;
+      renameBtn.title = 'System themes cannot be renamed. Create a copy to edit.';
+      
+      // Disable all color inputs
+      for (const inputs of Object.values(this.colorInputs)) {
+        inputs.colorInput.disabled = true;
+        inputs.textInput.disabled = true;
+      }
+      
+      // Disable background selector and upload
+      this.backgroundSelect.disabled = true;
+      document.getElementById('upload-bg-btn').disabled = true;
     } else {
       this.saveBtn.disabled = false;
       this.saveBtn.title = 'Save changes to this theme';
+      renameBtn.disabled = false;
+      renameBtn.title = 'Rename the selected theme';
+      
+      // Enable all color inputs
+      for (const inputs of Object.values(this.colorInputs)) {
+        inputs.colorInput.disabled = false;
+        inputs.textInput.disabled = false;
+      }
+      
+      // Enable background selector and upload
+      this.backgroundSelect.disabled = false;
+      document.getElementById('upload-bg-btn').disabled = false;
     }
   }
   
@@ -251,6 +304,76 @@ class ThemeBuilder {
       return;
     }
     
+    // System themes can't have changes (inputs are disabled), so apply directly
+    if (this.currentThemeData.system_theme) {
+      await this.doApplyTheme();
+      return;
+    }
+    
+    // For user themes, check if there are unsaved changes
+    if (this.hasUnsavedChanges()) {
+      this.showUnsavedChangesModal();
+      return;
+    }
+    
+    // No unsaved changes, apply the theme from database
+    await this.doApplyTheme();
+  }
+  
+  hasUnsavedChanges() {
+    // Check if any color has changed
+    for (const [key, value] of Object.entries(this.currentThemeData.settings)) {
+      if (this.colorInputs[key]) {
+        const currentValue = this.colorInputs[key].colorInput.value.toUpperCase();
+        const savedValue = value.toUpperCase();
+        if (currentValue !== savedValue) {
+          console.log(`Color changed: ${key} from ${savedValue} to ${currentValue}`);
+          return true;
+        }
+      }
+    }
+    
+    // Check if background image has changed
+    const currentBg = this.backgroundSelect.value === 'none' ? null : this.backgroundSelect.value;
+    const savedBg = this.currentThemeData.background_image || null;
+    if (currentBg !== savedBg) {
+      console.log(`Background changed from ${savedBg} to ${currentBg}`);
+      return true;
+    }
+    
+    return false;
+  }
+  
+  showUnsavedChangesModal() {
+    const modal = document.getElementById('unsaved-changes-modal');
+    modal.style.display = 'flex';
+    
+    // Set up event listeners (remove old ones first)
+    const closeBtn = document.getElementById('unsaved-changes-close');
+    const discardBtn = document.getElementById('unsaved-discard');
+    const saveBtn = document.getElementById('unsaved-save');
+    const cancelBtn = document.getElementById('unsaved-cancel');
+    
+    const close = () => { modal.style.display = 'none'; };
+    const discard = async () => {
+      modal.style.display = 'none';
+      await this.doApplyTheme();
+    };
+    const save = async () => {
+      modal.style.display = 'none';
+      await this.saveTheme();
+      if (!this.lastSaveError) {
+        await this.doApplyTheme();
+      }
+    };
+    
+    closeBtn.onclick = close;
+    discardBtn.onclick = discard;
+    saveBtn.onclick = save;
+    cancelBtn.onclick = close;
+  }
+  
+  async doApplyTheme() {
     try {
       // Save theme selection to settings (apply to session)
       const response = await fetch('/api/settings/theme', {
@@ -263,32 +386,19 @@ class ThemeBuilder {
         throw new Error('Failed to apply theme');
       }
       
-      // Get current preview colors
-      const currentSettings = {};
-      for (const [variableName, inputs] of Object.entries(this.colorInputs)) {
-        currentSettings[variableName] = inputs.colorInput.value;
+      // Fetch and apply theme from database
+      await this.loadAndApplyTheme();
+      
+      // Reload the theme data into currentThemeData
+      const themeResponse = await fetch('/api/settings/theme');
+      if (themeResponse.ok) {
+        const theme = await themeResponse.json();
+        this.currentThemeData = theme;
+        
+        // Reload theme colors into inputs to discard any unsaved changes
+        this.loadThemeColors(theme.settings);
+        this.updateBackgroundDisplay(theme.background_image);
       }
-      
-      // Get current background image
-      const bgValue = this.backgroundSelect.value;
-      const backgroundImage = bgValue === 'none' ? null : bgValue;
-      
-      // Apply current preview colors and background
-      const root = document.documentElement;
-      Object.keys(currentSettings).forEach(key => {
-        root.style.setProperty(`--${key}`, currentSettings[key]);
-      });
-      
-      if (backgroundImage) {
-        root.style.setProperty('--background-image', `url('/images/backgrounds/${backgroundImage}')`);
-        sessionStorage.setItem('backgroundImage', backgroundImage);
-      } else {
-        root.style.setProperty('--background-image', 'none');
-        sessionStorage.setItem('backgroundImage', 'none');
-      }
-      
-      // Update sessionStorage with current preview
-      sessionStorage.setItem('currentTheme', JSON.stringify(currentSettings));
       
       this.showStatus('Theme applied to session successfully', 'success');
     } catch (error) {
@@ -334,15 +444,19 @@ class ThemeBuilder {
   async saveTheme() {
     if (!this.currentTheme || !this.currentThemeData) {
       this.showStatus('No theme selected', 'error');
+      this.lastSaveError = true;
       return;
     }
     
     if (this.currentThemeData.system_theme) {
       this.showStatus('Cannot save system themes', 'error');
+      this.lastSaveError = true;
       return;
     }
     
     try {
+      this.lastSaveError = false;
+      
       // Collect current color values
       const settings = {};
       for (const [variableName, inputs] of Object.entries(this.colorInputs)) {
@@ -376,6 +490,7 @@ class ThemeBuilder {
     } catch (error) {
       console.error('Error saving theme:', error);
       this.showStatus('Error saving theme: ' + error.message, 'error');
+      this.lastSaveError = true;
     }
   }
   
@@ -444,6 +559,100 @@ class ThemeBuilder {
     }
   }
   
+  showRenameModal() {
+    if (!this.currentThemeData) {
+      this.showStatus('No theme selected', 'error');
+      return;
+    }
+    
+    if (this.currentThemeData.system_theme) {
+      this.showStatus('Cannot rename system themes', 'error');
+      return;
+    }
+    
+    const modal = document.getElementById('rename-theme-modal');
+    const nameInput = document.getElementById('rename-theme-name');
+    const errorDiv = document.getElementById('rename-theme-error');
+    
+    nameInput.value = this.currentThemeData.name;
+    errorDiv.style.display = 'none';
+    modal.style.display = 'flex';
+    nameInput.focus();
+    nameInput.select();
+  }
+  
+  hideRenameModal() {
+    document.getElementById('rename-theme-modal').style.display = 'none';
+  }
+  
+  async confirmRenameTheme() {
+    const nameInput = document.getElementById('rename-theme-name');
+    const errorDiv = document.getElementById('rename-theme-error');
+    const newName = nameInput.value.trim();
+    
+    if (!newName) {
+      errorDiv.textContent = 'Theme name is required';
+      errorDiv.style.display = 'block';
+      return;
+    }
+    
+    if (newName === this.currentThemeData.name) {
+      this.hideRenameModal();
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/themes/${this.currentTheme}/rename`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to rename theme');
+      }
+      
+      const updatedTheme = await response.json();
+      
+      // Update themes list
+      this.themes[this.currentTheme] = updatedTheme;
+      this.currentThemeData = updatedTheme;
+      
+      // Update select option
+      const option = this.themeSelect.querySelector(`option[value="${this.currentTheme}"]`);
+      if (option) {
+        option.textContent = updatedTheme.name;
+      }
+      
+      this.hideRenameModal();
+      this.showStatus('Theme renamed successfully', 'success');
+    } catch (error) {
+      console.error('Error renaming theme:', error);
+      errorDiv.textContent = error.message;
+      errorDiv.style.display = 'block';
+    }
+  }
+  
+  showImportWarning(message) {
+    const modal = document.getElementById('import-warning-modal');
+    const messageDiv = document.getElementById('import-warning-message');
+    const closeBtn = document.getElementById('import-warning-close');
+    const okBtn = document.getElementById('import-warning-ok');
+    const header = modal.querySelector('.modal-header');
+    
+    messageDiv.textContent = message;
+    header.classList.add('error');
+    modal.style.display = 'flex';
+    
+    const close = () => {
+      modal.style.display = 'none';
+      header.classList.remove('error');
+    };
+    closeBtn.onclick = close;
+    okBtn.onclick = close;
+  }
+  
   importTheme() {
     document.getElementById('import-theme-input').click();
   }
@@ -470,7 +679,10 @@ class ThemeBuilder {
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Failed to import theme');
+        const errorMessage = error.message || error.error || 'Failed to import theme';
+        console.log('Import error:', errorMessage);
+        this.showImportWarning(errorMessage);
+        return;
       }
       
       const newTheme = await response.json();
@@ -491,7 +703,7 @@ class ThemeBuilder {
       this.showStatus('Theme imported successfully', 'success');
     } catch (error) {
       console.error('Error importing theme:', error);
-      this.showStatus('Error importing theme: ' + error.message, 'error');
+      this.showImportWarning(error.message || 'Failed to import theme');
     }
     
     // Reset file input

@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 import logging
 import json
 import os
@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
 from sqlalchemy import text, func
 from utils import (
     validate_string_length,
@@ -6497,5 +6497,546 @@ else:
     # Wait for the first worker to finish initializing
     time.sleep(2)
 
+
+# ============================================================================
+# Theme API Endpoints
+# ============================================================================
+
+@app.route("/api/themes", methods=["GET"])
+def get_themes():
+    """Get all themes.
+    ---
+    tags:
+      - Themes
+    responses:
+      200:
+        description: List of all themes
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        themes = session.query(Theme).all()
+        return jsonify([theme.to_dict() for theme in themes]), 200
+    except Exception as e:
+        logger.error(f"Error getting themes: {str(e)}")
+        return create_error_response(f"Error getting themes: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>", methods=["GET"])
+def get_theme(theme_id):
+    """Get a specific theme by ID.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: theme_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the theme
+    responses:
+      200:
+        description: Theme data
+      404:
+        description: Theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error getting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error getting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>", methods=["PUT"])
+def update_theme(theme_id):
+    """Update a theme (cannot update system themes).
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: theme_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the theme
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              description: Theme name (optional)
+            settings:
+              type: object
+              description: Theme settings object (optional)
+            background_image:
+              type: string
+              description: Background image filename (optional)
+    responses:
+      200:
+        description: Theme updated successfully
+      400:
+        description: Cannot update system theme
+      404:
+        description: Theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot update system themes", 400)
+        
+        data = request.get_json()
+        
+        if 'name' in data:
+            # Check if name is unique
+            existing = session.query(Theme).filter(Theme.name == data['name'], Theme.id != theme_id).first()
+            if existing:
+                return create_error_response("Theme name already exists", 400)
+            theme.name = data['name']
+        
+        if 'settings' in data:
+            theme.settings = json.dumps(data['settings'])
+        
+        if 'background_image' in data:
+            theme.background_image = data['background_image']
+        
+        session.commit()
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error updating theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/copy", methods=["POST"])
+def copy_theme():
+    """Copy an existing theme with a new name.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - source_theme_id
+            - new_name
+          properties:
+            source_theme_id:
+              type: integer
+              description: ID of the theme to copy
+            new_name:
+              type: string
+              description: Name for the new theme
+    responses:
+      201:
+        description: Theme copied successfully
+      400:
+        description: Invalid request or name already exists
+      404:
+        description: Source theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        source_id = data.get('source_theme_id')
+        new_name = data.get('new_name')
+        
+        if not source_id or not new_name:
+            return create_error_response("source_theme_id and new_name are required", 400)
+        
+        # Check if source theme exists
+        source_theme = session.query(Theme).filter(Theme.id == source_id).first()
+        if not source_theme:
+            return create_error_response("Source theme not found", 404)
+        
+        # Check if new name is unique
+        existing = session.query(Theme).filter(Theme.name == new_name).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        # Create new theme as copy
+        new_theme = Theme(
+            name=new_name,
+            settings=source_theme.settings,
+            background_image=source_theme.background_image,
+            system_theme=False  # Copied themes are never system themes
+        )
+        session.add(new_theme)
+        session.commit()
+        
+        return jsonify(new_theme.to_dict()), 201
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error copying theme: {str(e)}")
+        return create_error_response(f"Error copying theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/import", methods=["POST"])
+def import_theme():
+    """Import a theme from JSON data.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+            - settings
+          properties:
+            name:
+              type: string
+              description: Theme name
+            settings:
+              type: object
+              description: Theme settings object
+            background_image:
+              type: string
+              description: Background image filename (optional)
+    responses:
+      201:
+        description: Theme imported successfully
+      400:
+        description: Invalid theme data or name already exists
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        settings = data.get('settings')
+        
+        if not name or not settings:
+            return create_error_response("name and settings are required", 400)
+        
+        # Validate settings structure - should have color properties
+        required_keys = ['primary-color', 'text-color', 'background-light', 'card-bg-color']
+        if not all(key in settings for key in required_keys):
+            return create_error_response("Invalid theme settings structure", 400)
+        
+        # Check if name is unique
+        existing = session.query(Theme).filter(Theme.name == name).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        # Create new theme
+        new_theme = Theme(
+            name=name,
+            settings=json.dumps(settings),
+            background_image=data.get('background_image'),
+            system_theme=False
+        )
+        session.add(new_theme)
+        session.commit()
+        
+        return jsonify(new_theme.to_dict()), 201
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error importing theme: {str(e)}")
+        return create_error_response(f"Error importing theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>/export", methods=["GET"])
+def export_theme(theme_id):
+    """Export a theme as JSON.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: theme_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the theme to export
+    responses:
+      200:
+        description: Theme JSON data
+      404:
+        description: Theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        export_data = {
+            'name': theme.name,
+            'settings': json.loads(theme.settings) if isinstance(theme.settings, str) else theme.settings,
+            'background_image': theme.background_image
+        }
+        
+        return jsonify(export_data), 200
+    except Exception as e:
+        logger.error(f"Error exporting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error exporting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/upload-image", methods=["POST"])
+def upload_theme_image():
+    """Upload a background image for themes.
+    ---
+    tags:
+      - Themes
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: image
+        in: formData
+        type: file
+        required: true
+        description: The background image file
+    responses:
+      200:
+        description: Image uploaded successfully
+      400:
+        description: No file provided or invalid file type
+      500:
+        description: Internal server error
+    """
+    try:
+        if 'image' not in request.files:
+            return create_error_response("No image file provided", 400)
+        
+        file = request.files['image']
+        if file.filename == '':
+            return create_error_response("No file selected", 400)
+        
+        # Validate file extension
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            return create_error_response(f"Invalid file type. Allowed: {', '.join(allowed_extensions)}", 400)
+        
+        # Create backgrounds directory if it doesn't exist
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        backgrounds_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename with timestamp
+        timestamp = int(time.time())
+        filename = f"theme_bg_{timestamp}{file_ext}"
+        filepath = backgrounds_dir / filename
+        
+        # Save file
+        file.save(str(filepath))
+        
+        return jsonify({'filename': filename}), 200
+    except Exception as e:
+        logger.error(f"Error uploading theme image: {str(e)}")
+        return create_error_response(f"Error uploading image: {str(e)}", 500)
+
+
+@app.route("/api/themes/images", methods=["GET"])
+def list_theme_images():
+    """List all available background images.
+    ---
+    tags:
+      - Themes
+    responses:
+      200:
+        description: List of background image filenames
+        schema:
+          type: object
+          properties:
+            images:
+              type: array
+              items:
+                type: string
+      500:
+        description: Internal server error
+    """
+    try:
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        backgrounds_dir.mkdir(parents=True, exist_ok=True)
+        
+        # List all image files
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        images = []
+        
+        for file in backgrounds_dir.iterdir():
+            if file.is_file() and file.suffix.lower() in allowed_extensions:
+                images.append(file.name)
+        
+        # Sort alphabetically
+        images.sort()
+        
+        return jsonify({'images': images}), 200
+    except Exception as e:
+        logger.error(f"Error listing theme images: {str(e)}")
+        return create_error_response(f"Error listing images: {str(e)}", 500)
+
+
+@app.route("/api/themes/images/<filename>", methods=["GET"])
+def get_theme_image(filename):
+    """Download a theme background image.
+    ---
+    tags:
+      - Themes
+    parameters:
+      - name: filename
+        in: path
+        type: string
+        required: true
+        description: The filename of the background image
+    responses:
+      200:
+        description: Image file
+      404:
+        description: Image not found
+      500:
+        description: Internal server error
+    """
+    try:
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        filepath = backgrounds_dir / filename
+        
+        # Security check - ensure file is in backgrounds directory
+        if not filepath.resolve().is_relative_to(backgrounds_dir.resolve()):
+            return create_error_response("Invalid file path", 400)
+        
+        if not filepath.exists():
+            return create_error_response("Image not found", 404)
+        
+        return send_file(str(filepath))
+    except Exception as e:
+        logger.error(f"Error getting theme image {filename}: {str(e)}")
+        return create_error_response(f"Error getting image: {str(e)}", 500)
+
+
+@app.route("/api/settings/theme", methods=["GET"])
+def get_current_theme():
+    """Get the currently selected theme for the application.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Current theme data
+      404:
+        description: No theme selected or theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        # Get selected_theme setting
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if not setting:
+            return create_error_response("No theme selected", 404)
+        
+        theme_id = int(setting.value)
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        
+        if not theme:
+            return create_error_response("Selected theme not found", 404)
+        
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error getting current theme: {str(e)}")
+        return create_error_response(f"Error getting current theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/settings/theme", methods=["PUT"])
+def update_current_theme():
+    """Update the currently selected theme.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - theme_id
+          properties:
+            theme_id:
+              type: integer
+              description: The ID of the theme to select
+    responses:
+      200:
+        description: Theme selection updated
+      400:
+        description: Invalid request
+      404:
+        description: Theme not found
+      500:
+        description: Internal server error
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        theme_id = data.get('theme_id')
+        
+        if not theme_id:
+            return create_error_response("theme_id is required", 400)
+        
+        # Verify theme exists
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        # Update or create selected_theme setting
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if setting:
+            setting.value = str(theme_id)
+        else:
+            setting = Setting()
+            setting.key = 'selected_theme'
+            setting.value = str(theme_id)
+            session.add(setting)
+        
+        session.commit()
+        return create_success_response(message="Theme selection updated")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating current theme: {str(e)}")
+        return create_error_response(f"Error updating theme selection: {str(e)}", 500)
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+

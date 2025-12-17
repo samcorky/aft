@@ -22,7 +22,7 @@
     // Load and apply background image
     const savedBgImage = sessionStorage.getItem('backgroundImage');
     if (savedBgImage && savedBgImage !== 'none') {
-      const imageUrl = `/images/backgrounds/${savedBgImage}.png`;
+      const imageUrl = `/images/backgrounds/${savedBgImage}`;
       document.documentElement.style.setProperty('--background-image', `url('${imageUrl}')`);
     } else {
       document.documentElement.style.setProperty('--background-image', 'none');

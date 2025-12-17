@@ -20,16 +20,22 @@
       <p class="page-description">Create and customise colour themes for the application.</p>
       
       <div class="settings-section">
-        <div class="setting-item">
-          <label for="theme-builder-select">Theme</label>
-          <p class="setting-help">Select a theme to edit or create a new one.</p>
-          <select id="theme-builder-select" class="setting-select">
-            <option value="default">Default</option>
-            <option value="custom1">At the Beach</option>
-            <option value="darkmode">Dark Mode</option>
-            <option value="jungle">Welcome to the Jungle</option>
-          </select>
+        <div class="theme-management-bar">
+          <div class="theme-selector-group">
+            <label for="theme-builder-select">Theme</label>
+            <select id="theme-builder-select" class="setting-select">
+              <!-- Themes will be populated dynamically -->
+            </select>
+            <button class="btn btn-secondary" id="copy-theme-btn" title="Create a copy of the selected theme">Copy Theme</button>
+          </div>
+          <div class="theme-actions-group">
+            <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from JSON file">Import Theme</button>
+            <button class="btn btn-secondary" id="export-theme-btn" title="Export current theme as JSON">Export Theme</button>
+            <button class="btn btn-secondary" id="apply-theme-btn" title="Apply this theme to the current session">Apply Theme</button>
+            <button class="btn btn-secondary" id="save-theme-btn">Save Theme</button>
+          </div>
         </div>
+        <p class="setting-help">Select a theme to edit. System themes cannot be saved - copy them to create your own version.</p>
       </div>
 
       <div class="settings-section">
@@ -133,13 +139,16 @@
         <div class="theme-section">
           <h4>Background</h4>
           
-          <div class="theme-field" style="margin-bottom: 25px; max-width: 300px;">
+          <div class="theme-field" style="margin-bottom: 25px;">
             <label for="background-image-select">Background Image</label>
-            <select id="background-image-select" class="setting-select">
-              <option value="none">None (Use Colors)</option>
-              <option value="at_the_beach_1">At the Beach 1</option>
-              <option value="at_the_beach_2">At the Beach 2</option>
-            </select>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <select id="background-image-select" class="setting-select" style="flex: 1; min-width: 200px; max-width: 300px;">
+                <option value="none">None (Use Colors)</option>
+                <!-- Images will be populated dynamically -->
+              </select>
+              <button class="btn btn-secondary" id="upload-bg-btn" title="Upload a background image">Upload</button>
+              <button class="btn btn-secondary" id="download-bg-btn" title="Download current background image" disabled>Download</button>
+            </div>
             <p class="setting-help">Select a background image for all pages. Choose 'None' to use colors instead.</p>
           </div>
           
@@ -254,12 +263,33 @@
       </div>
 
       <div class="settings-actions">
-        <button class="btn btn-primary" id="save-theme-btn">Save Theme</button>
-        <button class="btn btn-secondary" id="reset-theme-btn">Reset to Defaults</button>
         <div id="theme-status" class="settings-status"></div>
       </div>
     </div>
   </main>
+
+  <!-- Copy Theme Modal -->
+  <div id="copy-theme-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Copy Theme</h3>
+        <span class="modal-close" id="copy-theme-close">&times;</span>
+      </div>
+      <div class="modal-body">
+        <p>Enter a name for the new theme:</p>
+        <input type="text" id="copy-theme-name" class="setting-input" placeholder="My Custom Theme" maxlength="100">
+        <div id="copy-theme-error" class="error-message" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="copy-theme-cancel">Cancel</button>
+        <button class="btn btn-primary" id="copy-theme-confirm">Create Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- File upload input (hidden) -->
+  <input type="file" id="bg-image-input" accept="image/*" style="display: none;">
+  <input type="file" id="import-theme-input" accept=".json,application/json" style="display: none;">
 
   <script src="/js/utils.js"></script>
   <script src="/js/notifications.js"></script>

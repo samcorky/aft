@@ -43,13 +43,13 @@
 
         <div class="setting-item">
           <label for="theme-select">Theme</label>
-          <p class="setting-help">Choose a color theme for the application.</p>
-          <select id="theme-select" class="setting-select">
-            <option value="default">Default</option>
-            <option value="custom1">At the Beach</option>
-            <option value="darkmode">Dark Mode</option>
-            <option value="jungle">Welcome to the Jungle</option>
-          </select>
+          <p class="setting-help">Choose a colour theme.</p>
+          <div class="theme-selector-with-edit">
+            <select id="theme-select" class="setting-select">
+              <!-- Options populated from API -->
+            </select>
+            <button class="btn btn-secondary" id="edit-theme-btn" title="Edit theme in Theme Builder">Edit Theme</button>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,7 @@
 .vscode
 data
 backups
+backgrounds
 
 # Python virtual environments
 venv/

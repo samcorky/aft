@@ -1,350 +1,622 @@
-// Theme Builder functionality
+// Theme Builder functionality - Database-backed version
 
 class ThemeBuilder {
   constructor() {
     this.themeSelect = null;
     this.saveBtn = null;
-    this.resetBtn = null;
     this.statusDiv = null;
     this.colorInputs = {};
-    
-    // Available themes
-    this.themes = {
-      'default': {
-        'primary-color': '#3498DB',
-        'primary-hover': '#2980B9',
-        'secondary-color': '#95A5A6',
-        'secondary-hover': '#7F8C8D',
-        'success-color': '#28A745',
-        'error-color': '#DC3545',
-        'warning-color': '#FFC107',
-        'text-color': '#2C3E50',
-        'text-bold': '#2C3E50',
-        'text-muted': '#7F8C8D',
-        'background-light': '#F5F5F5',
-        'page-panel-background': '#FFFFFF',
-        'border-color': '#E0E0E0',
-        'card-bg-color': '#FFFFFF',
-        'header-background': '#2C3E50',
-        'header-text-color': '#FFFFFF',
-        'header-menu-background': '#FFFFFF',
-        'header-menu-hover': '#F5F5F5',
-        'header-menu-text-color': '#2C3E50',
-        'header-button-background': '#404E5C',
-        'header-button-hover': '#384552',
-        'icon-color': '#FFFFFF'
-      },
-      'custom1': {
-        'primary-color': '#d4a574',
-        'primary-hover': '#b9945f',
-        'secondary-color': '#06B6D4',
-        'secondary-hover': '#0891b2',
-        'success-color': '#14b8a6',
-        'error-color': '#f43f5e',
-        'warning-color': '#fb923c',
-        'text-color': '#0f172a',
-        'text-bold': '#2c3e50',
-        'text-muted': '#64743b',
-        'background-light': '#f0f9ff',
-        'page-panel-background': '#ffffff',
-        'border-color': '#cbd5e1',
-        'card-bg-color': '#fafaf0',
-        'header-background': '#d4a574',
-        'header-text-color': '#ffffff',
-        'header-menu-background': '#06B6D4',
-        'header-menu-hover': '#0891b2',
-        'header-menu-text-color': '#ffffff',
-        'header-button-background': '#06B6D4',
-        'header-button-hover': '#0891b2',
-        'icon-color': '#ffffff'
-      },
-      'darkmode': {
-        'primary-color': '#60A5FA',
-        'primary-hover': '#3B82F6',
-        'secondary-color': '#A78BFA',
-        'secondary-hover': '#8B5CF6',
-        'success-color': '#10B981',
-        'error-color': '#EF4444',
-        'warning-color': '#F59E0B',
-        'text-color': '#E5E7EB',
-        'text-bold': '#F9FAFB',
-        'text-muted': '#9CA3AF',
-        'background-light': '#1F2937',
-        'page-panel-background': '#111827',
-        'border-color': '#374151',
-        'card-bg-color': '#254065',
-        'header-background': '#0F172A',
-        'header-text-color': '#F9FAFB',
-        'header-menu-background': '#1E293B',
-        'header-menu-hover': '#334155',
-        'header-menu-text-color': '#E5E7EB',
-        'header-button-background': '#1E40AF',
-        'header-button-hover': '#1E3A8A',
-        'icon-color': '#F9FAFB'
-      },
-      'jungle': {
-        'primary-color': '#10B981',
-        'primary-hover': '#059669',
-        'secondary-color': '#F59E0B',
-        'secondary-hover': '#D97706',
-        'success-color': '#22C55E',
-        'error-color': '#DC2626',
-        'warning-color': '#FBBF24',
-        'text-color': '#1C3D2C',
-        'text-bold': '#14532D',
-        'text-muted': '#6B7280',
-        'background-light': '#F0FDF4',
-        'page-panel-background': '#FFFFFF',
-        'border-color': '#BBF7D0',
-        'card-bg-color': '#ECFDF5',
-        'header-background': '#166534',
-        'header-text-color': '#F0FDF4',
-        'header-menu-background': '#FEF3C7',
-        'header-menu-hover': '#FDE68A',
-        'header-menu-text-color': '#78350F',
-        'header-button-background': '#CA8A04',
-        'header-button-hover': '#A16207',
-        'icon-color': '#F0FDF4'
-      }
-    };
-    this.defaultTheme = this.themes['default'];
+    this.themes = {}; // Will be loaded from API
+    this.currentTheme = null;
+    this.currentThemeData = null;
   }
-
+  
   async init() {
-    // Get element references
     this.themeSelect = document.getElementById('theme-builder-select');
     this.saveBtn = document.getElementById('save-theme-btn');
-    this.resetBtn = document.getElementById('reset-theme-btn');
+    this.applyBtn = document.getElementById('apply-theme-btn');
     this.statusDiv = document.getElementById('theme-status');
-    this.bgImageSelect = document.getElementById('background-image-select');
-
+    this.backgroundSelect = document.getElementById('background-image-select');
+    
+    // Initialize all color inputs
+    this.initColorInputs();
+    
+    // Load themes and background images from API
+    await Promise.all([
+      this.loadThemes(),
+      this.loadBackgroundImages()
+    ]);
+    
+    // Set up event listeners
+    this.themeSelect.addEventListener('change', () => this.onThemeChange());
+    this.saveBtn.addEventListener('click', () => this.saveTheme());
+    this.applyBtn.addEventListener('click', () => this.applyTheme());
+    this.backgroundSelect.addEventListener('change', () => this.onBackgroundChange());
+    
+    // Copy theme functionality
+    document.getElementById('copy-theme-btn').addEventListener('click', () => this.showCopyModal());
+    document.getElementById('copy-theme-close').addEventListener('click', () => this.hideCopyModal());
+    document.getElementById('copy-theme-cancel').addEventListener('click', () => this.hideCopyModal());
+    document.getElementById('copy-theme-confirm').addEventListener('click', () => this.confirmCopyTheme());
+    
+    // Import/Export
+    document.getElementById('import-theme-btn').addEventListener('click', () => this.importTheme());
+    document.getElementById('export-theme-btn').addEventListener('click', () => this.exportTheme());
+    
+    // Background image
+    document.getElementById('upload-bg-btn').addEventListener('click', () => this.uploadBackground());
+    document.getElementById('download-bg-btn').addEventListener('click', () => this.downloadBackground());
+    document.getElementById('bg-image-input').addEventListener('change', (e) => this.handleBackgroundUpload(e));
+    document.getElementById('import-theme-input').addEventListener('change', (e) => this.handleThemeImport(e));
+    
+    // Check for theme parameter in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const themeParam = urlParams.get('theme');
+    if (themeParam && this.themes[themeParam]) {
+      this.themeSelect.value = themeParam;
+    }
+    
+    // Load initial theme
+    if (this.themeSelect.value) {
+      await this.onThemeChange();
+    }
+  }
+  
+  initColorInputs() {
     // Get all color inputs
-    const colorFields = [
-      'primary-color', 'primary-hover', 'secondary-color', 'secondary-hover',
-      'success-color', 'error-color', 'warning-color',
-      'text-color', 'text-bold', 'text-muted',
-      'background-light', 'page-panel-background', 'border-color',
-      'card-bg-color', 'header-background', 'header-text-color', 'header-menu-background', 'header-menu-hover', 'header-menu-text-color', 'header-button-background', 'header-button-hover', 'icon-color'
-    ];
-
-    colorFields.forEach(field => {
-      const colorInput = document.getElementById(field);
-      const textInput = colorInput.nextElementSibling;
-      this.colorInputs[field] = { color: colorInput, text: textInput };
-
-      // Update text input when color changes
-      colorInput.addEventListener('input', (e) => {
+    const colorInputs = document.querySelectorAll('input[type="color"]');
+    
+    colorInputs.forEach(input => {
+      const variableName = input.id;
+      const textInput = input.nextElementSibling;
+      
+      this.colorInputs[variableName] = { colorInput: input, textInput };
+      
+      // Sync color picker with text input
+      input.addEventListener('input', (e) => {
         textInput.value = e.target.value.toUpperCase();
-        this.applyThemeToPage();
+        this.applyThemePreview();
       });
-
-      // Also sync text input to color picker on input (live typing)
+      
+      // Sync text input with color picker
       textInput.addEventListener('input', (e) => {
         const value = e.target.value;
-        if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
-          colorInput.value = value;
-          this.applyThemeToPage();
-        }
-      });
-
-      // Apply color on blur even if incomplete during typing
-      textInput.addEventListener('blur', (e) => {
-        const value = e.target.value.trim();
-        // Allow with or without # prefix
-        const hexValue = value.startsWith('#') ? value : '#' + value;
-        
-        if (/^#[0-9A-Fa-f]{6}$/.test(hexValue)) {
-          colorInput.value = hexValue;
-          textInput.value = hexValue.toUpperCase();
-          this.applyThemeToPage();
-        } else if (/^#[0-9A-Fa-f]{3}$/.test(hexValue)) {
-          // Convert 3-digit hex to 6-digit
-          const expanded = '#' + hexValue[1] + hexValue[1] + hexValue[2] + hexValue[2] + hexValue[3] + hexValue[3];
-          colorInput.value = expanded;
-          textInput.value = expanded.toUpperCase();
-          this.applyThemeToPage();
-        } else {
-          // Invalid hex, revert to current color picker value
-          textInput.value = colorInput.value.toUpperCase();
+        if (/^#[0-9A-F]{6}$/i.test(value)) {
+          input.value = value;
+          this.applyThemePreview();
         }
       });
     });
-
-    // Set up event listeners
-    this.setupEventListeners();
-
-    // Load current theme from session storage or defaults
-    this.loadCurrentTheme();
   }
-
-  setupEventListeners() {
-    // Save theme button
-    if (this.saveBtn) {
-      this.saveBtn.addEventListener('click', () => {
-        this.saveTheme();
-      });
-    }
-
-    // Reset button
-    if (this.resetBtn) {
-      this.resetBtn.addEventListener('click', () => {
-        this.resetToDefaults();
-      });
-    }
-
-    // Theme selector (for future when we have multiple themes)
-    if (this.themeSelect) {
-      this.themeSelect.addEventListener('change', () => {
-        this.loadSelectedTheme();
-      });
-    }
-
-    // Background image selector
-    if (this.bgImageSelect) {
-      this.bgImageSelect.addEventListener('change', (e) => {
-        this.applyBackgroundImage(e.target.value);
-      });
-    }
-  }
-
-  loadCurrentTheme() {
-    // Check which theme is selected in session
-    const selectedTheme = sessionStorage.getItem('selectedTheme') || 'default';
-    if (this.themeSelect) {
-      this.themeSelect.value = selectedTheme;
-    }
-    
-    // Check if there are saved customizations in session
-    const savedTheme = sessionStorage.getItem('currentTheme');
-    
-    if (savedTheme) {
-      // Load the customized theme from session
-      try {
-        const theme = JSON.parse(savedTheme);
-        this.applyTheme(theme);
-      } catch (e) {
-        console.error('Error loading saved theme:', e);
-        this.loadSelectedTheme();
+  
+  async loadThemes() {
+    try {
+      const response = await fetch('/api/themes');
+      if (!response.ok) {
+        throw new Error('Failed to load themes');
       }
-    } else {
-      // Load the base theme for the selector
-      this.loadSelectedTheme();
+      
+      const themes = await response.json();
+      this.themes = {};
+      
+      // Clear existing options
+      this.themeSelect.innerHTML = '';
+      
+      // Populate themes
+      themes.forEach(theme => {
+        this.themes[theme.id] = theme;
+        const option = document.createElement('option');
+        option.value = theme.id;
+        option.textContent = theme.name + (theme.system_theme ? ' (System)' : '');
+        this.themeSelect.appendChild(option);
+      });
+      
+      // Only load current theme selection if no URL parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const themeParam = urlParams.get('theme');
+      
+      if (!themeParam) {
+        // Load current theme selection from settings
+        const settingsResponse = await fetch('/api/settings/theme');
+        if (settingsResponse.ok) {
+          const currentTheme = await settingsResponse.json();
+          this.themeSelect.value = currentTheme.id;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading themes:', error);
+      this.showStatus('Error loading themes: ' + error.message, 'error');
     }
-
-    // Load saved background image
-    const savedBgImage = sessionStorage.getItem('backgroundImage') || 'none';
-    if (this.bgImageSelect) {
-      this.bgImageSelect.value = savedBgImage;
+  }
+  
+  async loadBackgroundImages() {
+    try {
+      const response = await fetch('/api/themes/images');
+      if (!response.ok) {
+        throw new Error('Failed to load background images');
+      }
+      
+      const data = await response.json();
+      const images = data.images || [];
+      
+      // Clear existing options except "None"
+      this.backgroundSelect.innerHTML = '<option value="none">None (Use Colors)</option>';
+      
+      // Add image options
+      images.forEach(filename => {
+        const option = document.createElement('option');
+        option.value = filename;
+        option.textContent = filename;
+        this.backgroundSelect.appendChild(option);
+      });
+    } catch (error) {
+      console.error('Error loading background images:', error);
+      this.showStatus('Error loading background images: ' + error.message, 'error');
     }
-    this.applyBackgroundImage(savedBgImage);
   }
-
-  loadSelectedTheme() {
-    const selectedTheme = this.themeSelect ? this.themeSelect.value : 'default';
+  
+  onBackgroundChange() {
+    const selectedValue = this.backgroundSelect.value;
     
-    // Load the theme for preview (don't save to session automatically)
-    const theme = this.themes[selectedTheme] || this.defaultTheme;
-    this.applyTheme(theme);
+    // Update the current theme data
+    if (this.currentThemeData) {
+      this.currentThemeData.background_image = selectedValue === 'none' ? null : selectedValue;
+    }
     
-    // TODO: Later this will fetch from API based on selected theme ID
+    // Apply the background change immediately
+    this.applyThemePreview();
+    
+    // Update download button state
+    const downloadBtn = document.getElementById('download-bg-btn');
+    downloadBtn.disabled = selectedValue === 'none';
   }
-
-  applyTheme(theme) {
-    // Update all color inputs
-    Object.keys(theme).forEach(key => {
+  
+  async onThemeChange() {
+    const themeId = parseInt(this.themeSelect.value);
+    const theme = this.themes[themeId];
+    
+    if (!theme) {
+      console.error('Theme not found:', themeId);
+      return;
+    }
+    
+    this.currentTheme = themeId;
+    this.currentThemeData = theme;
+    
+    // Load theme colors into inputs
+    this.loadThemeColors(theme.settings);
+    
+    // Update background image display
+    this.updateBackgroundDisplay(theme.background_image);
+    
+    // Apply theme preview
+    this.applyThemePreview();
+    
+    // Update save button state
+    this.updateSaveButtonState(theme.system_theme);
+  }
+  
+  loadThemeColors(settings) {
+    for (const [key, value] of Object.entries(settings)) {
       if (this.colorInputs[key]) {
-        const value = theme[key];
-        this.colorInputs[key].color.value = value;
-        this.colorInputs[key].text.value = value.toUpperCase();
+        this.colorInputs[key].colorInput.value = value;
+        this.colorInputs[key].textInput.value = value.toUpperCase();
       }
-    });
-
-    // Apply to page
-    this.applyThemeToPage();
-  }
-
-  applyThemeToPage() {
-    // Get current values from inputs
-    const theme = {};
-    Object.keys(this.colorInputs).forEach(key => {
-      theme[key] = this.colorInputs[key].color.value;
-    });
-
-    // Apply CSS variables to the page (preview only, not saved to session)
-    const root = document.documentElement;
-    Object.keys(theme).forEach(key => {
-      root.style.setProperty(`--${key}`, theme[key]);
-    });
-  }
-
-  applyBackgroundImage(imageName) {
-    // Apply background image to all pages via CSS variable
-    const root = document.documentElement;
-    
-    if (imageName === 'none') {
-      // Remove background image CSS variable
-      root.style.setProperty('--background-image', 'none');
-      // Save to session
-      sessionStorage.setItem('backgroundImage', 'none');
-    } else {
-      // Apply selected background image
-      const imageUrl = `/images/backgrounds/${imageName}.png`;
-      root.style.setProperty('--background-image', `url('${imageUrl}')`);
-      // Save to session
-      sessionStorage.setItem('backgroundImage', imageName);
     }
   }
-
-  saveTheme() {
-    // Get current values
-    const theme = {};
-    Object.keys(this.colorInputs).forEach(key => {
-      theme[key] = this.colorInputs[key].color.value;
-    });
-
-    // Get selected theme name
-    const selectedTheme = this.themeSelect ? this.themeSelect.value : 'default';
-
-    // Save customized theme to session storage
-    sessionStorage.setItem('currentTheme', JSON.stringify(theme));
-    sessionStorage.setItem('selectedTheme', selectedTheme);
-
-    // Show success message
-    this.showStatus('Theme saved and applied to session!', 'success');
-
-    // TODO: When API is ready, save to database
-    // fetch('/api/themes', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify(theme)
-    // });
-  }
-
-  resetToDefaults() {
-    const selectedTheme = this.themeSelect ? this.themeSelect.value : 'default';
-    const theme = this.themes[selectedTheme] || this.defaultTheme;
-    this.applyTheme(theme);
+  
+  updateBackgroundDisplay(filename) {
+    // Set background selector value
+    if (filename) {
+      this.backgroundSelect.value = filename;
+    } else {
+      this.backgroundSelect.value = 'none';
+    }
     
-    // Clear any saved customizations from session
-    sessionStorage.removeItem('currentTheme');
-    
-    this.showStatus('Reset to base theme and cleared session customizations', 'success');
+    // Update download button state
+    const downloadBtn = document.getElementById('download-bg-btn');
+    downloadBtn.disabled = !filename;
   }
-
-  showStatus(message, type = 'success') {
-    if (!this.statusDiv) return;
-
+  
+  updateSaveButtonState(isSystemTheme) {
+    if (isSystemTheme) {
+      this.saveBtn.disabled = true;
+      this.saveBtn.title = 'System themes cannot be modified. Create a copy to edit.';
+    } else {
+      this.saveBtn.disabled = false;
+      this.saveBtn.title = 'Save changes to this theme';
+    }
+  }
+  
+  applyThemePreview() {
+    // Apply current color values to CSS variables for live preview
+    const root = document.documentElement;
+    
+    for (const [variableName, inputs] of Object.entries(this.colorInputs)) {
+      root.style.setProperty(`--${variableName}`, inputs.colorInput.value);
+    }
+    
+    // Apply background image
+    const bgValue = this.backgroundSelect.value;
+    if (bgValue && bgValue !== 'none') {
+      root.style.setProperty('--background-image', `url('/images/backgrounds/${bgValue}')`);
+    } else {
+      root.style.setProperty('--background-image', 'none');
+    }
+  }
+  
+  async applyTheme() {
+    if (!this.currentTheme || !this.currentThemeData) {
+      this.showStatus('No theme selected', 'error');
+      return;
+    }
+    
+    try {
+      // Save theme selection to settings (apply to session)
+      const response = await fetch('/api/settings/theme', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme_id: this.currentTheme })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to apply theme');
+      }
+      
+      // Get current preview colors
+      const currentSettings = {};
+      for (const [variableName, inputs] of Object.entries(this.colorInputs)) {
+        currentSettings[variableName] = inputs.colorInput.value;
+      }
+      
+      // Get current background image
+      const bgValue = this.backgroundSelect.value;
+      const backgroundImage = bgValue === 'none' ? null : bgValue;
+      
+      // Apply current preview colors and background
+      const root = document.documentElement;
+      Object.keys(currentSettings).forEach(key => {
+        root.style.setProperty(`--${key}`, currentSettings[key]);
+      });
+      
+      if (backgroundImage) {
+        root.style.setProperty('--background-image', `url('/images/backgrounds/${backgroundImage}')`);
+        sessionStorage.setItem('backgroundImage', backgroundImage);
+      } else {
+        root.style.setProperty('--background-image', 'none');
+        sessionStorage.setItem('backgroundImage', 'none');
+      }
+      
+      // Update sessionStorage with current preview
+      sessionStorage.setItem('currentTheme', JSON.stringify(currentSettings));
+      
+      this.showStatus('Theme applied to session successfully', 'success');
+    } catch (error) {
+      console.error('Error applying theme:', error);
+      this.showStatus('Error applying theme: ' + error.message, 'error');
+    }
+  }
+  
+  async loadAndApplyTheme() {
+    try {
+      // Fetch the current theme from settings
+      const response = await fetch('/api/settings/theme');
+      if (!response.ok) {
+        throw new Error('Failed to load theme');
+      }
+      
+      const theme = await response.json();
+      const root = document.documentElement;
+      const settings = theme.settings;
+      
+      // Apply all color variables
+      Object.keys(settings).forEach(key => {
+        root.style.setProperty(`--${key}`, settings[key]);
+      });
+      
+      // Apply background image
+      if (theme.background_image) {
+        root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
+        sessionStorage.setItem('backgroundImage', theme.background_image);
+      } else {
+        root.style.setProperty('--background-image', 'none');
+        sessionStorage.setItem('backgroundImage', 'none');
+      }
+      
+      // Update sessionStorage for persistence
+      sessionStorage.setItem('currentTheme', JSON.stringify(settings));
+    } catch (error) {
+      console.error('Error loading and applying theme:', error);
+      throw error;
+    }
+  }
+  
+  async saveTheme() {
+    if (!this.currentTheme || !this.currentThemeData) {
+      this.showStatus('No theme selected', 'error');
+      return;
+    }
+    
+    if (this.currentThemeData.system_theme) {
+      this.showStatus('Cannot save system themes', 'error');
+      return;
+    }
+    
+    try {
+      // Collect current color values
+      const settings = {};
+      for (const [variableName, inputs] of Object.entries(this.colorInputs)) {
+        settings[variableName] = inputs.colorInput.value;
+      }
+      
+      // Get background image
+      const bgValue = this.backgroundSelect.value;
+      const background_image = bgValue === 'none' ? null : bgValue;
+      
+      // Save to API
+      const response = await fetch(`/api/themes/${this.currentTheme}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          settings,
+          background_image
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save theme');
+      }
+      
+      const updatedTheme = await response.json();
+      this.themes[this.currentTheme] = updatedTheme;
+      this.currentThemeData = updatedTheme;
+      
+      this.showStatus('Theme saved successfully', 'success');
+    } catch (error) {
+      console.error('Error saving theme:', error);
+      this.showStatus('Error saving theme: ' + error.message, 'error');
+    }
+  }
+  
+  showCopyModal() {
+    const modal = document.getElementById('copy-theme-modal');
+    const nameInput = document.getElementById('copy-theme-name');
+    const errorDiv = document.getElementById('copy-theme-error');
+    
+    nameInput.value = this.currentThemeData ? `${this.currentThemeData.name} Copy` : '';
+    errorDiv.style.display = 'none';
+    modal.style.display = 'flex';
+    nameInput.focus();
+  }
+  
+  hideCopyModal() {
+    document.getElementById('copy-theme-modal').style.display = 'none';
+  }
+  
+  async confirmCopyTheme() {
+    const nameInput = document.getElementById('copy-theme-name');
+    const errorDiv = document.getElementById('copy-theme-error');
+    const newName = nameInput.value.trim();
+    
+    if (!newName) {
+      errorDiv.textContent = 'Theme name is required';
+      errorDiv.style.display = 'block';
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/themes/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_theme_id: this.currentTheme,
+          new_name: newName
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to copy theme');
+      }
+      
+      const newTheme = await response.json();
+      
+      // Add to themes list
+      this.themes[newTheme.id] = newTheme;
+      
+      // Add to select
+      const option = document.createElement('option');
+      option.value = newTheme.id;
+      option.textContent = newTheme.name;
+      this.themeSelect.appendChild(option);
+      
+      // Select the new theme
+      this.themeSelect.value = newTheme.id;
+      await this.onThemeChange();
+      
+      this.hideCopyModal();
+      this.showStatus('Theme copied successfully', 'success');
+    } catch (error) {
+      console.error('Error copying theme:', error);
+      errorDiv.textContent = error.message;
+      errorDiv.style.display = 'block';
+    }
+  }
+  
+  importTheme() {
+    document.getElementById('import-theme-input').click();
+  }
+  
+  async handleThemeImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const themeData = JSON.parse(text);
+      
+      // Validate theme data
+      if (!themeData.name || !themeData.settings) {
+        throw new Error('Invalid theme file format');
+      }
+      
+      // Import via API
+      const response = await fetch('/api/themes/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(themeData)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to import theme');
+      }
+      
+      const newTheme = await response.json();
+      
+      // Add to themes list
+      this.themes[newTheme.id] = newTheme;
+      
+      // Add to select
+      const option = document.createElement('option');
+      option.value = newTheme.id;
+      option.textContent = newTheme.name;
+      this.themeSelect.appendChild(option);
+      
+      // Select the new theme
+      this.themeSelect.value = newTheme.id;
+      await this.onThemeChange();
+      
+      this.showStatus('Theme imported successfully', 'success');
+    } catch (error) {
+      console.error('Error importing theme:', error);
+      this.showStatus('Error importing theme: ' + error.message, 'error');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  }
+  
+  async exportTheme() {
+    if (!this.currentTheme) {
+      this.showStatus('No theme selected', 'error');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/themes/${this.currentTheme}/export`);
+      if (!response.ok) {
+        throw new Error('Failed to export theme');
+      }
+      
+      const themeData = await response.json();
+      
+      // Create download link
+      const blob = new Blob([JSON.stringify(themeData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${themeData.name.replace(/\s+/g, '_')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      this.showStatus('Theme exported successfully', 'success');
+    } catch (error) {
+      console.error('Error exporting theme:', error);
+      this.showStatus('Error exporting theme: ' + error.message, 'error');
+    }
+  }
+  
+  uploadBackground() {
+    document.getElementById('bg-image-input').click();
+  }
+  
+  async handleBackgroundUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const response = await fetch('/api/themes/upload-image', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to upload image');
+      }
+      
+      const result = await response.json();
+      
+      // Reload background images list
+      await this.loadBackgroundImages();
+      
+      // Update the selector to the new image
+      this.backgroundSelect.value = result.filename;
+      
+      // Update current theme data
+      if (this.currentThemeData) {
+        this.currentThemeData.background_image = result.filename;
+      }
+      
+      // Apply the background change immediately
+      this.applyThemePreview();
+      
+      this.showStatus('Background image uploaded successfully', 'success');
+    } catch (error) {
+      console.error('Error uploading background:', error);
+      this.showStatus('Error uploading background: ' + error.message, 'error');
+    }
+    
+    // Reset file input
+    event.target.value = '';
+  }
+  
+  async downloadBackground() {
+    const bgValue = this.backgroundSelect.value;
+    
+    if (!bgValue || bgValue === 'none') {
+      this.showStatus('No background image selected', 'error');
+      return;
+    }
+    
+    try {
+      const url = `/api/themes/images/${bgValue}`;
+      
+      // Create download link
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = bgValue;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      this.showStatus('Background image downloaded', 'success');
+    } catch (error) {
+      console.error('Error downloading background:', error);
+      this.showStatus('Error downloading background: ' + error.message, 'error');
+    }
+  }
+  
+  showStatus(message, type) {
     this.statusDiv.textContent = message;
     this.statusDiv.className = `settings-status ${type}`;
     this.statusDiv.style.display = 'block';
-
+    
     setTimeout(() => {
       this.statusDiv.style.display = 'none';
-    }, 3000);
+    }, 5000);
   }
 }
 
-// Initialize when page loads
+// Initialize when DOM is ready
+// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   const themeBuilder = new ThemeBuilder();
   themeBuilder.init();

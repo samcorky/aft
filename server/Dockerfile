@@ -18,13 +18,17 @@ RUN apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY server/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY server/ .
+
+# Copy default background images to a template location
+RUN mkdir -p /app/backgrounds-defaults
+COPY www/images/backgrounds/ /app/backgrounds-defaults/
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app

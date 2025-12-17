@@ -18,7 +18,9 @@ services:
       - aft
 
   server:
-    build: ./server
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     container_name: aft-server
     restart: unless-stopped
     security_opt:
@@ -30,6 +32,7 @@ services:
       - "5000:5000"
     volumes:
       - ./backups:/app/backups
+      - ./backgrounds:/var/www/images/backgrounds
     networks:
       - aft
     healthcheck:

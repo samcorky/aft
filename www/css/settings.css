@@ -51,6 +51,22 @@
   padding-bottom: 8px;
 }
 
+.theme-selector-with-edit {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.theme-selector-with-edit select {
+  flex: 1;
+  max-width: 400px;
+}
+
+.theme-selector-with-edit .btn {
+  white-space: nowrap;
+}
+
+
 .setting-item {
   margin-bottom: 25px;
 }
@@ -595,12 +611,32 @@
 .modal-header {
   padding: 25px 30px;
   border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.modal-header h2 {
+.modal-header h2,
+.modal-header h3 {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
+  color: var(--text-bold);
+}
+
+.modal-close {
+  font-size: 28px;
+  font-weight: 300;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+  background: none;
+  border: none;
+  transition: color 0.2s ease;
+}
+
+.modal-close:hover {
   color: var(--text-bold);
 }
 

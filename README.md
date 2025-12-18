@@ -113,6 +113,10 @@ Use at your own risk.
   - **Rename**: Update theme names for better organization
   - **Import/Export**: Share themes as JSON files
   - **Apply**: Instantly preview and apply themes to your session
+- **Background Images** - Select from included background images or upload custom images
+  - Pre-loaded with 4 default backgrounds (At the Beach, Sunrise, Welcome to the Jungle, etc.)
+  - Upload custom background images for unique theme styling
+  - Background images stored in Docker named volume (persistent across restarts)
 - **Background Images** - Select from available background images or upload custom images
 - **Live Preview** - See color changes in real-time as you edit
 - **Organized Theme List** - Themes grouped by User Themes and System Themes, alphabetically sorted

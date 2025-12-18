@@ -32,7 +32,7 @@ services:
       - "5000:5000"
     volumes:
       - ./backups:/app/backups
-      - ./backgrounds:/var/www/images/backgrounds
+      - backgrounds_volume:/var/www/images/backgrounds
     networks:
       - aft
     healthcheck:
@@ -59,10 +59,14 @@ services:
     volumes:
       - ./www:/usr/share/nginx/html
       - ./server/nginx.conf:/etc/nginx/conf.d/default.conf
-      - ./backgrounds:/usr/share/nginx/html/images/backgrounds
+      - backgrounds_volume:/usr/share/nginx/html/images/backgrounds
     networks:
       - aft
 
 networks:
   aft:
     driver: bridge
+
+volumes:
+  backgrounds_volume:
+    driver: local

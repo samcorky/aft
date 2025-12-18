@@ -3,22 +3,14 @@
 
 set -e  # Exit on error
 
-# Copy default background images if the backgrounds directory is empty
+echo "Verifying backgrounds directory..."
 BACKGROUNDS_DIR="/var/www/images/backgrounds"
-DEFAULTS_DIR="/app/backgrounds-defaults"
+mkdir -p "$BACKGROUNDS_DIR"
 
-if [ -d "$DEFAULTS_DIR" ] && [ -n "$(ls -A "$DEFAULTS_DIR" 2>/dev/null)" ]; then
-    echo "Checking backgrounds directory..."
-    mkdir -p "$BACKGROUNDS_DIR"
-    
-    # Check if directory is empty (excluding hidden files)
-    if [ -z "$(ls -A "$BACKGROUNDS_DIR" 2>/dev/null)" ]; then
-        echo "Copying default background images..."
-        cp "$DEFAULTS_DIR"/* "$BACKGROUNDS_DIR/" 2>/dev/null || true
-        echo "Default background images copied."
-    else
-        echo "Background images already exist."
-    fi
+if [ -n "$(ls -A "$BACKGROUNDS_DIR" 2>/dev/null)" ]; then
+    echo "✓ Background images available ($(ls -1 "$BACKGROUNDS_DIR" | wc -l) files)"
+else
+    echo "⚠ No background images found - users can upload custom images"
 fi
 
 echo "Waiting for database to be ready..."

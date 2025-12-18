@@ -33,6 +33,13 @@ COPY www/images/backgrounds/ /app/backgrounds-defaults/
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash app
 
+# Copy default background images and set up the backgrounds directory
+RUN mkdir -p /var/www/images/backgrounds \
+    && cp -r /app/backgrounds-defaults/* /var/www/images/backgrounds/ \
+    && chown -R app:app /var/www/images \
+    && chmod 755 /var/www/images \
+    && chmod 755 /var/www/images/backgrounds
+
 # Fix line endings and make startup script executable
 RUN sed -i 's/\r$//' startup.sh \
     && chmod +x startup.sh \

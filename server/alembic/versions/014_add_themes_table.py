@@ -184,13 +184,13 @@ def upgrade():
         default_theme_id = default_theme_row[0] if default_theme_row else 1
         
         # Check if the selected_theme setting already exists
-        result = conn.execute(sa.text("SELECT COUNT(*) FROM settings WHERE `key` = 'selected_theme'"))
+        result = conn.execute(sa.text("SELECT COUNT(*) FROM settings WHERE key = 'selected_theme'"))
         count = result.fetchone()[0]
         
         if count == 0:
             # Insert the selected_theme setting
             conn.execute(
-                sa.text("INSERT INTO settings (`key`, `value`) VALUES ('selected_theme', :theme_id)"),
+                sa.text("INSERT INTO settings (key, value) VALUES ('selected_theme', :theme_id)"),
                 {'theme_id': str(default_theme_id)}
             )
 
@@ -204,7 +204,7 @@ def downgrade():
     
     # Remove selected_theme setting from settings table
     if 'settings' in inspector.get_table_names():
-        op.execute(sa.text("DELETE FROM settings WHERE `key` = 'selected_theme'"))
+        op.execute(sa.text("DELETE FROM settings WHERE key = 'selected_theme'"))
     
     # Drop themes table
     if 'themes' in inspector.get_table_names():

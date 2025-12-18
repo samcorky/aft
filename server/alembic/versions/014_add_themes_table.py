@@ -136,8 +136,8 @@ def upgrade():
                 'settings': json.dumps({
                     'primary-color': '#10B981',
                     'primary-hover': '#059669',
-                    'secondary-color': '#F59E0B',
-                    'secondary-hover': '#D97706',
+                    'secondary-color': '#A86B00',
+                    'secondary-hover': '#934F01',
                     'success-color': '#22C55E',
                     'error-color': '#DC2626',
                     'warning-color': '#FBBF24',
@@ -154,8 +154,8 @@ def upgrade():
                     'header-menu-background': '#FEF3C7',
                     'header-menu-hover': '#FDE68A',
                     'header-menu-text-color': '#78350F',
-                    'header-button-background': '#CA8A04',
-                    'header-button-hover': '#A16207',
+                    'header-button-background': '#A86B00',
+                    'header-button-hover': '#934F01',
                     'icon-color': '#F0FDF4'
                 })
             }

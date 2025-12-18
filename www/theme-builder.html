@@ -30,6 +30,7 @@
           <div class="theme-buttons-container" role="toolbar" aria-label="Theme actions">
             <div class="theme-buttons-row">
               <button class="btn btn-secondary" id="rename-theme-btn" title="Rename this theme (custom themes only)" aria-label="Rename the selected theme">Rename</button>
+              <button class="btn btn-danger" id="delete-theme-btn" title="Delete this custom theme permanently" aria-label="Delete the selected theme">Delete</button>
               <button class="btn btn-secondary" id="apply-theme-btn" title="Make the selected theme the current theme in use" aria-label="Apply this theme to the current session">Apply Theme</button>
               <button class="btn btn-primary" id="save-theme-btn" aria-label="Save theme changes" title="Save changes to the selected theme">Save Theme</button>
             </div>
@@ -341,6 +342,24 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="copy-theme-cancel" aria-label="Cancel copy">Cancel</button>
         <button class="btn btn-primary" id="copy-theme-confirm" aria-label="Create copy of theme">Create Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Theme Modal -->
+  <div id="delete-theme-modal" class="modal" style="display: none;" role="alertdialog" aria-modal="true" aria-labelledby="delete-theme-title" aria-describedby="delete-theme-desc">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="delete-theme-title">Delete Theme</h3>
+        <button class="modal-close" id="delete-theme-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-theme-desc">Are you sure you want to permanently delete this theme? This action cannot be undone.</p>
+        <p><strong>Theme: <span id="delete-theme-name"></span></strong></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="delete-theme-cancel" aria-label="Cancel deletion">Cancel</button>
+        <button class="btn btn-danger" id="delete-theme-confirm" aria-label="Confirm deletion">Delete</button>
       </div>
     </div>
   </div>

@@ -91,6 +91,12 @@ class ThemeBuilder {
     document.getElementById('rename-theme-cancel').addEventListener('click', () => this.hideRenameModal());
     document.getElementById('rename-theme-confirm').addEventListener('click', () => this.confirmRenameTheme());
     
+    // Delete theme functionality
+    document.getElementById('delete-theme-btn').addEventListener('click', () => this.showDeleteModal());
+    document.getElementById('delete-theme-close').addEventListener('click', () => this.hideDeleteModal());
+    document.getElementById('delete-theme-cancel').addEventListener('click', () => this.hideDeleteModal());
+    document.getElementById('delete-theme-confirm').addEventListener('click', () => this.confirmDeleteTheme());
+    
     // Import/Export
     document.getElementById('import-theme-btn').addEventListener('click', () => this.importTheme());
     document.getElementById('export-theme-btn').addEventListener('click', () => this.exportTheme());
@@ -342,12 +348,15 @@ class ThemeBuilder {
   
   updateSaveButtonState(isSystemTheme) {
     const renameBtn = document.getElementById('rename-theme-btn');
+    const deleteBtn = document.getElementById('delete-theme-btn');
     
     if (isSystemTheme) {
       this.saveBtn.disabled = true;
       this.saveBtn.title = 'System themes cannot be modified. Create a copy to edit.';
       renameBtn.disabled = true;
       renameBtn.title = 'System themes cannot be renamed. Create a copy to edit.';
+      deleteBtn.disabled = true;
+      deleteBtn.title = 'System themes cannot be deleted.';
       
       // Disable all color inputs
       for (const inputs of Object.values(this.colorInputs)) {
@@ -363,6 +372,8 @@ class ThemeBuilder {
       this.saveBtn.title = 'Save changes to this theme';
       renameBtn.disabled = false;
       renameBtn.title = 'Rename the selected theme';
+      deleteBtn.disabled = false;
+      deleteBtn.title = 'Delete this custom theme permanently';
       
       // Enable all color inputs
       for (const inputs of Object.values(this.colorInputs)) {
@@ -928,6 +939,93 @@ class ThemeBuilder {
         errorDiv.textContent = error.message;
       }
       errorDiv.style.display = 'block';
+    }
+  }
+  
+  showDeleteModal() {
+    if (!this.currentTheme || !this.currentThemeData) {
+      this.showErrorToast('No theme selected');
+      return;
+    }
+    
+    if (this.currentThemeData.system_theme) {
+      this.showErrorToast('Cannot delete system themes');
+      return;
+    }
+    
+    const modal = document.getElementById('delete-theme-modal');
+    const nameSpan = document.getElementById('delete-theme-name');
+    
+    nameSpan.textContent = this.currentThemeData.name;
+    modal.style.display = 'flex';
+  }
+  
+  hideDeleteModal() {
+    document.getElementById('delete-theme-modal').style.display = 'none';
+  }
+  
+  async confirmDeleteTheme() {
+    if (!this.currentTheme || !this.currentThemeData) {
+      this.showErrorToast('No theme selected');
+      this.hideDeleteModal();
+      return;
+    }
+    
+    const confirmBtn = document.getElementById('delete-theme-confirm');
+    const originalText = confirmBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      confirmBtn.textContent = 'Deleting...';
+      confirmBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+      const response = await fetch(`/api/themes/${this.currentTheme}`, {
+        method: 'DELETE',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const result = await this.parseResponse(response);
+      
+      if (!response.ok || (result.success === false)) {
+        throw new Error(result.message || result.error || 'Failed to delete theme');
+      }
+      
+      clearTimeout(loadingTimeout);
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
+      this.hideDeleteModal();
+      this.showSuccessToast('Theme deleted successfully');
+      
+      // Reload themes list and select the first available theme
+      await this.loadThemes();
+      if (this.themeSelect.options.length > 0) {
+        this.themeSelect.value = this.themeSelect.options[0].value;
+        await this.loadTheme();
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
+      this.hideDeleteModal();
+      
+      if (error.name === 'AbortError') {
+        console.error('Delete theme request timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error deleting theme:', error);
+        this.showErrorToast('Error deleting theme: ' + error.message);
+      }
     }
   }
   

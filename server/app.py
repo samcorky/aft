@@ -6688,6 +6688,52 @@ def rename_theme(theme_id):
         session.close()
 
 
+@app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
+def delete_theme(theme_id):
+    """Delete a custom theme.
+    
+    Removes a theme from the database. System themes cannot be deleted.
+    If the deleted theme is currently selected, the selected_theme setting
+    will become invalid and should be updated by the client.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to delete
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with confirmation message
+            - 400: Cannot delete system themes
+            - 404: Theme with specified ID not found
+            - 500: Server error during deletion
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        DELETE /api/themes/5
+        Response: {"success": true, "message": "Theme deleted successfully"}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot delete system themes", 400)
+        
+        session.delete(theme)
+        session.commit()
+        
+        return create_success_response(message="Theme deleted successfully")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error deleting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error deleting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
 @app.route("/api/themes/copy", methods=["POST"])
 def copy_theme():
     """Create a duplicate of an existing theme with a new name.

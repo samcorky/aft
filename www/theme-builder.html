@@ -19,35 +19,35 @@
       <h2>Theme Builder</h2>
       <p class="page-description">Create and customise colour themes for the application.</p>
       
-      <div class="settings-section">
+      <div class="settings-section" role="region" aria-labelledby="theme-management-heading">
         <div class="theme-management-bar">
           <div class="theme-selector-group">
-            <label for="theme-builder-select">Theme</label>
-            <select id="theme-builder-select" class="setting-select">
+            <label for="theme-builder-select" id="theme-selector-label">Theme</label>
+            <select id="theme-builder-select" class="setting-select" aria-labelledby="theme-selector-label" aria-required="true">
               <!-- Themes will be populated dynamically -->
             </select>
           </div>
-          <div class="theme-buttons-container">
+          <div class="theme-buttons-container" role="toolbar" aria-label="Theme actions">
             <div class="theme-buttons-row">
-              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename the selected theme">Rename</button>
-              <button class="btn btn-secondary" id="apply-theme-btn" title="Apply this theme to the current session">Apply Theme</button>
-              <button class="btn btn-primary" id="save-theme-btn">Save Theme</button>
+              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename this theme (custom themes only)" aria-label="Rename the selected theme">Rename</button>
+              <button class="btn btn-secondary" id="apply-theme-btn" title="Make the selected theme the current theme in use" aria-label="Apply this theme to the current session">Apply Theme</button>
+              <button class="btn btn-primary" id="save-theme-btn" aria-label="Save theme changes" title="Save changes to the selected theme">Save Theme</button>
             </div>
             <div class="theme-buttons-row">
-              <button class="btn btn-secondary" id="copy-theme-btn" title="Create a copy of the selected theme">Copy Theme</button>
-              <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from JSON file">Import Theme</button>
-              <button class="btn btn-secondary" id="export-theme-btn" title="Export current theme as JSON">Export Theme</button>
+              <button class="btn btn-secondary" id="copy-theme-btn" title="Create a new custom theme by copying this one. Use this to customize system themes." aria-label="Create a copy of the selected theme">Copy Theme</button>
+              <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from a JSON file shared by others" aria-label="Import a theme from JSON file">Import Theme</button>
+              <button class="btn btn-secondary" id="export-theme-btn" title="Export this theme as JSON to share with others or backup" aria-label="Export current theme as JSON">Export Theme</button>
             </div>
           </div>
         </div>
         <p class="setting-help">Select a theme to edit. System themes cannot be saved - copy them to create your own version.</p>
       </div>
 
-      <div class="settings-section">
-        <h3>Colour Variables</h3>
+      <div class="settings-section" role="region" aria-labelledby="color-variables-heading">
+        <h3 id="color-variables-heading">Colour Variables</h3>
         
-        <div class="theme-section">
-          <h4>Primary</h4>
+        <div class="theme-section" role="group" aria-labelledby="primary-colors-heading">
+          <h4 id="primary-colors-heading">Primary</h4>
           <div class="theme-grid">
             <div class="theme-field">
               <label for="primary-color">Primary Colour</label>
@@ -83,8 +83,8 @@
           </div>
         </div>
 
-        <div class="theme-section">
-          <h4>Status</h4>
+        <div class="theme-section" role="group" aria-labelledby="status-colors-heading">
+          <h4 id="status-colors-heading">Status</h4>
           <div class="theme-grid">
             <div class="theme-field">
               <label for="success-color">Success Colour</label>
@@ -268,86 +268,86 @@
       </div>
 
       <div class="settings-actions">
-        <div id="theme-status" class="settings-status"></div>
+        <div id="theme-status" class="settings-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
     </div>
   </main>
 
   <!-- Unsaved Changes Modal -->
-  <div id="unsaved-changes-modal" class="modal" style="display: none;">
+  <div id="unsaved-changes-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="unsaved-changes-title" aria-describedby="unsaved-changes-desc">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Unsaved Changes</h3>
-        <span class="modal-close" id="unsaved-changes-close">&times;</span>
+        <h3 id="unsaved-changes-title">Unsaved Changes</h3>
+        <button class="modal-close" id="unsaved-changes-close" aria-label="Close dialog">&times;</button>
       </div>
       <div class="modal-body">
-        <p>You have unsaved changes to this theme. What would you like to do?</p>
+        <p id="unsaved-changes-desc">You have unsaved changes to this theme. What would you like to do?</p>
       </div>
       <div class="modal-footer" style="gap: 10px;">
-        <button class="btn btn-secondary" id="unsaved-discard">Discard & Apply</button>
-        <button class="btn btn-primary" id="unsaved-save">Save & Apply</button>
-        <button class="btn btn-secondary" id="unsaved-cancel">Cancel</button>
+        <button class="btn btn-secondary" id="unsaved-discard" aria-label="Discard changes and apply theme">Discard & Apply</button>
+        <button class="btn btn-primary" id="unsaved-save" aria-label="Save changes and apply theme">Save & Apply</button>
+        <button class="btn btn-secondary" id="unsaved-cancel" aria-label="Cancel and return to editing">Cancel</button>
       </div>
     </div>
   </div>
 
   <!-- Import Warning Modal -->
-  <div id="import-warning-modal" class="modal" style="display: none;">
+  <div id="import-warning-modal" class="modal" style="display: none;" role="alertdialog" aria-modal="true" aria-labelledby="import-warning-title" aria-describedby="import-warning-message">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Import Error</h3>
-        <span class="modal-close" id="import-warning-close">&times;</span>
+        <h3 id="import-warning-title">Import Error</h3>
+        <button class="modal-close" id="import-warning-close" aria-label="Close dialog">&times;</button>
       </div>
       <div class="modal-body">
         <p id="import-warning-message"></p>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="import-warning-ok">OK</button>
+        <button class="btn btn-secondary" id="import-warning-ok" aria-label="Close error dialog">OK</button>
       </div>
     </div>
   </div>
 
   <!-- Rename Theme Modal -->
-  <div id="rename-theme-modal" class="modal" style="display: none;">
+  <div id="rename-theme-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="rename-theme-title" aria-describedby="rename-theme-desc">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Rename Theme</h3>
-        <span class="modal-close" id="rename-theme-close">&times;</span>
+        <h3 id="rename-theme-title">Rename Theme</h3>
+        <button class="modal-close" id="rename-theme-close" aria-label="Close dialog">&times;</button>
       </div>
       <div class="modal-body">
-        <p>Enter a new name for the theme:</p>
-        <input type="text" id="rename-theme-name" class="setting-input" placeholder="Theme Name" maxlength="100">
-        <div id="rename-theme-error" class="error-message" style="display: none;"></div>
+        <label for="rename-theme-name" id="rename-theme-desc">Enter a new name for the theme:</label>
+        <input type="text" id="rename-theme-name" class="setting-input" placeholder="Theme Name" maxlength="100" aria-required="true" aria-describedby="rename-theme-error" aria-invalid="false">
+        <div id="rename-theme-error" class="error-message" role="alert" style="display: none;" aria-live="polite"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="rename-theme-cancel">Cancel</button>
-        <button class="btn btn-primary" id="rename-theme-confirm">Rename</button>
+        <button class="btn btn-secondary" id="rename-theme-cancel" aria-label="Cancel rename">Cancel</button>
+        <button class="btn btn-primary" id="rename-theme-confirm" aria-label="Confirm rename">Rename</button>
       </div>
     </div>
   </div>
 
   <!-- Copy Theme Modal -->
-  <div id="copy-theme-modal" class="modal" style="display: none;">
+  <div id="copy-theme-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="copy-theme-title" aria-describedby="copy-theme-desc">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Copy Theme</h3>
-        <span class="modal-close" id="copy-theme-close">&times;</span>
+        <h3 id="copy-theme-title">Copy Theme</h3>
+        <button class="modal-close" id="copy-theme-close" aria-label="Close dialog">&times;</button>
       </div>
       <div class="modal-body">
-        <p>Enter a name for the new theme:</p>
-        <input type="text" id="copy-theme-name" class="setting-input" placeholder="My Custom Theme" maxlength="100">
-        <div id="copy-theme-error" class="error-message" style="display: none;"></div>
+        <label for="copy-theme-name" id="copy-theme-desc">Enter a name for the new theme:</label>
+        <input type="text" id="copy-theme-name" class="setting-input" placeholder="My Custom Theme" maxlength="100" aria-required="true" aria-describedby="copy-theme-error" aria-invalid="false">
+        <div id="copy-theme-error" class="error-message" role="alert" style="display: none;" aria-live="polite"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" id="copy-theme-cancel">Cancel</button>
-        <button class="btn btn-primary" id="copy-theme-confirm">Create Copy</button>
+        <button class="btn btn-secondary" id="copy-theme-cancel" aria-label="Cancel copy">Cancel</button>
+        <button class="btn btn-primary" id="copy-theme-confirm" aria-label="Create copy of theme">Create Copy</button>
       </div>
     </div>
   </div>
 
   <!-- File upload input (hidden) -->
-  <input type="file" id="bg-image-input" accept="image/*" style="display: none;">
-  <input type="file" id="import-theme-input" accept=".json,application/json" style="display: none;">
+  <input type="file" id="bg-image-input" accept="image/*" style="display: none;" aria-label="Select background image file">
+  <input type="file" id="import-theme-input" accept=".json,application/json" style="display: none;" aria-label="Select theme JSON file to import">
 
   <script src="/js/utils.js"></script>
   <script src="/js/notifications.js"></script>

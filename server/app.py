@@ -6504,15 +6504,20 @@ else:
 
 @app.route("/api/themes", methods=["GET"])
 def get_themes():
-    """Get all themes.
-    ---
-    tags:
-      - Themes
-    responses:
-      200:
-        description: List of all themes
-      500:
-        description: Internal server error
+    """Retrieve all themes from the database.
+    
+    Fetches and returns a list of all available themes, including both
+    system themes and user-created custom themes. Each theme includes
+    its ID, name, settings, background image, and system theme flag.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with list of theme objects
+            - 500: Server error during database query
+    
+    Example:
+        GET /api/themes
+        Response: [{"id": 1, "name": "Dark", "settings": {...}, ...}, ...]
     """
     session = SessionLocal()
     try:
@@ -6527,23 +6532,24 @@ def get_themes():
 
 @app.route("/api/themes/<int:theme_id>", methods=["GET"])
 def get_theme(theme_id):
-    """Get a specific theme by ID.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: theme_id
-        in: path
-        type: integer
-        required: true
-        description: The ID of the theme
-    responses:
-      200:
-        description: Theme data
-      404:
-        description: Theme not found
-      500:
-        description: Internal server error
+    """Retrieve a specific theme by its unique ID.
+    
+    Fetches detailed information about a single theme including its
+    name, color settings, background image, and whether it's a system
+    theme. Useful for loading a theme for preview or editing.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to retrieve
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with theme object
+            - 404: Theme with specified ID not found
+            - 500: Server error during database query
+    
+    Example:
+        GET /api/themes/5
+        Response: {"id": 5, "name": "Custom Blue", "settings": {...}, ...}
     """
     session = SessionLocal()
     try:
@@ -6560,40 +6566,33 @@ def get_theme(theme_id):
 
 @app.route("/api/themes/<int:theme_id>", methods=["PUT"])
 def update_theme(theme_id):
-    """Update a theme (cannot update system themes).
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: theme_id
-        in: path
-        type: integer
-        required: true
-        description: The ID of the theme
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            name:
-              type: string
-              description: Theme name (optional)
-            settings:
-              type: object
-              description: Theme settings object (optional)
-            background_image:
-              type: string
-              description: Background image filename (optional)
-    responses:
-      200:
-        description: Theme updated successfully
-      400:
-        description: Cannot update system theme
-      404:
-        description: Theme not found
-      500:
-        description: Internal server error
+    """Update an existing custom theme's properties.
+    
+    Modifies one or more properties of a user-created theme. System themes
+    cannot be modified. Supports partial updates - only specified fields
+    are changed. When updating the name, uniqueness is validated.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to update
+    
+    Request Body:
+        name (str, optional): New name for the theme (must be unique)
+        settings (dict, optional): Theme color settings and configurations
+        background_image (str, optional): Filename of background image
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with updated theme object
+            - 400: Cannot update system theme or name already exists
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/themes/5
+        Body: {"name": "Updated Theme", "settings": {"primary-color": "#3498db"}}
     """
     session = SessionLocal()
     try:
@@ -6631,36 +6630,31 @@ def update_theme(theme_id):
 
 @app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
 def rename_theme(theme_id):
-    """Rename a theme.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: theme_id
-        in: path
-        type: integer
-        required: true
-        description: ID of the theme to rename
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required:
-            - name
-          properties:
-            name:
-              type: string
-              description: New theme name
-    responses:
-      200:
-        description: Theme renamed successfully
-      400:
-        description: Invalid request or name already exists
-      404:
-        description: Theme not found
-      500:
-        description: Internal server error
+    """Change the name of an existing custom theme.
+    
+    Provides a dedicated endpoint for renaming themes. System themes
+    cannot be renamed. The new name must be unique across all themes.
+    This is a convenience endpoint that performs only name updates.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to rename
+    
+    Request Body:
+        name (str, required): The new name for the theme
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with updated theme object
+            - 400: Missing name, cannot rename system theme, or name exists
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/themes/5/rename
+        Body: {"name": "My Blue Theme"}
     """
     session = SessionLocal()
     try:
@@ -6696,35 +6690,30 @@ def rename_theme(theme_id):
 
 @app.route("/api/themes/copy", methods=["POST"])
 def copy_theme():
-    """Copy an existing theme with a new name.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required:
-            - source_theme_id
-            - new_name
-          properties:
-            source_theme_id:
-              type: integer
-              description: ID of the theme to copy
-            new_name:
-              type: string
-              description: Name for the new theme
-    responses:
-      201:
-        description: Theme copied successfully
-      400:
-        description: Invalid request or name already exists
-      404:
-        description: Source theme not found
-      500:
-        description: Internal server error
+    """Create a duplicate of an existing theme with a new name.
+    
+    Copies all settings and properties from a source theme to create a new
+    independent theme. This is useful for customizing existing themes without
+    modifying the original. The copy is always created as a custom (non-system)
+    theme, even if the source is a system theme.
+    
+    Request Body:
+        source_theme_id (int, required): ID of the theme to duplicate
+        new_name (str, required): Unique name for the new theme
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 201: Success with newly created theme object
+            - 400: Missing required fields or name already exists
+            - 404: Source theme with specified ID not found
+            - 500: Server error during creation
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        POST /api/themes/copy
+        Body: {"source_theme_id": 1, "new_name": "My Custom Dark"}
     """
     session = SessionLocal()
     try:
@@ -6766,36 +6755,34 @@ def copy_theme():
 
 @app.route("/api/themes/import", methods=["POST"])
 def import_theme():
-    """Import a theme from JSON data.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required:
-            - name
-            - settings
-          properties:
-            name:
-              type: string
-              description: Theme name
-            settings:
-              type: object
-              description: Theme settings object
-            background_image:
-              type: string
-              description: Background image filename (optional)
-    responses:
-      201:
-        description: Theme imported successfully
-      400:
-        description: Invalid theme data or name already exists
-      500:
-        description: Internal server error
+    """Import a theme from external JSON data.
+    
+    Creates a new theme from JSON configuration, typically from an exported
+    theme file. Validates that the settings object contains required color
+    properties. The imported theme is created as a custom (non-system) theme
+    with a unique name.
+    
+    Request Body:
+        name (str, required): Unique name for the imported theme
+        settings (dict, required): Theme configuration with required keys:
+            - primary-color: Main UI color
+            - text-color: Text color
+            - background-light: Light background color
+            - card-bg-color: Card background color
+        background_image (str, optional): Background image filename
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 201: Success with newly created theme object
+            - 400: Missing fields, invalid structure, or name already exists
+            - 500: Server error during creation
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        POST /api/themes/import
+        Body: {"name": "Imported", "settings": {"primary-color": "#3498db", ...}}
     """
     session = SessionLocal()
     try:
@@ -6837,23 +6824,25 @@ def import_theme():
 
 @app.route("/api/themes/<int:theme_id>/export", methods=["GET"])
 def export_theme(theme_id):
-    """Export a theme as JSON.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: theme_id
-        in: path
-        type: integer
-        required: true
-        description: The ID of the theme to export
-    responses:
-      200:
-        description: Theme JSON data
-      404:
-        description: Theme not found
-      500:
-        description: Internal server error
+    """Export a theme configuration as JSON data.
+    
+    Retrieves a theme and formats it as a JSON object suitable for export
+    and sharing. The exported data includes the theme name, all settings,
+    and background image reference. This data can be imported on other
+    installations using the import_theme endpoint.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to export
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with exportable theme object (name, settings, background_image)
+            - 404: Theme with specified ID not found
+            - 500: Server error during retrieval
+    
+    Example:
+        GET /api/themes/5/export
+        Response: {"name": "My Theme", "settings": {...}, "background_image": "..."}
     """
     session = SessionLocal()
     try:
@@ -6877,25 +6866,27 @@ def export_theme(theme_id):
 
 @app.route("/api/themes/upload-image", methods=["POST"])
 def upload_theme_image():
-    """Upload a background image for themes.
-    ---
-    tags:
-      - Themes
-    consumes:
-      - multipart/form-data
-    parameters:
-      - name: image
-        in: formData
-        type: file
-        required: true
-        description: The background image file
-    responses:
-      200:
-        description: Image uploaded successfully
-      400:
-        description: No file provided or invalid file type
-      500:
-        description: Internal server error
+    """Upload a background image file for use in themes.
+    
+    Accepts image file uploads via multipart form data and saves them to
+    the backgrounds directory. Generates a unique timestamped filename to
+    prevent collisions. Only common image formats are accepted.
+    
+    Form Data:
+        image (file, required): Image file to upload
+            Allowed formats: .jpg, .jpeg, .png, .gif, .webp
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with generated filename {"filename": "theme_bg_1234567890.jpg"}
+            - 400: No file provided, empty filename, or invalid file type
+            - 500: Server error during file save
+    
+    Example:
+        POST /api/themes/upload-image
+        Content-Type: multipart/form-data
+        image: [binary file data]
+        Response: {"filename": "theme_bg_1702839123.jpg"}
     """
     try:
         if 'image' not in request.files:
@@ -6931,22 +6922,21 @@ def upload_theme_image():
 
 @app.route("/api/themes/images", methods=["GET"])
 def list_theme_images():
-    """List all available background images.
-    ---
-    tags:
-      - Themes
-    responses:
-      200:
-        description: List of background image filenames
-        schema:
-          type: object
-          properties:
-            images:
-              type: array
-              items:
-                type: string
-      500:
-        description: Internal server error
+    """List all available background images in the backgrounds directory.
+    
+    Scans the backgrounds directory and returns a sorted list of all image
+    files that can be used as theme backgrounds. Creates the directory if
+    it doesn't exist. Only files with supported image extensions are included.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with object containing images array
+                {"images": ["theme_bg_123.jpg", "custom_bg.png", ...]}
+            - 500: Server error during directory scan
+    
+    Example:
+        GET /api/themes/images
+        Response: {"images": ["bg1.jpg", "bg2.png", "theme_bg_1702839123.webp"]}
     """
     try:
         backgrounds_dir = Path('/var/www/images/backgrounds')
@@ -6971,23 +6961,26 @@ def list_theme_images():
 
 @app.route("/api/themes/images/<filename>", methods=["GET"])
 def get_theme_image(filename):
-    """Download a theme background image.
-    ---
-    tags:
-      - Themes
-    parameters:
-      - name: filename
-        in: path
-        type: string
-        required: true
-        description: The filename of the background image
-    responses:
-      200:
-        description: Image file
-      404:
-        description: Image not found
-      500:
-        description: Internal server error
+    """Retrieve a specific background image file.
+    
+    Downloads a background image from the backgrounds directory. Includes
+    security validation to prevent directory traversal attacks - the resolved
+    path must be within the backgrounds directory. Returns the image file
+    with appropriate content type headers.
+    
+    Args:
+        filename (str): Name of the image file to retrieve
+    
+    Returns:
+        tuple: (File or JSON response, HTTP status code)
+            - 200: Success with image file data
+            - 400: Invalid file path (security violation)
+            - 404: Image file not found
+            - 500: Server error during file retrieval
+    
+    Example:
+        GET /api/themes/images/theme_bg_1702839123.jpg
+        Response: [binary image data with appropriate content-type]
     """
     try:
         backgrounds_dir = Path('/var/www/images/backgrounds')
@@ -7008,17 +7001,21 @@ def get_theme_image(filename):
 
 @app.route("/api/settings/theme", methods=["GET"])
 def get_current_theme():
-    """Get the currently selected theme for the application.
-    ---
-    tags:
-      - Settings
-    responses:
-      200:
-        description: Current theme data
-      404:
-        description: No theme selected or theme not found
-      500:
-        description: Internal server error
+    """Retrieve the currently active theme for the application.
+    
+    Looks up the 'selected_theme' setting to determine which theme is
+    currently active, then returns the complete theme object. This is
+    used by the frontend to apply the active theme on page load.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with active theme object
+            - 404: No theme selected in settings or selected theme not found
+            - 500: Server error during retrieval
+    
+    Example:
+        GET /api/settings/theme
+        Response: {"id": 1, "name": "Dark", "settings": {...}, ...}
     """
     session = SessionLocal()
     try:
@@ -7043,31 +7040,30 @@ def get_current_theme():
 
 @app.route("/api/settings/theme", methods=["PUT"])
 def update_current_theme():
-    """Update the currently selected theme.
-    ---
-    tags:
-      - Settings
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          required:
-            - theme_id
-          properties:
-            theme_id:
-              type: integer
-              description: The ID of the theme to select
-    responses:
-      200:
-        description: Theme selection updated
-      400:
-        description: Invalid request
-      404:
-        description: Theme not found
-      500:
-        description: Internal server error
+    """Set the active theme for the application.
+    
+    Updates the 'selected_theme' setting to change which theme is currently
+    active. Validates that the specified theme exists before updating.
+    Creates the setting if it doesn't exist. This change affects all users
+    of the application.
+    
+    Request Body:
+        theme_id (int, required): ID of the theme to activate
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with confirmation message
+            - 400: Missing theme_id in request body
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/settings/theme
+        Body: {"theme_id": 5}
+        Response: {"status": "success", "message": "Theme selection updated"}
     """
     session = SessionLocal()
     try:

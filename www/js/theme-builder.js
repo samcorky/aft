@@ -11,6 +11,52 @@ class ThemeBuilder {
     this.currentThemeData = null;
   }
   
+  /**
+   * Safely parse JSON response, handling non-JSON errors
+   * @param {Response} response - Fetch response object
+   * @returns {Promise<Object>} Parsed JSON data or error object
+   */
+  async parseResponse(response) {
+    try {
+      const data = await response.json();
+      if (!response.ok) {
+        // Response parsed successfully but HTTP status indicates error
+        return data;
+      }
+      return data;
+    } catch (error) {
+      // JSON parsing failed
+      return {
+        success: false,
+        message: response.ok 
+          ? `Invalid JSON response from server` 
+          : `HTTP error! status: ${response.status}`
+      };
+    }
+  }
+  
+  /**
+   * Show error toast notification
+   */
+  showErrorToast(message) {
+    if (window.header && typeof window.header.showErrorToast === 'function') {
+      window.header.showErrorToast(message);
+    } else {
+      this.showStatus(message, 'error');
+    }
+  }
+  
+  /**
+   * Show success toast notification
+   */
+  showSuccessToast(message) {
+    if (window.header && typeof window.header.showSuccessToast === 'function') {
+      window.header.showSuccessToast(message);
+    } else {
+      this.showStatus(message, 'success');
+    }
+  }
+  
   async init() {
     this.themeSelect = document.getElementById('theme-builder-select');
     this.saveBtn = document.getElementById('save-theme-btn');
@@ -96,13 +142,21 @@ class ThemeBuilder {
   }
   
   async loadThemes() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch('/api/themes');
-      if (!response.ok) {
-        throw new Error('Failed to load themes');
-      }
+      const response = await fetch('/api/themes', {
+        signal: controller.signal
+      });
       
-      const themes = await response.json();
+      clearTimeout(timeoutId);
+      
+      const themes = await this.parseResponse(response);
+      
+      if (!response.ok || (themes.success === false)) {
+        throw new Error(themes.message || themes.error || 'Failed to load themes');
+      }
       this.themes = {};
       
       // Split into user and system themes
@@ -146,26 +200,60 @@ class ThemeBuilder {
       
       if (!themeParam) {
         // Load current theme selection from settings
-        const settingsResponse = await fetch('/api/settings/theme');
-        if (settingsResponse.ok) {
-          const currentTheme = await settingsResponse.json();
-          this.themeSelect.value = currentTheme.id;
+        const settingsController = new AbortController();
+        const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
+        
+        try {
+          const settingsResponse = await fetch('/api/settings/theme', {
+            signal: settingsController.signal
+          });
+          
+          clearTimeout(settingsTimeoutId);
+          
+          if (settingsResponse.ok) {
+            const currentTheme = await this.parseResponse(settingsResponse);
+            if (currentTheme.id) {
+              this.themeSelect.value = currentTheme.id;
+            }
+          }
+        } catch (err) {
+          clearTimeout(settingsTimeoutId);
+          if (err.name === 'AbortError') {
+            console.error('Settings fetch timed out');
+          } else {
+            console.error('Error fetching settings:', err);
+          }
         }
       }
     } catch (error) {
-      console.error('Error loading themes:', error);
-      this.showStatus('Error loading themes: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.error('Themes fetch timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error loading themes:', error);
+        this.showErrorToast('Error loading themes: ' + error.message);
+      }
     }
   }
   
   async loadBackgroundImages() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch('/api/themes/images');
-      if (!response.ok) {
-        throw new Error('Failed to load background images');
-      }
+      const response = await fetch('/api/themes/images', {
+        signal: controller.signal
+      });
       
-      const data = await response.json();
+      clearTimeout(timeoutId);
+      
+      const data = await this.parseResponse(response);
+      
+      if (!response.ok || (data.success === false)) {
+        throw new Error(data.message || data.error || 'Failed to load background images');
+      }
       const images = data.images || [];
       
       // Clear existing options except "None"
@@ -179,8 +267,15 @@ class ThemeBuilder {
         this.backgroundSelect.appendChild(option);
       });
     } catch (error) {
-      console.error('Error loading background images:', error);
-      this.showStatus('Error loading background images: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.error('Background images fetch timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error loading background images:', error);
+        this.showErrorToast('Error loading background images: ' + error.message);
+      }
     }
   }
   
@@ -374,48 +469,110 @@ class ThemeBuilder {
   }
   
   async doApplyTheme() {
+    // Check database connection
+    if (!window.header || !window.header.dbConnected) {
+      this.showErrorToast('Cannot apply theme: Database not connected');
+      return;
+    }
+    
+    const applyBtn = this.applyBtn;
+    const originalText = applyBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      applyBtn.textContent = 'Applying...';
+      applyBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       // Save theme selection to settings (apply to session)
       const response = await fetch('/api/settings/theme', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme_id: this.currentTheme })
+        body: JSON.stringify({ theme_id: this.currentTheme }),
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        throw new Error('Failed to apply theme');
+      clearTimeout(timeoutId);
+      
+      const result = await this.parseResponse(response);
+      
+      if (!response.ok || (result.success === false)) {
+        throw new Error(result.message || result.error || 'Failed to apply theme');
       }
       
       // Fetch and apply theme from database
       await this.loadAndApplyTheme();
       
       // Reload the theme data into currentThemeData
-      const themeResponse = await fetch('/api/settings/theme');
-      if (themeResponse.ok) {
-        const theme = await themeResponse.json();
-        this.currentThemeData = theme;
+      const themeController = new AbortController();
+      const themeTimeoutId = setTimeout(() => themeController.abort(), 5000);
+      
+      try {
+        const themeResponse = await fetch('/api/settings/theme', {
+          signal: themeController.signal
+        });
         
-        // Reload theme colors into inputs to discard any unsaved changes
-        this.loadThemeColors(theme.settings);
-        this.updateBackgroundDisplay(theme.background_image);
+        clearTimeout(themeTimeoutId);
+        
+        if (themeResponse.ok) {
+          const theme = await this.parseResponse(themeResponse);
+          
+          if (theme && theme.settings) {
+            this.currentThemeData = theme;
+            
+            // Reload theme colors into inputs to discard any unsaved changes
+            this.loadThemeColors(theme.settings);
+            this.updateBackgroundDisplay(theme.background_image);
+          }
+        }
+      } catch (err) {
+        clearTimeout(themeTimeoutId);
+        console.error('Error reloading theme data:', err);
       }
       
-      this.showStatus('Theme applied to session successfully', 'success');
+      clearTimeout(loadingTimeout);
+      applyBtn.textContent = originalText;
+      applyBtn.disabled = false;
+      
+      this.showSuccessToast('Theme applied to session successfully');
     } catch (error) {
-      console.error('Error applying theme:', error);
-      this.showStatus('Error applying theme: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      applyBtn.textContent = originalText;
+      applyBtn.disabled = false;
+      
+      if (error.name === 'AbortError') {
+        console.error('Apply theme request timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error applying theme:', error);
+        this.showErrorToast('Error applying theme: ' + error.message);
+      }
     }
   }
   
   async loadAndApplyTheme() {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       // Fetch the current theme from settings
-      const response = await fetch('/api/settings/theme');
-      if (!response.ok) {
-        throw new Error('Failed to load theme');
-      }
+      const response = await fetch('/api/settings/theme', {
+        signal: controller.signal
+      });
       
-      const theme = await response.json();
+      clearTimeout(timeoutId);
+      
+      const theme = await this.parseResponse(response);
+      
+      if (!response.ok || (theme.success === false)) {
+        throw new Error(theme.message || theme.error || 'Failed to load theme');
+      }
       const root = document.documentElement;
       const settings = theme.settings;
       
@@ -436,6 +593,13 @@ class ThemeBuilder {
       // Update sessionStorage for persistence
       sessionStorage.setItem('currentTheme', JSON.stringify(settings));
     } catch (error) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.error('Load theme request timed out after 5 seconds');
+        throw new Error('Request timed out. Check your connection.');
+      }
+      
       console.error('Error loading and applying theme:', error);
       throw error;
     }
@@ -443,16 +607,35 @@ class ThemeBuilder {
   
   async saveTheme() {
     if (!this.currentTheme || !this.currentThemeData) {
-      this.showStatus('No theme selected', 'error');
+      this.showErrorToast('No theme selected');
       this.lastSaveError = true;
       return;
     }
     
     if (this.currentThemeData.system_theme) {
-      this.showStatus('Cannot save system themes', 'error');
+      this.showErrorToast('Cannot save system themes');
       this.lastSaveError = true;
       return;
     }
+    
+    // Check database connection
+    if (!window.header || !window.header.dbConnected) {
+      this.showErrorToast('Cannot save theme: Database not connected');
+      this.lastSaveError = true;
+      return;
+    }
+    
+    const saveBtn = this.saveBtn;
+    const originalText = saveBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      saveBtn.textContent = 'Saving...';
+      saveBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     try {
       this.lastSaveError = false;
@@ -474,27 +657,77 @@ class ThemeBuilder {
         body: JSON.stringify({ 
           settings,
           background_image
-        })
+        }),
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to save theme');
-      }
+      clearTimeout(timeoutId);
       
-      const updatedTheme = await response.json();
+      const updatedTheme = await this.parseResponse(response);
+      
+      if (!response.ok || (updatedTheme.success === false)) {
+        throw new Error(updatedTheme.message || updatedTheme.error || 'Failed to save theme');
+      }
       this.themes[this.currentTheme] = updatedTheme;
       this.currentThemeData = updatedTheme;
       
-      this.showStatus('Theme saved successfully', 'success');
+      clearTimeout(loadingTimeout);
+      saveBtn.textContent = originalText;
+      saveBtn.disabled = false;
+      
+      this.showSuccessToast('Theme saved successfully');
+      
+      // If this is the currently active theme, apply the changes to the session
+      await this.applyIfCurrentTheme();
     } catch (error) {
-      console.error('Error saving theme:', error);
-      this.showStatus('Error saving theme: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      saveBtn.textContent = originalText;
+      saveBtn.disabled = false;
+      
+      if (error.name === 'AbortError') {
+        console.error('Save theme request timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error saving theme:', error);
+        this.showErrorToast('Error saving theme: ' + error.message);
+      }
       this.lastSaveError = true;
     }
   }
   
+  async applyIfCurrentTheme() {
+    try {
+      // Fetch the current active theme
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch('/api/settings/theme', {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const activeTheme = await this.parseResponse(response);
+      
+      if (response.ok && activeTheme.id === this.currentTheme) {
+        // The saved theme is the currently active theme, apply the changes
+        await this.loadAndApplyTheme();
+      }
+    } catch (error) {
+      // Silent fail - this is a bonus feature, don't interrupt the save flow
+      console.log('Could not check/apply current theme:', error);
+    }
+  }
+  
   showCopyModal() {
+    // Check database connection
+    if (!window.header || !window.header.dbConnected) {
+      this.showErrorToast('Cannot copy theme: Database not connected');
+      return;
+    }
+    
     const modal = document.getElementById('copy-theme-modal');
     const nameInput = document.getElementById('copy-theme-name');
     const errorDiv = document.getElementById('copy-theme-error');
@@ -512,6 +745,7 @@ class ThemeBuilder {
   async confirmCopyTheme() {
     const nameInput = document.getElementById('copy-theme-name');
     const errorDiv = document.getElementById('copy-theme-error');
+    const confirmBtn = document.getElementById('copy-theme-confirm');
     const newName = nameInput.value.trim();
     
     if (!newName) {
@@ -520,6 +754,17 @@ class ThemeBuilder {
       return;
     }
     
+    const originalText = confirmBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      confirmBtn.textContent = 'Copying...';
+      confirmBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch('/api/themes/copy', {
         method: 'POST',
@@ -527,15 +772,17 @@ class ThemeBuilder {
         body: JSON.stringify({
           source_theme_id: this.currentTheme,
           new_name: newName
-        })
+        }),
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to copy theme');
-      }
+      clearTimeout(timeoutId);
       
-      const newTheme = await response.json();
+      const newTheme = await this.parseResponse(response);
+      
+      if (!response.ok || (newTheme.success === false)) {
+        throw new Error(newTheme.message || newTheme.error || 'Failed to copy theme');
+      }
       
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
@@ -550,23 +797,44 @@ class ThemeBuilder {
       this.themeSelect.value = newTheme.id;
       await this.onThemeChange();
       
+      clearTimeout(loadingTimeout);
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
       this.hideCopyModal();
-      this.showStatus('Theme copied successfully', 'success');
+      this.showSuccessToast('Theme copied successfully');
     } catch (error) {
-      console.error('Error copying theme:', error);
-      errorDiv.textContent = error.message;
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
+      if (error.name === 'AbortError') {
+        console.error('Copy theme request timed out after 5 seconds');
+        errorDiv.textContent = 'Request timed out. Check your connection.';
+      } else {
+        console.error('Error copying theme:', error);
+        errorDiv.textContent = error.message;
+      }
       errorDiv.style.display = 'block';
     }
   }
   
   showRenameModal() {
     if (!this.currentThemeData) {
-      this.showStatus('No theme selected', 'error');
+      this.showErrorToast('No theme selected');
       return;
     }
     
     if (this.currentThemeData.system_theme) {
-      this.showStatus('Cannot rename system themes', 'error');
+      this.showErrorToast('Cannot rename system themes');
+      return;
+    }
+    
+    // Check database connection
+    if (!window.header || !window.header.dbConnected) {
+      this.showErrorToast('Cannot rename theme: Database not connected');
       return;
     }
     
@@ -588,6 +856,7 @@ class ThemeBuilder {
   async confirmRenameTheme() {
     const nameInput = document.getElementById('rename-theme-name');
     const errorDiv = document.getElementById('rename-theme-error');
+    const confirmBtn = document.getElementById('rename-theme-confirm');
     const newName = nameInput.value.trim();
     
     if (!newName) {
@@ -601,19 +870,32 @@ class ThemeBuilder {
       return;
     }
     
+    const originalText = confirmBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      confirmBtn.textContent = 'Renaming...';
+      confirmBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/themes/${this.currentTheme}/rename`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName })
+        body: JSON.stringify({ name: newName }),
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to rename theme');
-      }
+      clearTimeout(timeoutId);
       
-      const updatedTheme = await response.json();
+      const updatedTheme = await this.parseResponse(response);
+      
+      if (!response.ok || (updatedTheme.success === false)) {
+        throw new Error(updatedTheme.message || updatedTheme.error || 'Failed to rename theme');
+      }
       
       // Update themes list
       this.themes[this.currentTheme] = updatedTheme;
@@ -625,11 +907,26 @@ class ThemeBuilder {
         option.textContent = updatedTheme.name;
       }
       
+      clearTimeout(loadingTimeout);
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
       this.hideRenameModal();
-      this.showStatus('Theme renamed successfully', 'success');
+      this.showSuccessToast('Theme renamed successfully');
     } catch (error) {
-      console.error('Error renaming theme:', error);
-      errorDiv.textContent = error.message;
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      confirmBtn.textContent = originalText;
+      confirmBtn.disabled = false;
+      
+      if (error.name === 'AbortError') {
+        console.error('Rename theme request timed out after 5 seconds');
+        errorDiv.textContent = 'Request timed out. Check your connection.';
+      } else {
+        console.error('Error renaming theme:', error);
+        errorDiv.textContent = error.message;
+      }
       errorDiv.style.display = 'block';
     }
   }
@@ -670,22 +967,33 @@ class ThemeBuilder {
         throw new Error('Invalid theme file format');
       }
       
+      // Check database connection
+      if (!window.header || !window.header.dbConnected) {
+        this.showErrorToast('Cannot import theme: Database not connected');
+        return;
+      }
+      
       // Import via API
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       const response = await fetch('/api/themes/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(themeData)
+        body: JSON.stringify(themeData),
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        const errorMessage = error.message || error.error || 'Failed to import theme';
+      clearTimeout(timeoutId);
+      
+      const newTheme = await this.parseResponse(response);
+      
+      if (!response.ok || (newTheme.success === false)) {
+        const errorMessage = newTheme.message || newTheme.error || 'Failed to import theme';
         console.log('Import error:', errorMessage);
         this.showImportWarning(errorMessage);
         return;
       }
-      
-      const newTheme = await response.json();
       
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
@@ -700,10 +1008,15 @@ class ThemeBuilder {
       this.themeSelect.value = newTheme.id;
       await this.onThemeChange();
       
-      this.showStatus('Theme imported successfully', 'success');
+      this.showSuccessToast('Theme imported successfully');
     } catch (error) {
-      console.error('Error importing theme:', error);
-      this.showImportWarning(error.message || 'Failed to import theme');
+      if (error.name === 'AbortError') {
+        console.error('Import theme request timed out after 5 seconds');
+        this.showImportWarning('Request timed out. Check your connection.');
+      } else {
+        console.error('Error importing theme:', error);
+        this.showImportWarning(error.message || 'Failed to import theme');
+      }
     }
     
     // Reset file input
@@ -712,17 +1025,25 @@ class ThemeBuilder {
   
   async exportTheme() {
     if (!this.currentTheme) {
-      this.showStatus('No theme selected', 'error');
+      this.showErrorToast('No theme selected');
       return;
     }
     
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch(`/api/themes/${this.currentTheme}/export`);
-      if (!response.ok) {
-        throw new Error('Failed to export theme');
-      }
+      const response = await fetch(`/api/themes/${this.currentTheme}/export`, {
+        signal: controller.signal
+      });
       
-      const themeData = await response.json();
+      clearTimeout(timeoutId);
+      
+      const themeData = await this.parseResponse(response);
+      
+      if (!response.ok || (themeData.success === false)) {
+        throw new Error(themeData.message || themeData.error || 'Failed to export theme');
+      }
       
       // Create download link
       const blob = new Blob([JSON.stringify(themeData, null, 2)], { type: 'application/json' });
@@ -735,10 +1056,17 @@ class ThemeBuilder {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
       
-      this.showStatus('Theme exported successfully', 'success');
+      this.showSuccessToast('Theme exported successfully');
     } catch (error) {
-      console.error('Error exporting theme:', error);
-      this.showStatus('Error exporting theme: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        console.error('Export theme request timed out after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error exporting theme:', error);
+        this.showErrorToast('Error exporting theme: ' + error.message);
+      }
     }
   }
   
@@ -750,21 +1078,42 @@ class ThemeBuilder {
     const file = event.target.files[0];
     if (!file) return;
     
+    // Check database connection
+    if (!window.header || !window.header.dbConnected) {
+      this.showErrorToast('Cannot upload background: Database not connected');
+      event.target.value = '';
+      return;
+    }
+    
+    const uploadBtn = document.getElementById('upload-bg-btn');
+    const originalText = uploadBtn.textContent;
+    
+    // Add loading state with delay
+    const loadingTimeout = setTimeout(() => {
+      uploadBtn.textContent = 'Uploading...';
+      uploadBtn.disabled = true;
+    }, 500);
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const formData = new FormData();
       formData.append('image', file);
       
       const response = await fetch('/api/themes/upload-image', {
         method: 'POST',
-        body: formData
+        body: formData,
+        signal: controller.signal
       });
       
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to upload image');
-      }
+      clearTimeout(timeoutId);
       
-      const result = await response.json();
+      const result = await this.parseResponse(response);
+      
+      if (!response.ok || (result.success === false)) {
+        throw new Error(result.message || result.error || 'Failed to upload image');
+      }
       
       // Reload background images list
       await this.loadBackgroundImages();
@@ -780,10 +1129,29 @@ class ThemeBuilder {
       // Apply the background change immediately
       this.applyThemePreview();
       
-      this.showStatus('Background image uploaded successfully', 'success');
+      clearTimeout(loadingTimeout);
+      uploadBtn.textContent = originalText;
+      uploadBtn.disabled = false;
+      
+      this.showSuccessToast('Background image uploaded successfully');
     } catch (error) {
-      console.error('Error uploading background:', error);
-      this.showStatus('Error uploading background: ' + error.message, 'error');
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      uploadBtn.textContent = originalText;
+      uploadBtn.disabled = false;
+      
+      let errorMessage = 'Failed to upload background image';
+      if (error.name === 'AbortError') {
+        console.error('Upload background request timed out after 5 seconds');
+        errorMessage = 'Request timed out. Check your connection.';
+      } else {
+        console.error('Error uploading background:', error);
+        errorMessage = error.message;
+      }
+      
+      // Show error modal instead of toast
+      this.showImportWarning(errorMessage);
     }
     
     // Reset file input
@@ -794,12 +1162,12 @@ class ThemeBuilder {
     const bgValue = this.backgroundSelect.value;
     
     if (!bgValue || bgValue === 'none') {
-      this.showStatus('No background image selected', 'error');
+      this.showErrorToast('No background image selected');
       return;
     }
     
     try {
-      const url = `/api/themes/images/${bgValue}`;
+      const url = `/images/backgrounds/${bgValue}`;
       
       // Create download link
       const a = document.createElement('a');
@@ -809,10 +1177,10 @@ class ThemeBuilder {
       a.click();
       document.body.removeChild(a);
       
-      this.showStatus('Background image downloaded', 'success');
+      this.showSuccessToast('Background image downloaded');
     } catch (error) {
       console.error('Error downloading background:', error);
-      this.showStatus('Error downloading background: ' + error.message, 'error');
+      this.showErrorToast('Error downloading background: ' + error.message);
     }
   }
   

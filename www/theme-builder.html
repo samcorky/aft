@@ -29,15 +29,15 @@
           </div>
           <div class="theme-buttons-container" role="toolbar" aria-label="Theme actions">
             <div class="theme-buttons-row">
-              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename this theme (custom themes only)" aria-label="Rename the selected theme">Rename</button>
-              <button class="btn btn-danger" id="delete-theme-btn" title="Delete this custom theme permanently" aria-label="Delete the selected theme">Delete</button>
               <button class="btn btn-secondary" id="apply-theme-btn" title="Make the selected theme the current theme in use" aria-label="Apply this theme to the current session">Apply Theme</button>
-              <button class="btn btn-primary" id="save-theme-btn" aria-label="Save theme changes" title="Save changes to the selected theme">Save Theme</button>
-            </div>
-            <div class="theme-buttons-row">
               <button class="btn btn-secondary" id="copy-theme-btn" title="Create a new custom theme by copying this one. Use this to customize system themes." aria-label="Create a copy of the selected theme">Copy Theme</button>
               <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from a JSON file shared by others" aria-label="Import a theme from JSON file">Import Theme</button>
               <button class="btn btn-secondary" id="export-theme-btn" title="Export this theme as JSON to share with others or backup" aria-label="Export current theme as JSON">Export Theme</button>
+            </div>
+            <div class="theme-buttons-row">
+              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename this theme (custom themes only)" aria-label="Rename the selected theme">Rename</button>
+              <button class="btn btn-danger" id="delete-theme-btn" title="Delete this custom theme permanently" aria-label="Delete the selected theme">Delete</button>
+              <button class="btn btn-primary" id="save-theme-btn" aria-label="Save theme changes" title="Save changes to the selected theme">Save Theme</button>
             </div>
           </div>
         </div>
@@ -349,7 +349,7 @@
   <!-- Delete Theme Modal -->
   <div id="delete-theme-modal" class="modal" style="display: none;" role="alertdialog" aria-modal="true" aria-labelledby="delete-theme-title" aria-describedby="delete-theme-desc">
     <div class="modal-content">
-      <div class="modal-header">
+      <div class="modal-header error">
         <h3 id="delete-theme-title">Delete Theme</h3>
         <button class="modal-close" id="delete-theme-close" aria-label="Close dialog">&times;</button>
       </div>

@@ -4,6 +4,7 @@ import json
 import os
 import time
 import tempfile
+import uuid
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
@@ -6915,8 +6916,8 @@ def upload_theme_image():
     """Upload a background image file for use in themes.
     
     Accepts image file uploads via multipart form data and saves them to
-    the backgrounds directory. Generates a unique timestamped filename to
-    prevent collisions. Only common image formats are accepted.
+    the backgrounds directory. Generates a unique filename combining timestamp
+    and UUID to prevent collisions. Only common image formats are accepted.
     
     Form Data:
         image (file, required): Image file to upload
@@ -6952,9 +6953,10 @@ def upload_theme_image():
         backgrounds_dir = Path('/var/www/images/backgrounds')
         backgrounds_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate unique filename with timestamp
+        # Generate unique filename with timestamp and UUID to prevent collisions
         timestamp = int(time.time())
-        filename = f"theme_bg_{timestamp}{file_ext}"
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"theme_bg_{timestamp}_{unique_id}{file_ext}"
         filepath = backgrounds_dir / filename
         
         # Save file

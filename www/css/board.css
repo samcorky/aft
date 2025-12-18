@@ -732,9 +732,18 @@
   box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
+.empty-board-panel {
+  background-color: var(--page-panel-background);
+  border-radius: 8px;
+  padding: 80px 30px;
+  margin: 20px auto;
+  max-width: 800px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 .empty-board {
   text-align: center;
-  padding: 80px 20px;
+  padding: 0;
   color: var(--text-muted);
 }
 

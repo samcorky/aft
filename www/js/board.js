@@ -579,11 +579,13 @@ class BoardManager {
     if (this.columns.length === 0) {
       
       this.container.innerHTML = `
-        <div class="empty-board">
-          <div class="empty-board-icon">📋</div>
-          <h3>No columns yet</h3>
-          <p>Add your first column to start organizing tasks!</p>
-          <button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>
+        <div class="empty-board-panel">
+          <div class="empty-board">
+            <div class="empty-board-icon">📋</div>
+            <h3>No columns yet</h3>
+            <p>Add your first column to start organizing tasks!</p>
+            <button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>
+          </div>
         </div>
       `;
       

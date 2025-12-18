@@ -1008,7 +1008,7 @@ class ThemeBuilder {
       await this.loadThemes();
       if (this.themeSelect.options.length > 0) {
         this.themeSelect.value = this.themeSelect.options[0].value;
-        await this.loadTheme();
+        await this.onThemeChange();
       }
     } catch (error) {
       clearTimeout(timeoutId);
@@ -1239,7 +1239,7 @@ class ThemeBuilder {
       uploadBtn.textContent = originalText;
       uploadBtn.disabled = false;
       
-      let errorMessage = 'Failed to upload background image';
+      let errorMessage;
       if (error.name === 'AbortError') {
         console.error('Upload background request timed out after 5 seconds');
         errorMessage = 'Request timed out. Check your connection.';
@@ -1293,7 +1293,6 @@ class ThemeBuilder {
   }
 }
 
-// Initialize when DOM is ready
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
   const themeBuilder = new ThemeBuilder();

@@ -151,31 +151,21 @@ class ChecklistManager {
         
         const saveEdit = () => {
           const newName = input.value.trim();
+          const nameToDisplay = newName || currentName;
+          
           if (newName && newName !== currentName) {
             // Update the item in the array
             const item = this.pendingItems.find(i => i.tempId === tempId);
             if (item) {
               item.name = newName;
             }
-            
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = newName;
-            input.replaceWith(newNameSpan);
             this.onItemChanged();
-          } else if (newName) {
-            // No change, just restore
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
-            input.replaceWith(newNameSpan);
-          } else {
-            // Empty name, restore original
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
-            input.replaceWith(newNameSpan);
           }
+          
+          // Replace input with name span
+          const newNameSpan = this.createNameSpan(nameToDisplay);
+          input.replaceWith(newNameSpan);
+          
           // Re-enable dragging
           itemElement.draggable = true;
         };
@@ -235,6 +225,27 @@ class ChecklistManager {
     });
   }
 
+  createNameSpan(text) {
+    const span = document.createElement('span');
+    span.className = 'checklist-item-name';
+    span.textContent = text;
+    return span;
+  }
+
+  addEditButtonToItem(itemElement, tempId) {
+    const actionsContainer = itemElement.querySelector('.checklist-item-actions');
+    if (actionsContainer) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'checklist-edit-btn';
+      editBtn.setAttribute('data-temp-id', tempId);
+      editBtn.title = 'Edit';
+      editBtn.textContent = '✎';
+      // Insert edit button before delete button
+      actionsContainer.insertBefore(editBtn, actionsContainer.firstChild);
+    }
+  }
+
   commitInput(inputElement) {
     if (!inputElement || !inputElement.classList.contains('checklist-item-input')) return;
     
@@ -249,10 +260,11 @@ class ChecklistManager {
         
         // Replace input with display span
         const itemElement = inputElement.closest('.checklist-item');
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'checklist-item-name';
-        nameSpan.textContent = name;
+        const nameSpan = this.createNameSpan(name);
         inputElement.replaceWith(nameSpan);
+        
+        // Add edit button now that item has a name
+        this.addEditButtonToItem(itemElement, tempId);
         
         // Re-enable dragging
         itemElement.draggable = true;
@@ -291,7 +303,6 @@ class ChecklistManager {
         <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
         <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
         <div class="checklist-item-actions">
-          <button type="button" class="checklist-edit-btn" data-temp-id="${tempId}" title="Edit">✎</button>
           <button type="button" class="${this.deleteButtonClass}" data-temp-id="${tempId}" title="Delete">🗑</button>
         </div>
       </div>

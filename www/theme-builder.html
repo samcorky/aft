@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theme Builder - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/theme-builder.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <div class="settings-container">
+      <div class="page-header-panel">
+        <h2>Theme Builder</h2>
+        <p class="page-description">Create and customise colour themes for the application.</p>
+      </div>
+      
+      <div class="settings-section" role="region" aria-labelledby="theme-management-heading">
+        <div class="theme-management-bar">
+          <div class="theme-selector-group">
+            <label for="theme-builder-select" id="theme-selector-label">Theme</label>
+            <select id="theme-builder-select" class="setting-select" aria-labelledby="theme-selector-label" aria-required="true">
+              <!-- Themes will be populated dynamically -->
+            </select>
+          </div>
+          <div class="theme-buttons-container" role="toolbar" aria-label="Theme actions">
+            <div class="theme-buttons-row">
+              <button class="btn btn-secondary" id="apply-theme-btn" title="Make the selected theme the current theme in use" aria-label="Apply this theme to the current session">Apply Theme</button>
+              <button class="btn btn-secondary" id="copy-theme-btn" title="Create a new custom theme by copying this one. Use this to customize system themes." aria-label="Create a copy of the selected theme">Copy Theme</button>
+              <button class="btn btn-secondary" id="import-theme-btn" title="Import a theme from a JSON file shared by others" aria-label="Import a theme from JSON file">Import Theme</button>
+              <button class="btn btn-secondary" id="export-theme-btn" title="Export this theme as JSON to share with others or backup" aria-label="Export current theme as JSON">Export Theme</button>
+            </div>
+            <div class="theme-buttons-row">
+              <button class="btn btn-secondary" id="rename-theme-btn" title="Rename this theme (custom themes only)" aria-label="Rename the selected theme">Rename</button>
+              <button class="btn btn-danger" id="delete-theme-btn" title="Delete this custom theme permanently" aria-label="Delete the selected theme">Delete</button>
+              <button class="btn btn-primary" id="save-theme-btn" aria-label="Save theme changes" title="Save changes to the selected theme">Save Theme</button>
+            </div>
+          </div>
+        </div>
+        <p class="setting-help">Select a theme to edit. System themes cannot be saved - copy them to create your own version.</p>
+      </div>
+
+      <div class="settings-section" role="region" aria-labelledby="color-variables-heading">
+        <h3 id="color-variables-heading">Colour Variables</h3>
+        
+        <div class="theme-section" role="group" aria-labelledby="primary-colors-heading">
+          <h4 id="primary-colors-heading">Primary</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="primary-color">Primary Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="primary-color" value="#3498DB">
+                <input type="text" class="color-text" value="#3498DB">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="primary-hover">Primary Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="primary-hover" value="#2980B9">
+                <input type="text" class="color-text" value="#2980B9">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="secondary-color">Secondary Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="secondary-color" value="#95A5A6">
+                <input type="text" class="color-text" value="#95A5A6">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="secondary-hover">Secondary Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="secondary-hover" value="#7F8C8D">
+                <input type="text" class="color-text" value="#7F8C8D">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section" role="group" aria-labelledby="status-colors-heading">
+          <h4 id="status-colors-heading">Status</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="success-color">Success Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="success-color" value="#28A745">
+                <input type="text" class="color-text" value="#28A745">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="error-color">Error Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="error-color" value="#DC3545">
+                <input type="text" class="color-text" value="#DC3545">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="warning-color">Warning Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="warning-color" value="#FFC107">
+                <input type="text" class="color-text" value="#FFC107">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Text</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="text-color">Text Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="text-color" value="#2C3E50">
+                <input type="text" class="color-text" value="#2C3E50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="text-bold">Text Bold</label>
+              <div class="color-input-group">
+                <input type="color" id="text-bold" value="#2C3E50">
+                <input type="text" class="color-text" value="#2C3E50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="text-muted">Text Muted</label>
+              <div class="color-input-group">
+                <input type="color" id="text-muted" value="#7F8C8D">
+                <input type="text" class="color-text" value="#7F8C8D">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Background</h4>
+          
+          <div class="theme-field" style="margin-bottom: 25px;">
+            <label for="background-image-select">Background Image</label>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <select id="background-image-select" class="setting-select" style="flex: 1; min-width: 200px; max-width: 300px;">
+                <option value="none">None (Use Colors)</option>
+                <!-- Images will be populated dynamically -->
+              </select>
+              <button class="btn btn-secondary" id="upload-bg-btn" title="Upload a background image">Upload</button>
+              <button class="btn btn-secondary" id="download-bg-btn" title="Download current background image" disabled>Download</button>
+            </div>
+            <p class="setting-help">Select a background image for all pages. Choose 'None' to use colors instead.</p>
+          </div>
+          
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="background-light">Background Light</label>
+              <div class="color-input-group">
+                <input type="color" id="background-light" value="#F5F5F5">
+                <input type="text" class="color-text" value="#F5F5F5">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="page-panel-background">Page Panel Background</label>
+              <div class="color-input-group">
+                <input type="color" id="page-panel-background" value="#FFFFFF">
+                <input type="text" class="color-text" value="#FFFFFF">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="border-color">Border Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="border-color" value="#E0E0E0">
+                <input type="text" class="color-text" value="#E0E0E0">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Board Card</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="card-bg-color">Board Card Background</label>
+              <div class="color-input-group">
+                <input type="color" id="card-bg-color" value="#FFFFFF">
+                <input type="text" class="color-text" value="#FFFFFF">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="theme-section">
+          <h4>Header & Icons</h4>
+          <div class="theme-grid">
+            <div class="theme-field">
+              <label for="header-background">Header Background</label>
+              <div class="color-input-group">
+                <input type="color" id="header-background" value="#2C3E50">
+                <input type="text" class="color-text" value="#2C3E50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-text-color">Header Text Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="header-text-color" value="#FFFFFF">
+                <input type="text" class="color-text" value="#FFFFFF">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-menu-background">Header Menu Background</label>
+              <div class="color-input-group">
+                <input type="color" id="header-menu-background" value="#FFFFFF">
+                <input type="text" class="color-text" value="#FFFFFF">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-menu-hover">Header Menu Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="header-menu-hover" value="#F5F5F5">
+                <input type="text" class="color-text" value="#F5F5F5">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-menu-text-color">Header Menu Text Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="header-menu-text-color" value="#2C3E50">
+                <input type="text" class="color-text" value="#2C3E50">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-button-background">Header Button Background</label>
+              <div class="color-input-group">
+                <input type="color" id="header-button-background" value="#404E5C">
+                <input type="text" class="color-text" value="#404E5C">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="header-button-hover">Header Button Hover</label>
+              <div class="color-input-group">
+                <input type="color" id="header-button-hover" value="#384552">
+                <input type="text" class="color-text" value="#384552">
+              </div>
+            </div>
+            
+            <div class="theme-field">
+              <label for="icon-color">Icon Colour</label>
+              <div class="color-input-group">
+                <input type="color" id="icon-color" value="#FFFFFF">
+                <input type="text" class="color-text" value="#FFFFFF">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <div id="theme-status" class="settings-status" role="status" aria-live="polite" aria-atomic="true"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Unsaved Changes Modal -->
+  <div id="unsaved-changes-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="unsaved-changes-title" aria-describedby="unsaved-changes-desc">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="unsaved-changes-title">Unsaved Changes</h3>
+        <button class="modal-close" id="unsaved-changes-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="unsaved-changes-desc">You have unsaved changes to this theme. What would you like to do?</p>
+      </div>
+      <div class="modal-footer" style="gap: 10px;">
+        <button class="btn btn-secondary" id="unsaved-discard" aria-label="Discard changes and apply theme">Discard & Apply</button>
+        <button class="btn btn-primary" id="unsaved-save" aria-label="Save changes and apply theme">Save & Apply</button>
+        <button class="btn btn-secondary" id="unsaved-cancel" aria-label="Cancel and return to editing">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Warning Modal -->
+  <div id="import-warning-modal" class="modal" style="display: none;" role="alertdialog" aria-modal="true" aria-labelledby="import-warning-title" aria-describedby="import-warning-message">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="import-warning-title">Import Error</h3>
+        <button class="modal-close" id="import-warning-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="import-warning-message"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="import-warning-ok" aria-label="Close error dialog">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Theme Modal -->
+  <div id="rename-theme-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="rename-theme-title" aria-describedby="rename-theme-desc">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="rename-theme-title">Rename Theme</h3>
+        <button class="modal-close" id="rename-theme-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="rename-theme-name" id="rename-theme-desc">Enter a new name for the theme:</label>
+        <input type="text" id="rename-theme-name" class="setting-input" placeholder="Theme Name" maxlength="100" aria-required="true" aria-describedby="rename-theme-error" aria-invalid="false">
+        <div id="rename-theme-error" class="error-message" role="alert" style="display: none;" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="rename-theme-cancel" aria-label="Cancel rename">Cancel</button>
+        <button class="btn btn-primary" id="rename-theme-confirm" aria-label="Confirm rename">Rename</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Copy Theme Modal -->
+  <div id="copy-theme-modal" class="modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="copy-theme-title" aria-describedby="copy-theme-desc">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="copy-theme-title">Copy Theme</h3>
+        <button class="modal-close" id="copy-theme-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label for="copy-theme-name" id="copy-theme-desc">Enter a name for the new theme:</label>
+        <input type="text" id="copy-theme-name" class="setting-input" placeholder="My Custom Theme" maxlength="100" aria-required="true" aria-describedby="copy-theme-error" aria-invalid="false">
+        <div id="copy-theme-error" class="error-message" role="alert" style="display: none;" aria-live="polite"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="copy-theme-cancel" aria-label="Cancel copy">Cancel</button>
+        <button class="btn btn-primary" id="copy-theme-confirm" aria-label="Create copy of theme">Create Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Theme Modal -->
+  <div id="delete-theme-modal" class="modal" style="display: none;" role="alertdialog" aria-modal="true" aria-labelledby="delete-theme-title" aria-describedby="delete-theme-desc">
+    <div class="modal-content">
+      <div class="modal-header error">
+        <h3 id="delete-theme-title">Delete Theme</h3>
+        <button class="modal-close" id="delete-theme-close" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="delete-theme-desc">Are you sure you want to permanently delete this theme? This action cannot be undone.</p>
+        <p><strong>Theme: <span id="delete-theme-name"></span></strong></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="delete-theme-cancel" aria-label="Cancel deletion">Cancel</button>
+        <button class="btn btn-danger" id="delete-theme-confirm" aria-label="Confirm deletion">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- File upload input (hidden) -->
+  <input type="file" id="bg-image-input" accept="image/*" style="display: none;" aria-label="Select background image file">
+  <input type="file" id="import-theme-input" accept=".json,application/json" style="display: none;" aria-label="Select theme JSON file to import">
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+  <script src="/js/theme-builder.js"></script>
+</body>
+</html>

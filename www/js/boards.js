@@ -49,8 +49,10 @@ class BoardsManager {
 
   render() {
     this.container.innerHTML = `
-      <div class="boards-header">
-        <h3>My Boards</h3>
+      <div class="boards-header-panel">
+        <div class="boards-header">
+          <h3>My Boards</h3>
+        </div>
       </div>
       <div id="boards-list" class="loading">
         Loading boards...
@@ -152,11 +154,13 @@ class BoardsManager {
     if (this.boards.length === 0) {
       listContainer.className = ''; // Remove grid class
       listContainer.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <h3>No boards yet</h3>
-          <p>Create your first board to get started!</p>
-          <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+        <div class="empty-state-panel">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <h3>No boards yet</h3>
+            <p>Create your first board to get started!</p>
+            <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+          </div>
         </div>
       `;
       

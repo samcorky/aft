@@ -16,7 +16,7 @@
 .board-header h3 {
   margin: 0;
   font-size: 28px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .board-actions {
@@ -123,7 +123,7 @@
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .card-count {
@@ -180,7 +180,7 @@
 .column-move-left-btn:hover,
 .column-move-right-btn:hover {
   transform: scale(1.2);
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .column-delete-cards-btn {
@@ -201,7 +201,7 @@
 
 .column-delete-cards-btn:hover {
   transform: scale(1.2);
-  color: #e67e22;
+  color: var(--warning-color);
 }
 
 .column-add-card-btn {
@@ -223,7 +223,7 @@
 
 .column-add-card-btn:hover {
   transform: scale(1.2);
-  color: #218838;
+  color: var(--success-color);
 }
 
 /* Column Menu */
@@ -248,7 +248,7 @@
 }
 
 .column-menu-btn:hover {
-  color: var(--text-dark);
+  color: var(--text-bold);
   transform: scale(1.2);
 }
 
@@ -281,7 +281,7 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   transition: background-color 0.2s;
 }
 
@@ -309,7 +309,7 @@
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   transition: background-color 0.2s;
   box-sizing: border-box;
 }
@@ -515,12 +515,12 @@
 
 .card.archived-card {
   opacity: 0.7;
-  background: #f5f5f5;
+  background: var(--background-light);
 }
 
 .card.no-schedule {
-  border: 2px dashed #f39c12;
-  background: #fff9e6;
+  border: 2px dashed var(--warning-color);
+  background: color-mix(in srgb, var(--warning-color) 10%, var(--card-bg-color));
 }
 
 .card.no-schedule::before {
@@ -530,11 +530,11 @@
   right: 40px;
   font-size: 10px;
   font-weight: 600;
-  color: #f39c12;
-  background: white;
+  color: var(--warning-color);
+  background: var(--card-bg-color);
   padding: 2px 6px;
   border-radius: 3px;
-  border: 1px solid #f39c12;
+  border: 1px solid var(--warning-color);
 }
 
 .card-action-buttons {
@@ -582,25 +582,37 @@
 
 .card-delete-btn:hover {
   transform: scale(1.2);
-  color: var(--error-hover);
+  color: var(--error-color);
+  opacity: 0.8;
 }
 
 .card-archive-btn,
 .card-unarchive-btn {
-  color: var(--text-muted);
+  color: var(--primary-color);
+}
+
+.card-archive-btn svg,
+.card-unarchive-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke: var(--primary-color);
 }
 
 .card-archive-btn:hover,
 .card-unarchive-btn:hover {
   transform: scale(1.2);
-  color: var(--text-dark);
+}
+
+.card-archive-btn:hover svg,
+.card-unarchive-btn:hover svg {
+  stroke: var(--primary-hover);
 }
 
 .card-title {
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
   padding-right: 60px; /* Space for archive + delete buttons */
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -682,7 +694,7 @@
 }
 
 .card-checklist-name {
-  color: var(--text-dark);
+  color: var(--text-bold);
   line-height: 1.3;
   overflow-wrap: break-word;
 }
@@ -710,6 +722,8 @@
   resize: vertical;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .form-group textarea:focus {
@@ -718,9 +732,18 @@
   box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
+.empty-board-panel {
+  background-color: var(--page-panel-background);
+  border-radius: 8px;
+  padding: 80px 30px;
+  margin: 20px auto;
+  max-width: 800px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 .empty-board {
   text-align: center;
-  padding: 80px 20px;
+  padding: 0;
   color: var(--text-muted);
 }
 
@@ -781,7 +804,7 @@
 }
 
 .modal-content {
-  background-color: white;
+  background-color: var(--page-panel-background);
   padding: 30px;
   border-radius: 8px;
   max-width: 500px;
@@ -794,7 +817,7 @@
 .modal-content h2 {
   margin-top: 0;
   margin-bottom: 20px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .modal-header {
@@ -845,7 +868,7 @@
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .form-group input,
@@ -856,7 +879,8 @@
   border-radius: 5px;
   font-size: 16px;
   box-sizing: border-box;
-  background-color: white;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .form-group input:focus,
@@ -867,7 +891,7 @@
 }
 
 .form-group select:hover {
-  border-color: #999;
+  border-color: var(--text-muted);
 }
 
 .form-group label input[type="checkbox"] {
@@ -927,7 +951,7 @@
 }
 
 .checkbox-label:hover {
-  background-color: #e8e8e8;
+  background-color: var(--background-light);
 }
 
 .checkbox-label input[type="checkbox"] {
@@ -950,7 +974,7 @@
 
 .next-runs-section h3 {
   margin: 0 0 15px 0;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 18px;
 }
 
@@ -1007,7 +1031,7 @@
 .checklist-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .checklist-summary {
@@ -1034,7 +1058,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background-color: white;
+  background-color: var(--card-bg-color);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   margin-bottom: 8px;
@@ -1074,7 +1098,7 @@
 
 .checklist-item-name {
   flex-grow: 1;
-  color: var(--text-dark);
+  color: var(--text-bold);
   overflow-wrap: break-word;
 }
 
@@ -1096,6 +1120,8 @@
   font-size: 14px;
   font-family: inherit;
   outline: none;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 .checklist-item-input:focus {
@@ -1152,7 +1178,7 @@
 .comments-header h3 {
   margin: 0;
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
 }
 
 .comment-input-container {
@@ -1169,6 +1195,8 @@
   resize: vertical;
   margin-bottom: 10px;
   outline: none;
+  background-color: var(--card-bg-color);
+  color: var(--text-color);
 }
 
 #new-comment-input:focus {
@@ -1188,7 +1216,7 @@
 }
 
 .comment-item {
-  background-color: #f8f9fa;
+  background-color: var(--background-light);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   padding: 12px;
@@ -1222,7 +1250,7 @@
 }
 
 .comment-text {
-  color: var(--text-dark);
+  color: var(--text-bold);
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -1310,7 +1338,7 @@
 
 .board-loading-text {
   font-size: 18px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-weight: 500;
   margin: 0;
   padding: 0;

@@ -7,7 +7,7 @@
 }
 
 .about-section {
-  background: white;
+  background: var(--page-panel-background);
   border-radius: 8px;
   padding: 24px;
   margin-bottom: 20px;
@@ -17,7 +17,7 @@
 .about-section h3 {
   margin-top: 0;
   margin-bottom: 16px;
-  color: var(--text-dark);
+  color: var(--text-bold);
   font-size: 20px;
   font-weight: 600;
   border-bottom: 2px solid var(--primary-color);
@@ -55,7 +55,7 @@
 .page-title {
   font-size: 28px;
   font-weight: 600;
-  color: var(--text-dark);
+  color: var(--text-bold);
   margin-bottom: 24px;
   padding-bottom: 12px;
   border-bottom: 3px solid var(--primary-color);

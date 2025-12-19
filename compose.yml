@@ -18,7 +18,9 @@ services:
       - aft
 
   server:
-    build: ./server
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     container_name: aft-server
     restart: unless-stopped
     security_opt:
@@ -30,6 +32,7 @@ services:
       - "5000:5000"
     volumes:
       - ./backups:/app/backups
+      - backgrounds_volume:/var/www/images/backgrounds
     networks:
       - aft
     healthcheck:
@@ -56,9 +59,14 @@ services:
     volumes:
       - ./www:/usr/share/nginx/html
       - ./server/nginx.conf:/etc/nginx/conf.d/default.conf
+      - backgrounds_volume:/usr/share/nginx/html/images/backgrounds
     networks:
       - aft
 
 networks:
   aft:
     driver: bridge
+
+volumes:
+  backgrounds_volume:
+    driver: local

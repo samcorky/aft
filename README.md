@@ -98,8 +98,39 @@ Use at your own risk.
 
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
+- **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
 
 ![Settings](images/settings.png)
+
+### 🎨 Theme Builder
+- **Visual Customization** - Create and customize color themes for the entire application
+- **Database-Backed Themes** - Themes stored in database, persist across sessions
+- **System Themes** - Pre-built themes (Default, Dark, Light, Solarized) that cannot be modified
+- **Custom Themes** - Create unlimited custom themes with your preferred colors
+- **Theme Management**:
+  - **Create**: Copy existing themes to create your own variants
+  - **Edit**: Modify all color variables (primary, secondary, status, text, backgrounds, header)
+  - **Rename**: Update theme names for better organization
+  - **Import/Export**: Share themes as JSON files
+  - **Apply**: Instantly preview and apply themes to your session
+- **Background Images** - Select from included background images or upload custom images
+  - Pre-loaded with 4 default backgrounds (At the Beach, Sunrise, Welcome to the Jungle, etc.)
+  - Upload custom background images for unique theme styling
+  - Background images stored in Docker named volume (persistent across restarts)
+- **Background Images** - Select from available background images or upload custom images
+- **Live Preview** - See color changes in real-time as you edit
+- **Organized Theme List** - Themes grouped by User Themes and System Themes, alphabetically sorted
+- **Read-Only System Themes** - System themes protected from modification
+- **Unsaved Changes Protection** - Warning modal when applying themes with unsaved changes
+- **Comprehensive Color Control** - Configure 15+ color variables:
+  - Primary and secondary colors with hover states
+  - Status colors (success, error, warning)
+  - Text colors (primary, muted, inverted)
+  - Background colors (light, dark, card backgrounds)
+  - Header colors (background, text, menu, buttons, icons)
+- **Accessibility** - Full ARIA support, keyboard navigation, screen reader compatible
+
+![Theme Builder](images/theme_builder.png)
 
 ### Automatic Database Backups - Schedule recurring backups to protect your data ###
 - Configurable frequency (minutes, hours, or days)

@@ -3,6 +3,7 @@ class Settings {
   constructor() {
     this.defaultBoardSelect = document.getElementById('default-board');
     this.timeFormatRadios = document.querySelectorAll('input[name="time-format"]');
+    this.themeSelect = document.getElementById('theme-select');
     this.statusElement = document.getElementById('settings-status');
     this.saveTimeout = null;
   }
@@ -10,6 +11,8 @@ class Settings {
   async init() {
     await this.loadBoards();
     await this.loadSettings();
+    await this.loadThemes();
+    await this.applyThemeColors(); // Ensure theme is loaded on page load
     this.attachEventListeners();
   }
 
@@ -89,6 +92,115 @@ class Settings {
       }
     } catch (err) {
       console.error('Error loading settings:', err);
+    }
+  }
+
+  async loadThemes() {
+    try {
+      const response = await fetch('/api/themes');
+      if (!response.ok) throw new Error('Failed to load themes');
+      
+      const themes = await response.json();
+      
+      // Split into user and system themes
+      const userThemes = themes.filter(t => !t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      const systemThemes = themes.filter(t => t.system_theme).sort((a, b) => a.name.localeCompare(b.name));
+      
+      // Populate theme select
+      this.themeSelect.innerHTML = '';
+      
+      // Add user themes first
+      if (userThemes.length > 0) {
+        const userGroup = document.createElement('optgroup');
+        userGroup.label = 'User Themes';
+        userThemes.forEach(theme => {
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          userGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(userGroup);
+      }
+      
+      // Add system themes
+      if (systemThemes.length > 0) {
+        const systemGroup = document.createElement('optgroup');
+        systemGroup.label = 'System Themes';
+        systemThemes.forEach(theme => {
+          const option = document.createElement('option');
+          option.value = theme.id;
+          option.textContent = theme.name;
+          systemGroup.appendChild(option);
+        });
+        this.themeSelect.appendChild(systemGroup);
+      }
+      
+      // Load current theme selection
+      const settingsResponse = await fetch('/api/settings/theme');
+      if (settingsResponse.ok) {
+        const currentTheme = await settingsResponse.json();
+        this.themeSelect.value = currentTheme.id;
+      }
+    } catch (error) {
+      console.error('Error loading themes:', error);
+    }
+  }
+  
+  async onThemeChange() {
+    try {
+      const themeId = parseInt(this.themeSelect.value);
+      
+      // Save theme selection
+      const response = await fetch('/api/settings/theme', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme_id: themeId })
+      });
+      
+      if (!response.ok) throw new Error('Failed to save theme selection');
+      
+      // Apply the theme colors
+      await this.applyThemeColors();
+      
+      this.showStatus('Theme changed successfully', 'success');
+    } catch (error) {
+      console.error('Error changing theme:', error);
+      this.showStatus('Error changing theme: ' + error.message, 'error');
+    }
+  }
+  
+  editTheme() {
+    const themeId = this.themeSelect.value;
+    // Navigate to theme builder with selected theme
+    window.location.href = `/theme-builder.html?theme=${themeId}`;
+  }
+
+  async applyThemeColors() {
+    // Fetch and apply theme from API
+    try {
+      const response = await fetch('/api/settings/theme');
+      const theme = await response.json();
+      const root = document.documentElement;
+      const settings = theme.settings;
+      
+      // Apply all CSS variables
+      for (const [key, value] of Object.entries(settings)) {
+        root.style.setProperty(`--${key}`, value);
+      }
+      
+      // Apply background image if present
+      if (theme.background_image) {
+        root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
+        sessionStorage.setItem('backgroundImage', theme.background_image);
+      } else {
+        root.style.setProperty('--background-image', 'none');
+        sessionStorage.setItem('backgroundImage', 'none');
+      }
+      
+      // Update sessionStorage for persistence
+      sessionStorage.setItem('currentTheme', JSON.stringify(settings));
+    } catch (error) {
+      console.error('Error loading theme:', error);
     }
   }
 
@@ -211,6 +323,21 @@ class Settings {
         }, 500);
       });
     });
+
+    // Theme selector
+    if (this.themeSelect) {
+      this.themeSelect.addEventListener('change', () => {
+        this.onThemeChange();
+      });
+    }
+    
+    // Edit theme button
+    const editThemeBtn = document.getElementById('edit-theme-btn');
+    if (editThemeBtn) {
+      editThemeBtn.addEventListener('click', () => {
+        this.editTheme();
+      });
+    }
   }
 
   showStatus(message, type = 'info') {

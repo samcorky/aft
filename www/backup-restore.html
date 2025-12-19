@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Backup & Restore - AFT</title>
   <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
   <link rel="stylesheet" href="/css/styles.css">
   <link rel="stylesheet" href="/css/header.css">
   <link rel="stylesheet" href="/css/settings.css">
@@ -14,12 +15,19 @@
   <!-- Header component will be loaded here -->
   
   <main class="canvas">
+    <h1 class="page-title">Backup & Restore</h1>
     <div class="settings-container">
-      <h2>Backup & Restore</h2>
 
       <!-- Manual Backup & Restore Section -->
       <div class="settings-section">
-        <h3>💾 Manual Backup & Restore</h3>
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Manual Backup & Restore
+        </h3>
         <p class="setting-help">
           Create a backup of your database or restore from a previous backup. 
           Backups include version information for safe restoration.
@@ -27,11 +35,19 @@
         </p>
         <div class="backup-actions">
           <button class="backup-btn" id="manual-backup-btn">
-            <span>💾</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
             <span>Manual Backup</span>
           </button>
           <button class="backup-btn" id="backup-btn">
-            <span>⬇️</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
             <span>Download Backup</span>
           </button>
           <div class="restore-section">
@@ -43,7 +59,11 @@
               aria-label="Choose backup file to restore"
             >
             <button class="restore-btn" id="restore-btn">
-              <span>⬆️</span>
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
               <span>Restore from Backup</span>
             </button>
           </div>
@@ -53,7 +73,13 @@
 
       <!-- Automatic Backups Section -->
       <div class="settings-section">
-        <h3>⏰ Automatic Backups</h3>
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Automatic Backups
+        </h3>
         <p class="setting-help">Configure automatic database backups to protect your data. Backups align to the start time pattern. If a backup is overdue (more than 2x the frequency interval), it will run immediately and then resume the normal schedule.</p>
         
         <div class="status-info">
@@ -137,7 +163,13 @@
 
       <!-- Available Backups Section -->
       <div class="settings-section">
-        <h3>📋 Available Backups</h3>
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+            <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+          </svg>
+          Available Backups
+        </h3>
         <p class="setting-help">Restore from any of the backups listed below. Manual backups are highlighted.</p>
         
         <div class="backups-controls">

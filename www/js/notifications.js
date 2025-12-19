@@ -298,6 +298,7 @@ class Notifications {
     if (target.classList.contains('notification-action-btn')) {
       // Prevent default for buttons to avoid any form submission behavior
       e.preventDefault();
+      e.stopPropagation(); // Prevent event from bubbling to document-level handlers
       
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
@@ -314,6 +315,7 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent event from bubbling to document-level handlers
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

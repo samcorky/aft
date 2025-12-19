@@ -3,6 +3,37 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+import json
+
+
+class Theme(Base):
+    """Theme model representing a color theme."""
+    
+    __tablename__ = "themes"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    settings = Column(Text, nullable=False)  # JSON string
+    background_image = Column(String(255), nullable=True)
+    system_theme = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, server_default=func.current_timestamp())
+    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+    
+    def to_dict(self):
+        """Convert theme to dictionary."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'settings': json.loads(self.settings) if isinstance(self.settings, str) else self.settings,
+            'background_image': self.background_image,
+            'system_theme': self.system_theme,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+    
+    def __repr__(self):
+        return f"<Theme(id={self.id}, name='{self.name}', system_theme={self.system_theme})>"
+
 
 
 class Board(Base):

@@ -142,20 +142,34 @@ class ChecklistManager {
         input.className = 'checklist-item-input';
         input.value = currentName;
         input.setAttribute('data-temp-id', tempId);
+        input.setAttribute('data-editing', 'true'); // Flag to indicate edit mode
         nameSpan.replaceWith(input);
         input.focus();
         input.select();
         
         // Disable dragging while editing
         itemElement.draggable = false;
+      }
+    });
+
+    // Single event listener for blur on inputs
+    this.container.addEventListener('blur', (e) => {
+      if (e.target.classList.contains('checklist-item-input')) {
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
         
-        const saveEdit = () => {
-          const newName = input.value.trim();
-          const nameToDisplay = newName || currentName;
+        if (isEditing) {
+          // This is an edited item - save changes
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const itemElement = e.target.closest('.checklist-item');
+          const newName = e.target.value.trim();
+          const currentName = e.target.value; // original value
           
-          if (newName && newName !== currentName) {
+          // Get the original name before editing
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          if (newName && newName !== originalName) {
             // Update the item in the array
-            const item = this.pendingItems.find(i => i.tempId === tempId);
             if (item) {
               item.name = newName;
             }
@@ -163,66 +177,76 @@ class ChecklistManager {
           }
           
           // Replace input with name span
+          const nameToDisplay = newName || originalName;
           const newNameSpan = this.createNameSpan(nameToDisplay);
-          input.replaceWith(newNameSpan);
+          e.target.replaceWith(newNameSpan);
           
           // Re-enable dragging
-          itemElement.draggable = true;
-        };
-        
-        // Save on blur
-        input.addEventListener('blur', () => {
-          setTimeout(saveEdit, 100);
-        });
-        
-        // Save on Enter, cancel on Escape
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            input.blur();
-          } else if (e.key === 'Escape') {
-            // Cancel edit
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
-            input.replaceWith(newNameSpan);
+          if (itemElement) {
             itemElement.draggable = true;
           }
-        });
-      }
-    });
-
-    // Single event listener for blur on inputs
-    this.container.addEventListener('blur', (e) => {
-      if (e.target.classList.contains('checklist-item-input')) {
-        // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
-        setTimeout(() => this.commitInput(e.target), 0);
+        } else {
+          // This is a new item being committed - use the existing logic
+          // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
+          setTimeout(() => this.commitInput(e.target), 0);
+        }
       }
     }, true); // Use capture to catch blur
 
     // Listen for commit complete event to trigger adding new item
     this.container.addEventListener('checklistItemCommitted', (e) => {
       if (e.detail.addItemAfter) {
-        this.addItemAfter(e.detail.tempId);
+        this.addItemAfter(e.detail.addItemAfter);
       }
     });
 
     // Single event listener for Enter key on inputs
     this.container.addEventListener('keydown', (e) => {
-      if (e.target.classList.contains('checklist-item-input') && e.key === 'Enter') {
-        e.preventDefault();
-        const inputValue = e.target.value.trim();
-        const tempId = Number(e.target.getAttribute('data-temp-id'));
+      if (e.target.classList.contains('checklist-item-input')) {
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
         
-        // Mark that we want to add an item after this one commits
-        if (inputValue) {
-          e.target.dataset.addItemAfterCommit = 'true';
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          
+          if (isEditing) {
+            // For edited items, save and remove the flag
+            e.target.removeAttribute('data-editing');
+            e.target.blur(); // Trigger blur which will handle saving
+          } else {
+            // For new items, use existing logic
+            const inputValue = e.target.value.trim();
+            const tempId = Number(e.target.getAttribute('data-temp-id'));
+            
+            // Mark that we want to add an item after this one commits
+            if (inputValue) {
+              e.target.dataset.addItemAfterCommit = 'true';
+            }
+            
+            // Trigger commit
+            e.target.blur();
+          }
+        } else if (e.key === 'Escape' && isEditing) {
+          // Cancel edit by removing the input and restoring name span
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const itemElement = e.target.closest('.checklist-item');
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          // Replace input with name span (restore original)
+          const newNameSpan = this.createNameSpan(originalName);
+          e.target.replaceWith(newNameSpan);
+          
+          // Re-enable dragging
+          if (itemElement) {
+            itemElement.draggable = true;
+          }
         }
-        
-        // Trigger commit
-        e.target.blur();
       }
     });
+
   }
 
   createNameSpan(text) {

@@ -122,37 +122,152 @@ class ChecklistManager {
       }
     });
 
+    // Single event listener for edit buttons
+    this.container.addEventListener('click', (e) => {
+      if (e.target.matches('.checklist-edit-btn')) {
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
+        const itemElement = e.target.closest('.checklist-item');
+        const nameSpan = itemElement.querySelector('.checklist-item-name');
+        
+        // If there's no name span yet, the item is still in edit mode
+        if (!nameSpan) {
+          return;
+        }
+        
+        const currentName = nameSpan.textContent;
+        
+        // Replace span with input for inline editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'checklist-item-input';
+        input.value = currentName;
+        input.setAttribute('data-temp-id', tempId);
+        input.setAttribute('data-editing', 'true'); // Flag to indicate edit mode
+        nameSpan.replaceWith(input);
+        input.focus();
+        input.select();
+        
+        // Disable dragging while editing
+        itemElement.draggable = false;
+      }
+    });
+
     // Single event listener for blur on inputs
     this.container.addEventListener('blur', (e) => {
       if (e.target.classList.contains('checklist-item-input')) {
-        // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
-        setTimeout(() => this.commitInput(e.target), 0);
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
+        
+        if (isEditing) {
+          // This is an edited item - save changes
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const itemElement = e.target.closest('.checklist-item');
+          const newName = e.target.value.trim();
+          const currentName = e.target.value; // original value
+          
+          // Get the original name before editing
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          if (newName && newName !== originalName) {
+            // Update the item in the array
+            if (item) {
+              item.name = newName;
+            }
+            this.onItemChanged();
+          }
+          
+          // Replace input with name span
+          const nameToDisplay = newName || originalName;
+          const newNameSpan = this.createNameSpan(nameToDisplay);
+          e.target.replaceWith(newNameSpan);
+          
+          // Re-enable dragging
+          if (itemElement) {
+            itemElement.draggable = true;
+          }
+        } else {
+          // This is a new item being committed - use the existing logic
+          // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
+          setTimeout(() => this.commitInput(e.target), 0);
+        }
       }
     }, true); // Use capture to catch blur
 
     // Listen for commit complete event to trigger adding new item
     this.container.addEventListener('checklistItemCommitted', (e) => {
       if (e.detail.addItemAfter) {
-        this.addItemAfter(e.detail.tempId);
+        this.addItemAfter(e.detail.addItemAfter);
       }
     });
 
     // Single event listener for Enter key on inputs
     this.container.addEventListener('keydown', (e) => {
-      if (e.target.classList.contains('checklist-item-input') && e.key === 'Enter') {
-        e.preventDefault();
-        const inputValue = e.target.value.trim();
-        const tempId = Number(e.target.getAttribute('data-temp-id'));
+      if (e.target.classList.contains('checklist-item-input')) {
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
         
-        // Mark that we want to add an item after this one commits
-        if (inputValue) {
-          e.target.dataset.addItemAfterCommit = 'true';
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          
+          if (isEditing) {
+            // For edited items, save and remove the flag
+            e.target.removeAttribute('data-editing');
+            e.target.blur(); // Trigger blur which will handle saving
+          } else {
+            // For new items, use existing logic
+            const inputValue = e.target.value.trim();
+            const tempId = Number(e.target.getAttribute('data-temp-id'));
+            
+            // Mark that we want to add an item after this one commits
+            if (inputValue) {
+              e.target.dataset.addItemAfterCommit = 'true';
+            }
+            
+            // Trigger commit
+            e.target.blur();
+          }
+        } else if (e.key === 'Escape' && isEditing) {
+          // Cancel edit by removing the input and restoring name span
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const itemElement = e.target.closest('.checklist-item');
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          // Replace input with name span (restore original)
+          const newNameSpan = this.createNameSpan(originalName);
+          e.target.replaceWith(newNameSpan);
+          
+          // Re-enable dragging
+          if (itemElement) {
+            itemElement.draggable = true;
+          }
         }
-        
-        // Trigger commit
-        e.target.blur();
       }
     });
+
+  }
+
+  createNameSpan(text) {
+    const span = document.createElement('span');
+    span.className = 'checklist-item-name';
+    span.textContent = text;
+    return span;
+  }
+
+  addEditButtonToItem(itemElement, tempId) {
+    const actionsContainer = itemElement.querySelector('.checklist-item-actions');
+    if (actionsContainer) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'checklist-edit-btn';
+      editBtn.setAttribute('data-temp-id', tempId);
+      editBtn.title = 'Edit';
+      editBtn.textContent = '✎';
+      // Insert edit button before delete button
+      actionsContainer.insertBefore(editBtn, actionsContainer.firstChild);
+    }
   }
 
   commitInput(inputElement) {
@@ -169,10 +284,11 @@ class ChecklistManager {
         
         // Replace input with display span
         const itemElement = inputElement.closest('.checklist-item');
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'checklist-item-name';
-        nameSpan.textContent = name;
+        const nameSpan = this.createNameSpan(name);
         inputElement.replaceWith(nameSpan);
+        
+        // Add edit button now that item has a name
+        this.addEditButtonToItem(itemElement, tempId);
         
         // Re-enable dragging
         itemElement.draggable = true;

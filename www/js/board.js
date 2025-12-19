@@ -523,8 +523,11 @@ class BoardManager {
       return;
     }
 
-    // Don't trigger if any modal is open (check for any visible modal on the page)
-    const anyModalOpen = document.querySelector('.modal') !== null;
+    // Don't trigger if any visible modal is open on the page
+    const anyModalOpen = Array.from(document.querySelectorAll('.modal')).some((modal) => {
+      const style = window.getComputedStyle(modal);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    });
     if (anyModalOpen) {
       return;
     }

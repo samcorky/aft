@@ -523,8 +523,12 @@ class BoardManager {
       return;
     }
 
-    // Don't trigger if inside a modal
-    if (e.target.closest('.modal')) {
+    // Don't trigger if any visible modal is open on the page
+    const anyModalOpen = Array.from(document.querySelectorAll('.modal')).some((modal) => {
+      const style = window.getComputedStyle(modal);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    });
+    if (anyModalOpen) {
       return;
     }
 

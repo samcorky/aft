@@ -122,6 +122,86 @@ class ChecklistManager {
       }
     });
 
+    // Single event listener for edit buttons
+    this.container.addEventListener('click', (e) => {
+      if (e.target.matches('.checklist-edit-btn')) {
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
+        const itemElement = e.target.closest('.checklist-item');
+        const nameSpan = itemElement.querySelector('.checklist-item-name');
+        
+        // If there's no name span yet, the item is still in edit mode
+        if (!nameSpan) {
+          return;
+        }
+        
+        const currentName = nameSpan.textContent;
+        
+        // Replace span with input for inline editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'checklist-item-input';
+        input.value = currentName;
+        input.setAttribute('data-temp-id', tempId);
+        nameSpan.replaceWith(input);
+        input.focus();
+        input.select();
+        
+        // Disable dragging while editing
+        itemElement.draggable = false;
+        
+        const saveEdit = () => {
+          const newName = input.value.trim();
+          if (newName && newName !== currentName) {
+            // Update the item in the array
+            const item = this.pendingItems.find(i => i.tempId === tempId);
+            if (item) {
+              item.name = newName;
+            }
+            
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = newName;
+            input.replaceWith(newNameSpan);
+            this.onItemChanged();
+          } else if (newName) {
+            // No change, just restore
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+          } else {
+            // Empty name, restore original
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+          }
+          // Re-enable dragging
+          itemElement.draggable = true;
+        };
+        
+        // Save on blur
+        input.addEventListener('blur', () => {
+          setTimeout(saveEdit, 100);
+        });
+        
+        // Save on Enter, cancel on Escape
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+          } else if (e.key === 'Escape') {
+            // Cancel edit
+            const newNameSpan = document.createElement('span');
+            newNameSpan.className = 'checklist-item-name';
+            newNameSpan.textContent = currentName;
+            input.replaceWith(newNameSpan);
+            itemElement.draggable = true;
+          }
+        });
+      }
+    });
+
     // Single event listener for blur on inputs
     this.container.addEventListener('blur', (e) => {
       if (e.target.classList.contains('checklist-item-input')) {
@@ -211,6 +291,7 @@ class ChecklistManager {
         <input type="checkbox" class="checklist-checkbox" data-temp-id="${tempId}">
         <input type="text" class="checklist-item-input" data-temp-id="${tempId}" placeholder="Enter item name...">
         <div class="checklist-item-actions">
+          <button type="button" class="checklist-edit-btn" data-temp-id="${tempId}" title="Edit">✎</button>
           <button type="button" class="${this.deleteButtonClass}" data-temp-id="${tempId}" title="Delete">🗑</button>
         </div>
       </div>

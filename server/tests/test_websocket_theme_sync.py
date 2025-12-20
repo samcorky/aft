@@ -1,12 +1,12 @@
-"""Tests for WebSocket theme synchronization."""
+"""Tests for API endpoints that support WebSocket theme synchronization."""
 import pytest
 import requests
 import time
 
 
 @pytest.mark.api
-class TestWebSocketThemeSync:
-    """Test cases for WebSocket theme synchronization functionality."""
+class TestThemeAPIForWebSocketSync:
+    """Test cases for theme API endpoints required for WebSocket synchronization."""
     
     def test_theme_api_endpoint_exists(self, api_client):
         """Test that theme API endpoints are available for WebSocket integration."""
@@ -82,8 +82,8 @@ class TestWebSocketThemeSync:
 
 
 @pytest.mark.api
-class TestWebSocketBoardRoomSync:
-    """Test cases for WebSocket board room synchronization."""
+class TestBoardAPIForWebSocketSync:
+    """Test cases for board API endpoints required for WebSocket room synchronization."""
     
     def test_board_room_join_preparation(self, api_client, sample_board):
         """Test that board endpoints support room-based real-time updates."""
@@ -132,8 +132,8 @@ class TestWebSocketBoardRoomSync:
 
 
 @pytest.mark.api
-class TestWebSocketErrorHandling:
-    """Test WebSocket error handling and fallback behavior."""
+class TestAPIErrorHandlingForWebSocket:
+    """Test API error handling and fallback behavior for WebSocket features."""
     
     def test_api_test_endpoint_available(self, api_client):
         """Test database connection check endpoint for WebSocket fallback."""
@@ -172,8 +172,8 @@ class TestWebSocketErrorHandling:
 
 
 @pytest.mark.api
-class TestWebSocketIntegration:
-    """Integration tests for WebSocket functionality across multiple endpoints."""
+class TestAPIIntegrationForWebSocket:
+    """Integration tests for API endpoints that support WebSocket functionality across multiple features."""
     
     def test_theme_change_updates_all_pages(self, api_client):
         """Test that theme changes propagate across pages via WebSocket."""

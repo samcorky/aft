@@ -127,6 +127,14 @@ class Header {
    * Also listens for connect/disconnect events to update immediately.
    * On initial page load, don't report connecting sockets as failed.
    */
+  /**
+   * Monitor WebSocket connection status with periodic checks.
+   * 
+   * Polls WebSocket status every 5 seconds to detect disconnections.
+   * Also sets up immediate event listeners via WebSocketManager.onSocketCreated callback,
+   * which is invoked by WebSocketManager when the Socket.IO socket is created.
+   * This allows the header status to update immediately on connect/disconnect events.
+   */
   monitorWebSocketConnection() {
     // Check WebSocket status every 5 seconds
     this.wsCheckInterval = setInterval(() => {
@@ -136,7 +144,8 @@ class Header {
     // Listen for socket connection events on board manager socket if available
     if (window.boardManager && window.boardManager.wsManager) {
       const wsManager = window.boardManager.wsManager;
-      // Store reference so we can attach listeners when socket is created
+      // Define callback that WebSocketManager will invoke when socket is created
+      // (WebSocketManager checks if this is a function before calling it)
       wsManager.onSocketCreated = (socket) => {
         socket.on('connect', () => {
           // Immediately update when connected

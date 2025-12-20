@@ -528,8 +528,8 @@ class Header {
       // Track when connection started trying
       if (wsConnecting && !this.wsConnectionStartTime) {
         this.wsConnectionStartTime = Date.now();
-      } else if (wsHealthy && this.wsConnectionStartTime) {
-        // Connected successfully, reset the timer
+      } else if (!wsConnecting && this.wsConnectionStartTime) {
+        // No longer connecting (whether succeeded or failed), reset the timer
         this.wsConnectionStartTime = null;
       }
     }

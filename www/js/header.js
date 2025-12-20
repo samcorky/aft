@@ -76,11 +76,11 @@ class Header {
     this.statusText = document.getElementById('status-text');
     this.versionInfo = document.getElementById('version-info');
     
-    // Initialize status as "healthy" by default (optimistic approach)
+    // Initialize status as "Connected" by default (optimistic approach)
     // Will be updated by checks if there's an actual problem
     if (this.statusIcon && this.statusText) {
       this.statusIcon.className = 'status-icon success';
-      this.statusText.textContent = 'Server healthy';
+      this.statusText.textContent = 'Connected';
     }
     
     // Add click handler to db-status
@@ -181,10 +181,11 @@ class Header {
   _getWebSocketConnectionState() {
     // Only check WebSocket if socket.io is actually loaded on this page
     if (typeof io === 'undefined') {
-      // Socket.io not loaded on this page
-      return { hasSocket: false, wsHealthy: false, wsConnecting: false };
+      // Socket.io not loaded on this page - that's OK
+      return { hasSocket: false, wsHealthy: false, wsConnecting: false, ioLoaded: false };
     }
     
+    // Socket.IO is loaded on this page, so check for actual sockets
     // Check for board manager socket OR theme builder socket
     const boardSocket = (window.boardManager && 
                          window.boardManager.wsManager && 
@@ -204,19 +205,28 @@ class Header {
     const wsHealthy = boardSocketConnected || themeSocketConnected;
     const wsConnecting = boardSocketConnecting || themeSocketConnecting;
     
-    return { hasSocket, wsHealthy, wsConnecting };
+    return { hasSocket, wsHealthy, wsConnecting, ioLoaded: true };
   }
 
   updateWebSocketStatus() {
-    const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
+    const { hasSocket, wsHealthy, wsConnecting, ioLoaded } = this._getWebSocketConnectionState();
     
     this.wsConnected = wsHealthy;
+    
+    // If Socket.IO library failed to load on a page that needs it, show error
+    if (ioLoaded && !hasSocket && !wsConnecting) {
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'WebSocket Disconnected';
+      this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
+      this.dbConnected = false;
+      return;
+    }
     
     // Only show connection error if socket exists and is not connecting and is not healthy
     if (hasSocket && !wsHealthy && !wsConnecting) {
       this.statusIcon.className = 'status-icon error';
-      this.statusText.textContent = 'Connection Error';
-      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
+      this.statusText.textContent = 'WebSocket Disconnected';
+      this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
       this.dbConnected = false; // Mark DB as disconnected when WS is down
     }
   }
@@ -427,7 +437,7 @@ class Header {
     this.dbConnected = (status === 'success');
     
     if (status === 'success') {
-      this.statusText.textContent = 'Server healthy';
+      this.statusText.textContent = 'Connected';
       this.statusText.title = ''; // Clear any previous error message
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
@@ -439,106 +449,125 @@ class Header {
   }
 
   /**
-   * Check database connection status by calling API.
+   * Check system status with proper precedence:
+   * 1. Server connectivity (can reach API?)
+   * 2. WebSocket availability (on pages that need it)
+   * 3. Database health (if server and WebSocket OK)
    * 
-   * Polls database health, version info, and scheduler status.
-   * Updates header status based on results.
+   * Updates header status based on first failure encountered.
    */
   async checkDatabaseStatus() {
-    // Only check WebSocket if socket.io is actually loaded on this page
-    if (typeof io === 'undefined') {
-      // Socket.io not loaded on this page - just check database directly
-      // This happens on pages like settings that don't have real-time updates
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      
-      try {
-        const response = await fetch('/api/test', {
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        
-        const data = await response.json();
-        if (data.success) {
-          this.updateStatus('success', 'Connected');
-        } else {
-          // API responded but DB is unhealthy
-          this.statusIcon.className = 'status-icon error';
-          this.statusText.textContent = 'DB Error';
-          this.statusText.title = `Database error: ${data.message}`;
-          this.dbConnected = false;
-        }
-      } catch (error) {
-        clearTimeout(timeoutId);
-        // Server/connection error
-        this.statusIcon.className = 'status-icon error';
-        this.statusText.textContent = 'Server Connection Error';
-        this.statusText.title = 'Unable to connect to server';
-        this.dbConnected = false;
-      }
-      return;
-    }
-    
-    // Check for board manager socket OR theme builder socket
-    const boardSocketConnected = (window.boardManager && 
-                                  window.boardManager.wsManager && 
-                                  window.boardManager.wsManager.socket && 
-                                  window.boardManager.wsManager.socket.connected);
-    
-    const themeSocketConnected = (window.themeBuilderSocket && 
-                                  window.themeBuilderSocket.connected);
-    
-    const wsHealthy = (boardSocketConnected || themeSocketConnected);
-    
-    if (!wsHealthy) {
-      // WebSocket disconnected = connection error, skip DB check
-      // Don't check DB if connectivity is down - it requires connectivity
-      this.statusIcon.className = 'status-icon error';
-      this.statusText.textContent = 'Connection Error';
-      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
-      this.dbConnected = false;
-      return;
-    }
-    
-    // Only perform DB check if WebSocket connectivity is healthy
+    // First: Check if server is reachable
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
+    let serverReachable = false;
+    let testData = null;
+    
     try {
-      const [testResponse, versionResponse, healthResponse] = await Promise.all([
-        fetch('/api/test', { signal: controller.signal }),
-        fetch('/api/version', { signal: controller.signal }),
-        fetch('/api/scheduler/health', { signal: controller.signal })
+      const response = await fetch('/api/test', {
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      serverReachable = response.ok;
+      testData = await response.json();
+      
+      // If server responded but with an error status, treat as unreachable
+      if (!serverReachable) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'Server Disconnected';
+        this.statusText.title = 'Server responded with an error. Check server status.';
+        this.dbConnected = false;
+        return;
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      // Server is not reachable - highest priority error
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Server Disconnected';
+      this.statusText.title = 'Unable to connect to server. Check your connection or try refreshing the page.';
+      this.dbConnected = false;
+      return;
+    }
+
+    // Second: Check WebSocket status on pages that need it (board, theme-builder)
+    // Detect if we're on a page that should have Socket.IO loaded
+    const isOnBoardPage = (window.boardManager && window.boardManager.wsManager) || 
+                          (window.themeBuilderSocket !== undefined);
+    
+    if (isOnBoardPage) {
+      const { hasSocket, wsHealthy, wsConnecting, ioLoaded } = this._getWebSocketConnectionState();
+      
+      // If we're on a board page but Socket.IO isn't loaded, that's an error
+      if (!ioLoaded) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'WebSocket Disconnected';
+        this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
+        this.dbConnected = false;
+        return;
+      }
+      
+      // If Socket.IO is loaded but WebSocket isn't working, that's a priority issue
+      // Also consider it disconnected if it's been trying to connect for too long (>30 seconds)
+      const connectionDuration = Date.now() - (this.wsConnectionStartTime || Date.now());
+      const isConnectingTooLong = wsConnecting && connectionDuration > 30000;
+      
+      if ((!wsHealthy && !wsConnecting) || isConnectingTooLong) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'WebSocket Disconnected';
+        this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
+        this.dbConnected = false;
+        return;
+      }
+      
+      // Track when connection started trying
+      if (wsConnecting && !this.wsConnectionStartTime) {
+        this.wsConnectionStartTime = Date.now();
+      } else if (wsHealthy && this.wsConnectionStartTime) {
+        // Connected successfully, reset the timer
+        this.wsConnectionStartTime = null;
+      }
+    }
+
+    // Third: Check database health
+    if (!serverReachable || !testData || !testData.success) {
+      // Database is unhealthy
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'DB Error';
+      this.statusText.title = testData?.message || 'Database error';
+      this.dbConnected = false;
+      return;
+    }
+
+    // All systems OK - get full status
+    const versionController = new AbortController();
+    const versionTimeoutId = setTimeout(() => versionController.abort(), 5000);
+    
+    try {
+      const [versionResponse, healthResponse] = await Promise.all([
+        fetch('/api/version', { signal: versionController.signal }),
+        fetch('/api/scheduler/health', { signal: versionController.signal })
       ]);
       
-      clearTimeout(timeoutId);
+      clearTimeout(versionTimeoutId);
       
-      const testData = await testResponse.json();
       const versionData = await versionResponse.json();
       const healthData = await healthResponse.json();
       
-      if (testData.success) {
-        // Check housekeeping scheduler health
-        const housekeepingHealth = healthData.housekeeping_scheduler;
-        const isHousekeepingHealthy = housekeepingHealth && 
-                                       housekeepingHealth.running && 
-                                       housekeepingHealth.thread_alive;
-        
-        this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
-      } else {
-        // API responded but DB is unhealthy - distinguish this from server connection errors
-        this.statusIcon.className = 'status-icon error';
-        this.statusText.textContent = 'DB Error';
-        this.statusText.title = `Database error: ${testData.message}`;
-        this.dbConnected = false;
-      }
+      // Check housekeeping scheduler health
+      const housekeepingHealth = healthData.housekeeping_scheduler;
+      const isHousekeepingHealthy = housekeepingHealth && 
+                                     housekeepingHealth.running && 
+                                     housekeepingHealth.thread_alive;
+      
+      this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
       
       // Update version display
       if (versionData.success) {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
-      clearTimeout(timeoutId);
+      clearTimeout(versionTimeoutId);
       
       // Server/connection error (not a DB-specific error)
       if (err.name === 'AbortError') {

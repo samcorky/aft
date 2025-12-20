@@ -227,6 +227,14 @@ socketio = SocketIO(
 # Used for debugging and monitoring WebSocket broadcast issues
 broadcast_failures = {}
 
+# ============================================================================
+# TESTING FLAG: WebSocket Connection Rejection
+# ============================================================================
+# Set to True to test WebSocket disconnection scenarios (header shows "WebSocket Disconnected")
+# All Socket.IO connection attempts will be rejected, forcing clients to reconnect
+# Set back to False when done testing
+REJECT_SOCKETIO_CONNECTIONS = False
+
 # Helper function to broadcast WebSocket events from route handlers
 def broadcast_event(event_name, data, board_id, skip_sid=None):
     """Broadcast a WebSocket event to all clients in a board room.
@@ -7426,7 +7434,15 @@ def update_current_theme():
 
 @socketio.on('connect')
 def handle_connect():
-    """Handle client connection to WebSocket."""
+    """Handle client connection to WebSocket.
+    
+    When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
+    to simulate WebSocket failure for testing purposes.
+    """
+    if REJECT_SOCKETIO_CONNECTIONS:
+        logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
+        return False  # Reject the connection
+    
     logger.info(f"Client connected: {request.sid}")
     emit('connected', {'data': 'Connected to board server'})
 

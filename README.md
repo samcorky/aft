@@ -209,6 +209,56 @@ Use at your own risk.
 
 ![API Documentation](images/api_docs.png)
 
+## 📡 System Status Widget
+
+The header displays a real-time system status indicator in the top-right corner. This widget monitors three critical system components and displays their health status:
+
+### Status Indicator Colors & Meanings
+
+| Status | Icon | Color | Meaning | Troubleshooting |
+|--------|------|-------|---------|-----------------|
+| **Connected** | ✅ | Green | All systems operational | None needed - everything is working normally |
+| **Server Disconnected** | ❌ | Red | Cannot reach API server | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
+| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. |
+| **DB Error** | ❌ | Red | Database connection failed | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
+
+### Status Checking Order (Priority)
+
+The widget checks system status in this order and stops at the first failure:
+
+1. **Server Connectivity** (Highest Priority)
+   - Makes HTTP request to `/api/test`
+   - If server doesn't respond or returns error, shows "Server Disconnected"
+   - Other checks are skipped when server is down
+
+2. **WebSocket Connection** (Medium Priority)
+   - Only checked on board/dashboard pages (where real-time updates are needed)
+   - Monitors Socket.IO connection status
+   - If loading takes >30 seconds, shows "WebSocket Disconnected"
+   - Shows updates but may be delayed without real-time sync
+
+3. **Database Health** (Lower Priority)
+   - Queries database directly via API
+   - If server is OK but database fails, shows "DB Error"
+   - Indicates database-specific issues
+
+### Testing WebSocket Disconnection
+
+To test the WebSocket disconnection scenario (for development/debugging):
+
+1. Edit [server/app.py](server/app.py) line ~237
+2. Change `REJECT_SOCKETIO_CONNECTIONS = False` to `REJECT_SOCKETIO_CONNECTIONS = True`
+3. Rebuild: `docker compose down ; docker compose up -d --build`
+4. Open board page - header shows "WebSocket Disconnected" within 5 seconds
+5. Real-time updates will not work
+6. Revert the flag to `False` and rebuild to restore connectivity
+
+### Polling & Real-Time Updates
+
+- **Polling Interval**: Status checks happen every 5 seconds
+- **Real-Time Events**: Socket.IO events (connect/disconnect) trigger immediate updates
+- **Reconnection**: Socket.IO automatically retries failed connections with exponential backoff
+
 ## Architecture Decisions
 
 This section documents key architectural choices made in the AFT application.

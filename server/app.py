@@ -211,15 +211,23 @@ socketio = SocketIO(
 )
 
 # Helper function to broadcast WebSocket events from route handlers
-def broadcast_event(event_name, data, board_id):
-    """Broadcast a WebSocket event to all clients in a board room."""
+def broadcast_event(event_name, data, board_id, skip_sid=None):
+    """Broadcast a WebSocket event to all clients in a board room.
+    
+    Args:
+        event_name: Name of the event to broadcast
+        data: Event data to send
+        board_id: Board ID to broadcast to (determines the room)
+        skip_sid: Optional Socket.IO session ID to exclude from broadcast (usually request.sid)
+    """
     room_name = f'board_{board_id}'
     
     def do_emit():
         try:
             logger.info(f"Broadcasting {event_name} to room {room_name} with data: {data}")
             # Use socketio.emit to broadcast to all clients in the room
-            socketio.emit(event_name, data, room=room_name, namespace='/')
+            # skip_sid prevents the originating client from receiving a duplicate update
+            socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
             logger.info(f"✓ Successfully emitted {event_name}")
         except Exception as e:
             logger.error(f"❌ Error broadcasting {event_name}: {str(e)}")

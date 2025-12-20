@@ -4029,12 +4029,15 @@ def create_card(column_id):
 
         # Get board_id for WebSocket broadcast
         board_id = column.board_id
-        broadcast_event('card_created', {
-            'board_id': board_id,
-            'column_id': column_id,
-            'card_id': card.id,
-            'card_data': result
-        }, board_id)
+        if board_id is not None:
+            broadcast_event('card_created', {
+                'board_id': board_id,
+                'column_id': column_id,
+                'card_id': card.id,
+                'card_data': result
+            }, board_id)
+        else:
+            logger.warning(f"Skipping card_created broadcast for card {card.id}: column {column_id} has no board_id")
 
         return create_success_response({"card": result}, status_code=201)
 

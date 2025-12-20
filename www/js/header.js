@@ -61,7 +61,7 @@ class Header {
     this.currentView = 'task'; // Default view
     this.dbConnected = false; // Track database connection status
     this.wsConnected = false; // Track WebSocket connection status
-    this.wsLastHeartbeat = null; // Track last WebSocket heartbeat
+    this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
     this.wsCheckInterval = null; // WebSocket check interval
   }
 
@@ -162,11 +162,16 @@ class Header {
   checkWebSocketStatusWithInitialDelay() {
     const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
     
-    // Track state changes
+    // Track state changes by comparing individual properties
     const newState = { hasSocket, wsHealthy, wsConnecting };
     
     // Only update if state actually changed (not on every 5s interval)
-    if (JSON.stringify(this.lastWsState) !== JSON.stringify(newState)) {
+    const stateChanged = !this.lastWsState || 
+                        this.lastWsState.hasSocket !== newState.hasSocket ||
+                        this.lastWsState.wsHealthy !== newState.wsHealthy ||
+                        this.lastWsState.wsConnecting !== newState.wsConnecting;
+    
+    if (stateChanged) {
       this.lastWsState = newState;
       this.updateWebSocketStatus();
     }

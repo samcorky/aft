@@ -1293,7 +1293,15 @@ class ThemeBuilder {
   }
 }
 
-// Initialize WebSocket connection for database/theme updates
+/**
+ * Initialize WebSocket connection for the theme builder page.
+ * 
+ * Sets up Socket.IO client for theme synchronization across multiple clients
+ * editing themes simultaneously.
+ * 
+ * Returns:
+ *   Socket instance if Socket.IO is available, null otherwise
+ */
 function initializeWebSocketForThemeBuilder() {
   if (typeof io !== 'undefined') {
     const socket = io({

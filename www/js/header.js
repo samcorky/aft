@@ -117,7 +117,12 @@ class Header {
     this.monitorWebSocketConnection();
   }
 
-  // Monitor WebSocket connection status
+  /**
+   * Monitor WebSocket connection status with periodic checks.
+   * 
+   * Polls WebSocket status every 5 seconds to detect disconnections.
+   * Does not perform initial check - relies on optimistic UI (assumes healthy).
+   */
   monitorWebSocketConnection() {
     // Check WebSocket status every 5 seconds
     this.wsCheckInterval = setInterval(() => {
@@ -128,7 +133,12 @@ class Header {
     // Will be updated by periodic checks if there's a problem
   }
 
-  // Update WebSocket connection status
+  /**
+   * Update WebSocket connection status by checking available sockets.
+   * 
+   * Checks for board manager socket or theme builder socket.
+   * Only shows error if socket exists and is not connecting and not healthy.
+   */
   updateWebSocketStatus() {
     // Only check WebSocket if socket.io is actually loaded on this page
     if (typeof io === 'undefined') {
@@ -331,7 +341,15 @@ class Header {
     return div.innerHTML;
   }
 
-  // Update the database status indicator
+  /**
+   * Update the status icon and text in the header.
+   * 
+   * Args:
+   *   status: Status type ('success' or 'error')
+   *   message: Status message to display
+   *   count: Optional count of boards (shown in tooltip)
+   *   housekeepingHealthy: Whether housekeeping scheduler is healthy
+   */
   updateStatus(status, message, count = null, housekeepingHealthy = true) {
     if (!this.statusIcon || !this.statusText) return;
 
@@ -394,7 +412,12 @@ class Header {
     }
   }
 
-  // Check database connection status
+  /**
+   * Check database connection status by calling API.
+   * 
+   * Polls database health, version info, and scheduler status.
+   * Updates header status based on results.
+   */
   async checkDatabaseStatus() {
     // Only check WebSocket if socket.io is actually loaded on this page
     if (typeof io === 'undefined') {
@@ -489,7 +512,12 @@ class Header {
     }
   }
 
-  // Load version info without status checks
+  /**
+   * Load version info from API.
+   * 
+   * Fetches app and database version information without triggering
+   * WebSocket status checks. Silently fails if server is unavailable.
+   */
   async loadVersionInfo() {
     try {
       const response = await fetch('/api/version', { 

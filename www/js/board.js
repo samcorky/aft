@@ -437,8 +437,20 @@ async function loadAndApplyThemeGlobal() {
   }
 }
 
-// WebSocket Manager for Real-Time Board Updates
+/**
+ * WebSocket Manager for Real-Time Board Updates
+ * 
+ * Manages Socket.IO connections for real-time board synchronization across clients.
+ * Handles reconnection logic, event emission, and incoming event handlers.
+ */
 class WebSocketManager {
+  /**
+   * Initialize WebSocket manager
+   * 
+   * Args:
+   *   boardId: The board ID to connect to
+   *   boardManager: Reference to the BoardManager instance
+   */
   constructor(boardId, boardManager) {
     this.boardId = boardId;
     this.boardManager = boardManager;
@@ -450,6 +462,11 @@ class WebSocketManager {
     this.initializeConnection();
   }
 
+  /**
+   * Initialize WebSocket connection with auto-reconnection.
+   * 
+   * Sets up Socket.IO client with reconnection strategy and event listeners.
+   */
   initializeConnection() {
     // Check if Socket.IO library is loaded
     if (typeof io === 'undefined') {
@@ -546,12 +563,18 @@ class WebSocketManager {
     });
   }
 
+  /**
+   * Join the board room for real-time board updates.
+   */
   joinBoard() {
     if (this.socket && this.socket.connected) {
       this.socket.emit('join_board', { board_id: this.boardId });
     }
   }
 
+  /**
+   * Join the theme room to receive theme update notifications.
+   */
   joinThemeRoom() {
     if (this.socket && this.socket.connected) {
       this.socket.emit('join_theme');
@@ -561,6 +584,9 @@ class WebSocketManager {
     }
   }
 
+  /**
+   * Leave the board room.
+   */
   leaveBoard() {
     if (this.socket && this.socket.connected) {
       this.socket.emit('leave_board', { board_id: this.boardId });

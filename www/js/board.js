@@ -426,8 +426,6 @@ async function loadAndApplyThemeGlobal() {
     
     // Update sessionStorage for persistence
     sessionStorage.setItem('currentTheme', JSON.stringify(settings));
-    
-    console.log('✓ Theme applied successfully');
   } catch (error) {
     if (error.name === 'AbortError') {
       console.error('✗ Load theme request timed out');
@@ -474,7 +472,6 @@ class WebSocketManager {
       return;
     }
     
-    console.log(`🔌 Attempting to connect to WebSocket...`);
     
     // Connect to the current server (socket.io client auto-detects the URL)
     // Don't pass a URL - let socket.io auto-detect it
@@ -578,9 +575,8 @@ class WebSocketManager {
   joinThemeRoom() {
     if (this.socket && this.socket.connected) {
       this.socket.emit('join_theme');
-      console.log('✓ Emitted join_theme event');
     } else {
-      console.log('✗ Cannot join theme room - socket not connected');
+      console.warn('Cannot join theme room - socket not connected');
     }
   }
 
@@ -667,7 +663,6 @@ class WebSocketManager {
   // Handle incoming events from other clients
   handleCardCreated(data) {
     // A new card was created on another client
-    console.log('Card created from another client:', data);
     if (this.boardManager) {
       // Request the board manager to refresh the card or column
       this.boardManager.loadBoard();
@@ -751,17 +746,14 @@ class WebSocketManager {
   handleThemeChanged(data) {
     // Theme was changed by another client
     // Fetch the new theme and apply it without reloading
-    console.log('📢 Theme changed event received:', data);
     
     // Try to use themeBuilder if available (on theme-builder page)
     if (window.themeBuilder && typeof window.themeBuilder.loadAndApplyTheme === 'function') {
-      console.log('✓ Using themeBuilder.loadAndApplyTheme()');
       window.themeBuilder.loadAndApplyTheme().catch(error => {
         console.error('✗ Error applying theme from WebSocket event:', error);
       });
     } else {
       // Use global function (available on all pages)
-      console.log('✓ Using loadAndApplyThemeGlobal()');
       loadAndApplyThemeGlobal();
     }
   }
@@ -1757,7 +1749,6 @@ class BoardManager {
           }
         }
         
-        console.log('Card restored to original position');
       } else {
         console.warn('Cannot restore card: original container is no longer in the document');
         // Container was removed (column deleted or board reloaded)
@@ -3334,8 +3325,9 @@ class BoardManager {
       if (data.success) {
         const cardId = data.card.id;
         
-        // Server will broadcast card_created event to all clients
-        // No need to emit here - just wait for the server broadcast
+        // The server broadcasts card_created to other clients via WebSocket.
+        // For the originating client, we reload the board immediately via loadBoard()
+        // to ensure instant UI update without waiting for broadcast.
         
         // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
         // in a single request to avoid multiple sequential API calls and ensure atomicity.
@@ -4362,8 +4354,10 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
-        // Server will broadcast card_updated event to all clients
-        // No need to emit here - just wait for the server broadcast
+        // The server broadcasts card_updated to other clients via WebSocket.
+        // For the originating client, we return true immediately since the API
+        // request itself confirms the update succeeded. The client should reload
+        // the board if needed.
         return true;
       } else {
         this.showErrorToast(`Failed to update card: ${data.message}`);
@@ -4403,18 +4397,9 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
-        // Get the column ID from the card element if available for WebSocket emit
-        let columnId = null;
-        if (cardElement) {
-          const column = cardElement.closest('.column');
-          if (column) {
-            columnId = parseInt(column.getAttribute('data-column-id'));
-          }
-        }
-        
-        // Emit WebSocket event for real-time updates
-        // Server will broadcast card_deleted event to all clients
-        // No need to emit here - just wait for the server broadcast
+        // The server broadcasts card_deleted to other clients via WebSocket.
+        // For the originating client, we reload the board immediately below
+        // to ensure instant UI update and remove the card element.
         
         // Reload board to reflect deletion
         await this.loadBoard();

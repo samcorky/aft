@@ -433,7 +433,6 @@ class ThemeBuilder {
         const currentValue = this.colorInputs[key].colorInput.value.toUpperCase();
         const savedValue = value.toUpperCase();
         if (currentValue !== savedValue) {
-          console.log(`Color changed: ${key} from ${savedValue} to ${currentValue}`);
           return true;
         }
       }
@@ -443,7 +442,6 @@ class ThemeBuilder {
     const currentBg = this.backgroundSelect.value === 'none' ? null : this.backgroundSelect.value;
     const savedBg = this.currentThemeData.background_image || null;
     if (currentBg !== savedBg) {
-      console.log(`Background changed from ${savedBg} to ${currentBg}`);
       return true;
     }
     
@@ -1313,17 +1311,15 @@ function initializeWebSocketForThemeBuilder() {
     });
 
     socket.on('connect', () => {
-      console.log('✓ WebSocket connected on theme-builder page');
       socket.emit('join_theme');
     });
 
     socket.on('disconnect', () => {
-      console.log('✗ WebSocket disconnected on theme-builder page');
+      // Silently handle disconnection
     });
 
     // Listen for theme changes from other clients
     socket.on('theme_changed', (data) => {
-      console.log('📢 Theme changed on another client:', data);
       // Refresh themes list if we're on the theme builder
       if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
         window.themeBuilder.loadThemes();
@@ -1331,7 +1327,6 @@ function initializeWebSocketForThemeBuilder() {
     });
 
     socket.on('theme_updated', (data) => {
-      console.log('📢 Theme updated on another client:', data);
       if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
         window.themeBuilder.loadThemes();
       }

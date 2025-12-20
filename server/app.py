@@ -4641,8 +4641,6 @@ def archive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card, BoardColumn
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
@@ -4711,8 +4709,6 @@ def unarchive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:

@@ -25,8 +25,6 @@ class Notifications {
       return;
     }
 
-    console.log('Notifications: Initializing...');
-
     // Set up event listeners
     this.iconLink.addEventListener('click', (e) => {
       e.preventDefault();

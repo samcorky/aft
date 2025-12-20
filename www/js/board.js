@@ -385,56 +385,6 @@ class ChecklistManager {
   }
 }
 
-// Global function to load and apply theme from any page
-async function loadAndApplyThemeGlobal() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    const response = await fetch('/api/settings/theme', {
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to load theme: ${response.statusText}`);
-    }
-    
-    const theme = await response.json();
-    
-    if (!theme || !theme.settings) {
-      throw new Error('Invalid theme data');
-    }
-    
-    const root = document.documentElement;
-    const settings = theme.settings;
-    
-    // Apply all color variables
-    Object.keys(settings).forEach(key => {
-      root.style.setProperty(`--${key}`, settings[key]);
-    });
-    
-    // Apply background image
-    if (theme.background_image) {
-      root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
-      sessionStorage.setItem('backgroundImage', theme.background_image);
-    } else {
-      root.style.setProperty('--background-image', 'none');
-      sessionStorage.setItem('backgroundImage', 'none');
-    }
-    
-    // Update sessionStorage for persistence
-    sessionStorage.setItem('currentTheme', JSON.stringify(settings));
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      console.error('✗ Load theme request timed out');
-    } else {
-      console.error('✗ Error loading and applying theme:', error);
-    }
-  }
-}
-
 /**
  * WebSocket Manager for Real-Time Board Updates
  * 
@@ -761,9 +711,13 @@ class WebSocketManager {
       window.themeBuilder.loadAndApplyTheme().catch(error => {
         console.error('✗ Error applying theme from WebSocket event:', error);
       });
+    } else if (typeof loadAndApplyThemeGlobal === 'function') {
+      // Use global function (available on all pages that include utils.js)
+      loadAndApplyThemeGlobal().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
     } else {
-      // Use global function (available on all pages)
-      loadAndApplyThemeGlobal();
+      console.warn('⚠ Theme update received but no theme handler available');
     }
   }
 

@@ -538,8 +538,9 @@ class Header {
 
     // Second: Check WebSocket status on pages that need it (board, theme-builder)
     // Detect if we're on a page that should have Socket.IO loaded
+    // Check for page-specific elements rather than socket existence to handle Socket.IO load failures
     const isOnBoardPage = (window.boardManager && window.boardManager.wsManager) || 
-                          (window.themeBuilderSocket !== undefined);
+                          (document.getElementById('theme-builder-select') !== null);
     
     if (isOnBoardPage) {
       const { hasSocket, wsHealthy, wsConnecting, ioLoaded } = this._getWebSocketConnectionState();

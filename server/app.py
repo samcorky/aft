@@ -4582,6 +4582,8 @@ def delete_card(card_id):
                 'card_id': card_id,
                 'column_id': card.column_id
             }, board_id)
+        else:
+            logger.warning(f"⚠️  Failed to broadcast card_deleted for card {card_id}: column or board_id not found")
 
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:

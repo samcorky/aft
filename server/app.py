@@ -4623,7 +4623,7 @@ def update_card(card_id):
                 'column_id': card.column_id,
                 'card_data': result,
                 'moved': old_column_id != card.column_id or old_order != card.order
-            }, column.board_id)
+            }, column.board_id, getattr(request, "sid", None))
 
         return create_success_response({"card": result})
 

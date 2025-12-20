@@ -330,3 +330,46 @@ class TestSchedulerHealthEndpoint:
         # Just verify the endpoint structure is correct
         assert True
 
+
+@pytest.mark.api
+class TestBroadcastStatusEndpoint:
+    """Tests for /api/broadcast-status endpoint used for WebSocket debugging."""
+
+    def test_broadcast_status_endpoint_exists(self, api_client):
+        """Test that broadcast status endpoint is accessible."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        assert response.status_code == 200
+
+    def test_broadcast_status_structure(self, api_client):
+        """Test that broadcast status returns correct structure."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        data = response.json()
+        
+        assert data["success"] is True
+        assert "broadcast_failures" in data
+        assert "total_failure_rooms" in data
+        assert isinstance(data["broadcast_failures"], dict)
+        assert isinstance(data["total_failure_rooms"], int)
+
+    def test_broadcast_status_initially_empty(self, api_client):
+        """Test that broadcast status is empty on startup."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        data = response.json()
+        
+        # Should have no failures initially
+        assert data["total_failure_rooms"] == 0
+        assert len(data["broadcast_failures"]) == 0
+
+    def test_broadcast_status_version_endpoint(self, api_client):
+        """Test version endpoint alongside broadcast status."""
+        # Test version endpoint first
+        version_response = requests.get(f"{api_client}/api/version")
+        assert version_response.status_code == 200
+        version_data = version_response.json()
+        assert version_data["success"] is True
+        
+        # Broadcast status should still be clean
+        broadcast_response = requests.get(f"{api_client}/api/broadcast-status")
+        broadcast_data = broadcast_response.json()
+        assert broadcast_data["total_failure_rooms"] == 0
+

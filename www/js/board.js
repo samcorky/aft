@@ -385,6 +385,351 @@ class ChecklistManager {
   }
 }
 
+/**
+ * WebSocket Manager for Real-Time Board Updates
+ * 
+ * Manages Socket.IO connections for real-time board synchronization across clients.
+ * Handles reconnection logic, event emission, and incoming event handlers.
+ */
+class WebSocketManager {
+  /**
+   * Initialize WebSocket manager
+   * 
+   * Args:
+   *   boardId: The board ID to connect to
+   *   boardManager: Reference to the BoardManager instance
+   */
+  constructor(boardId, boardManager) {
+    this.boardId = boardId;
+    this.boardManager = boardManager;
+    this.socket = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = Infinity; // Infinite retries - Socket.IO handles exponential backoff internally
+    this.reconnectDelay = 1000; // Socket.IO manages reconnection delays
+    
+    this.initializeConnection();
+  }
+
+  /**
+   * Initialize WebSocket connection with auto-reconnection.
+   * 
+   * Sets up Socket.IO client with reconnection strategy and event listeners.
+   */
+  initializeConnection() {
+    // Check if Socket.IO library is loaded
+    if (typeof io === 'undefined') {
+      console.error('❌ Socket.IO library not loaded! Make sure socket.io.js script is included.');
+      return;
+    }
+    
+    // Connect to the current server (socket.io client auto-detects the URL)
+    // Don't pass a URL - let socket.io auto-detect it
+    this.socket = io({
+      reconnection: true,
+      reconnectionDelay: this.reconnectDelay,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: this.maxReconnectAttempts,
+      transports: ['websocket', 'polling']
+    });
+
+    // Notify any listeners that socket was created (e.g., header.js for immediate event updates)
+    // This callback is optional - listeners should check if it exists before setting it
+    if (typeof this.onSocketCreated === 'function') {
+      try {
+        this.onSocketCreated(this.socket);
+      } catch (error) {
+        console.error('Error in onSocketCreated callback:', error);
+      }
+    }
+
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    // Connection events
+    this.socket.on('connect', () => {
+      this.reconnectAttempts = 0;
+      this.joinBoard();
+      this.joinThemeRoom();
+      // Update header status immediately when WebSocket connects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+        window.header.checkDatabaseStatus();
+      }
+    });
+
+    this.socket.on('disconnect', () => {
+      // Update header status immediately when WebSocket disconnects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+      }
+    });
+
+    this.socket.on('connect_error', (error) => {
+      // Connection error occurred
+    });
+
+    // Board room events
+    this.socket.on('room_joined', (data) => {
+      // Joined board room
+    });
+    this.socket.on('card_created', (data) => {
+      this.handleCardCreated(data);
+    });
+    this.socket.on('card_updated', (data) => {
+      this.handleCardUpdated(data);
+    });
+    this.socket.on('card_deleted', (data) => {
+      this.handleCardDeleted(data);
+    });
+    this.socket.on('card_moved', (data) => {
+      this.handleCardMoved(data);
+    });
+    this.socket.on('cards_moved', (data) => {
+      this.handleCardsMoved(data);
+    });
+    this.socket.on('column_reordered', (data) => {
+      this.handleColumnReordered(data);
+    });
+    this.socket.on('checklist_item_added', (data) => {
+      this.handleChecklistItemAdded(data);
+    });
+    this.socket.on('checklist_item_updated', (data) => {
+      this.handleChecklistItemUpdated(data);
+    });
+    this.socket.on('checklist_item_deleted', (data) => {
+      this.handleChecklistItemDeleted(data);
+    });
+    this.socket.on('column_updated', (data) => {
+      this.handleColumnUpdated(data);
+    });
+    this.socket.on('card_archived', (data) => {
+      this.handleCardArchived(data);
+    });
+    this.socket.on('card_unarchived', (data) => {
+      this.handleCardUnarchived(data);
+    });
+    
+    // Theme room events
+    this.socket.on('theme_changed', (data) => {
+      this.handleThemeChanged(data);
+    });
+    this.socket.on('theme_updated', (data) => {
+      this.handleThemeChanged(data);
+    });
+  }
+
+  /**
+   * Join the board room for real-time board updates.
+   */
+  joinBoard() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join_board', { board_id: this.boardId });
+    }
+  }
+
+  /**
+   * Join the theme room to receive theme update notifications.
+   */
+  joinThemeRoom() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join_theme');
+    } else {
+      console.warn('Cannot join theme room - socket not connected');
+    }
+  }
+
+  /**
+   * Leave the board room.
+   */
+  leaveBoard() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('leave_board', { board_id: this.boardId });
+    }
+  }
+
+  // Event emission methods for local changes
+  emitCardCreated(columnId, cardId, cardData) {
+    this.socket.emit('card_created', {
+      board_id: this.boardId,
+      column_id: columnId,
+      card_id: cardId,
+      card_data: cardData
+    });
+  }
+
+  emitCardUpdated(cardId, columnId, cardData) {
+    this.socket.emit('card_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId,
+      card_data: cardData
+    });
+  }
+
+  emitCardDeleted(cardId, columnId) {
+    this.socket.emit('card_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId
+    });
+  }
+
+  emitCardMoved(cardId, fromColumnId, toColumnId, fromIndex, toIndex) {
+    this.socket.emit('card_moved', {
+      board_id: this.boardId,
+      card_id: cardId,
+      from_column_id: fromColumnId,
+      to_column_id: toColumnId,
+      from_index: fromIndex,
+      to_index: toIndex
+    });
+  }
+
+  emitColumnReordered(columnOrder) {
+    this.socket.emit('column_reordered', {
+      board_id: this.boardId,
+      column_order: columnOrder
+    });
+  }
+
+  emitChecklistItemAdded(cardId, itemId, itemData) {
+    this.socket.emit('checklist_item_added', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      item_data: itemData
+    });
+  }
+
+  emitChecklistItemUpdated(cardId, itemId, updatedFields) {
+    this.socket.emit('checklist_item_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      updated_fields: updatedFields
+    });
+  }
+
+  emitChecklistItemDeleted(cardId, itemId) {
+    this.socket.emit('checklist_item_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId
+    });
+  }
+
+  // Handle incoming events from other clients
+  handleCardCreated(data) {
+    // A new card was created on another client
+    if (this.boardManager) {
+      // Request the board manager to refresh the card or column
+      this.boardManager.loadBoard();
+    }
+  }
+
+  handleCardUpdated(data) {
+    // A card was updated on another client
+    // Always reload the board to ensure consistency
+    // Even if only the title changed, reloading guarantees the UI matches the server state
+    this.boardManager.loadBoard();
+  }
+
+  handleCardDeleted(data) {
+    // A card was deleted on another client
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+  }
+
+  handleCardMoved(data) {
+    // A card was moved on another client
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleCardsMoved(data) {
+    // Multiple cards were moved on another client
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnReordered(data) {
+    // Columns were reordered on another client
+    // Refresh the board to reflect new column order
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemAdded(data) {
+    // A checklist item was added on another client
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemUpdated(data) {
+    // A checklist item was updated on another client
+    // Reload board to reflect checklist changes in the card detail modal
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemDeleted(data) {
+    // A checklist item was deleted on another client
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnUpdated(data) {
+    // A column was updated on another client
+    // Reload board to reflect column name changes and order changes
+    this.boardManager.loadBoard();
+  }
+
+  handleCardArchived(data) {
+    // A card was archived on another client
+    // Remove the card from the DOM if it's displayed
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+    // Reload to update card count and ensure consistency
+    this.boardManager.loadBoard();
+  }
+
+  handleCardUnarchived(data) {
+    // A card was unarchived on another client
+    // Reload board to show the restored card
+    this.boardManager.loadBoard();
+  }
+
+  handleThemeChanged(data) {
+    // Theme was changed by another client
+    // Fetch the new theme and apply it without reloading
+    
+    // Try to use themeBuilder if available (on theme-builder page)
+    const themeBuilder = window.AFT?.themeBuilder || window.themeBuilder;
+    if (themeBuilder && typeof themeBuilder.loadAndApplyTheme === 'function') {
+      themeBuilder.loadAndApplyTheme().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
+    } else if (typeof loadAndApplyThemeGlobal === 'function') {
+      // Use global function (available on all pages that include utils.js)
+      loadAndApplyThemeGlobal().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
+    } else {
+      console.warn('⚠ Theme update received but no theme handler available');
+    }
+  }
+
+  disconnect() {
+    this.leaveBoard();
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+  }
+}
+
 class BoardManager {
   constructor() {
     this.container = document.getElementById('board-container');
@@ -473,6 +818,10 @@ class BoardManager {
     }
 
     this.render();
+    
+    // Initialize WebSocket for real-time updates
+    this.wsManager = new WebSocketManager(this.boardId, this);
+    
     await this.loadBoard();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
@@ -1364,7 +1713,6 @@ class BoardManager {
           }
         }
         
-        console.log('Card restored to original position');
       } else {
         console.warn('Cannot restore card: original container is no longer in the document');
         // Container was removed (column deleted or board reloaded)
@@ -2941,6 +3289,10 @@ class BoardManager {
       if (data.success) {
         const cardId = data.card.id;
         
+        // The server broadcasts card_created to other clients via WebSocket.
+        // For the originating client, we reload the board immediately via loadBoard()
+        // to ensure instant UI update without waiting for broadcast.
+        
         // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
         // in a single request to avoid multiple sequential API calls and ensure atomicity.
         // This would prevent race conditions and improve performance.
@@ -3966,6 +4318,10 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        // The server broadcasts card_updated to other clients via WebSocket.
+        // For the originating client, we return true immediately since the API
+        // request itself confirms the update succeeded. The client should reload
+        // the board if needed.
         return true;
       } else {
         this.showErrorToast(`Failed to update card: ${data.message}`);
@@ -4005,6 +4361,10 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        // The server broadcasts card_deleted to other clients via WebSocket.
+        // For the originating client, we reload the board immediately below
+        // to ensure instant UI update and remove the card element.
+        
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
@@ -4334,6 +4694,6 @@ class BoardManager {
 
 // Initialize board manager when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const boardManager = new BoardManager();
-  boardManager.init();
+  window.boardManager = new BoardManager();
+  window.boardManager.init();
 });

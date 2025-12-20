@@ -29,7 +29,7 @@ server/tests/
 ```powershell
 docker compose up -d
 ```
-   - The API must be running at `http://localhost:5000`
+   - The API must be running at `http://localhost` (via nginx)
    - Wait a few seconds for the server to be ready
 
 ### Setup Local Environment
@@ -158,7 +158,7 @@ The test suite includes two types of tests:
 
 ### API Integration Tests
 These are **API integration tests** that:
-- Make real HTTP requests to `http://localhost:5000`
+- Make real HTTP requests to `http://localhost` (via nginx)
 - Test the running Docker container, not Python code directly
 - Validate API behavior, status codes, and response data
 - Automatically clean up test data between runs
@@ -219,7 +219,7 @@ server/tests/
 
 Defined in `conftest.py`:
 
-- `api_client` - Base URL for API (`http://localhost:5000`)
+- `api_client` - Base URL for API (`http://localhost` via nginx)
 - `clean_database` - Ensures database is empty before test runs (API tests only)
 - `isolated_test` - Ensures database is clean before fixtures create data (API tests only)
 - `sample_board` - Creates a test board via API
@@ -282,7 +282,7 @@ Tests can be integrated into CI/CD pipelines:
 
 - name: Wait for API
   run: |
-    timeout 30 bash -c 'until curl -f http://localhost:5000/api/version; do sleep 1; done'
+    timeout 30 bash -c 'until curl -f http://localhost/api/version; do sleep 1; done'
 
 - name: Setup Python
   uses: actions/setup-python@v4
@@ -307,7 +307,7 @@ Tests can be integrated into CI/CD pipelines:
 If tests fail with connection errors:
 ```powershell
 # Check if API is running
-curl http://localhost:5000/api/version
+curl http://localhost/api/version
 
 # Restart containers
 docker compose restart

@@ -1,3 +1,9 @@
+# Security Note: This stack should be deployed together as a single unit.
+# Internal services (Redis, Database) are not exposed externally and rely on
+# container-to-container communication within the aft network. Splitting services
+# across hosts or exposing internal services would require additional security
+# measures (authentication, encryption, network isolation).
+
 services:
   db:
     image: mysql:9.5.0
@@ -17,6 +23,20 @@ services:
     networks:
       - aft
 
+  redis:
+    image: redis:7-alpine
+    container_name: aft-redis
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - aft
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   server:
     build:
       context: .
@@ -28,8 +48,7 @@ services:
     env_file: .env
     depends_on:
       - db
-    ports:
-      - "5000:5000"
+      - redis
     volumes:
       - ./backups:/app/backups
       - backgrounds_volume:/var/www/images/backgrounds

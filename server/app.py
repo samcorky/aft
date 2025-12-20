@@ -1,15 +1,19 @@
 from flask import Flask, jsonify, request, send_file
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_cors import CORS
 import logging
 import json
 import os
 import time
 import tempfile
 import uuid
+import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
 from sqlalchemy import text, func
+from werkzeug.routing import BaseConverter
 from utils import (
     validate_string_length,
     validate_integer,
@@ -188,6 +192,153 @@ def validate_safe_url(url):
 
 
 app = Flask(__name__)
+
+# Custom path converter that allows safe filenames (validation happens in the endpoint)
+class SafeFilenameConverter(BaseConverter):
+    """Converter for image filenames - matches filenames with a restricted safe character set.
+    
+    The actual security validation (preventing .. traversal) is done in the endpoint
+    function itself, not in the regex. The regex here ensures only safe characters are
+    accepted in the path segment.
+    """
+    regex = r'[a-zA-Z0-9._-]+'  # Only allow alphanumerics, dot, underscore, and hyphen
+
+app.url_map.converters['safe_filename'] = SafeFilenameConverter
+
+# Initialize CORS for HTTP and WebSocket endpoints
+# Parse CORS allowed origins from environment variable
+# Controls which origins can connect via HTTP/HTTPS and WebSocket
+cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
+cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
+CORS(app, origins=cors_allowed_origins, supports_credentials=True)
+
+# Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
+# Redis allows multiple gunicorn workers to communicate WebSocket events to each other
+redis_url = os.getenv('REDIS_URL')
+
+# Validate Redis configuration for multi-worker deployment
+if not redis_url:
+    logger.warning(
+        "⚠️  REDIS_URL not configured. WebSocket broadcasts will NOT work across multiple gunicorn workers. "
+        "Real-time updates may be lost if requests are routed to different workers. "
+        "Set REDIS_URL environment variable to enable cross-worker WebSocket communication."
+    )
+
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=cors_allowed_origins,
+    async_mode='threading',
+    serve_client=True,
+    message_queue=redis_url  # Connect to Redis for message queue (None if not configured)
+)
+
+# Thread-safe dictionary to track recent broadcast failures
+# Format: {room_name: {event_name: error_message, timestamp: datetime}}
+# Used for debugging and monitoring WebSocket broadcast issues
+# Protected by lock for concurrent access in multi-worker/multi-threaded environment
+# IMPORTANT: All access to broadcast_failures must occur within a "with broadcast_failures_lock:" block
+# to prevent race conditions in multi-threaded environments
+broadcast_failures = {}
+broadcast_failures_lock = threading.Lock()
+
+def record_broadcast_failure(room_name, event_name, error_message):
+    """Thread-safe helper to record a broadcast failure.
+    
+    Args:
+        room_name: Name of the room where broadcast failed
+        event_name: Name of the event that failed
+        error_message: Error message to record
+    """
+    with broadcast_failures_lock:
+        if room_name not in broadcast_failures:
+            broadcast_failures[room_name] = {}
+        broadcast_failures[room_name][event_name] = error_message
+
+def clear_broadcast_failure(room_name, event_name):
+    """Thread-safe helper to clear a broadcast failure record.
+    
+    Args:
+        room_name: Name of the room
+        event_name: Name of the event
+    """
+    with broadcast_failures_lock:
+        if room_name in broadcast_failures:
+            broadcast_failures[room_name].pop(event_name, None)
+
+# ============================================================================
+# TESTING FLAG: WebSocket Connection Rejection
+# ============================================================================
+# Set to True to test WebSocket disconnection scenarios (header shows "WebSocket Disconnected")
+# All Socket.IO connection attempts will be rejected, forcing clients to reconnect
+#
+# WARNING: This must NEVER be enabled (True) in production deployments.
+# To use for local/testing purposes, set the environment variable
+# REJECT_SOCKETIO_CONNECTIONS=true. It defaults to False when unset.
+REJECT_SOCKETIO_CONNECTIONS = os.getenv("REJECT_SOCKETIO_CONNECTIONS", "false").lower() == "true"
+
+# Helper function to broadcast WebSocket events from route handlers
+def broadcast_event(event_name, data, board_id, skip_sid=None):
+    """Broadcast a WebSocket event to all clients in a board room.
+    
+    Args:
+        event_name: Name of the event to broadcast
+        data: Event data to send
+        board_id: Board ID to broadcast to (determines the room)
+        skip_sid: Optional Socket.IO session ID to exclude from broadcast (usually request.sid)
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. The calling route should implement client-side
+    refresh logic as a fallback (e.g., client reloads board on reconnection).
+    """
+    room_name = f'board_{board_id}'
+    
+    def do_emit():
+        try:
+            logger.info(f"Broadcasting {event_name} to room {room_name} with data: {data}")
+            # Use socketio.emit to broadcast to all clients in the room
+            # skip_sid prevents the originating client from receiving a duplicate update
+            socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
+            logger.info(f"✓ Successfully emitted {event_name}")
+            # Clear any previous failure for this event
+            clear_broadcast_failure(room_name, event_name)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"❌ Error broadcasting {event_name} to {room_name}: {error_msg}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            record_broadcast_failure(room_name, event_name, error_msg)
+    
+    # Use background task to ensure proper context
+    socketio.start_background_task(do_emit)
+
+
+def broadcast_theme_event(event_name, data):
+    """Broadcast a WebSocket event to all clients in the theme room.
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. Clients should implement refresh logic as fallback.
+    """
+    room_name = 'theme'
+    
+    def do_emit():
+        try:
+            logger.info(f"📢 Broadcasting {event_name} to theme room with data: {data}")
+            # Use socketio.emit to broadcast to all clients in the theme room
+            socketio.emit(event_name, data, room=room_name, namespace='/')
+            logger.info(f"✓ Successfully emitted {event_name} to theme room")
+            # Clear any previous failure for this event
+            clear_broadcast_failure(room_name, event_name)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            record_broadcast_failure(room_name, event_name, error_msg)
+    
+    # Use background task to ensure proper context
+    socketio.start_background_task(do_emit)
 
 # Configure maximum upload size (110MB)
 app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
@@ -498,6 +649,46 @@ def get_version():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
+
+
+@app.route("/api/broadcast-status")
+def get_broadcast_status():
+    """Get WebSocket broadcast error status for debugging.
+    
+    Returns recent broadcast failures tracked by the system. Useful for monitoring
+    whether WebSocket events are being delivered to connected clients.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Broadcast status information
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            broadcast_failures:
+              type: object
+              description: Map of room names to recent errors
+              example: {"board_1": {"card_updated": "Connection timeout"}}
+            total_failure_rooms:
+              type: integer
+              example: 0
+      500:
+        description: Failed to get broadcast status
+    """
+    with broadcast_failures_lock:
+        # Create a copy to avoid holding the lock during serialization
+        failures_copy = dict(broadcast_failures)
+        total_rooms = len(broadcast_failures)
+    
+    return jsonify({
+        "success": True,
+        "broadcast_failures": failures_copy,
+        "total_failure_rooms": total_rooms
+    })
 
 
 @app.route("/api/scheduler/health")
@@ -3346,6 +3537,13 @@ def update_column(column_id):
             "order": column.order,
         }
 
+        # Broadcast column update event
+        broadcast_event('column_updated', {
+            'board_id': board_id,
+            'column_id': column.id,
+            'column_data': result
+        }, board_id)
+
         return jsonify({"success": True, "column": result}), 200
     except Exception as e:
         db.rollback()
@@ -3845,6 +4043,18 @@ def create_card(column_id):
             "archived": card.archived
         }
 
+        # Get board_id for WebSocket broadcast
+        board_id = column.board_id
+        if board_id is not None:
+            broadcast_event('card_created', {
+                'board_id': board_id,
+                'column_id': column_id,
+                'card_id': card.id,
+                'card_data': result
+            }, board_id)
+        else:
+            logger.warning(f"Skipping card_created broadcast for card {card.id}: column {column_id} has no board_id")
+
         return create_success_response({"card": result}, status_code=201)
 
     except Exception as e:
@@ -4084,6 +4294,16 @@ def move_all_cards_in_column(source_column_id):
                 card.order = start_order + i
 
         db.commit()
+
+        # Broadcast column reorder/move event to both affected boards
+        if source_column.board_id:
+            broadcast_event('cards_moved', {
+                'board_id': source_column.board_id,
+                'source_column_id': source_column_id,
+                'target_column_id': target_column_id,
+                'moved_count': len(source_cards),
+                'position': position
+            }, source_column.board_id)
 
         return (
             jsonify(
@@ -4414,6 +4634,17 @@ def update_card(card_id):
             "order": card.order,
         }
 
+        # Get board_id for WebSocket broadcast
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        if column:
+            broadcast_event('card_updated', {
+                'board_id': column.board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': result,
+                'moved': old_column_id != card.column_id or old_order != card.order
+            }, column.board_id, getattr(request, "sid", None))
+
         return create_success_response({"card": result})
 
     except Exception as e:
@@ -4472,7 +4703,7 @@ def delete_card(card_id):
     """
     try:
         db = SessionLocal()
-        from models import Card
+        from models import Card, BoardColumn
 
         card = db.query(Card).filter(Card.id == card_id).first()
 
@@ -4480,9 +4711,23 @@ def delete_card(card_id):
             db.close()
             return jsonify({"success": False, "message": "Card not found"}), 404
 
+        # Get board_id for WebSocket broadcast before deleting
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
         db.delete(card)
         db.commit()
         db.close()
+
+        # Broadcast card deletion
+        if board_id:
+            broadcast_event('card_deleted', {
+                'board_id': board_id,
+                'card_id': card_id,
+                'column_id': card.column_id
+            }, board_id)
+        else:
+            logger.warning(f"⚠️  Failed to broadcast card_deleted for card {card_id}: column or board_id not found")
 
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
@@ -4523,13 +4768,12 @@ def archive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
 
+        board_id = card.column.board_id if card.column else None
         card.archived = True
         db.commit()
         
@@ -4543,6 +4787,15 @@ def archive_card(card_id):
             "order": card.order,
             "archived": card.archived
         }
+
+        # Broadcast card archived event
+        if board_id:
+            broadcast_event('card_archived', {
+                'board_id': board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': card_dict
+            }, board_id)
 
         return jsonify({"success": True, "message": "Card archived successfully", "card": card_dict}), 200
     except Exception as e:
@@ -4583,8 +4836,6 @@ def unarchive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
@@ -4618,6 +4869,16 @@ def unarchive_card(card_id):
             "order": card.order,
             "archived": card.archived
         }
+
+        # Get board_id for broadcast
+        board_id = card.column.board_id if card.column else None
+        if board_id:
+            broadcast_event('card_unarchived', {
+                'board_id': board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': card_dict
+            }, board_id)
 
         return jsonify({"success": True, "message": "Card unarchived successfully", "card": card_dict}), 200
     except Exception as e:
@@ -5438,7 +5699,7 @@ def create_checklist_item(card_id):
         if not data or "name" not in data:
             return create_error_response("Name is required", 400)
 
-        from models import Card, ChecklistItem
+        from models import Card, ChecklistItem, BoardColumn
 
         # Verify card exists
         card = db.query(Card).filter(Card.id == card_id).first()
@@ -5494,6 +5755,21 @@ def create_checklist_item(card_id):
         db.add(checklist_item)
         db.commit()
         db.refresh(checklist_item)
+
+        # Get board_id for WebSocket broadcast
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        if column:
+            broadcast_event('checklist_item_added', {
+                'board_id': column.board_id,
+                'card_id': card_id,
+                'item_id': checklist_item.id,
+                'item_data': {
+                    'id': checklist_item.id,
+                    'name': checklist_item.name,
+                    'checked': checklist_item.checked,
+                    'order': checklist_item.order
+                }
+            }, column.board_id)
 
         return jsonify({
             "success": True,
@@ -5603,15 +5879,29 @@ def update_checklist_item(item_id):
         db.commit()
         db.refresh(checklist_item)
 
+        result = {
+            "id": checklist_item.id,
+            "card_id": checklist_item.card_id,
+            "name": checklist_item.name,
+            "checked": checklist_item.checked,
+            "order": checklist_item.order
+        }
+
+        # Get board_id for broadcast
+        from models import Card
+        card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
+        if card and card.column:
+            board_id = card.column.board_id
+            broadcast_event('checklist_item_updated', {
+                'board_id': board_id,
+                'card_id': checklist_item.card_id,
+                'item_id': checklist_item.id,
+                'item_data': result
+            }, board_id)
+
         return jsonify({
             "success": True,
-            "checklist_item": {
-                "id": checklist_item.id,
-                "card_id": checklist_item.card_id,
-                "name": checklist_item.name,
-                "checked": checklist_item.checked,
-                "order": checklist_item.order
-            }
+            "checklist_item": result
         }), 200
 
     except Exception as e:
@@ -6620,6 +6910,13 @@ def update_theme(theme_id):
             theme.background_image = data['background_image']
         
         session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_updated', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
         return jsonify(theme.to_dict()), 200
     except Exception as e:
         session.rollback()
@@ -7007,7 +7304,7 @@ def list_theme_images():
         return create_error_response(f"Error listing images: {str(e)}", 500)
 
 
-@app.route("/api/themes/images/<filename>", methods=["GET"])
+@app.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
 def get_theme_image(filename):
     """Retrieve a specific background image file.
     
@@ -7031,16 +7328,39 @@ def get_theme_image(filename):
         Response: [binary image data with appropriate content-type]
     """
     try:
+        logger.info(f"get_theme_image called with filename: {repr(filename)}")
+        
+        # Security: reject paths containing .. (path traversal attempts)
+        # Note: SafeFilenameConverter regex r'[^/]+' already prevents forward slashes
+        # Backslash check is not needed since Flask URL routing filters path separators
+        if '..' in filename:
+            logger.warning(f"Path traversal attempt blocked: {repr(filename)}")
+            return create_error_response("Invalid file path", 400)
+        
         backgrounds_dir = Path('/var/www/images/backgrounds')
         filepath = backgrounds_dir / filename
         
         # Security check - ensure file is in backgrounds directory
-        if not filepath.resolve().is_relative_to(backgrounds_dir.resolve()):
+        # Use os.path.commonpath as additional safety check
+        try:
+            common = os.path.commonpath([str(filepath.resolve()), str(backgrounds_dir.resolve())])
+            if common != str(backgrounds_dir.resolve()):
+                logger.warning(f"Path outside backgrounds directory: {filepath.resolve()}")
+                return create_error_response("Invalid file path", 400)
+        except ValueError:
+            # Paths on different drives (Windows)
+            logger.warning(f"Paths on different drives: {filepath.resolve()}")
             return create_error_response("Invalid file path", 400)
         
         if not filepath.exists():
+            logger.info(f"Image file not found: {filepath}")
             return create_error_response("Image not found", 404)
         
+        if not filepath.is_file():
+            logger.warning(f"Path is not a file: {filepath}")
+            return create_error_response("Invalid file path", 400)
+        
+        logger.info(f"Serving image file: {filepath}")
         return send_file(str(filepath))
     except Exception as e:
         logger.error(f"Error getting theme image {filename}: {str(e)}")
@@ -7137,6 +7457,13 @@ def update_current_theme():
             session.add(setting)
         
         session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_changed', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
         return create_success_response(message="Theme selection updated")
     except Exception as e:
         session.rollback()
@@ -7146,6 +7473,214 @@ def update_current_theme():
         session.close()
 
 
+# ============================================================================
+# WebSocket Event Handlers for Real-Time Board Updates
+# ============================================================================
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection to WebSocket.
+    
+    When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
+    to simulate WebSocket failure for testing purposes.
+    """
+    if REJECT_SOCKETIO_CONNECTIONS:
+        logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
+        return False  # Reject the connection
+    
+    logger.info(f"Client connected: {request.sid}")
+    emit('connected', {'data': 'Connected to board server'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection from WebSocket."""
+    logger.info(f"Client disconnected: {request.sid}")
+
+
+@socketio.on('join_board')
+def on_join_board(data):
+    """Join a board's WebSocket room for real-time updates.
+    
+    Args:
+        data: Dictionary containing 'board_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        join_room(room)
+        logger.info(f"Client {request.sid} joined board {board_id}")
+        emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+
+
+@socketio.on('leave_board')
+def on_leave_board(data):
+    """Leave a board's WebSocket room.
+    
+    Args:
+        data: Dictionary containing 'board_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        leave_room(room)
+        logger.info(f"Client {request.sid} left board {board_id}")
+
+
+@socketio.on('card_moved')
+def broadcast_card_moved(data):
+    """Broadcast when a card is moved to different position or column.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'from_column_id', 
+              'to_column_id', 'from_index', 'to_index'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_moved', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card move for board {board_id}")
+
+
+@socketio.on('card_updated')
+def broadcast_card_updated(data):
+    """Broadcast when a card's content or metadata is updated.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', and updated fields
+              (title, description, color, etc.)
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_updated', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card update for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('card_created')
+def broadcast_card_created(data):
+    """Broadcast when a new card is created.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'column_id', 'card_id', 'card_data'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_created', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card creation for board {board_id}")
+
+
+@socketio.on('card_deleted')
+def broadcast_card_deleted(data):
+    """Broadcast when a card is deleted.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'column_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_deleted', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card deletion for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('column_reordered')
+def broadcast_column_reordered(data):
+    """Broadcast when columns are reordered.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'column_order' (list of column IDs)
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('column_reordered', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted column reorder for board {board_id}")
+
+
+@socketio.on('checklist_item_added')
+def broadcast_checklist_item_added(data):
+    """Broadcast when a checklist item is added to a card.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'item_data'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_added', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item addition for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('checklist_item_updated')
+def broadcast_checklist_item_updated(data):
+    """Broadcast when a checklist item is updated.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'updated_fields'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_updated', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item update for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('checklist_item_deleted')
+def broadcast_checklist_item_deleted(data):
+    """Broadcast when a checklist item is deleted.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_deleted', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item deletion for board {board_id}, card {data.get('card_id')}")
+
+
+# ============================================================================
+# WebSocket Handlers for Theme Updates
+# ============================================================================
+
+@socketio.on('join_theme')
+def on_join_theme():
+    """Handle client joining the theme room to receive theme updates."""
+    join_room('theme')
+    logger.info(f"✓ Client {request.sid} joined theme room")
+    
+    # Send current theme to the new client
+    try:
+        session = SessionLocal()
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if setting:
+            try:
+                theme_id = int(setting.value)
+                logger.info(f"📢 Sending current theme {theme_id} to client {request.sid}")
+                # Emit current theme to this client only
+                emit('theme_changed', {
+                    'theme_id': theme_id
+                })
+                logger.info(f"✓ Emitted theme_changed to client {request.sid}")
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error(f"✗ Error parsing theme_id: {str(e)}")
+        else:
+            logger.info("ℹ No selected_theme setting found")
+        session.close()
+    except Exception as e:
+        logger.error(f"✗ Error sending current theme to client: {str(e)}")
+
+
+@socketio.on('leave_theme')
+def on_leave_theme():
+    """Handle client leaving the theme room."""
+    leave_room('theme')
+    logger.info(f"Client {request.sid} left theme room")
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    socketio.run(app, host="0.0.0.0", port=5000)
+
 

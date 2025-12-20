@@ -80,7 +80,7 @@ I had copilot write all of this primarily so I can ensure it always does all the
 5. **Verify Setup**
    
    - Application: http://localhost:80
-   - API: http://localhost:5000/api/health
+   - API: http://localhost/api/health
 
 ## Development Workflow
 

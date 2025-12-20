@@ -4,8 +4,9 @@ import requests
 import time
 
 
-# API base URL - tests hit the running Docker container
-API_BASE_URL = "http://localhost:5000"
+# API base URL - tests hit through nginx like external API clients would
+# This mimics how external tools/UIs would access the API (via 80/443, not internal 5000)
+API_BASE_URL = "http://localhost"
 
 # Cleanup timing constants (in seconds)
 # These delays ensure async operations complete before proceeding

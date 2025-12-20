@@ -459,3 +459,58 @@ function showConfirm(message, title = 'Confirm') {
 function showPrompt(message, defaultValue = '', title = 'Input') {
   return modalDialog.prompt(message, defaultValue, title);
 }
+
+/**
+ * Load and apply the current theme to the page.
+ * This function fetches the theme settings from the server and applies them to CSS variables.
+ * Available on all pages that include utils.js.
+ * @async
+ */
+async function loadAndApplyThemeGlobal() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch('/api/settings/theme', {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to load theme: ${response.statusText}`);
+    }
+    
+    const theme = await response.json();
+    
+    if (!theme || !theme.settings) {
+      throw new Error('Invalid theme data');
+    }
+    
+    const root = document.documentElement;
+    const settings = theme.settings;
+    
+    // Apply all color variables
+    Object.keys(settings).forEach(key => {
+      root.style.setProperty(`--${key}`, settings[key]);
+    });
+    
+    // Apply background image
+    if (theme.background_image) {
+      root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
+      sessionStorage.setItem('backgroundImage', theme.background_image);
+    } else {
+      root.style.setProperty('--background-image', 'none');
+      sessionStorage.setItem('backgroundImage', 'none');
+    }
+    
+    // Update sessionStorage for persistence
+    sessionStorage.setItem('currentTheme', JSON.stringify(settings));
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('✗ Load theme request timed out');
+    } else {
+      console.error('✗ Error loading and applying theme:', error);
+    }
+  }
+}

@@ -433,7 +433,6 @@ class ThemeBuilder {
         const currentValue = this.colorInputs[key].colorInput.value.toUpperCase();
         const savedValue = value.toUpperCase();
         if (currentValue !== savedValue) {
-          console.log(`Color changed: ${key} from ${savedValue} to ${currentValue}`);
           return true;
         }
       }
@@ -443,7 +442,6 @@ class ThemeBuilder {
     const currentBg = this.backgroundSelect.value === 'none' ? null : this.backgroundSelect.value;
     const savedBg = this.currentThemeData.background_image || null;
     if (currentBg !== savedBg) {
-      console.log(`Background changed from ${savedBg} to ${currentBg}`);
       return true;
     }
     
@@ -1293,8 +1291,65 @@ class ThemeBuilder {
   }
 }
 
+/**
+ * Initialize WebSocket connection for the theme builder page.
+ * 
+ * Sets up Socket.IO client for theme synchronization across multiple clients
+ * editing themes simultaneously.
+ * 
+ * Returns:
+ *   Socket instance if Socket.IO is available, undefined otherwise
+ */
+function initializeWebSocketForThemeBuilder() {
+  if (typeof io !== 'undefined') {
+    const socket = io({
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5,
+      transports: ['websocket', 'polling']
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join_theme');
+    });
+
+    socket.on('disconnect', () => {
+      // Silently handle disconnection
+    });
+
+    // Listen for theme changes from other clients
+    socket.on('theme_changed', (data) => {
+      // Refresh themes list if we're on the theme builder
+      if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
+        window.AFT.themeBuilder.loadThemes();
+      }
+    });
+
+    socket.on('theme_updated', (data) => {
+      if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
+        window.AFT.themeBuilder.loadThemes();
+      }
+    });
+
+    return socket;
+  }
+  // Socket.IO unavailable: return undefined so callers can check for a truthy socket before use
+  return undefined;
+}
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const themeBuilder = new ThemeBuilder();
-  themeBuilder.init();
+  // Create namespace for theme builder to avoid global namespace pollution
+  if (!window.AFT) {
+    window.AFT = {};
+  }
+  window.AFT.themeBuilderSocket = initializeWebSocketForThemeBuilder();
+  
+  window.AFT.themeBuilder = new ThemeBuilder();
+  window.AFT.themeBuilder.init();
+  
+  // Keep legacy global references for backward compatibility
+  window.themeBuilderSocket = window.AFT.themeBuilderSocket;
+  window.themeBuilder = window.AFT.themeBuilder;
 });

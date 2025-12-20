@@ -10,8 +10,31 @@ Trello was great, then Atlassian bought it.
 ## How?
 - Clone the repo to a machine running docker
 - Edit .env to have more secure passwords
+- Configure WebSocket CORS for your deployment (see Configuration section below)
 - `docker compose up -d`
 - Navigate to http(s)://{docker-host-ip}
+
+### Configuration
+
+#### CORS Origins (HTTP/HTTPS/WebSocket)
+The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to localhost addresses for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
+
+**Development (default):**
+```
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
+```
+
+**Production (example with multiple trusted domains):**
+```
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+```
+
+**Docker Host Access:**
+```
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
+```
+
+Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
 
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
@@ -185,6 +208,56 @@ Use at your own risk.
 - **Health Checks** - Database connectivity and version endpoints
 
 ![API Documentation](images/api_docs.png)
+
+## 📡 System Status Widget
+
+The header displays a real-time system status indicator in the top-right corner. This widget monitors three critical system components and displays their health status:
+
+### Status Indicator Colors & Meanings
+
+| Status | Icon | Color | Meaning | Troubleshooting |
+|--------|------|-------|---------|-----------------|
+| **Connected** | ✅ | Green | All systems operational | None needed - everything is working normally |
+| **Server Disconnected** | ❌ | Red | Cannot reach API server | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
+| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. |
+| **DB Error** | ❌ | Red | Database connection failed | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
+
+### Status Checking Order (Priority)
+
+The widget checks system status in this order and stops at the first failure:
+
+1. **Server Connectivity** (Highest Priority)
+   - Makes HTTP request to `/api/test`
+   - If server doesn't respond or returns error, shows "Server Disconnected"
+   - Other checks are skipped when server is down
+
+2. **WebSocket Connection** (Medium Priority)
+   - Only checked on board/dashboard pages (where real-time updates are needed)
+   - Monitors Socket.IO connection status
+   - If loading takes >30 seconds, shows "WebSocket Disconnected"
+   - Shows updates but may be delayed without real-time sync
+
+3. **Database Health** (Lower Priority)
+   - Queries database directly via API
+   - If server is OK but database fails, shows "DB Error"
+   - Indicates database-specific issues
+
+### Testing WebSocket Disconnection
+
+To test the WebSocket disconnection scenario (for development/debugging):
+
+1. Edit [server/app.py](server/app.py) line ~237
+2. Change `REJECT_SOCKETIO_CONNECTIONS = False` to `REJECT_SOCKETIO_CONNECTIONS = True`
+3. Rebuild: `docker compose down ; docker compose up -d --build`
+4. Open board page - header shows "WebSocket Disconnected" within 5 seconds
+5. Real-time updates will not work
+6. Revert the flag to `False` and rebuild to restore connectivity
+
+### Polling & Real-Time Updates
+
+- **Polling Interval**: Status checks happen every 5 seconds
+- **Real-Time Events**: Socket.IO events (connect/disconnect) trigger immediate updates
+- **Reconnection**: Socket.IO automatically retries failed connections with exponential backoff
 
 ## Architecture Decisions
 

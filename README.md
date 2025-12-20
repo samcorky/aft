@@ -17,11 +17,11 @@ Trello was great, then Atlassian bought it.
 ### Configuration
 
 #### CORS Origins (HTTP/HTTPS/WebSocket)
-The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to `http://localhost` for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
+The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to localhost addresses for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
 
 **Development (default):**
 ```
-CORS_ALLOWED_ORIGINS=http://localhost
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
 ```
 
 **Production (example with multiple trusted domains):**

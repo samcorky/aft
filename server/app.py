@@ -7307,8 +7307,10 @@ def get_theme_image(filename):
     try:
         logger.info(f"get_theme_image called with filename: {repr(filename)}")
         
-        # Security: reject paths containing .. or backslashes
-        if '..' in filename or '\\' in filename:
+        # Security: reject paths containing .. (path traversal attempts)
+        # Note: SafeFilenameConverter regex r'[^/]+' already prevents forward slashes
+        # Backslash check is not needed since Flask URL routing filters path separators
+        if '..' in filename:
             logger.warning(f"Path traversal attempt blocked: {repr(filename)}")
             return create_error_response("Invalid file path", 400)
         

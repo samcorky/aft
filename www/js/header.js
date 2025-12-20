@@ -658,6 +658,10 @@ class Header {
       clearInterval(this.statusCheckInterval);
       this.statusCheckInterval = null;
     }
+    if (this.wsCheckInterval) {
+      clearInterval(this.wsCheckInterval);
+      this.wsCheckInterval = null;
+    }
   }
 }
 

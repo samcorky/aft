@@ -349,6 +349,6 @@ UNLOCK TABLES;
                 try:
                     data = response.json()
                     assert data['success'] is False
-                except:
+                except (ValueError, AssertionError):
                     # Response might not be JSON if the request was malformed
                     pass

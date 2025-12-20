@@ -472,7 +472,6 @@ class WebSocketManager {
       return;
     }
     
-    
     // Connect to the current server (socket.io client auto-detects the URL)
     // Don't pass a URL - let socket.io auto-detect it
     this.socket = io({

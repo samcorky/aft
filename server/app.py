@@ -192,12 +192,13 @@ app = Flask(__name__)
 
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
+redis_url = os.getenv('REDIS_URL')
 socketio = SocketIO(
     app, 
     cors_allowed_origins="*", 
     async_mode='threading',
     serve_client=True,
-    message_queue='redis://redis:6379/0'  # Connect to Redis for message queue
+    message_queue=redis_url  # Connect to Redis for message queue
 )
 
 # Helper function to broadcast WebSocket events from route handlers

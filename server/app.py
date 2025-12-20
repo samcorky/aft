@@ -215,12 +215,20 @@ CORS(app, origins=cors_allowed_origins, supports_credentials=True)
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
 redis_url = os.getenv('REDIS_URL')
 
+# Validate Redis configuration for multi-worker deployment
+if not redis_url:
+    logger.warning(
+        "⚠️  REDIS_URL not configured. WebSocket broadcasts will NOT work across multiple gunicorn workers. "
+        "Real-time updates may be lost if requests are routed to different workers. "
+        "Set REDIS_URL environment variable to enable cross-worker WebSocket communication."
+    )
+
 socketio = SocketIO(
     app, 
     cors_allowed_origins=cors_allowed_origins,
     async_mode='threading',
     serve_client=True,
-    message_queue=redis_url  # Connect to Redis for message queue
+    message_queue=redis_url  # Connect to Redis for message queue (None if not configured)
 )
 
 # Thread-safe dictionary to track recent broadcast failures

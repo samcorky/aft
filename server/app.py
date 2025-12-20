@@ -243,8 +243,11 @@ broadcast_failures_lock = threading.Lock()
 # ============================================================================
 # Set to True to test WebSocket disconnection scenarios (header shows "WebSocket Disconnected")
 # All Socket.IO connection attempts will be rejected, forcing clients to reconnect
-# Set back to False when done testing
-REJECT_SOCKETIO_CONNECTIONS = False
+#
+# WARNING: This must NEVER be enabled (True) in production deployments.
+# To use for local/testing purposes, set the environment variable
+# REJECT_SOCKETIO_CONNECTIONS=true. It defaults to False when unset.
+REJECT_SOCKETIO_CONNECTIONS = os.getenv("REJECT_SOCKETIO_CONNECTIONS", "false").lower() == "true"
 
 # Helper function to broadcast WebSocket events from route handlers
 def broadcast_event(event_name, data, board_id, skip_sid=None):

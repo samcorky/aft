@@ -676,20 +676,9 @@ class WebSocketManager {
 
   handleCardUpdated(data) {
     // A card was updated on another client
-    // Update the card in the DOM if it's currently displayed
-    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
-    if (cardElement && data.card_data) {
-      // Update title and description if they changed
-      const titleElement = cardElement.querySelector('.card-title');
-      if (titleElement && data.card_data.title) {
-        titleElement.textContent = data.card_data.title;
-      }
-      
-      // If card moved, trigger a refresh
-      if (data.moved) {
-        this.boardManager.loadBoard();
-      }
-    }
+    // Always reload the board to ensure consistency
+    // Even if only the title changed, reloading guarantees the UI matches the server state
+    this.boardManager.loadBoard();
   }
 
   handleCardDeleted(data) {

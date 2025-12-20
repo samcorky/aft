@@ -49,8 +49,6 @@ services:
     depends_on:
       - db
       - redis
-    ports:
-      - "5000:5000"
     volumes:
       - ./backups:/app/backups
       - backgrounds_volume:/var/www/images/backgrounds

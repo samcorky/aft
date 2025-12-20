@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, send_file
 from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_cors import CORS
 import logging
 import json
 import os
@@ -190,12 +191,20 @@ def validate_safe_url(url):
 
 app = Flask(__name__)
 
+# Initialize CORS for HTTP and WebSocket endpoints
+# Parse CORS allowed origins from environment variable
+# Controls which origins can connect via HTTP/HTTPS and WebSocket
+cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
+cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
+CORS(app, origins=cors_allowed_origins, supports_credentials=True)
+
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
 redis_url = os.getenv('REDIS_URL')
+
 socketio = SocketIO(
     app, 
-    cors_allowed_origins="*", 
+    cors_allowed_origins=cors_allowed_origins,
     async_mode='threading',
     serve_client=True,
     message_queue=redis_url  # Connect to Redis for message queue

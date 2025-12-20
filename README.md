@@ -10,8 +10,31 @@ Trello was great, then Atlassian bought it.
 ## How?
 - Clone the repo to a machine running docker
 - Edit .env to have more secure passwords
+- Configure WebSocket CORS for your deployment (see Configuration section below)
 - `docker compose up -d`
 - Navigate to http(s)://{docker-host-ip}
+
+### Configuration
+
+#### CORS Origins (HTTP/HTTPS/WebSocket)
+The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to `http://localhost` for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
+
+**Development (default):**
+```
+CORS_ALLOWED_ORIGINS=http://localhost
+```
+
+**Production (example with multiple trusted domains):**
+```
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+```
+
+**Docker Host Access:**
+```
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
+```
+
+Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
 
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.

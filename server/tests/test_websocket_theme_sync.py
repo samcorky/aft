@@ -145,7 +145,6 @@ class TestWebSocketErrorHandling:
     
     def test_version_endpoint_timeout_resilience(self, api_client):
         """Test that version endpoint responds within timeout window."""
-        import time
         start_time = time.time()
         
         response = requests.get(f'{api_client}/api/version', timeout=5)

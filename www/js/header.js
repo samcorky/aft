@@ -195,9 +195,11 @@ class Header {
     const themeSocket = themeSocketExists ? window.themeBuilderSocket : null;
     const themeSocketConnected = themeSocket && themeSocket.connected;
     
-    // Check if either socket is connecting (don't show error while connecting)
-    const boardSocketConnecting = boardSocket && boardSocket.disconnected === false && !boardSocketConnected;
-    const themeSocketConnecting = themeSocket && themeSocket.disconnected === false && !themeSocketConnected;
+    // Check if either socket is connecting
+    // A socket is "connecting" if it exists but is not connected and not explicitly disconnected
+    // Socket.IO's internal state handles reconnection automatically
+    const boardSocketConnecting = boardSocket && !boardSocketConnected && boardSocket.io && boardSocket.io.engine && boardSocket.io.engine.readyState !== 'closed';
+    const themeSocketConnecting = themeSocket && !themeSocketConnected && themeSocket.io && themeSocket.io.engine && themeSocket.io.engine.readyState !== 'closed';
     
     const hasSocket = !!boardSocket || !!themeSocket;
     const wsHealthy = boardSocketConnected || themeSocketConnected;

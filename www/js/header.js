@@ -507,11 +507,10 @@ class Header {
    * Updates header status based on first failure encountered.
    */
   async checkDatabaseStatus() {
-    // First: Check if server is reachable
+    // First: Check if server is reachable (API responds at all)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    let serverReachable = false;
     let testData = null;
     
     try {
@@ -519,20 +518,10 @@ class Header {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      serverReachable = response.ok;
       testData = await response.json();
-      
-      // If server responded but with an error status, treat as unreachable
-      if (!serverReachable) {
-        this.statusIcon.className = 'status-icon error';
-        this.statusText.textContent = 'Server Disconnected';
-        this.statusText.title = 'Server responded with an error. Check server status.';
-        this.dbConnected = false;
-        return;
-      }
     } catch (error) {
       clearTimeout(timeoutId);
-      // Server is not reachable - highest priority error
+      // Server is not responding - network error or server is down
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'Server Disconnected';
       this.statusText.title = 'Unable to connect to server. Check your connection or try refreshing the page.';
@@ -541,6 +530,7 @@ class Header {
     }
 
     // Second: Check WebSocket status on pages that need it (board, theme-builder)
+    // Do this BEFORE checking database health so we can report WebSocket issues even if DB is down
     // Detect if we're on a page that should have Socket.IO loaded
     // Check for page-specific elements rather than socket existence to handle Socket.IO load failures
     const isOnBoardPage = (window.boardManager && window.boardManager.wsManager) || 
@@ -580,12 +570,12 @@ class Header {
       }
     }
 
-    // Third: Check database health
+    // Third: Check database health (API returned but may indicate DB error)
     if (!testData || !testData.success) {
-      // Database is unhealthy
+      // Database is unhealthy - API responded but database connection failed
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'DB Error';
-      this.statusText.title = testData?.message || 'Database error';
+      this.statusText.title = testData?.message || 'Database error. Check database connection.';
       this.dbConnected = false;
       return;
     }

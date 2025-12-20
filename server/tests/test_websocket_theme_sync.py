@@ -40,8 +40,10 @@ class TestThemeAPIForWebSocketSync:
                 }
             )
             
-            # Should succeed (200) or return valid response
-            assert update_response.status_code in [200, 400]
+            # Should succeed with 200 status
+            assert update_response.status_code == 200
+            update_data = update_response.json()
+            assert 'id' in update_data or 'success' in update_data
     
     def test_theme_join_room_preparation(self, api_client):
         """Test that theme endpoints support room-based updates."""

@@ -244,8 +244,12 @@ class Header {
     // Check if either socket is connecting
     // A socket is "connecting" if it exists but is not connected and not explicitly disconnected
     // Socket.IO's internal state handles reconnection automatically
-    const boardSocketConnecting = boardSocket && !boardSocketConnected && boardSocket.io && boardSocket.io.engine && boardSocket.io.engine.readyState !== 'closed';
-    const themeSocketConnecting = themeSocket && !themeSocketConnected && themeSocket.io && themeSocket.io.engine && themeSocket.io.engine.readyState !== 'closed';
+    const boardSocketConnecting = boardSocket && !boardSocketConnected && 
+                                  boardSocket.io?.engine?.readyState && 
+                                  boardSocket.io.engine.readyState !== 'closed';
+    const themeSocketConnecting = themeSocket && !themeSocketConnected && 
+                                  themeSocket.io?.engine?.readyState && 
+                                  themeSocket.io.engine.readyState !== 'closed';
     
     const hasSocket = !!boardSocket || !!themeSocket;
     const wsHealthy = boardSocketConnected || themeSocketConnected;

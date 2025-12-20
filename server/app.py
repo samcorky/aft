@@ -219,6 +219,25 @@ def broadcast_event(event_name, data, board_id):
     # Use background task to ensure proper context
     socketio.start_background_task(do_emit)
 
+
+def broadcast_theme_event(event_name, data):
+    """Broadcast a WebSocket event to all clients in the theme room."""
+    room_name = 'theme'
+    
+    def do_emit():
+        try:
+            logger.info(f"📢 Broadcasting {event_name} to theme room with data: {data}")
+            # Use socketio.emit to broadcast to all clients in the theme room
+            socketio.emit(event_name, data, room=room_name, namespace='/')
+            logger.info(f"✓ Successfully emitted {event_name} to theme room")
+        except Exception as e:
+            logger.error(f"✗ Error broadcasting {event_name} to theme room: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+    
+    # Use background task to ensure proper context
+    socketio.start_background_task(do_emit)
+
 # Configure maximum upload size (110MB)
 app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
 
@@ -6748,6 +6767,13 @@ def update_theme(theme_id):
             theme.background_image = data['background_image']
         
         session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_updated', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
         return jsonify(theme.to_dict()), 200
     except Exception as e:
         session.rollback()
@@ -7265,6 +7291,13 @@ def update_current_theme():
             session.add(setting)
         
         session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_changed', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
         return create_success_response(message="Theme selection updated")
     except Exception as e:
         session.rollback()
@@ -7432,6 +7465,45 @@ def broadcast_checklist_item_deleted(data):
         room = f'board_{board_id}'
         emit('checklist_item_deleted', data, room=room, skip_sid=request.sid)
         logger.info(f"Broadcasted checklist item deletion for board {board_id}, card {data.get('card_id')}")
+
+
+# ============================================================================
+# WebSocket Handlers for Theme Updates
+# ============================================================================
+
+@socketio.on('join_theme')
+def on_join_theme():
+    """Handle client joining the theme room to receive theme updates."""
+    join_room('theme')
+    logger.info(f"✓ Client {request.sid} joined theme room")
+    
+    # Send current theme to the new client
+    try:
+        session = SessionLocal()
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if setting:
+            try:
+                theme_id = int(setting.value)
+                logger.info(f"📢 Sending current theme {theme_id} to client {request.sid}")
+                # Emit current theme to this client only
+                emit('theme_changed', {
+                    'theme_id': theme_id
+                })
+                logger.info(f"✓ Emitted theme_changed to client {request.sid}")
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error(f"✗ Error parsing theme_id: {str(e)}")
+        else:
+            logger.info("ℹ No selected_theme setting found")
+        session.close()
+    except Exception as e:
+        logger.error(f"✗ Error sending current theme to client: {str(e)}")
+
+
+@socketio.on('leave_theme')
+def on_leave_theme():
+    """Handle client leaving the theme room."""
+    leave_room('theme')
+    logger.info(f"Client {request.sid} left theme room")
 
 
 if __name__ == "__main__":

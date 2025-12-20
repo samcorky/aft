@@ -385,6 +385,58 @@ class ChecklistManager {
   }
 }
 
+// Global function to load and apply theme from any page
+async function loadAndApplyThemeGlobal() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch('/api/settings/theme', {
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to load theme: ${response.statusText}`);
+    }
+    
+    const theme = await response.json();
+    
+    if (!theme || !theme.settings) {
+      throw new Error('Invalid theme data');
+    }
+    
+    const root = document.documentElement;
+    const settings = theme.settings;
+    
+    // Apply all color variables
+    Object.keys(settings).forEach(key => {
+      root.style.setProperty(`--${key}`, settings[key]);
+    });
+    
+    // Apply background image
+    if (theme.background_image) {
+      root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
+      sessionStorage.setItem('backgroundImage', theme.background_image);
+    } else {
+      root.style.setProperty('--background-image', 'none');
+      sessionStorage.setItem('backgroundImage', 'none');
+    }
+    
+    // Update sessionStorage for persistence
+    sessionStorage.setItem('currentTheme', JSON.stringify(settings));
+    
+    console.log('✓ Theme applied successfully');
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('✗ Load theme request timed out');
+    } else {
+      console.error('✗ Error loading and applying theme:', error);
+    }
+  }
+}
+
 // WebSocket Manager for Real-Time Board Updates
 class WebSocketManager {
   constructor(boardId, boardManager) {
@@ -425,6 +477,7 @@ class WebSocketManager {
     this.socket.on('connect', () => {
       this.reconnectAttempts = 0;
       this.joinBoard();
+      this.joinThemeRoom();
       // Update header status immediately when WebSocket connects
       if (window.header) {
         window.header.updateWebSocketStatus();
@@ -483,11 +536,28 @@ class WebSocketManager {
     this.socket.on('card_unarchived', (data) => {
       this.handleCardUnarchived(data);
     });
+    
+    // Theme room events
+    this.socket.on('theme_changed', (data) => {
+      this.handleThemeChanged(data);
+    });
+    this.socket.on('theme_updated', (data) => {
+      this.handleThemeChanged(data);
+    });
   }
 
   joinBoard() {
     if (this.socket && this.socket.connected) {
       this.socket.emit('join_board', { board_id: this.boardId });
+    }
+  }
+
+  joinThemeRoom() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join_theme');
+      console.log('✓ Emitted join_theme event');
+    } else {
+      console.log('✗ Cannot join theme room - socket not connected');
     }
   }
 
@@ -661,6 +731,24 @@ class WebSocketManager {
     // A card was unarchived on another client
     // Reload board to show the restored card
     this.boardManager.loadBoard();
+  }
+
+  handleThemeChanged(data) {
+    // Theme was changed by another client
+    // Fetch the new theme and apply it without reloading
+    console.log('📢 Theme changed event received:', data);
+    
+    // Try to use themeBuilder if available (on theme-builder page)
+    if (window.themeBuilder && typeof window.themeBuilder.loadAndApplyTheme === 'function') {
+      console.log('✓ Using themeBuilder.loadAndApplyTheme()');
+      window.themeBuilder.loadAndApplyTheme().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
+    } else {
+      // Use global function (available on all pages)
+      console.log('✓ Using loadAndApplyThemeGlobal()');
+      loadAndApplyThemeGlobal();
+    }
   }
 
   disconnect() {

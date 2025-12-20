@@ -1293,8 +1293,52 @@ class ThemeBuilder {
   }
 }
 
+// Initialize WebSocket connection for database/theme updates
+function initializeWebSocketForThemeBuilder() {
+  if (typeof io !== 'undefined') {
+    const socket = io({
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: 5,
+      transports: ['websocket', 'polling']
+    });
+
+    socket.on('connect', () => {
+      console.log('✓ WebSocket connected on theme-builder page');
+      socket.emit('join_theme');
+    });
+
+    socket.on('disconnect', () => {
+      console.log('✗ WebSocket disconnected on theme-builder page');
+    });
+
+    // Listen for theme changes from other clients
+    socket.on('theme_changed', (data) => {
+      console.log('📢 Theme changed on another client:', data);
+      // Refresh themes list if we're on the theme builder
+      if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
+        window.themeBuilder.loadThemes();
+      }
+    });
+
+    socket.on('theme_updated', (data) => {
+      console.log('📢 Theme updated on another client:', data);
+      if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
+        window.themeBuilder.loadThemes();
+      }
+    });
+
+    return socket;
+  }
+  return null;
+}
+
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const themeBuilder = new ThemeBuilder();
-  themeBuilder.init();
+  // Initialize WebSocket first
+  window.themeBuilderSocket = initializeWebSocketForThemeBuilder();
+  
+  window.themeBuilder = new ThemeBuilder();
+  window.themeBuilder.init();
 });

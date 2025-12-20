@@ -1298,7 +1298,7 @@ class ThemeBuilder {
  * editing themes simultaneously.
  * 
  * Returns:
- *   Socket instance if Socket.IO is available, null otherwise
+ *   Socket instance if Socket.IO is available, undefined otherwise
  */
 function initializeWebSocketForThemeBuilder() {
   if (typeof io !== 'undefined') {
@@ -1334,7 +1334,8 @@ function initializeWebSocketForThemeBuilder() {
 
     return socket;
   }
-  return null;
+  // Return undefined (not null) when Socket.IO unavailable for consistent falsy checks
+  return undefined;
 }
 
 // Initialize when DOM is ready

@@ -483,6 +483,11 @@ class WebSocketManager {
       transports: ['websocket', 'polling']
     });
 
+    // Notify any listeners that socket was created (e.g., header.js for immediate event updates)
+    if (typeof this.onSocketCreated === 'function') {
+      this.onSocketCreated(this.socket);
+    }
+
     this.setupEventListeners();
   }
 

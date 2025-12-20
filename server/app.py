@@ -195,12 +195,13 @@ app = Flask(__name__)
 
 # Custom path converter that allows safe filenames (validation happens in the endpoint)
 class SafeFilenameConverter(BaseConverter):
-    """Converter for image filenames - matches any filename without path separators.
+    """Converter for image filenames - matches filenames with a restricted safe character set.
     
     The actual security validation (preventing .. traversal) is done in the endpoint
-    function itself, not in the regex, since the regex is complex to get right.
+    function itself, not in the regex. The regex here ensures only safe characters are
+    accepted in the path segment.
     """
-    regex = r'[^/]+'  # Match anything except forward slashes
+    regex = r'[a-zA-Z0-9._-]+'  # Only allow alphanumerics, dot, underscore, and hyphen
 
 app.url_map.converters['safe_filename'] = SafeFilenameConverter
 

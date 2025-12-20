@@ -201,10 +201,10 @@ class Header {
    * Only mark as error if socket exists and is clearly disconnected (not connecting).
    */
   checkWebSocketStatusWithInitialDelay() {
-    const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
+    const { wsHealthy, wsConnecting, ...rest } = this._getWebSocketConnectionState();
     
     // Track state changes by comparing individual properties
-    const newState = { hasSocket, wsHealthy, wsConnecting };
+    const newState = { ...rest, wsHealthy, wsConnecting };
     
     // Only update if state actually changed (not on every 5s interval)
     const stateChanged = !this.lastWsState || 
@@ -576,7 +576,7 @@ class Header {
     }
 
     // Third: Check database health
-    if (!serverReachable || !testData || !testData.success) {
+    if (!testData || !testData.success) {
       // Database is unhealthy
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'DB Error';

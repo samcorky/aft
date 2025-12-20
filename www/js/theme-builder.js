@@ -1334,7 +1334,7 @@ function initializeWebSocketForThemeBuilder() {
 
     return socket;
   }
-  // Return undefined (not null) when Socket.IO unavailable for consistent falsy checks
+  // Socket.IO unavailable: return undefined so callers can check for a truthy socket before use
   return undefined;
 }
 

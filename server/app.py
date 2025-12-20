@@ -12,6 +12,7 @@ from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
 from sqlalchemy import text, func
+from werkzeug.routing import BaseConverter
 from utils import (
     validate_string_length,
     validate_integer,
@@ -190,6 +191,17 @@ def validate_safe_url(url):
 
 
 app = Flask(__name__)
+
+# Custom path converter that allows safe filenames (validation happens in the endpoint)
+class SafeFilenameConverter(BaseConverter):
+    """Converter for image filenames - matches any filename without path separators.
+    
+    The actual security validation (preventing .. traversal) is done in the endpoint
+    function itself, not in the regex, since the regex is complex to get right.
+    """
+    regex = r'[^/]+'  # Match anything except forward slashes
+
+app.url_map.converters['safe_filename'] = SafeFilenameConverter
 
 # Initialize CORS for HTTP and WebSocket endpoints
 # Parse CORS allowed origins from environment variable
@@ -7241,7 +7253,7 @@ def list_theme_images():
         return create_error_response(f"Error listing images: {str(e)}", 500)
 
 
-@app.route("/api/themes/images/<filename>", methods=["GET"])
+@app.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
 def get_theme_image(filename):
     """Retrieve a specific background image file.
     
@@ -7265,16 +7277,37 @@ def get_theme_image(filename):
         Response: [binary image data with appropriate content-type]
     """
     try:
+        logger.info(f"get_theme_image called with filename: {repr(filename)}")
+        
+        # Security: reject paths containing .. or backslashes
+        if '..' in filename or '\\' in filename:
+            logger.warning(f"Path traversal attempt blocked: {repr(filename)}")
+            return create_error_response("Invalid file path", 400)
+        
         backgrounds_dir = Path('/var/www/images/backgrounds')
         filepath = backgrounds_dir / filename
         
         # Security check - ensure file is in backgrounds directory
-        if not filepath.resolve().is_relative_to(backgrounds_dir.resolve()):
+        # Use os.path.commonpath as additional safety check
+        try:
+            common = os.path.commonpath([str(filepath.resolve()), str(backgrounds_dir.resolve())])
+            if common != str(backgrounds_dir.resolve()):
+                logger.warning(f"Path outside backgrounds directory: {filepath.resolve()}")
+                return create_error_response("Invalid file path", 400)
+        except ValueError:
+            # Paths on different drives (Windows)
+            logger.warning(f"Paths on different drives: {filepath.resolve()}")
             return create_error_response("Invalid file path", 400)
         
         if not filepath.exists():
+            logger.info(f"Image file not found: {filepath}")
             return create_error_response("Image not found", 404)
         
+        if not filepath.is_file():
+            logger.warning(f"Path is not a file: {filepath}")
+            return create_error_response("Invalid file path", 400)
+        
+        logger.info(f"Serving image file: {filepath}")
         return send_file(str(filepath))
     except Exception as e:
         logger.error(f"Error getting theme image {filename}: {str(e)}")

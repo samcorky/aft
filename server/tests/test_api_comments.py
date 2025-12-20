@@ -322,8 +322,8 @@ class TestCommentsAPISecurity:
             f'{api_client}/api/cards/../../../etc/passwd/comments',
             json={'comment': 'test'}
         )
-        # Should result in 404 or 400, not 201
-        assert response.status_code in [400, 404]
+        # Should result in 404, 405 (path doesn't match route), or 400
+        assert response.status_code in [400, 404, 405]
     
     def test_comment_negative_card_id(self, api_client):
         """Test that negative card IDs are handled properly."""

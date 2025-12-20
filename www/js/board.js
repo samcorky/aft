@@ -423,86 +423,71 @@ class WebSocketManager {
   setupEventListeners() {
     // Connection events
     this.socket.on('connect', () => {
-      console.log('✓ WebSocket connected', this.socket.id);
       this.reconnectAttempts = 0;
       this.joinBoard();
+      // Update header status immediately when WebSocket connects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+        window.header.checkDatabaseStatus();
+      }
     });
 
     this.socket.on('disconnect', () => {
-      console.log('✗ WebSocket disconnected');
+      // Update header status immediately when WebSocket disconnects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+      }
     });
 
     this.socket.on('connect_error', (error) => {
-      console.log('⚠ WebSocket connection error:', error);
+      // Connection error occurred
     });
 
     // Board room events
     this.socket.on('room_joined', (data) => {
-      console.log('✓ Joined board room:', data.board_id);
+      // Joined board room
     });
-    
-    // Add a catch-all listener to see ALL events
-    this.socket.onAny((event, ...args) => {
-      console.log(`📡 Event received: ${event}`, args);
-    });
-
-    // Real-time update events
     this.socket.on('card_created', (data) => {
-      console.log('📨 Received card_created event:', data);
       this.handleCardCreated(data);
     });
     this.socket.on('card_updated', (data) => {
-      console.log('📨 Received card_updated event:', data);
       this.handleCardUpdated(data);
     });
     this.socket.on('card_deleted', (data) => {
-      console.log('📨 Received card_deleted event:', data);
       this.handleCardDeleted(data);
     });
     this.socket.on('card_moved', (data) => {
-      console.log('📨 Received card_moved event:', data);
       this.handleCardMoved(data);
     });
     this.socket.on('cards_moved', (data) => {
-      console.log('📨 Received cards_moved event:', data);
       this.handleCardsMoved(data);
     });
     this.socket.on('column_reordered', (data) => {
-      console.log('📨 Received column_reordered event:', data);
       this.handleColumnReordered(data);
     });
     this.socket.on('checklist_item_added', (data) => {
-      console.log('📨 Received checklist_item_added event:', data);
       this.handleChecklistItemAdded(data);
     });
     this.socket.on('checklist_item_updated', (data) => {
-      console.log('📨 Received checklist_item_updated event:', data);
       this.handleChecklistItemUpdated(data);
     });
     this.socket.on('checklist_item_deleted', (data) => {
-      console.log('📨 Received checklist_item_deleted event:', data);
       this.handleChecklistItemDeleted(data);
     });
     this.socket.on('column_updated', (data) => {
-      console.log('📨 Received column_updated event:', data);
       this.handleColumnUpdated(data);
     });
     this.socket.on('card_archived', (data) => {
-      console.log('📨 Received card_archived event:', data);
       this.handleCardArchived(data);
     });
     this.socket.on('card_unarchived', (data) => {
-      console.log('📨 Received card_unarchived event:', data);
       this.handleCardUnarchived(data);
     });
   }
 
   joinBoard() {
     if (this.socket && this.socket.connected) {
-      console.log(`📤 Emitting join_board for board ${this.boardId}`);
       this.socket.emit('join_board', { board_id: this.boardId });
-    } else {
-      console.log('⚠ Cannot emit join_board - socket not connected');
     }
   }
 
@@ -514,7 +499,6 @@ class WebSocketManager {
 
   // Event emission methods for local changes
   emitCardCreated(columnId, cardId, cardData) {
-    console.log('📤 Emitting card_created event');
     this.socket.emit('card_created', {
       board_id: this.boardId,
       column_id: columnId,
@@ -524,7 +508,6 @@ class WebSocketManager {
   }
 
   emitCardUpdated(cardId, columnId, cardData) {
-    console.log('📤 Emitting card_updated event');
     this.socket.emit('card_updated', {
       board_id: this.boardId,
       card_id: cardId,
@@ -534,7 +517,6 @@ class WebSocketManager {
   }
 
   emitCardDeleted(cardId, columnId) {
-    console.log('📤 Emitting card_deleted event');
     this.socket.emit('card_deleted', {
       board_id: this.boardId,
       card_id: cardId,
@@ -598,7 +580,6 @@ class WebSocketManager {
 
   handleCardUpdated(data) {
     // A card was updated on another client
-    console.log('Card updated from another client:', data);
     // Update the card in the DOM if it's currently displayed
     const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
     if (cardElement && data.card_data) {
@@ -617,7 +598,6 @@ class WebSocketManager {
 
   handleCardDeleted(data) {
     // A card was deleted on another client
-    console.log('Card deleted from another client:', data);
     const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
     if (cardElement) {
       cardElement.remove();
@@ -626,56 +606,48 @@ class WebSocketManager {
 
   handleCardMoved(data) {
     // A card was moved on another client
-    console.log('Card moved from another client:', data);
     // Refresh the entire board to ensure correct state
     this.boardManager.loadBoard();
   }
 
   handleCardsMoved(data) {
     // Multiple cards were moved on another client
-    console.log('Multiple cards moved from another client:', data);
     // Refresh the entire board to ensure correct state
     this.boardManager.loadBoard();
   }
 
   handleColumnReordered(data) {
     // Columns were reordered on another client
-    console.log('Columns reordered from another client:', data);
     // Refresh the board to reflect new column order
     this.boardManager.loadBoard();
   }
 
   handleChecklistItemAdded(data) {
     // A checklist item was added on another client
-    console.log('Checklist item added from another client:', data);
     // Reload board to reflect checklist changes
     this.boardManager.loadBoard();
   }
 
   handleChecklistItemUpdated(data) {
     // A checklist item was updated on another client
-    console.log('Checklist item updated from another client:', data);
     // Reload board to reflect checklist changes in the card detail modal
     this.boardManager.loadBoard();
   }
 
   handleChecklistItemDeleted(data) {
     // A checklist item was deleted on another client
-    console.log('Checklist item deleted from another client:', data);
     // Reload board to reflect checklist changes
     this.boardManager.loadBoard();
   }
 
   handleColumnUpdated(data) {
     // A column was updated on another client
-    console.log('Column updated from another client:', data);
     // Reload board to reflect column name changes and order changes
     this.boardManager.loadBoard();
   }
 
   handleCardArchived(data) {
     // A card was archived on another client
-    console.log('Card archived from another client:', data);
     // Remove the card from the DOM if it's displayed
     const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
     if (cardElement) {
@@ -687,7 +659,6 @@ class WebSocketManager {
 
   handleCardUnarchived(data) {
     // A card was unarchived on another client
-    console.log('Card unarchived from another client:', data);
     // Reload board to show the restored card
     this.boardManager.loadBoard();
   }
@@ -4671,6 +4642,6 @@ class BoardManager {
 
 // Initialize board manager when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const boardManager = new BoardManager();
-  boardManager.init();
+  window.boardManager = new BoardManager();
+  window.boardManager.init();
 });

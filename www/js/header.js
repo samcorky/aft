@@ -60,6 +60,9 @@ class Header {
     this.versionInfo = null;
     this.currentView = 'task'; // Default view
     this.dbConnected = false; // Track database connection status
+    this.wsConnected = false; // Track WebSocket connection status
+    this.wsLastHeartbeat = null; // Track last WebSocket heartbeat
+    this.wsCheckInterval = null; // WebSocket check interval
   }
 
   // Load the header HTML component
@@ -102,6 +105,40 @@ class Header {
     this.statusCheckInterval = setInterval(() => {
       this.checkDatabaseStatus();
     }, 5000);
+    
+    // Initialize WebSocket monitoring
+    this.monitorWebSocketConnection();
+  }
+
+  // Monitor WebSocket connection status
+  monitorWebSocketConnection() {
+    // Check WebSocket status every 5 seconds
+    this.wsCheckInterval = setInterval(() => {
+      this.updateWebSocketStatus();
+    }, 5000);
+    
+    // Initial check
+    this.updateWebSocketStatus();
+  }
+
+  // Update WebSocket connection status
+  updateWebSocketStatus() {
+    // Check if socket.io global is available and connected
+    const wsHealthy = (typeof io !== 'undefined' && 
+                       window.boardManager && 
+                       window.boardManager.wsManager && 
+                       window.boardManager.wsManager.socket && 
+                       window.boardManager.wsManager.socket.connected);
+    
+    this.wsConnected = wsHealthy;
+    
+    // If WebSocket is disconnected, show connection error (don't bother with DB check)
+    if (!wsHealthy) {
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Connection Error';
+      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
+      this.dbConnected = false; // Mark DB as disconnected when WS is down
+    }
   }
 
   // Set the board name in the header
@@ -274,6 +311,23 @@ class Header {
   updateStatus(status, message, count = null, housekeepingHealthy = true) {
     if (!this.statusIcon || !this.statusText) return;
 
+    // First check if WebSocket is connected - if not, show connection error only
+    const wsHealthy = (typeof io !== 'undefined' && 
+                       window.boardManager && 
+                       window.boardManager.wsManager && 
+                       window.boardManager.wsManager.socket && 
+                       window.boardManager.wsManager.socket.connected);
+    
+    if (!wsHealthy) {
+      // WebSocket down = connection error, don't show DB errors
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Connection Error';
+      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
+      this.dbConnected = false;
+      return;
+    }
+    
+    // WebSocket is connected, now evaluate DB status
     // If housekeeping is unhealthy, override to show error
     if (status === 'success' && !housekeepingHealthy) {
       this.statusIcon.className = 'status-icon error';
@@ -287,7 +341,7 @@ class Header {
     this.dbConnected = (status === 'success');
     
     if (status === 'success') {
-      this.statusText.textContent = 'DB connected';
+      this.statusText.textContent = 'Server healthy';
       this.statusText.title = ''; // Clear any previous error message
     } else if (status === 'error') {
       this.statusText.textContent = 'DB Error';
@@ -300,6 +354,22 @@ class Header {
 
   // Check database connection status
   async checkDatabaseStatus() {
+    // First check if WebSocket is connected - if not, don't bother checking DB
+    const wsHealthy = (typeof io !== 'undefined' && 
+                       window.boardManager && 
+                       window.boardManager.wsManager && 
+                       window.boardManager.wsManager.socket && 
+                       window.boardManager.wsManager.socket.connected);
+    
+    if (!wsHealthy) {
+      // WebSocket disconnected = connection error, skip DB check
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Connection Error';
+      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
+      this.dbConnected = false;
+      return;
+    }
+    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     

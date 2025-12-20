@@ -456,7 +456,7 @@ class WebSocketManager {
     this.boardManager = boardManager;
     this.socket = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
+    this.maxReconnectAttempts = Infinity; // Infinite retries with exponential backoff
     this.reconnectDelay = 1000; // Start at 1 second
     
     this.initializeConnection();

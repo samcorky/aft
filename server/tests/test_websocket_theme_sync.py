@@ -19,31 +19,44 @@ class TestThemeAPIForWebSocketSync:
     
     def test_theme_update_api_endpoint(self, api_client):
         """Test theme update endpoint that triggers WebSocket broadcast."""
-        # First create a theme to update
+        # First get list of themes to find a theme to copy
         themes_response = requests.get(f'{api_client}/api/themes')
         assert themes_response.status_code == 200
         themes_data = themes_response.json()
+        assert isinstance(themes_data, list) and len(themes_data) > 0, "No themes available to copy"
         
-        # Response is a list of themes directly
-        if isinstance(themes_data, list) and themes_data:
-            theme_id = themes_data[0]['id']
-            
-            # Update theme via API
-            update_response = requests.put(
-                f'{api_client}/api/themes/{theme_id}',
-                json={
-                    'name': 'Updated Theme',
-                    'settings': {
-                        'primary-color': '#FF0000',
-                        'secondary-color': '#00FF00'
-                    }
+        source_theme_id = themes_data[0]['id']
+        
+        # Copy a theme to create a custom theme
+        import time
+        unique_name = f'Test Custom Theme {int(time.time() * 1000)}'
+        copy_response = requests.post(
+            f'{api_client}/api/themes/copy',
+            json={
+                'source_theme_id': source_theme_id,
+                'new_name': unique_name
+            }
+        )
+        assert copy_response.status_code == 201, f"Copy failed with: {copy_response.text}"
+        theme_data = copy_response.json()
+        theme_id = theme_data['id']
+        
+        # Update the created theme via API
+        update_response = requests.put(
+            f'{api_client}/api/themes/{theme_id}',
+            json={
+                'name': f'Updated Theme {int(time.time() * 1000)}',
+                'settings': {
+                    'primary-color': '#FF0000',
+                    'secondary-color': '#00FF00'
                 }
-            )
-            
-            # Should succeed with 200 status
-            assert update_response.status_code == 200
-            update_data = update_response.json()
-            assert 'id' in update_data or 'success' in update_data
+            }
+        )
+        
+        # Should succeed with 200 status
+        assert update_response.status_code == 200
+        update_data = update_response.json()
+        assert 'id' in update_data or 'success' in update_data
     
     def test_theme_join_room_preparation(self, api_client):
         """Test that theme endpoints support room-based updates."""

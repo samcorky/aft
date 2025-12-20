@@ -7,6 +7,7 @@ import os
 import time
 import tempfile
 import uuid
+import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
@@ -225,7 +226,9 @@ socketio = SocketIO(
 # Thread-safe dictionary to track recent broadcast failures
 # Format: {room_name: {event_name: error_message, timestamp: datetime}}
 # Used for debugging and monitoring WebSocket broadcast issues
+# Protected by lock for concurrent access in multi-worker/multi-threaded environment
 broadcast_failures = {}
+broadcast_failures_lock = threading.Lock()
 
 # ============================================================================
 # TESTING FLAG: WebSocket Connection Rejection
@@ -259,17 +262,19 @@ def broadcast_event(event_name, data, board_id, skip_sid=None):
             socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
             logger.info(f"✓ Successfully emitted {event_name}")
             # Clear any previous failure for this event
-            if room_name in broadcast_failures:
-                broadcast_failures[room_name].pop(event_name, None)
+            with broadcast_failures_lock:
+                if room_name in broadcast_failures:
+                    broadcast_failures[room_name].pop(event_name, None)
         except Exception as e:
             error_msg = str(e)
             logger.error(f"❌ Error broadcasting {event_name} to {room_name}: {error_msg}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Track the failure for debugging
-            if room_name not in broadcast_failures:
-                broadcast_failures[room_name] = {}
-            broadcast_failures[room_name][event_name] = error_msg
+            with broadcast_failures_lock:
+                if room_name not in broadcast_failures:
+                    broadcast_failures[room_name] = {}
+                broadcast_failures[room_name][event_name] = error_msg
     
     # Use background task to ensure proper context
     socketio.start_background_task(do_emit)
@@ -290,17 +295,19 @@ def broadcast_theme_event(event_name, data):
             socketio.emit(event_name, data, room=room_name, namespace='/')
             logger.info(f"✓ Successfully emitted {event_name} to theme room")
             # Clear any previous failure for this event
-            if room_name in broadcast_failures:
-                broadcast_failures[room_name].pop(event_name, None)
+            with broadcast_failures_lock:
+                if room_name in broadcast_failures:
+                    broadcast_failures[room_name].pop(event_name, None)
         except Exception as e:
             error_msg = str(e)
             logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             # Track the failure for debugging
-            if room_name not in broadcast_failures:
-                broadcast_failures[room_name] = {}
-            broadcast_failures[room_name][event_name] = error_msg
+            with broadcast_failures_lock:
+                if room_name not in broadcast_failures:
+                    broadcast_failures[room_name] = {}
+                broadcast_failures[room_name][event_name] = error_msg
     
     # Use background task to ensure proper context
     socketio.start_background_task(do_emit)
@@ -644,10 +651,15 @@ def get_broadcast_status():
       500:
         description: Failed to get broadcast status
     """
+    with broadcast_failures_lock:
+        # Create a copy to avoid holding the lock during serialization
+        failures_copy = dict(broadcast_failures)
+        total_rooms = len(broadcast_failures)
+    
     return jsonify({
         "success": True,
-        "broadcast_failures": broadcast_failures,
-        "total_failure_rooms": len(broadcast_failures)
+        "broadcast_failures": failures_copy,
+        "total_failure_rooms": total_rooms
     })
 
 

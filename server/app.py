@@ -210,6 +210,11 @@ socketio = SocketIO(
     message_queue=redis_url  # Connect to Redis for message queue
 )
 
+# Thread-safe dictionary to track recent broadcast failures
+# Format: {room_name: {event_name: error_message, timestamp: datetime}}
+# Used for debugging and monitoring WebSocket broadcast issues
+broadcast_failures = {}
+
 # Helper function to broadcast WebSocket events from route handlers
 def broadcast_event(event_name, data, board_id, skip_sid=None):
     """Broadcast a WebSocket event to all clients in a board room.
@@ -219,6 +224,10 @@ def broadcast_event(event_name, data, board_id, skip_sid=None):
         data: Event data to send
         board_id: Board ID to broadcast to (determines the room)
         skip_sid: Optional Socket.IO session ID to exclude from broadcast (usually request.sid)
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. The calling route should implement client-side
+    refresh logic as a fallback (e.g., client reloads board on reconnection).
     """
     room_name = f'board_{board_id}'
     
@@ -229,17 +238,29 @@ def broadcast_event(event_name, data, board_id, skip_sid=None):
             # skip_sid prevents the originating client from receiving a duplicate update
             socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
             logger.info(f"✓ Successfully emitted {event_name}")
+            # Clear any previous failure for this event
+            if room_name in broadcast_failures:
+                broadcast_failures[room_name].pop(event_name, None)
         except Exception as e:
-            logger.error(f"❌ Error broadcasting {event_name}: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"❌ Error broadcasting {event_name} to {room_name}: {error_msg}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            if room_name not in broadcast_failures:
+                broadcast_failures[room_name] = {}
+            broadcast_failures[room_name][event_name] = error_msg
     
     # Use background task to ensure proper context
     socketio.start_background_task(do_emit)
 
 
 def broadcast_theme_event(event_name, data):
-    """Broadcast a WebSocket event to all clients in the theme room."""
+    """Broadcast a WebSocket event to all clients in the theme room.
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. Clients should implement refresh logic as fallback.
+    """
     room_name = 'theme'
     
     def do_emit():
@@ -248,10 +269,18 @@ def broadcast_theme_event(event_name, data):
             # Use socketio.emit to broadcast to all clients in the theme room
             socketio.emit(event_name, data, room=room_name, namespace='/')
             logger.info(f"✓ Successfully emitted {event_name} to theme room")
+            # Clear any previous failure for this event
+            if room_name in broadcast_failures:
+                broadcast_failures[room_name].pop(event_name, None)
         except Exception as e:
-            logger.error(f"✗ Error broadcasting {event_name} to theme room: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            if room_name not in broadcast_failures:
+                broadcast_failures[room_name] = {}
+            broadcast_failures[room_name][event_name] = error_msg
     
     # Use background task to ensure proper context
     socketio.start_background_task(do_emit)
@@ -565,6 +594,41 @@ def get_version():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
+
+
+@app.route("/api/broadcast-status")
+def get_broadcast_status():
+    """Get WebSocket broadcast error status for debugging.
+    
+    Returns recent broadcast failures tracked by the system. Useful for monitoring
+    whether WebSocket events are being delivered to connected clients.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Broadcast status information
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            broadcast_failures:
+              type: object
+              description: Map of room names to recent errors
+              example: {"board_1": {"card_updated": "Connection timeout"}}
+            total_failure_rooms:
+              type: integer
+              example: 0
+      500:
+        description: Failed to get broadcast status
+    """
+    return jsonify({
+        "success": True,
+        "broadcast_failures": broadcast_failures,
+        "total_failure_rooms": len(broadcast_failures)
+    })
 
 
 @app.route("/api/scheduler/health")

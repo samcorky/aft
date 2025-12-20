@@ -115,22 +115,61 @@ class Header {
     
     // Initialize WebSocket monitoring
     this.monitorWebSocketConnection();
+    
+    // Store last WebSocket state to detect changes
+    this.lastWsState = null;
   }
 
   /**
-   * Monitor WebSocket connection status with periodic checks.
+   * Monitor WebSocket connection status with periodic checks and event listeners.
    * 
    * Polls WebSocket status every 5 seconds to detect disconnections.
-   * Does not perform initial check - relies on optimistic UI (assumes healthy).
+   * Also listens for connect/disconnect events to update immediately.
+   * On initial page load, don't report connecting sockets as failed.
    */
   monitorWebSocketConnection() {
     // Check WebSocket status every 5 seconds
     this.wsCheckInterval = setInterval(() => {
-      this.updateWebSocketStatus();
+      this.checkWebSocketStatusWithInitialDelay();
     }, 5000);
     
-    // Don't do initial WebSocket check - start healthy by default
-    // Will be updated by periodic checks if there's a problem
+    // Listen for socket connection events on board manager socket if available
+    if (window.boardManager && window.boardManager.wsManager) {
+      const wsManager = window.boardManager.wsManager;
+      // Store reference so we can attach listeners when socket is created
+      wsManager.onSocketCreated = (socket) => {
+        socket.on('connect', () => {
+          // Immediately update when connected
+          this.updateWebSocketStatus();
+        });
+        socket.on('disconnect', () => {
+          // Immediately update when disconnected
+          this.updateWebSocketStatus();
+        });
+      };
+    }
+    
+    // Listen for theme builder socket events
+    // Theme socket creation is handled differently, check in real-time
+  }
+
+  /**
+   * Check WebSocket status with awareness of initial page load.
+   * 
+   * On initial page load, don't mark a "connecting" socket as an error.
+   * Only mark as error if socket exists and is clearly disconnected (not connecting).
+   */
+  checkWebSocketStatusWithInitialDelay() {
+    const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
+    
+    // Track state changes
+    const newState = { hasSocket, wsHealthy, wsConnecting };
+    
+    // Only update if state actually changed (not on every 5s interval)
+    if (JSON.stringify(this.lastWsState) !== JSON.stringify(newState)) {
+      this.lastWsState = newState;
+      this.updateWebSocketStatus();
+    }
   }
 
   /**
@@ -419,10 +458,22 @@ class Header {
         clearTimeout(timeoutId);
         
         const data = await response.json();
-        this.updateStatus(data.success ? 'success' : 'error', data.message || data.error || '');
+        if (data.success) {
+          this.updateStatus('success', 'Connected');
+        } else {
+          // API responded but DB is unhealthy
+          this.statusIcon.className = 'status-icon error';
+          this.statusText.textContent = 'DB Error';
+          this.statusText.title = `Database error: ${data.message}`;
+          this.dbConnected = false;
+        }
       } catch (error) {
         clearTimeout(timeoutId);
-        this.updateStatus('error', 'Unable to check database status');
+        // Server/connection error
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'Server Connection Error';
+        this.statusText.title = 'Unable to connect to server';
+        this.dbConnected = false;
       }
       return;
     }
@@ -440,6 +491,7 @@ class Header {
     
     if (!wsHealthy) {
       // WebSocket disconnected = connection error, skip DB check
+      // Don't check DB if connectivity is down - it requires connectivity
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'Connection Error';
       this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
@@ -447,6 +499,7 @@ class Header {
       return;
     }
     
+    // Only perform DB check if WebSocket connectivity is healthy
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -472,7 +525,11 @@ class Header {
         
         this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
       } else {
-        this.updateStatus('error', testData.message, null, false);
+        // API responded but DB is unhealthy - distinguish this from server connection errors
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'DB Error';
+        this.statusText.title = `Database error: ${testData.message}`;
+        this.dbConnected = false;
       }
       
       // Update version display
@@ -482,10 +539,17 @@ class Header {
     } catch (err) {
       clearTimeout(timeoutId);
       
+      // Server/connection error (not a DB-specific error)
       if (err.name === 'AbortError') {
-        this.updateStatus('error', 'Connection timeout (5s)', null, false);
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'Server Connection Error';
+        this.statusText.title = 'API request timed out (5s). Check server connectivity.';
+        this.dbConnected = false;
       } else {
-        this.updateStatus('error', err.message, null, false);
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'Server Connection Error';
+        this.statusText.title = `Server connection error: ${err.message}`;
+        this.dbConnected = false;
       }
     }
   }

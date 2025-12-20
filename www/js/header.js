@@ -128,12 +128,16 @@ class Header {
    * On initial page load, don't report connecting sockets as failed.
    */
   /**
-   * Monitor WebSocket connection status with periodic checks.
+   * Monitor WebSocket connection status with periodic checks and event listeners.
    * 
-   * Polls WebSocket status every 5 seconds to detect disconnections.
-   * Also sets up immediate event listeners via WebSocketManager.onSocketCreated callback,
-   * which is invoked by WebSocketManager when the Socket.IO socket is created.
-   * This allows the header status to update immediately on connect/disconnect events.
+   * Sets up two mechanisms for status updates:
+   * 1. Periodic polling every 5 seconds (fallback for all scenarios)
+   * 2. Real-time event listeners via WebSocketManager.onSocketCreated callback
+   *    (only works if wsManager exists before or shortly after this is called)
+   * 
+   * The callback pattern allows header.js to get immediate socket events without
+   * waiting for the 5-second polling interval. The callback is set on wsManager.onSocketCreated
+   * which the WebSocketManager checks and invokes when socket is created.
    */
   monitorWebSocketConnection() {
     // Check WebSocket status every 5 seconds
@@ -141,25 +145,53 @@ class Header {
       this.checkWebSocketStatusWithInitialDelay();
     }, 5000);
     
-    // Listen for socket connection events on board manager socket if available
+    // Attempt to attach event listener callback if wsManager already exists
+    // (this works if board page has already initialized)
+    this.attachWebSocketCallback();
+    
+    // Also set up a watcher to attach callback when wsManager becomes available
+    // (this handles cases where header loads before board page initializes wsManager)
+    this.watchForWebSocketManager();
+  }
+
+  /**
+   * Attach socket event listeners via wsManager callback pattern.
+   * Safe to call multiple times - only attaches if wsManager exists and callback not yet set.
+   */
+  attachWebSocketCallback() {
     if (window.boardManager && window.boardManager.wsManager) {
       const wsManager = window.boardManager.wsManager;
-      // Define callback that WebSocketManager will invoke when socket is created
-      // (WebSocketManager checks if this is a function before calling it)
-      wsManager.onSocketCreated = (socket) => {
-        socket.on('connect', () => {
-          // Immediately update when connected
-          this.updateWebSocketStatus();
-        });
-        socket.on('disconnect', () => {
-          // Immediately update when disconnected
-          this.updateWebSocketStatus();
-        });
-      };
+      // Only set callback if it hasn't been set already (avoid overwriting)
+      if (!wsManager.onSocketCreated) {
+        wsManager.onSocketCreated = (socket) => {
+          socket.on('connect', () => {
+            this.updateWebSocketStatus();
+          });
+          socket.on('disconnect', () => {
+            this.updateWebSocketStatus();
+          });
+        };
+      }
     }
+  }
+
+  /**
+   * Watch for wsManager to become available and attach callback when it does.
+   * Uses a polling approach since we can't rely on event listeners at this stage.
+   */
+  watchForWebSocketManager() {
+    let attempts = 0;
+    const maxAttempts = 50; // Watch for up to ~5 seconds (5000ms / 100ms per check)
     
-    // Listen for theme builder socket events
-    // Theme socket creation is handled differently, check in real-time
+    const watchInterval = setInterval(() => {
+      attempts++;
+      if (window.boardManager && window.boardManager.wsManager) {
+        this.attachWebSocketCallback();
+        clearInterval(watchInterval); // Found it, stop watching
+      } else if (attempts >= maxAttempts) {
+        clearInterval(watchInterval); // Give up after max attempts
+      }
+    }, 100); // Check every 100ms
   }
 
   /**

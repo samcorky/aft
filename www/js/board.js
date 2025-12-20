@@ -483,8 +483,13 @@ class WebSocketManager {
     });
 
     // Notify any listeners that socket was created (e.g., header.js for immediate event updates)
+    // This callback is optional - listeners should check if it exists before setting it
     if (typeof this.onSocketCreated === 'function') {
-      this.onSocketCreated(this.socket);
+      try {
+        this.onSocketCreated(this.socket);
+      } catch (error) {
+        console.error('Error in onSocketCreated callback:', error);
+      }
     }
 
     this.setupEventListeners();

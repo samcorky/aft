@@ -2,6 +2,7 @@
 import pytest
 import requests
 import time
+import concurrent.futures
 
 
 @pytest.mark.api
@@ -157,7 +158,6 @@ class TestAPIErrorHandlingForWebSocket:
     def test_database_status_check_resilience(self, api_client):
         """Test that database status check handles timeouts gracefully."""
         # Make concurrent requests to simulate header status polling
-        import concurrent.futures
         
         def health_check():
             return requests.get(f'{api_client}/api/test', timeout=5)
@@ -231,7 +231,6 @@ class TestAPIIntegrationForWebSocket:
     
     def test_header_status_widget_polling_resilience(self, api_client):
         """Test that header status polling handles multiple concurrent checks."""
-        import concurrent.futures
         
         def status_check():
             """Simulate header status widget polling."""

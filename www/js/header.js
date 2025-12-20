@@ -238,7 +238,7 @@ class Header {
                          window.boardManager.wsManager.socket);
     const boardSocketConnected = boardSocket && boardSocket.connected;
     
-    const themeSocket = window.themeBuilderSocket;
+    const themeSocket = window.AFT?.themeBuilderSocket || window.themeBuilderSocket;
     const themeSocketConnected = themeSocket && themeSocket.connected;
     
     // Check if either socket is connecting

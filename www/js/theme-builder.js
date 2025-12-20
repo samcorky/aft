@@ -1321,14 +1321,14 @@ function initializeWebSocketForThemeBuilder() {
     // Listen for theme changes from other clients
     socket.on('theme_changed', (data) => {
       // Refresh themes list if we're on the theme builder
-      if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
-        window.themeBuilder.loadThemes();
+      if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
+        window.AFT.themeBuilder.loadThemes();
       }
     });
 
     socket.on('theme_updated', (data) => {
-      if (window.themeBuilder && typeof window.themeBuilder.loadThemes === 'function') {
-        window.themeBuilder.loadThemes();
+      if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
+        window.AFT.themeBuilder.loadThemes();
       }
     });
 
@@ -1340,9 +1340,16 @@ function initializeWebSocketForThemeBuilder() {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  // Initialize WebSocket first
-  window.themeBuilderSocket = initializeWebSocketForThemeBuilder();
+  // Create namespace for theme builder to avoid global namespace pollution
+  if (!window.AFT) {
+    window.AFT = {};
+  }
+  window.AFT.themeBuilderSocket = initializeWebSocketForThemeBuilder();
   
-  window.themeBuilder = new ThemeBuilder();
-  window.themeBuilder.init();
+  window.AFT.themeBuilder = new ThemeBuilder();
+  window.AFT.themeBuilder.init();
+  
+  // Keep legacy global references for backward compatibility
+  window.themeBuilderSocket = window.AFT.themeBuilderSocket;
+  window.themeBuilder = window.AFT.themeBuilder;
 });

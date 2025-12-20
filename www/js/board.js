@@ -707,8 +707,9 @@ class WebSocketManager {
     // Fetch the new theme and apply it without reloading
     
     // Try to use themeBuilder if available (on theme-builder page)
-    if (window.themeBuilder && typeof window.themeBuilder.loadAndApplyTheme === 'function') {
-      window.themeBuilder.loadAndApplyTheme().catch(error => {
+    const themeBuilder = window.AFT?.themeBuilder || window.themeBuilder;
+    if (themeBuilder && typeof themeBuilder.loadAndApplyTheme === 'function') {
+      themeBuilder.loadAndApplyTheme().catch(error => {
         console.error('✗ Error applying theme from WebSocket event:', error);
       });
     } else if (typeof loadAndApplyThemeGlobal === 'function') {

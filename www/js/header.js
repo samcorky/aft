@@ -139,11 +139,11 @@ class Header {
    * Checks for board manager socket or theme builder socket.
    * Only shows error if socket exists and is not connecting and not healthy.
    */
-  updateWebSocketStatus() {
+  _getWebSocketConnectionState() {
     // Only check WebSocket if socket.io is actually loaded on this page
     if (typeof io === 'undefined') {
-      // Socket.io not loaded on this page - don't show connection error
-      return;
+      // Socket.io not loaded on this page
+      return { hasSocket: false, wsHealthy: false, wsConnecting: false };
     }
     
     // Check for board manager socket OR theme builder socket
@@ -163,6 +163,12 @@ class Header {
     const hasSocket = !!boardSocket || !!themeSocket;
     const wsHealthy = boardSocketConnected || themeSocketConnected;
     const wsConnecting = boardSocketConnecting || themeSocketConnecting;
+    
+    return { hasSocket, wsHealthy, wsConnecting };
+  }
+
+  updateWebSocketStatus() {
+    const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
     
     this.wsConnected = wsHealthy;
     
@@ -353,38 +359,18 @@ class Header {
   updateStatus(status, message, count = null, housekeepingHealthy = true) {
     if (!this.statusIcon || !this.statusText) return;
 
-    // Only check WebSocket if socket.io is actually loaded on this page
-    if (typeof io !== 'undefined') {
-      // Check for board manager socket OR theme builder socket
-      const boardSocket = (window.boardManager && 
-                           window.boardManager.wsManager && 
-                           window.boardManager.wsManager.socket);
-      const boardSocketConnected = boardSocket && boardSocket.connected;
-      
-      // For theme-builder page, only check theme socket if it's been initialized
-      // Skip check if we're on theme-builder page but socket doesn't exist yet
-      const themeSocketExists = window.themeBuilderSocket !== undefined;
-      const themeSocket = themeSocketExists ? window.themeBuilderSocket : null;
-      const themeSocketConnected = themeSocket && themeSocket.connected;
-      
-      // Check if either socket is connecting (don't show error while connecting)
-      const boardSocketConnecting = boardSocket && boardSocket.disconnected === false && !boardSocketConnected;
-      const themeSocketConnecting = themeSocket && themeSocket.disconnected === false && !themeSocketConnected;
-      
-      const hasSocket = !!boardSocket || !!themeSocket;
-      const wsHealthy = boardSocketConnected || themeSocketConnected;
-      const wsConnecting = boardSocketConnecting || themeSocketConnecting;
-      
-      // Only show error if we have a socket that's not connecting
-      // If we don't have a socket yet, it's probably still initializing - don't error
-      if (hasSocket && !wsHealthy && !wsConnecting) {
-        // WebSocket exists but is down and not connecting = connection error
-        this.statusIcon.className = 'status-icon error';
-        this.statusText.textContent = 'Connection Error';
-        this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
-        this.dbConnected = false;
-        return;
-      }
+    // Check WebSocket health
+    const { hasSocket, wsHealthy, wsConnecting } = this._getWebSocketConnectionState();
+    
+    // Only show error if we have a socket that's not connecting
+    // If we don't have a socket yet, it's probably still initializing - don't error
+    if (hasSocket && !wsHealthy && !wsConnecting) {
+      // WebSocket exists but is down and not connecting = connection error
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'Connection Error';
+      this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
+      this.dbConnected = false;
+      return;
     }
     
     // WebSocket is connected (or not required on this page), now evaluate DB status

@@ -42,4 +42,5 @@ echo "Running database migrations..."
 alembic upgrade head
 
 echo "Starting application..."
+# Use gunicorn with 4 sync workers and Redis message queue for Socket.IO communication
 exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 300 app:app

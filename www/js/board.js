@@ -385,6 +385,321 @@ class ChecklistManager {
   }
 }
 
+// WebSocket Manager for Real-Time Board Updates
+class WebSocketManager {
+  constructor(boardId, boardManager) {
+    this.boardId = boardId;
+    this.boardManager = boardManager;
+    this.socket = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 1000; // Start at 1 second
+    
+    this.initializeConnection();
+  }
+
+  initializeConnection() {
+    // Check if Socket.IO library is loaded
+    if (typeof io === 'undefined') {
+      console.error('❌ Socket.IO library not loaded! Make sure socket.io.js script is included.');
+      return;
+    }
+    
+    console.log(`🔌 Attempting to connect to WebSocket...`);
+    
+    // Connect to the current server (socket.io client auto-detects the URL)
+    // Don't pass a URL - let socket.io auto-detect it
+    this.socket = io({
+      reconnection: true,
+      reconnectionDelay: this.reconnectDelay,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: this.maxReconnectAttempts,
+      transports: ['websocket', 'polling']
+    });
+
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    // Connection events
+    this.socket.on('connect', () => {
+      console.log('✓ WebSocket connected', this.socket.id);
+      this.reconnectAttempts = 0;
+      this.joinBoard();
+    });
+
+    this.socket.on('disconnect', () => {
+      console.log('✗ WebSocket disconnected');
+    });
+
+    this.socket.on('connect_error', (error) => {
+      console.log('⚠ WebSocket connection error:', error);
+    });
+
+    // Board room events
+    this.socket.on('room_joined', (data) => {
+      console.log('✓ Joined board room:', data.board_id);
+    });
+    
+    // Add a catch-all listener to see ALL events
+    this.socket.onAny((event, ...args) => {
+      console.log(`📡 Event received: ${event}`, args);
+    });
+
+    // Real-time update events
+    this.socket.on('card_created', (data) => {
+      console.log('📨 Received card_created event:', data);
+      this.handleCardCreated(data);
+    });
+    this.socket.on('card_updated', (data) => {
+      console.log('📨 Received card_updated event:', data);
+      this.handleCardUpdated(data);
+    });
+    this.socket.on('card_deleted', (data) => {
+      console.log('📨 Received card_deleted event:', data);
+      this.handleCardDeleted(data);
+    });
+    this.socket.on('card_moved', (data) => {
+      console.log('📨 Received card_moved event:', data);
+      this.handleCardMoved(data);
+    });
+    this.socket.on('cards_moved', (data) => {
+      console.log('📨 Received cards_moved event:', data);
+      this.handleCardsMoved(data);
+    });
+    this.socket.on('column_reordered', (data) => {
+      console.log('📨 Received column_reordered event:', data);
+      this.handleColumnReordered(data);
+    });
+    this.socket.on('checklist_item_added', (data) => {
+      console.log('📨 Received checklist_item_added event:', data);
+      this.handleChecklistItemAdded(data);
+    });
+    this.socket.on('checklist_item_updated', (data) => {
+      console.log('📨 Received checklist_item_updated event:', data);
+      this.handleChecklistItemUpdated(data);
+    });
+    this.socket.on('checklist_item_deleted', (data) => {
+      console.log('📨 Received checklist_item_deleted event:', data);
+      this.handleChecklistItemDeleted(data);
+    });
+    this.socket.on('column_updated', (data) => {
+      console.log('📨 Received column_updated event:', data);
+      this.handleColumnUpdated(data);
+    });
+    this.socket.on('card_archived', (data) => {
+      console.log('📨 Received card_archived event:', data);
+      this.handleCardArchived(data);
+    });
+    this.socket.on('card_unarchived', (data) => {
+      console.log('📨 Received card_unarchived event:', data);
+      this.handleCardUnarchived(data);
+    });
+  }
+
+  joinBoard() {
+    if (this.socket && this.socket.connected) {
+      console.log(`📤 Emitting join_board for board ${this.boardId}`);
+      this.socket.emit('join_board', { board_id: this.boardId });
+    } else {
+      console.log('⚠ Cannot emit join_board - socket not connected');
+    }
+  }
+
+  leaveBoard() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('leave_board', { board_id: this.boardId });
+    }
+  }
+
+  // Event emission methods for local changes
+  emitCardCreated(columnId, cardId, cardData) {
+    console.log('📤 Emitting card_created event');
+    this.socket.emit('card_created', {
+      board_id: this.boardId,
+      column_id: columnId,
+      card_id: cardId,
+      card_data: cardData
+    });
+  }
+
+  emitCardUpdated(cardId, columnId, cardData) {
+    console.log('📤 Emitting card_updated event');
+    this.socket.emit('card_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId,
+      card_data: cardData
+    });
+  }
+
+  emitCardDeleted(cardId, columnId) {
+    console.log('📤 Emitting card_deleted event');
+    this.socket.emit('card_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId
+    });
+  }
+
+  emitCardMoved(cardId, fromColumnId, toColumnId, fromIndex, toIndex) {
+    this.socket.emit('card_moved', {
+      board_id: this.boardId,
+      card_id: cardId,
+      from_column_id: fromColumnId,
+      to_column_id: toColumnId,
+      from_index: fromIndex,
+      to_index: toIndex
+    });
+  }
+
+  emitColumnReordered(columnOrder) {
+    this.socket.emit('column_reordered', {
+      board_id: this.boardId,
+      column_order: columnOrder
+    });
+  }
+
+  emitChecklistItemAdded(cardId, itemId, itemData) {
+    this.socket.emit('checklist_item_added', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      item_data: itemData
+    });
+  }
+
+  emitChecklistItemUpdated(cardId, itemId, updatedFields) {
+    this.socket.emit('checklist_item_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      updated_fields: updatedFields
+    });
+  }
+
+  emitChecklistItemDeleted(cardId, itemId) {
+    this.socket.emit('checklist_item_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId
+    });
+  }
+
+  // Handle incoming events from other clients
+  handleCardCreated(data) {
+    // A new card was created on another client
+    console.log('Card created from another client:', data);
+    if (this.boardManager) {
+      // Request the board manager to refresh the card or column
+      this.boardManager.loadBoard();
+    }
+  }
+
+  handleCardUpdated(data) {
+    // A card was updated on another client
+    console.log('Card updated from another client:', data);
+    // Update the card in the DOM if it's currently displayed
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement && data.card_data) {
+      // Update title and description if they changed
+      const titleElement = cardElement.querySelector('.card-title');
+      if (titleElement && data.card_data.title) {
+        titleElement.textContent = data.card_data.title;
+      }
+      
+      // If card moved, trigger a refresh
+      if (data.moved) {
+        this.boardManager.loadBoard();
+      }
+    }
+  }
+
+  handleCardDeleted(data) {
+    // A card was deleted on another client
+    console.log('Card deleted from another client:', data);
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+  }
+
+  handleCardMoved(data) {
+    // A card was moved on another client
+    console.log('Card moved from another client:', data);
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleCardsMoved(data) {
+    // Multiple cards were moved on another client
+    console.log('Multiple cards moved from another client:', data);
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnReordered(data) {
+    // Columns were reordered on another client
+    console.log('Columns reordered from another client:', data);
+    // Refresh the board to reflect new column order
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemAdded(data) {
+    // A checklist item was added on another client
+    console.log('Checklist item added from another client:', data);
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemUpdated(data) {
+    // A checklist item was updated on another client
+    console.log('Checklist item updated from another client:', data);
+    // Reload board to reflect checklist changes in the card detail modal
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemDeleted(data) {
+    // A checklist item was deleted on another client
+    console.log('Checklist item deleted from another client:', data);
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnUpdated(data) {
+    // A column was updated on another client
+    console.log('Column updated from another client:', data);
+    // Reload board to reflect column name changes and order changes
+    this.boardManager.loadBoard();
+  }
+
+  handleCardArchived(data) {
+    // A card was archived on another client
+    console.log('Card archived from another client:', data);
+    // Remove the card from the DOM if it's displayed
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+    // Reload to update card count and ensure consistency
+    this.boardManager.loadBoard();
+  }
+
+  handleCardUnarchived(data) {
+    // A card was unarchived on another client
+    console.log('Card unarchived from another client:', data);
+    // Reload board to show the restored card
+    this.boardManager.loadBoard();
+  }
+
+  disconnect() {
+    this.leaveBoard();
+    if (this.socket) {
+      this.socket.disconnect();
+    }
+  }
+}
+
 class BoardManager {
   constructor() {
     this.container = document.getElementById('board-container');
@@ -473,6 +788,10 @@ class BoardManager {
     }
 
     this.render();
+    
+    // Initialize WebSocket for real-time updates
+    this.wsManager = new WebSocketManager(this.boardId, this);
+    
     await this.loadBoard();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
@@ -2941,6 +3260,9 @@ class BoardManager {
       if (data.success) {
         const cardId = data.card.id;
         
+        // Server will broadcast card_created event to all clients
+        // No need to emit here - just wait for the server broadcast
+        
         // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
         // in a single request to avoid multiple sequential API calls and ensure atomicity.
         // This would prevent race conditions and improve performance.
@@ -3966,6 +4288,8 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        // Server will broadcast card_updated event to all clients
+        // No need to emit here - just wait for the server broadcast
         return true;
       } else {
         this.showErrorToast(`Failed to update card: ${data.message}`);
@@ -4005,6 +4329,19 @@ class BoardManager {
       const data = await response.json();
 
       if (data.success) {
+        // Get the column ID from the card element if available for WebSocket emit
+        let columnId = null;
+        if (cardElement) {
+          const column = cardElement.closest('.column');
+          if (column) {
+            columnId = parseInt(column.getAttribute('data-column-id'));
+          }
+        }
+        
+        // Emit WebSocket event for real-time updates
+        // Server will broadcast card_deleted event to all clients
+        // No need to emit here - just wait for the server broadcast
+        
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {

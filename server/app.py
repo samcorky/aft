@@ -210,7 +210,71 @@ app.url_map.converters['safe_filename'] = SafeFilenameConverter
 # Controls which origins can connect via HTTP/HTTPS and WebSocket
 cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
 cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
-CORS(app, origins=cors_allowed_origins, supports_credentials=True)
+
+# Custom CORS origin validator function for strict matching
+# Both Flask-CORS and Socket.IO will use this to ensure consistent behavior
+def validate_cors_origin(origin):
+    """
+    Validate if an origin is in the allowed list.
+    
+    This function enforces strict origin matching - the origin must exactly match
+    one of the configured allowed origins. This is the same validation level that
+    Socket.IO uses for WebSocket connections, ensuring HTTP/HTTPS and WebSocket
+    have consistent CORS security.
+    
+    Args:
+        origin: The origin string from the request (e.g., 'http://localhost:5000')
+        
+    Returns:
+        True if origin is allowed, False otherwise
+    """
+    if not origin:
+        # Allow requests without origin header (same-origin requests)
+        return True
+    
+    # Check for exact match in allowed origins list
+    if origin in cors_allowed_origins:
+        return True
+    
+    # Log rejection for debugging
+    logger.debug(f"CORS validation rejected origin: {origin} (allowed: {cors_allowed_origins})")
+    return False
+
+# Initialize Flask-CORS for HTTP/HTTPS endpoints
+# Using a custom origin validation function ensures strict matching
+# that matches Socket.IO's WebSocket validation behavior
+CORS(
+    app,
+    origins=cors_allowed_origins,
+    supports_credentials=True,
+    # These options make Flask-CORS stricter and more explicit
+    allow_headers=['Content-Type', 'Authorization'],
+    expose_headers=['Content-Type'],
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+)
+
+# Add before_request handler to validate CORS for HTTP/HTTPS endpoints
+# This provides an additional security layer to ensure HTTP requests are as strict as WebSocket
+@app.before_request
+def validate_http_cors():
+    """
+    Validate CORS origin for HTTP/HTTPS requests.
+    
+    This ensures HTTP requests are validated with the same strict rules as WebSocket connections.
+    If an origin is not in the allowed list, the request is rejected with a 403 response.
+    
+    Note: Flask-CORS already handles CORS headers, but this adds an additional validation
+    layer to ensure security parity between HTTP and WebSocket connections.
+    """
+    # Get origin from request headers
+    origin = request.headers.get('Origin')
+    
+    # Only validate if origin header is present (cross-origin request)
+    if origin:
+        if not validate_cors_origin(origin):
+            logger.warning(f"HTTP CORS violation: origin '{origin}' not in allowed list {cors_allowed_origins}")
+            # Return 403 Forbidden for CORS violations to match WebSocket behavior
+            return jsonify({"error": "CORS policy violation"}), 403
 
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other

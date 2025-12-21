@@ -264,20 +264,22 @@ class Header {
     this.wsConnected = wsHealthy;
     
     // If Socket.IO library failed to load on a page that needs it, show error
+    // Note: REST API calls still work without WebSocket, so don't block card operations
     if (ioLoaded && !hasSocket && !wsConnecting) {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      this.dbConnected = false;
+      // Note: dbConnected NOT set to false - REST API calls still work
       return;
     }
     
     // Only show connection error if socket exists and is not connecting and is not healthy
+    // Note: REST API calls and card creation still work without WebSocket
     if (hasSocket && !wsHealthy && !wsConnecting) {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      this.dbConnected = false; // Mark DB as disconnected when WS is down
+      // Note: dbConnected NOT set to false - REST API calls still work
     }
   }
 
@@ -464,25 +466,20 @@ class Header {
     
     // Only show error if we have a socket that's not connecting
     // If we don't have a socket yet, it's probably still initializing - don't error
+    // Note: WebSocket is for real-time sync only. REST API calls still work, so don't block operations
     if (hasSocket && !wsHealthy && !wsConnecting) {
       // WebSocket exists but is down and not connecting = connection error
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'Connection Error';
       this.statusText.title = 'WebSocket connection lost. Real-time updates may not work. Try force reloading the page (Ctrl+Shift+R).';
-      this.dbConnected = false;
+      // Note: dbConnected NOT set to false - REST API calls still work
       return;
     }
     
     // WebSocket is connected (or not required on this page), now evaluate DB status
-    // If housekeeping is unhealthy, override to show error
-    if (status === 'success' && !housekeepingHealthy) {
-      this.statusIcon.className = 'status-icon error';
-      this.statusText.textContent = 'Housekeeping Error';
-      this.statusText.title = 'Housekeeping scheduler is not running or unhealthy';
-      this.dbConnected = false;
-      return;
-    }
-
+    // Note: Housekeeping scheduler health is displayed but does NOT block database operations
+    // Only critical failures (DB, WebSocket, Server) prevent card creation
+    
     this.statusIcon.className = `status-icon ${status}`;
     this.dbConnected = (status === 'success');
     
@@ -540,15 +537,17 @@ class Header {
       const { hasSocket, wsHealthy, wsConnecting, ioLoaded } = this._getWebSocketConnectionState();
       
       // If we're on a board page but Socket.IO isn't loaded, that's an error
+      // However: REST API calls still work without WebSocket, so don't block operations
       if (!ioLoaded) {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
-        this.dbConnected = false;
+        // Note: dbConnected NOT set to false - REST API calls still work
         return;
       }
       
-      // If Socket.IO is loaded but WebSocket isn't working, that's a priority issue
+      // If Socket.IO is loaded but WebSocket isn't working (not connected and not trying)
+      // Display error but don't block API operations since REST calls still work
       // Also consider it disconnected if it's been trying to connect for too long (>30 seconds)
       const connectionDuration = Date.now() - (this.wsConnectionStartTime || Date.now());
       const isConnectingTooLong = wsConnecting && connectionDuration > 30000;
@@ -557,7 +556,7 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-        this.dbConnected = false;
+        // Note: dbConnected NOT set to false - REST API calls and card creation still work
         return;
       }
       

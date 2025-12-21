@@ -2653,7 +2653,7 @@ class BoardManager {
   }
 
   async createColumn(name) {
-    // Check database connection before creating column
+    // Check database connection before creating column (only blocks on critical DB/server/WebSocket errors, not scheduler errors)
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot create column: Database is not connected. Please wait for the connection to be restored.');
       return;
@@ -3051,7 +3051,7 @@ class BoardManager {
   }
 
   openAddCardModal(columnId, order = null, scheduled = false) {
-    // Check if database is connected
+    // Check if database is connected (only blocks on critical DB/server/WebSocket errors, not scheduler errors)
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
       return;
@@ -3345,7 +3345,7 @@ class BoardManager {
   }
 
   openEditCardModal(cardId, cardData) {
-    // Check database connection
+    // Check database connection (only blocks on critical DB/server/WebSocket errors, not scheduler errors)
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot edit card: Database is not connected. Please wait for the connection to be restored.');
       return;

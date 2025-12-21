@@ -1363,6 +1363,25 @@ def restore_database():
         if result.returncode != 0:
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
+        # Clean up stale scheduler lock files after successful restore
+        # This forces the scheduler threads to create fresh lock files with current timestamps
+        # Otherwise the system info page will show stale heartbeat ages from before the restore
+        logger.info("Cleaning up scheduler lock files after restore")
+        temp_dir = Path(tempfile.gettempdir())
+        lock_files_to_clean = [
+            temp_dir / "aft_backup_scheduler.lock",
+            temp_dir / "aft_card_scheduler.lock",
+            temp_dir / "aft_housekeeping_scheduler.lock",
+        ]
+        
+        for lock_file in lock_files_to_clean:
+            try:
+                if lock_file.exists():
+                    lock_file.unlink()
+                    logger.info(f"Cleaned up scheduler lock file after restore: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean lock file {lock_file}: {e}")
+
         # If backup version differs from current, run migrations to upgrade
         if backup_version != current_version:
             logger.info(

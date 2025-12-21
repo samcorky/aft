@@ -3051,7 +3051,7 @@ class BoardManager {
   }
 
   openAddCardModal(columnId, order = null, scheduled = false) {
-    // Check if database is connected
+    // Check database connection before opening modal
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
       return;
@@ -3345,7 +3345,7 @@ class BoardManager {
   }
 
   openEditCardModal(cardId, cardData) {
-    // Check database connection
+    // Check database connection before opening modal
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot edit card: Database is not connected. Please wait for the connection to be restored.');
       return;

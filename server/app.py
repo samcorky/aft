@@ -14,6 +14,7 @@ from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
 from sqlalchemy import text, func
 from werkzeug.routing import BaseConverter
+from werkzeug.exceptions import BadRequest
 from utils import (
     validate_string_length,
     validate_integer,
@@ -6782,6 +6783,23 @@ def init_housekeeping_scheduler():
 # Only initialize schedulers in the first worker to start
 # Use a combination of lock file AND worker tracking
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
+
+# Clean up stale init lock files from previous container instances
+# This must happen BEFORE trying to acquire the lock
+# If the init lock is stale (from a dead container process), we want to remove it
+# so this container's worker can acquire it and initialize schedulers
+try:
+    if init_lock_file.exists():
+        # Check if the lock file is stale (older than 5 minutes)
+        # In a container, if no worker has refreshed the lock in 5 minutes, assume the container died
+        from datetime import datetime
+        lock_age = (datetime.now() - datetime.fromtimestamp(init_lock_file.stat().st_mtime)).total_seconds()
+        if lock_age > 300:  # 5 minutes
+            logger.info(f"Init lock file is stale ({lock_age}s old), removing it")
+            init_lock_file.unlink()
+except Exception as e:
+    logger.warning(f"Failed to clean stale init lock file: {e}")
+
 should_init = False
 
 try:
@@ -6924,7 +6942,13 @@ def update_theme(theme_id):
         if theme.system_theme:
             return create_error_response("Cannot update system themes", 400)
         
-        data = request.get_json()
+        try:
+            data = request.get_json(silent=True)
+        except BadRequest:
+            data = None
+        
+        if not data or not isinstance(data, dict):
+            return create_error_response("Request body must contain valid JSON object", 400)
         
         if 'name' in data:
             # Check if name is unique

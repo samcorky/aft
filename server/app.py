@@ -212,7 +212,9 @@ cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
 cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
 
 # Initialize Flask-CORS for HTTP/HTTPS endpoints
-# Flask-CORS uses the configured list of allowed origins for CORS checks.
+# Flask-CORS validates all cross-origin requests (requests with Origin header) against
+# the configured origins list. Requests without an Origin header are processed normally
+# (same-origin requests in browsers, or requests from non-browser clients).
 # For disallowed origins, Flask-CORS will not add CORS headers to the response,
 # which causes the browser to reject the cross-origin request.
 CORS(

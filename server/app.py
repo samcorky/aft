@@ -3677,6 +3677,7 @@ def get_column_cards(column_id):
                 "description": c.description,
                 "order": c.order,
                 "archived": c.archived,
+                "done": c.done,
                 "scheduled": c.scheduled,
                 "schedule": c.schedule,
                 "checklist_items": [

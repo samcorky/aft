@@ -241,15 +241,13 @@ def validate_cors_origin(origin):
     return False
 
 # Initialize Flask-CORS for HTTP/HTTPS endpoints
-# Using a custom origin validation function ensures strict matching
-# that matches Socket.IO's WebSocket validation behavior
+# Flask-CORS uses the configured list of allowed origins for CORS checks.
+# Strict, custom origin validation is enforced separately in validate_http_cors
+# before_request handler to ensure consistent security between HTTP and WebSocket.
 CORS(
     app,
     origins=cors_allowed_origins,
     supports_credentials=True,
-    # These options make Flask-CORS stricter and more explicit
-    allow_headers=['Content-Type', 'Authorization'],
-    expose_headers=['Content-Type'],
     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
 )
 

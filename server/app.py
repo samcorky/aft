@@ -6924,7 +6924,13 @@ def update_theme(theme_id):
         if theme.system_theme:
             return create_error_response("Cannot update system themes", 400)
         
-        data = request.get_json()
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+        
+        if not data:
+            return create_error_response("Request body is required", 400)
         
         if 'name' in data:
             # Check if name is unique

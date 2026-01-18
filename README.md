@@ -10,8 +10,31 @@ Trello was great, then Atlassian bought it.
 ## How?
 - Clone the repo to a machine running docker
 - Edit .env to have more secure passwords
+- Configure WebSocket CORS for your deployment (see Configuration section below)
 - `docker compose up -d`
 - Navigate to http(s)://{docker-host-ip}
+
+### Configuration
+
+#### CORS Origins (HTTP/HTTPS/WebSocket)
+The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to localhost addresses for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
+
+**Development (default):**
+```
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
+```
+
+**Production (example with multiple trusted domains):**
+```
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+```
+
+**Docker Host Access:**
+```
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
+```
+
+Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
 
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
@@ -98,8 +121,39 @@ Use at your own risk.
 
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
+- **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
 
 ![Settings](images/settings.png)
+
+### 🎨 Theme Builder
+- **Visual Customization** - Create and customize color themes for the entire application
+- **Database-Backed Themes** - Themes stored in database, persist across sessions
+- **System Themes** - Pre-built themes (Default, Dark, Light, Solarized) that cannot be modified
+- **Custom Themes** - Create unlimited custom themes with your preferred colors
+- **Theme Management**:
+  - **Create**: Copy existing themes to create your own variants
+  - **Edit**: Modify all color variables (primary, secondary, status, text, backgrounds, header)
+  - **Rename**: Update theme names for better organization
+  - **Import/Export**: Share themes as JSON files
+  - **Apply**: Instantly preview and apply themes to your session
+- **Background Images** - Select from included background images or upload custom images
+  - Pre-loaded with 4 default backgrounds (At the Beach, Sunrise, Welcome to the Jungle, etc.)
+  - Upload custom background images for unique theme styling
+  - Background images stored in Docker named volume (persistent across restarts)
+- **Background Images** - Select from available background images or upload custom images
+- **Live Preview** - See color changes in real-time as you edit
+- **Organized Theme List** - Themes grouped by User Themes and System Themes, alphabetically sorted
+- **Read-Only System Themes** - System themes protected from modification
+- **Unsaved Changes Protection** - Warning modal when applying themes with unsaved changes
+- **Comprehensive Color Control** - Configure 15+ color variables:
+  - Primary and secondary colors with hover states
+  - Status colors (success, error, warning)
+  - Text colors (primary, muted, inverted)
+  - Background colors (light, dark, card backgrounds)
+  - Header colors (background, text, menu, buttons, icons)
+- **Accessibility** - Full ARIA support, keyboard navigation, screen reader compatible
+
+![Theme Builder](images/theme_builder.png)
 
 ### Automatic Database Backups - Schedule recurring backups to protect your data ###
 - Configurable frequency (minutes, hours, or days)
@@ -115,6 +169,8 @@ Use at your own risk.
 - **System Notifications** - Receive alerts about important events
 - **Backup Notifications** - Alerts for overdue backups or backup failures
 - **Schedule Notifications** - Alerts for schedule errors or when schedules end
+- **Version Notifications** - Automatic alerts when new AFT releases are available
+- **Action Buttons** - Optional action buttons on notifications with secure URL validation
 - **Notification Center** - View and manage all notifications from the header
 - **Mark as Read** - Individual or bulk mark notifications as read and delete
 - **Notification Badge** - Unread count indicator in header
@@ -140,6 +196,11 @@ Use at your own risk.
   - Auto-disables schedules past their end date
   - Creates notifications on errors
   - Adds tracking comments to created cards
+- **Housekeeping Scheduler** - Automatic maintenance service running every hour
+  - Checks GitHub for new AFT releases
+  - Creates notifications when updates are available
+  - Prevents duplicate notifications for the same version
+  - Can be enabled/disabled via System Info page
 
 ### 🔌 API Documentation
 - **Interactive API Docs** - Built-in Swagger UI at `/api/docs`
@@ -147,6 +208,56 @@ Use at your own risk.
 - **Health Checks** - Database connectivity and version endpoints
 
 ![API Documentation](images/api_docs.png)
+
+## 📡 System Status Widget
+
+The header displays a real-time system status indicator in the top-right corner. This widget monitors three critical system components and displays their health status:
+
+### Status Indicator Colors & Meanings
+
+| Status | Icon | Color | Meaning | Troubleshooting |
+|--------|------|-------|---------|-----------------|
+| **Connected** | ✅ | Green | All systems operational | None needed - everything is working normally |
+| **Server Disconnected** | ❌ | Red | Cannot reach API server | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
+| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. |
+| **DB Error** | ❌ | Red | Database connection failed | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
+
+### Status Checking Order (Priority)
+
+The widget checks system status in this order and stops at the first failure:
+
+1. **Server Connectivity** (Highest Priority)
+   - Makes HTTP request to `/api/test`
+   - If server doesn't respond or returns error, shows "Server Disconnected"
+   - Other checks are skipped when server is down
+
+2. **WebSocket Connection** (Medium Priority)
+   - Only checked on board/dashboard pages (where real-time updates are needed)
+   - Monitors Socket.IO connection status
+   - If loading takes >30 seconds, shows "WebSocket Disconnected"
+   - Shows updates but may be delayed without real-time sync
+
+3. **Database Health** (Lower Priority)
+   - Queries database directly via API
+   - If server is OK but database fails, shows "DB Error"
+   - Indicates database-specific issues
+
+### Testing WebSocket Disconnection
+
+To test the WebSocket disconnection scenario (for development/debugging):
+
+1. Edit [server/app.py](server/app.py) line ~237
+2. Change `REJECT_SOCKETIO_CONNECTIONS = False` to `REJECT_SOCKETIO_CONNECTIONS = True`
+3. Rebuild: `docker compose down ; docker compose up -d --build`
+4. Open board page - header shows "WebSocket Disconnected" within 5 seconds
+5. Real-time updates will not work
+6. Revert the flag to `False` and rebuild to restore connectivity
+
+### Polling & Real-Time Updates
+
+- **Polling Interval**: Status checks happen every 5 seconds
+- **Real-Time Events**: Socket.IO events (connect/disconnect) trigger immediate updates
+- **Reconnection**: Socket.IO automatically retries failed connections with exponential backoff
 
 ## Architecture Decisions
 

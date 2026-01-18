@@ -12,6 +12,38 @@ function calculateChecklistPercentage(items) {
 }
 
 /**
+ * Setup modal background click handler that ignores text selection drags
+ * Prevents modal from closing when user drags to select text and releases outside modal
+ * @param {HTMLElement} modal - The modal element
+ * @param {Function} closeHandler - Function to call when modal should close (e.g., handleCancel or modal.remove)
+ *                                  Can be async - promise rejections are handled gracefully
+ */
+function setupModalBackgroundClose(modal, closeHandler) {
+  let mouseDownOnBackground = false;
+  
+  modal.addEventListener('mousedown', (e) => {
+    // Track if mousedown was on the background (not on modal content)
+    mouseDownOnBackground = e.target === modal;
+  });
+  
+  modal.addEventListener('click', async (e) => {
+    // Only close if:
+    // 1. Click target is the background
+    // 2. Mousedown also started on the background (not a drag from inside)
+    if (e.target === modal && mouseDownOnBackground) {
+      try {
+        // Handle both sync and async closeHandler functions
+        await closeHandler();
+      } catch (error) {
+        console.error('Error in modal close handler:', error);
+        // Don't close modal if there was an error
+      }
+    }
+    mouseDownOnBackground = false;
+  });
+}
+
+/**
  * Convert URLs in text to clickable hyperlinks
  * @param {string} text - Text that may contain URLs
  * @returns {string} HTML with URLs converted to links
@@ -54,6 +86,8 @@ class ChecklistManager {
     this.pendingItems = pendingItems;
     this.updateSummary = options.updateSummary || (() => {});
     this.onItemCommitted = options.onItemCommitted || (() => {});
+    this.onItemAdded = options.onItemAdded || (() => {});
+    this.onItemChanged = options.onItemChanged || (() => {});
     this.deleteButtonClass = options.deleteButtonClass || 'checklist-delete-btn-temp';
     
     // Set up event delegation
@@ -68,6 +102,7 @@ class ChecklistManager {
         const item = this.pendingItems.find(i => i.tempId === tempId);
         if (item) {
           item.checked = e.target.checked;
+          this.onItemChanged();
           this.updateSummary();
         }
       }
@@ -82,25 +117,157 @@ class ChecklistManager {
           this.pendingItems.splice(index, 1);
         }
         e.target.closest('.checklist-item').remove();
+        this.onItemChanged();
         this.updateSummary();
+      }
+    });
+
+    // Single event listener for edit buttons
+    this.container.addEventListener('click', (e) => {
+      if (e.target.matches('.checklist-edit-btn')) {
+        const tempId = Number(e.target.getAttribute('data-temp-id'));
+        const itemElement = e.target.closest('.checklist-item');
+        const nameSpan = itemElement.querySelector('.checklist-item-name');
+        
+        // If there's no name span yet, the item is still in edit mode
+        if (!nameSpan) {
+          return;
+        }
+        
+        const currentName = nameSpan.textContent;
+        
+        // Replace span with input for inline editing
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'checklist-item-input';
+        input.value = currentName;
+        input.setAttribute('data-temp-id', tempId);
+        input.setAttribute('data-editing', 'true'); // Flag to indicate edit mode
+        nameSpan.replaceWith(input);
+        input.focus();
+        input.select();
+        
+        // Disable dragging while editing
+        itemElement.draggable = false;
       }
     });
 
     // Single event listener for blur on inputs
     this.container.addEventListener('blur', (e) => {
       if (e.target.classList.contains('checklist-item-input')) {
-        // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
-        setTimeout(() => this.commitInput(e.target), 0);
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
+        
+        if (isEditing) {
+          // This is an edited item - save changes
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const itemElement = e.target.closest('.checklist-item');
+          const newName = e.target.value.trim();
+          const currentName = e.target.value; // original value
+          
+          // Get the original name before editing
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          if (newName && newName !== originalName) {
+            // Update the item in the array
+            if (item) {
+              item.name = newName;
+            }
+            this.onItemChanged();
+          }
+          
+          // Replace input with name span
+          const nameToDisplay = newName || originalName;
+          const newNameSpan = this.createNameSpan(nameToDisplay);
+          e.target.replaceWith(newNameSpan);
+          
+          // Re-enable dragging
+          if (itemElement) {
+            itemElement.draggable = true;
+          }
+        } else {
+          // This is a new item being committed - use the existing logic
+          // Defer to next event loop cycle to allow other events (like delete button clicks) to process first
+          setTimeout(() => this.commitInput(e.target), 0);
+        }
       }
     }, true); // Use capture to catch blur
 
-    // Single event listener for Enter key on inputs
-    this.container.addEventListener('keydown', (e) => {
-      if (e.target.classList.contains('checklist-item-input') && e.key === 'Enter') {
-        e.preventDefault();
-        e.target.blur();
+    // Listen for commit complete event to trigger adding new item
+    this.container.addEventListener('checklistItemCommitted', (e) => {
+      if (e.detail.addItemAfter) {
+        this.addItemAfter(e.detail.addItemAfter);
       }
     });
+
+    // Single event listener for Enter key on inputs
+    this.container.addEventListener('keydown', (e) => {
+      if (e.target.classList.contains('checklist-item-input')) {
+        const isEditing = e.target.getAttribute('data-editing') === 'true';
+        
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          
+          if (isEditing) {
+            // For edited items, save and remove the flag
+            e.target.removeAttribute('data-editing');
+            e.target.blur(); // Trigger blur which will handle saving
+          } else {
+            // For new items, use existing logic
+            const inputValue = e.target.value.trim();
+            const tempId = Number(e.target.getAttribute('data-temp-id'));
+            
+            // Mark that we want to add an item after this one commits
+            if (inputValue) {
+              e.target.dataset.addItemAfterCommit = 'true';
+            }
+            
+            // Trigger commit
+            e.target.blur();
+          }
+        } else if (e.key === 'Escape' && isEditing) {
+          // Cancel edit by removing the input and restoring name span
+          e.preventDefault();
+          e.stopPropagation();
+          
+          const itemElement = e.target.closest('.checklist-item');
+          const tempId = Number(e.target.getAttribute('data-temp-id'));
+          const item = this.pendingItems.find(i => i.tempId === tempId);
+          const originalName = item ? item.name : '';
+          
+          // Replace input with name span (restore original)
+          const newNameSpan = this.createNameSpan(originalName);
+          e.target.replaceWith(newNameSpan);
+          
+          // Re-enable dragging
+          if (itemElement) {
+            itemElement.draggable = true;
+          }
+        }
+      }
+    });
+
+  }
+
+  createNameSpan(text) {
+    const span = document.createElement('span');
+    span.className = 'checklist-item-name';
+    span.textContent = text;
+    return span;
+  }
+
+  addEditButtonToItem(itemElement, tempId) {
+    const actionsContainer = itemElement.querySelector('.checklist-item-actions');
+    if (actionsContainer) {
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'checklist-edit-btn';
+      editBtn.setAttribute('data-temp-id', tempId);
+      editBtn.title = 'Edit';
+      editBtn.textContent = '✎';
+      // Insert edit button before delete button
+      actionsContainer.insertBefore(editBtn, actionsContainer.firstChild);
+    }
   }
 
   commitInput(inputElement) {
@@ -108,6 +275,7 @@ class ChecklistManager {
     
     const name = inputElement.value.trim();
     const tempId = Number(inputElement.getAttribute('data-temp-id'));
+    const shouldAddItemAfter = inputElement.dataset.addItemAfterCommit === 'true';
     
     if (name) {
       const item = this.pendingItems.find(i => i.tempId === tempId);
@@ -116,16 +284,24 @@ class ChecklistManager {
         
         // Replace input with display span
         const itemElement = inputElement.closest('.checklist-item');
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'checklist-item-name';
-        nameSpan.textContent = name;
+        const nameSpan = this.createNameSpan(name);
         inputElement.replaceWith(nameSpan);
+        
+        // Add edit button now that item has a name
+        this.addEditButtonToItem(itemElement, tempId);
         
         // Re-enable dragging
         itemElement.draggable = true;
         
         this.updateSummary();
         this.onItemCommitted(tempId);
+        
+        // Dispatch event to signal commit is complete
+        if (shouldAddItemAfter) {
+          this.container.dispatchEvent(new CustomEvent('checklistItemCommitted', {
+            detail: { tempId, addItemAfter: true }
+          }));
+        }
       }
     } else {
       // Remove empty item
@@ -138,21 +314,13 @@ class ChecklistManager {
     }
   }
 
-  addItem(insertAtTop = false) {
-    const tempId = Date.now() + Math.random();
+  createItemElement(tempId) {
     const item = {
       name: '',
       checked: false,
       tempId: tempId
     };
 
-    if (insertAtTop) {
-      this.pendingItems.unshift(item);
-    } else {
-      this.pendingItems.push(item);
-    }
-
-    // Add item to UI with input field
     const itemHtml = `
       <div class="checklist-item" data-temp-id="${tempId}" draggable="false">
         <span class="drag-handle" title="Drag to reorder">&#9776;</span>
@@ -164,19 +332,401 @@ class ChecklistManager {
       </div>
     `;
 
-    if (insertAtTop) {
-      this.container.insertAdjacentHTML('afterbegin', itemHtml);
-    } else {
-      this.container.insertAdjacentHTML('beforeend', itemHtml);
-    }
+    return { item, itemHtml };
+  }
 
-    // Focus the newly added input
+  focusNewItem(tempId) {
     const newInput = this.container.querySelector(`input.checklist-item-input[data-temp-id="${tempId}"]`);
     if (newInput) {
       newInput.focus();
     }
+  }
 
+  addItem(insertAtTop = false) {
+    const tempId = Date.now() + Math.random();
+    const { item, itemHtml } = this.createItemElement(tempId);
+
+    if (insertAtTop) {
+      this.pendingItems.unshift(item);
+      this.container.insertAdjacentHTML('afterbegin', itemHtml);
+    } else {
+      this.pendingItems.push(item);
+      this.container.insertAdjacentHTML('beforeend', itemHtml);
+    }
+
+    this.focusNewItem(tempId);
+    this.onItemAdded();
     this.updateSummary();
+  }
+
+  addItemAfter(afterTempId) {
+    const tempId = Date.now() + Math.random();
+    const { item, itemHtml } = this.createItemElement(tempId);
+
+    // Find the index of the item to insert after
+    const afterIndex = this.pendingItems.findIndex(i => i.tempId === afterTempId);
+    if (afterIndex !== -1) {
+      this.pendingItems.splice(afterIndex + 1, 0, item);
+    } else {
+      this.pendingItems.push(item);
+    }
+
+    // Find the DOM element to insert after
+    const afterElement = this.container.querySelector(`.checklist-item[data-temp-id="${afterTempId}"]`);
+    if (afterElement) {
+      afterElement.insertAdjacentHTML('afterend', itemHtml);
+    } else {
+      this.container.insertAdjacentHTML('beforeend', itemHtml);
+    }
+
+    this.focusNewItem(tempId);
+    this.onItemAdded();
+    this.updateSummary();
+  }
+}
+
+/**
+ * WebSocket Manager for Real-Time Board Updates
+ * 
+ * Manages Socket.IO connections for real-time board synchronization across clients.
+ * Handles reconnection logic, event emission, and incoming event handlers.
+ */
+class WebSocketManager {
+  /**
+   * Initialize WebSocket manager
+   * 
+   * Args:
+   *   boardId: The board ID to connect to
+   *   boardManager: Reference to the BoardManager instance
+   */
+  constructor(boardId, boardManager) {
+    this.boardId = boardId;
+    this.boardManager = boardManager;
+    this.socket = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = Infinity; // Infinite retries - Socket.IO handles exponential backoff internally
+    this.reconnectDelay = 1000; // Socket.IO manages reconnection delays
+    
+    this.initializeConnection();
+  }
+
+  /**
+   * Initialize WebSocket connection with auto-reconnection.
+   * 
+   * Sets up Socket.IO client with reconnection strategy and event listeners.
+   */
+  initializeConnection() {
+    // Check if Socket.IO library is loaded
+    if (typeof io === 'undefined') {
+      console.error('❌ Socket.IO library not loaded! Make sure socket.io.js script is included.');
+      return;
+    }
+    
+    // Connect to the current server (socket.io client auto-detects the URL)
+    // Don't pass a URL - let socket.io auto-detect it
+    this.socket = io({
+      reconnection: true,
+      reconnectionDelay: this.reconnectDelay,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: this.maxReconnectAttempts,
+      transports: ['websocket', 'polling']
+    });
+
+    // Notify any listeners that socket was created (e.g., header.js for immediate event updates)
+    // This callback is optional - listeners should check if it exists before setting it
+    if (typeof this.onSocketCreated === 'function') {
+      try {
+        this.onSocketCreated(this.socket);
+      } catch (error) {
+        console.error('Error in onSocketCreated callback:', error);
+      }
+    }
+
+    this.setupEventListeners();
+  }
+
+  setupEventListeners() {
+    // Connection events
+    this.socket.on('connect', () => {
+      this.reconnectAttempts = 0;
+      this.joinBoard();
+      this.joinThemeRoom();
+      // Update header status immediately when WebSocket connects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+        window.header.checkDatabaseStatus();
+      }
+    });
+
+    this.socket.on('disconnect', () => {
+      // Update header status immediately when WebSocket disconnects
+      if (window.header) {
+        window.header.updateWebSocketStatus();
+      }
+    });
+
+    this.socket.on('connect_error', (error) => {
+      // Connection error occurred
+    });
+
+    // Board room events
+    this.socket.on('room_joined', (data) => {
+      // Joined board room
+    });
+    this.socket.on('card_created', (data) => {
+      this.handleCardCreated(data);
+    });
+    this.socket.on('card_updated', (data) => {
+      this.handleCardUpdated(data);
+    });
+    this.socket.on('card_deleted', (data) => {
+      this.handleCardDeleted(data);
+    });
+    this.socket.on('card_moved', (data) => {
+      this.handleCardMoved(data);
+    });
+    this.socket.on('cards_moved', (data) => {
+      this.handleCardsMoved(data);
+    });
+    this.socket.on('column_reordered', (data) => {
+      this.handleColumnReordered(data);
+    });
+    this.socket.on('checklist_item_added', (data) => {
+      this.handleChecklistItemAdded(data);
+    });
+    this.socket.on('checklist_item_updated', (data) => {
+      this.handleChecklistItemUpdated(data);
+    });
+    this.socket.on('checklist_item_deleted', (data) => {
+      this.handleChecklistItemDeleted(data);
+    });
+    this.socket.on('column_updated', (data) => {
+      this.handleColumnUpdated(data);
+    });
+    this.socket.on('card_archived', (data) => {
+      this.handleCardArchived(data);
+    });
+    this.socket.on('card_unarchived', (data) => {
+      this.handleCardUnarchived(data);
+    });
+    
+    // Theme room events
+    this.socket.on('theme_changed', (data) => {
+      this.handleThemeChanged(data);
+    });
+    this.socket.on('theme_updated', (data) => {
+      this.handleThemeChanged(data);
+    });
+  }
+
+  /**
+   * Join the board room for real-time board updates.
+   */
+  joinBoard() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join_board', { board_id: this.boardId });
+    }
+  }
+
+  /**
+   * Join the theme room to receive theme update notifications.
+   */
+  joinThemeRoom() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join_theme');
+    } else {
+      console.warn('Cannot join theme room - socket not connected');
+    }
+  }
+
+  /**
+   * Leave the board room.
+   */
+  leaveBoard() {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('leave_board', { board_id: this.boardId });
+    }
+  }
+
+  // Event emission methods for local changes
+  emitCardCreated(columnId, cardId, cardData) {
+    this.socket.emit('card_created', {
+      board_id: this.boardId,
+      column_id: columnId,
+      card_id: cardId,
+      card_data: cardData
+    });
+  }
+
+  emitCardUpdated(cardId, columnId, cardData) {
+    this.socket.emit('card_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId,
+      card_data: cardData
+    });
+  }
+
+  emitCardDeleted(cardId, columnId) {
+    this.socket.emit('card_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      column_id: columnId
+    });
+  }
+
+  emitCardMoved(cardId, fromColumnId, toColumnId, fromIndex, toIndex) {
+    this.socket.emit('card_moved', {
+      board_id: this.boardId,
+      card_id: cardId,
+      from_column_id: fromColumnId,
+      to_column_id: toColumnId,
+      from_index: fromIndex,
+      to_index: toIndex
+    });
+  }
+
+  emitColumnReordered(columnOrder) {
+    this.socket.emit('column_reordered', {
+      board_id: this.boardId,
+      column_order: columnOrder
+    });
+  }
+
+  emitChecklistItemAdded(cardId, itemId, itemData) {
+    this.socket.emit('checklist_item_added', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      item_data: itemData
+    });
+  }
+
+  emitChecklistItemUpdated(cardId, itemId, updatedFields) {
+    this.socket.emit('checklist_item_updated', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId,
+      updated_fields: updatedFields
+    });
+  }
+
+  emitChecklistItemDeleted(cardId, itemId) {
+    this.socket.emit('checklist_item_deleted', {
+      board_id: this.boardId,
+      card_id: cardId,
+      item_id: itemId
+    });
+  }
+
+  // Handle incoming events from other clients
+  handleCardCreated(data) {
+    // A new card was created on another client
+    if (this.boardManager) {
+      // Request the board manager to refresh the card or column
+      this.boardManager.loadBoard();
+    }
+  }
+
+  handleCardUpdated(data) {
+    // A card was updated on another client
+    // Always reload the board to ensure consistency
+    // Even if only the title changed, reloading guarantees the UI matches the server state
+    this.boardManager.loadBoard();
+  }
+
+  handleCardDeleted(data) {
+    // A card was deleted on another client
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+  }
+
+  handleCardMoved(data) {
+    // A card was moved on another client
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleCardsMoved(data) {
+    // Multiple cards were moved on another client
+    // Refresh the entire board to ensure correct state
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnReordered(data) {
+    // Columns were reordered on another client
+    // Refresh the board to reflect new column order
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemAdded(data) {
+    // A checklist item was added on another client
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemUpdated(data) {
+    // A checklist item was updated on another client
+    // Reload board to reflect checklist changes in the card detail modal
+    this.boardManager.loadBoard();
+  }
+
+  handleChecklistItemDeleted(data) {
+    // A checklist item was deleted on another client
+    // Reload board to reflect checklist changes
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnUpdated(data) {
+    // A column was updated on another client
+    // Reload board to reflect column name changes and order changes
+    this.boardManager.loadBoard();
+  }
+
+  handleCardArchived(data) {
+    // A card was archived on another client
+    // Remove the card from the DOM if it's displayed
+    const cardElement = document.querySelector(`[data-card-id="${data.card_id}"]`);
+    if (cardElement) {
+      cardElement.remove();
+    }
+    // Reload to update card count and ensure consistency
+    this.boardManager.loadBoard();
+  }
+
+  handleCardUnarchived(data) {
+    // A card was unarchived on another client
+    // Reload board to show the restored card
+    this.boardManager.loadBoard();
+  }
+
+  handleThemeChanged(data) {
+    // Theme was changed by another client
+    // Fetch the new theme and apply it without reloading
+    
+    // Try to use themeBuilder if available (on theme-builder page)
+    const themeBuilder = window.AFT?.themeBuilder || window.themeBuilder;
+    if (themeBuilder && typeof themeBuilder.loadAndApplyTheme === 'function') {
+      themeBuilder.loadAndApplyTheme().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
+    } else if (typeof loadAndApplyThemeGlobal === 'function') {
+      // Use global function (available on all pages that include utils.js)
+      loadAndApplyThemeGlobal().catch(error => {
+        console.error('✗ Error applying theme from WebSocket event:', error);
+      });
+    } else {
+      console.warn('⚠ Theme update received but no theme handler available');
+    }
+  }
+
+  disconnect() {
+    this.leaveBoard();
+    if (this.socket) {
+      this.socket.disconnect();
+    }
   }
 }
 
@@ -192,6 +742,8 @@ class BoardManager {
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
+    this.currentLoadController = null; // Track in-flight board load requests
+    this.currentViewState = null; // Track the view state for the current load
   }
 
   /**
@@ -218,6 +770,43 @@ class BoardManager {
     }
   }
 
+  /**
+   * Show a non-blocking error toast notification
+   * @param {string} message - The error message to display
+   * @param {number} duration - How long to show the toast in milliseconds (default 3000)
+   */
+  showErrorToast(message, duration = 3000) {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #e74c3c;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after specified duration
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -229,6 +818,10 @@ class BoardManager {
     }
 
     this.render();
+    
+    // Initialize WebSocket for real-time updates
+    this.wsManager = new WebSocketManager(this.boardId, this);
+    
     await this.loadBoard();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
@@ -239,6 +832,9 @@ class BoardManager {
     // Listen for view changes from header
     window.addEventListener('viewChanged', async (e) => {
       const newView = e.detail.view;
+      
+      // Show loading overlay
+      this.showBoardLoading();
       
       // Map view names to internal state
       if (newView === 'archived') {
@@ -268,31 +864,93 @@ class BoardManager {
   }
 
   async loadBoard() {
+    // Cancel any in-flight board load request
+    if (this.currentLoadController) {
+      this.currentLoadController.abort();
+    }
+    
+    // Create new controller for this request
+    const controller = new AbortController();
+    this.currentLoadController = controller;
+    
+    // Capture current view state
+    const viewState = {
+      currentView: this.currentView,
+      showArchived: this.showArchived
+    };
+    this.currentViewState = viewState;
+    
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       let response;
       
       if (this.currentView === 'scheduled') {
         // Load board with all scheduled cards in a single request
-        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`);
+        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`, {
+          signal: controller.signal
+        });
       } else {
         // Load board with nested structure (board -> columns -> cards)
         // Add archived parameter to filter cards based on showArchived state
         const archivedParam = this.showArchived ? 'true' : 'false';
-        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`);
+        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`, {
+          signal: controller.signal
+        });
+      }
+      
+      clearTimeout(timeoutId);
+      
+      // Check if this request is stale (view changed while loading)
+      if (this.currentViewState !== viewState) {
+        // View changed during load, ignore this response
+        return;
       }
       
       const data = await this.parseResponse(response);
       
+      // Check again after parsing in case view changed
+      if (this.currentViewState !== viewState) {
+        return;
+      }
+      
       if (!data.success) {
+        this.hideBoardLoading();
+        this.showErrorToast('Failed to load board: ' + data.message);
         this.showError('Failed to load board: ' + data.message);
         return;
       }
 
       const board = data.board;
       this.processBoard(board);
+      this.hideBoardLoading();
     } catch (error) {
-      console.error('Error loading board:', error);
-      this.showError('An error occurred while loading the board');
+      clearTimeout(timeoutId);
+      
+      // Ignore aborted requests (they were intentionally cancelled)
+      if (error.name === 'AbortError') {
+        // Only show error if this was the timeout abort, not a cancellation
+        if (this.currentViewState === viewState) {
+          this.hideBoardLoading();
+          this.showErrorToast('Load board timed out (5s). Please check your connection.');
+          this.showError('Load board timed out. Please check your connection.');
+        }
+        return;
+      }
+      
+      // Only process errors for non-stale requests
+      if (this.currentViewState === viewState) {
+        console.error('Error loading board:', error);
+        this.hideBoardLoading();
+        this.showErrorToast(`Error loading board: ${error.message}`);
+        this.showError('An error occurred while loading the board');
+      }
+    } finally {
+      // Always clear current load controller if this was the active request
+      // This ensures cleanup even if there's an unexpected error path
+      if (this.currentLoadController === controller) {
+        this.currentLoadController = null;
+      }
     }
   }
 
@@ -330,8 +988,12 @@ class BoardManager {
       return;
     }
 
-    // Don't trigger if inside a modal
-    if (e.target.closest('.modal')) {
+    // Don't trigger if any visible modal is open on the page
+    const anyModalOpen = Array.from(document.querySelectorAll('.modal')).some((modal) => {
+      const style = window.getComputedStyle(modal);
+      return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    });
+    if (anyModalOpen) {
       return;
     }
 
@@ -386,11 +1048,13 @@ class BoardManager {
     if (this.columns.length === 0) {
       
       this.container.innerHTML = `
-        <div class="empty-board">
-          <div class="empty-board-icon">📋</div>
-          <h3>No columns yet</h3>
-          <p>Add your first column to start organizing tasks!</p>
-          <button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>
+        <div class="empty-board-panel">
+          <div class="empty-board">
+            <div class="empty-board-icon">📋</div>
+            <h3>No columns yet</h3>
+            <p>Add your first column to start organizing tasks!</p>
+            <button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>
+          </div>
         </div>
       `;
       
@@ -407,7 +1071,7 @@ class BoardManager {
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
                 </div>
                 <div class="column-actions">
-                  <button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>
+                  ${!this.showArchived ? `<button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>` : ''}
                   <button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>
                   <button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>
                   <div class="column-menu-wrapper">
@@ -444,38 +1108,60 @@ class BoardManager {
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
                     <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
-                      <div class="card-action-buttons">
+                      <div class="card-action-buttons" draggable="false">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
-                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card">📂</button>` :
-                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card">🗄️</button>`
+                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <path d="M12 14v-2"></path>
+                                <path d="M9 14l3 2 3-2"></path>
+                              </svg>
+                            </button>` :
+                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <path d="M12 14v2"></path>
+                                <path d="M9 16l3-2 3 2"></path>
+                              </svg>
+                            </button>`
                         }
-                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card">×</button>
+                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
                       </div>
-                      <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
-                      <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
-                      ${card.checklist_items && card.checklist_items.length > 0 ? `
-                        <div class="card-checklist">
-                          <div class="card-checklist-summary">
-                            ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${calculateChecklistPercentage(card.checklist_items)}%)
+                      <div class="card-content-wrapper" id="card-content-${card.id}">
+                        <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
+                        <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
+                        ${card.comments && card.comments.length > 0 ? `
+                          <div class="card-comments-indicator">
+                            💬 ${card.comments.length} ${card.comments.length === 1 ? 'comment' : 'comments'}
                           </div>
-                          ${card.checklist_items.map(item => `
-                            <div class="card-checklist-item">
-                              <input 
-                                type="checkbox" 
-                                class="card-checklist-checkbox" 
-                                data-item-id="${item.id}"
-                                ${item.checked ? 'checked' : ''}
-                              >
-                              <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
+                        ` : ''}
+                        ${card.checklist_items && card.checklist_items.length > 0 ? `
+                          <div class="card-checklist">
+                            <div class="card-checklist-summary">
+                              ${card.checklist_items.filter(i => i.checked).length}/${card.checklist_items.length} (${calculateChecklistPercentage(card.checklist_items)}%)
                             </div>
-                          `).join('')}
-                        </div>
-                      ` : ''}
+                            ${card.checklist_items.map(item => `
+                              <div class="card-checklist-item">
+                                <input 
+                                  type="checkbox" 
+                                  class="card-checklist-checkbox" 
+                                  data-item-id="${item.id}"
+                                  ${item.checked ? 'checked' : ''}
+                                >
+                                <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
+                              </div>
+                            `).join('')}
+                          </div>
+                        ` : ''}
+                      </div>
+                      <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
                     </div>
                   `).join('') : ''
                 }
-                <button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>
+                ${!this.showArchived ? `<button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>` : ''}
               </div>
             </div>
           `).join('')}
@@ -619,15 +1305,77 @@ class BoardManager {
       // Add event listeners for card clicks (open edit modal)
       document.querySelectorAll('.card').forEach(card => {
         card.addEventListener('click', async (e) => {
-          // Don't trigger if clicking the delete button or checklist checkbox
-          if (e.target.classList.contains('card-delete-btn')) return;
-          if (e.target.classList.contains('card-checklist-checkbox')) return;
+          // Don't trigger if clicking the delete button, checklist checkbox, or expand button
+          // Use closest() to handle clicks on button content (like emoji text nodes)
+          if (e.target.closest('.card-delete-btn')) return;
+          if (e.target.closest('.card-checklist-checkbox')) return;
+          if (e.target.closest('.card-expand-btn')) return;
+          if (e.target.closest('.card-archive-btn')) return;
+          if (e.target.closest('.card-unarchive-btn')) return;
           
           const cardId = parseInt(card.getAttribute('data-card-id'));
+          
+          // Show loading state on the card
+          card.classList.add('updating');
+          
           // Reload card data to get latest state
           const cardData = await this.getCardData(cardId);
+          
+          // Remove loading state
+          card.classList.remove('updating');
+          
           if (cardData) {
             this.openEditCardModal(cardId, cardData);
+          }
+          // Error toast already shown by getCardData if it failed
+        });
+      });
+
+      // Initialize card collapse/expand functionality
+      // Use requestAnimationFrame to ensure DOM is fully rendered before measuring
+      requestAnimationFrame(() => {
+        // Get the collapse threshold from CSS custom property
+        const collapseHeightStr = getComputedStyle(document.documentElement)
+          .getPropertyValue('--card-collapse-height')
+          .trim();
+        const collapseHeight = parseInt(collapseHeightStr);
+        
+        if (!collapseHeight || isNaN(collapseHeight)) {
+          console.error('Card collapse height not defined in CSS. Skipping card collapse logic.');
+          return;
+        }
+        
+        document.querySelectorAll('.card').forEach(card => {
+          const contentWrapper = card.querySelector('.card-content-wrapper');
+          const expandBtn = card.querySelector('.card-expand-btn');
+          
+          if (contentWrapper && expandBtn) {
+            // Measure the actual content height
+            const contentHeight = contentWrapper.scrollHeight;
+            
+            // If content is taller than the threshold, make it collapsible
+            if (contentHeight > collapseHeight) {
+              card.classList.add('has-overflow');
+              card.classList.add('collapsed');
+            }
+          }
+        });
+      });
+
+      // Add event listeners for card expand buttons
+      document.querySelectorAll('.card-expand-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const card = e.currentTarget.closest('.card');
+          
+          if (card.classList.contains('collapsed')) {
+            card.classList.remove('collapsed');
+            e.currentTarget.textContent = 'Show less...';
+            e.currentTarget.setAttribute('aria-expanded', 'true');
+          } else {
+            card.classList.add('collapsed');
+            e.currentTarget.textContent = 'Show more...';
+            e.currentTarget.setAttribute('aria-expanded', 'false');
           }
         });
       });
@@ -664,28 +1412,40 @@ class BoardManager {
       
       // Add event listeners for delete card buttons
       document.querySelectorAll('.card-delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
-          this.deleteCard(cardId);
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
+          const cardElement = e.currentTarget.closest('.card');
+          await this.deleteCard(cardId, cardElement);
         });
       });
       
       // Add event listeners for archive card buttons
       document.querySelectorAll('.card-archive-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
-          this.archiveCard(cardId);
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
+          const cardElement = e.currentTarget.closest('.card');
+          await this.archiveCard(cardId, cardElement);
         });
       });
       
       // Add event listeners for unarchive card buttons
       document.querySelectorAll('.card-unarchive-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation(); // Prevent card click event
-          const cardId = parseInt(e.target.getAttribute('data-card-id'));
-          this.unarchiveCard(cardId);
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
+          const cardElement = e.currentTarget.closest('.card');
+          await this.unarchiveCard(cardId, cardElement);
         });
       });
       
@@ -730,20 +1490,46 @@ class BoardManager {
     const columnCards = document.querySelectorAll('.column-cards');
     
     let draggedCard = null;
+    let originalPosition = null; // Store original position before drag
     
     // Card drag events
     cards.forEach(card => {
       card.addEventListener('dragstart', (e) => {
+        // Don't allow drag if clicking on buttons or interactive elements
+        if (e.target.closest('.card-delete-btn') || 
+            e.target.closest('.card-archive-btn') || 
+            e.target.closest('.card-unarchive-btn') ||
+            e.target.closest('.card-expand-btn') ||
+            e.target.closest('.card-checklist-checkbox') ||
+            e.target.closest('.card-action-buttons')) {
+          e.preventDefault();
+          return false;
+        }
+        
         e.stopPropagation(); // Prevent column from also starting to drag
         draggedCard = card;
         card.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/html', card.innerHTML);
+        
+        // Capture original position NOW, before any DOM manipulation
+        const oldColumnId = parseInt(card.getAttribute('data-column-id'));
+        const oldOrder = parseInt(card.getAttribute('data-order'));
+        const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+        const actualNextSibling = card.nextElementSibling;
+        
+        originalPosition = {
+          columnId: oldColumnId,
+          order: oldOrder,
+          container: originalColumnContainer,
+          nextSibling: actualNextSibling
+        };
       });
       
       card.addEventListener('dragend', (e) => {
         card.classList.remove('dragging');
         draggedCard = null;
+        originalPosition = null; // Clear stored position
       });
     });
     
@@ -774,20 +1560,20 @@ class BoardManager {
       columnContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
         
-        if (!draggedCard) return;
+        if (!draggedCard || !originalPosition) return;
         
         const targetColumnId = parseInt(columnContainer.getAttribute('data-column-id'));
         const cardId = parseInt(draggedCard.getAttribute('data-card-id'));
-        const oldColumnId = parseInt(draggedCard.getAttribute('data-column-id'));
+        const oldColumnId = originalPosition.columnId;
         
         // Calculate new order based on position in DOM
         const cardsInColumn = Array.from(columnContainer.querySelectorAll('.card'));
         const newOrder = cardsInColumn.indexOf(draggedCard);
         
         // Only update if position or column changed
-        const oldOrder = parseInt(draggedCard.getAttribute('data-order'));
+        const oldOrder = originalPosition.order;
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
-          await this.updateCardPosition(cardId, targetColumnId, newOrder);
+          await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
         }
       });
     });
@@ -808,7 +1594,22 @@ class BoardManager {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  async updateCardPosition(cardId, columnId, order) {
+  async updateCardPosition(cardId, columnId, order, originalPosition = null) {
+    const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
+    
+    // Add loading state with 500ms delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+        cardElement.style.opacity = '0.6';
+        cardElement.style.pointerEvents = 'none';
+      }
+    }, 500);
+    
+    // Set 5 second timeout for the request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
         method: 'PATCH',
@@ -818,29 +1619,108 @@ class BoardManager {
         body: JSON.stringify({
           column_id: columnId,
           order: order
-        })
+        }),
+        signal: controller.signal
       });
+      
+      // Clear timeouts immediately after fetch completes, before processing response
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       
       const data = await this.parseResponse(response);
       
       if (!data.success) {
         console.error('Failed to update card position:', data.message);
-        // Reload board to restore correct state
-        await this.loadBoard();
+        
+        // Restore card to original position (DOM only, no API call)
+        if (cardElement && originalPosition) {
+          this.restoreCardPosition(cardElement, originalPosition);
+        }
+        
+        if (cardElement) {
+          cardElement.classList.remove('updating'); // Remove loading state
+          cardElement.classList.add('update-failed');
+          cardElement.style.opacity = '';
+          cardElement.style.pointerEvents = '';
+          setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
+        }
+        
+        // Show non-blocking error toast instead of blocking alert
+        this.showErrorToast('Failed to move card');
+        
+        // Don't reload board - restoration is DOM-only
       } else {
         // Update local data attributes
-        const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
         if (cardElement) {
           cardElement.setAttribute('data-column-id', columnId);
           cardElement.setAttribute('data-order', order);
+          cardElement.classList.remove('updating');
+          cardElement.classList.add('update-success');
+          cardElement.style.opacity = '';
+          cardElement.style.pointerEvents = '';
+          setTimeout(() => cardElement.classList.remove('update-success'), 1000);
         }
         // Reload board to update card counts
         await this.loadBoard();
       }
     } catch (err) {
-      console.error('Error updating card position:', err);
-      // Reload board to restore correct state
-      await this.loadBoard();
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      // Restore card to original position
+      if (cardElement && originalPosition) {
+        this.restoreCardPosition(cardElement, originalPosition);
+      }
+      
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+        cardElement.classList.add('update-failed');
+        cardElement.style.opacity = '';
+        cardElement.style.pointerEvents = '';
+        setTimeout(() => cardElement.classList.remove('update-failed'), 3000);
+      }
+      
+      if (err.name === 'AbortError') {
+        console.error('Card update timeout after 5 seconds');
+        this.showErrorToast('Card update timed out. Check your connection.');
+      } else {
+        console.error('Error updating card position:', err);
+        this.showErrorToast('Failed to move card');
+      }
+      
+      // Don't reload board - restoration is DOM-only
+    }
+  }
+
+  restoreCardPosition(cardElement, originalPosition) {
+    try {
+      // Restore data attributes
+      cardElement.setAttribute('data-column-id', originalPosition.columnId);
+      cardElement.setAttribute('data-order', originalPosition.order);
+      
+      // Validate container is still attached to the document
+      if (originalPosition.container && document.contains(originalPosition.container)) {
+        if (originalPosition.nextSibling && originalPosition.container.contains(originalPosition.nextSibling)) {
+          // Insert before the next sibling (exact original position)
+          originalPosition.container.insertBefore(cardElement, originalPosition.nextSibling);
+        } else {
+          // If next sibling is gone, append at end
+          const addCardBtn = originalPosition.container.querySelector('.add-card-btn');
+          if (addCardBtn) {
+            originalPosition.container.insertBefore(cardElement, addCardBtn);
+          } else {
+            originalPosition.container.appendChild(cardElement);
+          }
+        }
+        
+      } else {
+        console.warn('Cannot restore card: original container is no longer in the document');
+        // Container was removed (column deleted or board reloaded)
+        // The calling function will reload the board to get fresh state
+      }
+    } catch (err) {
+      console.error('Failed to restore card position:', err);
+      // Will fall back to board reload in calling function
     }
   }
 
@@ -881,18 +1761,42 @@ class BoardManager {
   }
 
   async openScheduleModal(cardId, cardData, hasSchedule) {
+    // Check database connection before opening modal
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot open schedule editor: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
     if (hasSchedule && cardData.schedule) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       try {
-        const response = await fetch(`/api/schedules/${cardData.schedule}`);
+        const response = await fetch(`/api/schedules/${cardData.schedule}`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
+        
         if (data.success) {
           scheduleData = data.schedule;
+        } else {
+          this.showErrorToast(`Failed to load schedule: ${data.message}`);
+          return;
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error fetching schedule:', err);
-        return null;
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Load schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast(`Error loading schedule: ${err.message}`);
+        }
+        return;
       }
     }
 
@@ -1049,10 +1953,7 @@ class BoardManager {
               month: 'short', 
               day: 'numeric' 
             });
-            const timeStr = run.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            });
+            const timeStr = formatTimeSync(run);
             return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
           }).join('');
         }
@@ -1065,33 +1966,86 @@ class BoardManager {
     // Initial calculation
     updateNextRuns();
 
+    // Track changes
+    let hasUnsavedChanges = false;
+    
     // Update on input changes
     [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
-      input.addEventListener('change', updateNextRuns);
+      input.addEventListener('change', () => {
+        hasUnsavedChanges = true;
+        updateNextRuns();
+      });
       input.addEventListener('input', () => {
+        hasUnsavedChanges = true;
         // Debounce for text inputs
         clearTimeout(input.updateTimeout);
         input.updateTimeout = setTimeout(updateNextRuns, 500);
       });
     });
-
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
+    
+    // Track checkbox changes
+    const enabledCheckbox = document.getElementById('schedule-enabled');
+    const duplicatesCheckbox = document.getElementById('schedule-allow-duplicates');
+    [enabledCheckbox, duplicatesCheckbox].forEach(checkbox => {
+      if (checkbox) {
+        checkbox.addEventListener('change', () => {
+          hasUnsavedChanges = true;
+        });
+      }
     });
+
+    // Handle cancel with warning
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        if (hasUnsavedChanges) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+            return;
+          }
+        }
+        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle delete
     if (deleteBtn) {
       deleteBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to delete this schedule? This will not delete cards already created.')) {
+        if (!await showConfirm('Are you sure you want to delete this schedule? This will not delete cards already created.', 'Confirm Deletion')) {
           return;
         }
 
+        // Show deleting state
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = 'Deleting...';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         try {
           const response = await fetch(`/api/schedules/${scheduleData.id}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            signal: controller.signal
           });
 
+          clearTimeout(timeoutId);
           const data = await this.parseResponse(response);
 
           if (data.success) {
@@ -1101,11 +2055,21 @@ class BoardManager {
             if (editModal) editModal.remove();
             await this.loadBoard();
           } else {
-            alert('Failed to delete schedule: ' + data.message);
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = 'Delete Schedule';
+            this.showErrorToast(`Failed to delete schedule: ${data.message}`);
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error deleting schedule:', err);
-          alert('An error occurred while deleting the schedule');
+          deleteBtn.disabled = false;
+          deleteBtn.textContent = 'Delete Schedule';
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Delete schedule timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast('An error occurred while deleting the schedule');
+          }
         }
       });
     }
@@ -1116,21 +2080,43 @@ class BoardManager {
       editTemplateBtn.addEventListener('click', async () => {
         const templateCardId = parseInt(editTemplateBtn.getAttribute('data-card-id'));
         if (templateCardId) {
+          // Show loading state
+          editTemplateBtn.disabled = true;
+          editTemplateBtn.textContent = 'Loading...';
+
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
           // Fetch the template card data
           try {
-            const response = await fetch(`/api/cards/${templateCardId}`);
+            const response = await fetch(`/api/cards/${templateCardId}`, {
+              signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
             const data = await this.parseResponse(response);
+            
             if (data.success) {
               // Close schedule modal
               modal.remove();
               // Open edit card modal for the template
               this.openEditCardModal(templateCardId, data.card);
             } else {
-              alert('Failed to load template card: ' + data.message);
+              editTemplateBtn.disabled = false;
+              editTemplateBtn.textContent = 'Edit Template';
+              this.showErrorToast(`Failed to load template card: ${data.message}`);
             }
           } catch (err) {
+            clearTimeout(timeoutId);
             console.error('Error loading template card:', err);
-            alert('Error loading template card');
+            editTemplateBtn.disabled = false;
+            editTemplateBtn.textContent = 'Edit Template';
+            
+            if (err.name === 'AbortError') {
+              this.showErrorToast('Load template card timed out (5s). Please check your connection.');
+            } else {
+              this.showErrorToast('Error loading template card');
+            }
           }
         }
       });
@@ -1149,6 +2135,14 @@ class BoardManager {
         allow_duplicates: document.getElementById('schedule-allow-duplicates').checked
       };
 
+      // Show saving state
+      const saveBtn = modal.querySelector('button[type="submit"]');
+      saveBtn.disabled = true;
+      saveBtn.textContent = hasSchedule ? 'Updating...' : 'Creating...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       try {
         let response;
         
@@ -1157,7 +2151,8 @@ class BoardManager {
           response = await fetch(`/api/schedules/${scheduleData.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(formData)
+            body: JSON.stringify(formData),
+            signal: controller.signal
           });
         } else {
           // Create new schedule
@@ -1169,10 +2164,12 @@ class BoardManager {
               card_id: cardId,
               keep_source_card: keepSourceCheckbox ? keepSourceCheckbox.checked : true,
               ...formData
-            })
+            }),
+            signal: controller.signal
           });
         }
 
+        clearTimeout(timeoutId);
         const data = await this.parseResponse(response);
 
         if (data.success) {
@@ -1182,23 +2179,35 @@ class BoardManager {
           if (editModal) editModal.remove();
           await this.loadBoard();
         } else {
-          alert('Failed to save schedule: ' + data.message);
+          saveBtn.disabled = false;
+          saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+          this.showErrorToast(`Failed to save schedule: ${data.message}`);
         }
       } catch (err) {
+        clearTimeout(timeoutId);
         console.error('Error saving schedule:', err);
-        alert('An error occurred while saving the schedule');
+        saveBtn.disabled = false;
+        saveBtn.textContent = hasSchedule ? 'Update Schedule' : 'Create Schedule';
+        
+        if (err.name === 'AbortError') {
+          this.showErrorToast('Save schedule timed out (5s). Please check your connection.');
+        } else {
+          this.showErrorToast('An error occurred while saving the schedule');
+        }
       }
     });
 
-    // Close modal when clicking outside
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal when clicking outside (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   openAddColumnModal() {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot add column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="add-column-modal">
@@ -1246,21 +2255,24 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async openAddTemplateWithScheduleModal(columnId, order = null) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create scheduled card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Track the last used column for keyboard shortcuts
     this.lastUsedColumnId = columnId;
     
     // Track checklist items to be created
     let pendingChecklistItems = [];
     let checklistVisible = false;
+    let hasUnsavedChanges = false;
     
     // Set default values for schedule
     const now = new Date();
@@ -1387,6 +2399,26 @@ class BoardManager {
     // Focus on title input
     titleInput.focus();
     
+    // Track changes in title and description
+    titleInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '';
+    });
+    
+    const descriptionInput = document.getElementById('template-description');
+    descriptionInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '' || descriptionInput.value.trim() !== '';
+    });
+    
+    // Track changes in schedule fields
+    [runEveryInput, unitSelect, startDatetimeInput, endDatetimeInput].forEach(input => {
+      input.addEventListener('input', () => {
+        hasUnsavedChanges = true;
+      });
+      input.addEventListener('change', () => {
+        hasUnsavedChanges = true;
+      });
+    });
+    
     // Checklist management
     const updateChecklistSummary = () => {
       const summaryElement = document.getElementById('checklist-summary');
@@ -1402,7 +2434,9 @@ class BoardManager {
     
     const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
       updateSummary: updateChecklistSummary,
-      deleteButtonClass: 'checklist-delete-btn-new'
+      deleteButtonClass: 'checklist-delete-btn-new',
+      onItemAdded: () => { hasUnsavedChanges = true; },
+      onItemChanged: () => { hasUnsavedChanges = true; }
     });
     
     const showChecklistUI = () => {
@@ -1482,10 +2516,7 @@ class BoardManager {
               month: 'short', 
               day: 'numeric' 
             });
-            const timeStr = run.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            });
+            const timeStr = formatTimeSync(run);
             return `<div class="next-run-item">📅 ${dateStr} at ${timeStr}</div>`;
           }).join('');
         }
@@ -1504,8 +2535,41 @@ class BoardManager {
     // Initial calculation
     updateNextRuns();
 
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => modal.remove());
+    // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
+          modal.remove();
+        }
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle form submit - create template card with schedule in one API call
     form.addEventListener('submit', async (e) => {
@@ -1544,7 +2608,7 @@ class BoardManager {
         const cardData = await this.parseResponse(cardResponse);
 
         if (!cardData.success) {
-          alert('Failed to create template card: ' + cardData.message);
+          await showAlert('Failed to create template card: ' + cardData.message, 'Error');
           return;
         }
 
@@ -1575,24 +2639,26 @@ class BoardManager {
           modal.remove();
           await this.loadBoard();
         } else {
-          alert('Failed to create schedule: ' + scheduleResponseData.message);
+          await showAlert('Failed to create schedule: ' + scheduleResponseData.message, 'Error');
         }
 
       } catch (err) {
         console.error('Error creating template with schedule:', err);
-        alert('Error creating template with schedule');
+        await showAlert('Error creating template with schedule', 'Error');
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async createColumn(name) {
+    // Check database connection before creating column
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     try {
       const response = await fetch(`/api/boards/${this.boardId}/columns`, {
         method: 'POST',
@@ -1608,15 +2674,15 @@ class BoardManager {
         // Reload columns to show the new one
         await this.loadBoard();
       } else {
-        alert('Failed to create column: ' + data.message);
+        await showAlert('Failed to create column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error creating column: ' + err.message);
+      await showAlert('Error creating column: ' + err.message, 'Error');
     }
   }
 
   async deleteColumn(columnId) {
-    if (!confirm('Are you sure you want to delete this column?')) {
+    if (!await showConfirm('Are you sure you want to delete this column?', 'Confirm Deletion')) {
       return;
     }
 
@@ -1631,15 +2697,15 @@ class BoardManager {
         // Reload columns to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete column: ' + data.message);
+        await showAlert('Failed to delete column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error deleting column: ' + err.message);
+      await showAlert('Error deleting column: ' + err.message, 'Error');
     }
   }
 
   async deleteAllCardsInColumn(columnId) {
-    if (!confirm('Are you sure you want to delete all cards in this column? This action cannot be undone.')) {
+    if (!await showConfirm('Are you sure you want to delete all cards in this column? This action cannot be undone.', 'Confirm Deletion')) {
       return;
     }
 
@@ -1656,29 +2722,29 @@ class BoardManager {
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete cards: ' + data.message);
+        await showAlert('Failed to delete cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error deleting cards:', err);
-      alert('Error deleting cards: ' + err.message);
+      await showAlert('Error deleting cards: ' + err.message, 'Error');
     }
   }
 
   async archiveAllCardsInColumn(columnId) {
     const column = this.columns.find(c => c.id === columnId);
     if (!column || !column.cards) {
-      alert('No cards found in this column');
+      await showAlert('No cards found in this column', 'Warning');
       return;
     }
 
     // Get all unarchived cards
     const unarchivedCards = column.cards.filter(c => !c.archived);
     if (unarchivedCards.length === 0) {
-      alert('No active cards to archive in this column');
+      await showAlert('No active cards to archive in this column', 'Warning');
       return;
     }
 
-    if (!confirm(`Are you sure you want to archive all ${unarchivedCards.length} active card(s) in this column?`)) {
+    if (!await showConfirm(`Are you sure you want to archive all ${unarchivedCards.length} active card(s) in this column?`, 'Confirm Archive')) {
       return;
     }
 
@@ -1696,27 +2762,27 @@ class BoardManager {
 
       if (data.success) {
         await this.loadBoard();
-        alert(`Successfully archived ${data.archived_count} card(s)`);
+        await showAlert(`Successfully archived ${data.archived_count} card(s)`, 'Success');
       } else {
-        alert('Failed to archive cards: ' + data.message);
+        await showAlert('Failed to archive cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error archiving cards:', err);
-      alert('Error archiving cards: ' + err.message);
+      await showAlert('Error archiving cards: ' + err.message, 'Error');
     }
   }
 
   async unarchiveAllCardsInColumn(columnId) {
     const column = this.columns.find(c => c.id === columnId);
     if (!column || !column.cards) {
-      alert('No cards found in this column');
+      await showAlert('No cards found in this column', 'Warning');
       return;
     }
 
     // Get all archived cards
     const archivedCards = column.cards.filter(c => c.archived);
     if (archivedCards.length === 0) {
-      alert('No archived cards to unarchive in this column');
+      await showAlert('No archived cards to unarchive in this column', 'Warning');
       return;
     }
 
@@ -1738,28 +2804,34 @@ class BoardManager {
 
       if (data.success) {
         await this.loadBoard();
-        alert(`Successfully unarchived ${data.unarchived_count} card(s)`);
+        await showAlert(`Successfully unarchived ${data.unarchived_count} card(s)`, 'Success');
       } else {
-        alert('Failed to unarchive cards: ' + data.message);
+        await showAlert('Failed to unarchive cards: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error unarchiving cards:', err);
-      alert('Error unarchiving cards: ' + err.message);
+      await showAlert('Error unarchiving cards: ' + err.message, 'Error');
     }
   }
 
-  openMoveAllCardsModal(sourceColumnId) {
+  async openMoveAllCardsModal(sourceColumnId) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot move cards: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Get source column and its cards
     const sourceColumn = this.columns.find(c => c.id === sourceColumnId);
     if (!sourceColumn || !sourceColumn.cards || sourceColumn.cards.length === 0) {
-      alert('No cards to move in this column');
+      await showAlert('No cards to move in this column', 'Warning');
       return;
     }
 
     // Get target columns (exclude source column)
     const targetColumns = this.columns.filter(c => c.id !== sourceColumnId);
     if (targetColumns.length === 0) {
-      alert('No other columns available to move cards to');
+      await showAlert('No other columns available to move cards to', 'Warning');
       return;
     }
 
@@ -1848,12 +2920,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async moveAllCards(sourceColumnId, targetColumnId, position, includeArchived = false) {
@@ -1866,7 +2934,7 @@ class BoardManager {
     // Get target column to determine starting order for bottom position
     const targetColumn = this.columns.find(c => c.id === targetColumnId);
     if (!targetColumn) {
-      alert('Target column not found');
+      await showAlert('Target column not found', 'Error');
       return;
     }
 
@@ -1893,14 +2961,20 @@ class BoardManager {
       // Reload board to reflect changes
       await this.loadBoard();
       
-      alert(`Successfully moved ${data.moved_count} card(s)`);
+      await showAlert(`Successfully moved ${data.moved_count} card(s)`, 'Success');
     } catch (err) {
       console.error('Error moving cards:', err);
-      alert('Error moving cards: ' + err.message);
+      await showAlert('Error moving cards: ' + err.message, 'Error');
     }
   }
 
   openEditColumnModal(columnId, currentName) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit column: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // Create modal HTML
     const modalHtml = `
       <div class="modal" id="edit-column-modal">
@@ -1949,12 +3023,8 @@ class BoardManager {
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click (ignore text selection drags)
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 
   async updateColumn(columnId, name) {
@@ -1973,14 +3043,20 @@ class BoardManager {
         // Reload columns to show the updated name
         await this.loadBoard();
       } else {
-        alert('Failed to update column: ' + data.message);
+        await showAlert('Failed to update column: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error updating column: ' + err.message);
+      await showAlert('Error updating column: ' + err.message, 'Error');
     }
   }
 
   openAddCardModal(columnId, order = null, scheduled = false) {
+    // Check database connection before opening modal
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     // If we're in scheduled view, open the combined template+schedule modal instead
     if (scheduled) {
       this.openAddTemplateWithScheduleModal(columnId, order);
@@ -1993,6 +3069,7 @@ class BoardManager {
     // Track checklist items to be created
     let pendingChecklistItems = [];
     let checklistVisible = false;
+    let hasUnsavedChanges = false;
     
     // Create modal HTML
     const modalHtml = `
@@ -2048,6 +3125,16 @@ class BoardManager {
     // Focus on input
     titleInput.focus();
     
+    // Track changes in title and description
+    titleInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '';
+    });
+    
+    const descriptionInput = document.getElementById('card-description');
+    descriptionInput.addEventListener('input', () => {
+      hasUnsavedChanges = titleInput.value.trim() !== '' || descriptionInput.value.trim() !== '';
+    });
+    
     // Helper to update checklist summary
     const updateChecklistSummary = () => {
       const summaryElement = document.getElementById('checklist-summary');
@@ -2065,7 +3152,9 @@ class BoardManager {
     // Create checklist manager with event delegation
     const checklistManager = new ChecklistManager(checklistContainer, pendingChecklistItems, {
       updateSummary: updateChecklistSummary,
-      deleteButtonClass: 'checklist-delete-btn-new'
+      deleteButtonClass: 'checklist-delete-btn-new',
+      onItemAdded: () => { hasUnsavedChanges = true; },
+      onItemChanged: () => { hasUnsavedChanges = true; }
     });
     
     // Show checklist UI with header and top/bottom buttons
@@ -2101,10 +3190,41 @@ class BoardManager {
       });
     }
 
-    // Handle cancel
-    cancelBtn.addEventListener('click', () => {
-      modal.remove();
-    });
+    // Handle cancel with warning if there are unsaved changes
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        // Check if there's any content or checklist items
+        const hasContent = hasUnsavedChanges || pendingChecklistItems.some(item => item.name && item.name.trim());
+        
+        if (hasContent) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
+          modal.remove();
+        }
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
+      }
+    };
+    
+    cancelBtn.addEventListener('click', handleCancel);
 
     // Handle form submit
     form.addEventListener('submit', async (e) => {
@@ -2112,24 +3232,39 @@ class BoardManager {
       
       const title = titleInput.value.trim();
       const description = document.getElementById('card-description').value.trim();
+      const submitBtn = form.querySelector('button[type="submit"]');
       
       if (title) {
+        // Disable button and show loading state
+        const originalText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+        submitBtn.style.opacity = '0.6';
+        
         // Filter out empty checklist items
         const validChecklistItems = pendingChecklistItems.filter(item => item.name && item.name.trim());
-        await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
-        modal.remove();
+        const success = await this.createCard(columnId, title, description, order, validChecklistItems, scheduled);
+        
+        if (success) {
+          modal.remove();
+        } else {
+          // Re-enable button on failure - keep modal open
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalText;
+          submitBtn.style.opacity = '';
+        }
       }
     });
 
-    // Close modal on background click
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
+    // Set 5 second timeout for the request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { title, description };
       if (order !== null) {
@@ -2144,13 +3279,19 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
         const cardId = data.card.id;
+        
+        // The server broadcasts card_created to other clients via WebSocket.
+        // For the originating client, we reload the board immediately via loadBoard()
+        // to ensure instant UI update without waiting for broadcast.
         
         // TODO: Consider creating a batch endpoint POST /api/cards/batch that accepts card + checklist items
         // in a single request to avoid multiple sequential API calls and ensure atomicity.
@@ -2169,9 +3310,9 @@ class BoardManager {
         
         // If this is a template card, prompt to create a schedule
         if (scheduled) {
-          const createSchedule = confirm(
-            'Template card created! Would you like to create a schedule for it now?\n\n' +
-            'Schedules automatically create new task cards from this template at regular intervals.'
+          const createSchedule = await showConfirm(
+            'Template card created! Would you like to create a schedule for it now?\n\nSchedules automatically create new task cards from this template at regular intervals.',
+            'Create Schedule?'
           );
           
           if (createSchedule) {
@@ -2179,23 +3320,37 @@ class BoardManager {
               this.openScheduleModal(cardId);
             } catch (err) {
               console.error('Error opening schedule modal:', err);
-              alert('Failed to open schedule editor. Please try again.');
+              this.showErrorToast('Failed to open schedule editor');
             }
           }
         }
         
-        return cardId;
+        return true;
       } else {
-        alert('Failed to create card: ' + data.message);
-        return null;
+        console.error('Failed to create card:', data.message);
+        this.showErrorToast('Failed to create card');
+        return false;
       }
     } catch (err) {
-      alert('Error creating card: ' + err.message);
-      return null;
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        console.error('Create card timeout after 5 seconds');
+        this.showErrorToast('Request timed out. Check your connection.');
+      } else {
+        console.error('Error creating card:', err);
+        this.showErrorToast('Failed to create card');
+      }
+      return false;
     }
   }
 
   openEditCardModal(cardId, cardData) {
+    // Check database connection before opening modal
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot edit card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
     const checklistItems = cardData.checklist_items || [];
     const comments = cardData.comments || [];
     const hasChecklist = checklistItems.length > 0;
@@ -2351,37 +3506,51 @@ class BoardManager {
     // Handle archive button
     if (archiveBtn) {
       archiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.archiveCard(cardId);
+        await this.archiveCard(cardId, cardElement);
       });
     }
 
     // Handle unarchive button
     if (unarchiveBtn) {
       unarchiveBtn.addEventListener('click', async () => {
+        // Get the card element for visual feedback
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
-        await this.unarchiveCard(cardId);
+        await this.unarchiveCard(cardId, cardElement);
       });
     }
 
     // Handle edit schedule button from template modal
     const editScheduleFromTemplateBtn = document.getElementById('edit-schedule-from-template-btn');
     if (editScheduleFromTemplateBtn) {
-      editScheduleFromTemplateBtn.addEventListener('click', () => {
+      editScheduleFromTemplateBtn.addEventListener('click', async () => {
         // Check for unsaved changes
         if (hasUnsavedChanges || hasUnpostedComment()) {
-          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.', 'Confirm Action')) {
             return;
           }
         }
+        
         const hasSchedule = editScheduleFromTemplateBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = editScheduleFromTemplateBtn.innerHTML;
+        editScheduleFromTemplateBtn.disabled = true;
+        editScheduleFromTemplateBtn.innerHTML = '<span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          alert('Failed to open schedule editor. Please try again.');
+          // Re-enable button on error
+          editScheduleFromTemplateBtn.disabled = false;
+          editScheduleFromTemplateBtn.innerHTML = originalText;
         }
       });
     }
@@ -2389,38 +3558,71 @@ class BoardManager {
     // Handle schedule button
     const scheduleBtn = document.getElementById('schedule-card-btn');
     if (scheduleBtn) {
-      scheduleBtn.addEventListener('click', () => {
+      scheduleBtn.addEventListener('click', async () => {
         // Check for unsaved changes
         if (hasUnsavedChanges || hasUnpostedComment()) {
-          if (!confirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.')) {
+          if (!await showConfirm('You have unsaved changes. Are you sure you want to open the schedule editor? Your changes will be lost.', 'Confirm Action')) {
             return;
           }
         }
+        
         const hasSchedule = scheduleBtn.getAttribute('data-has-schedule') === 'true';
-        // Remove the edit card modal before opening schedule modal
-        modal.remove();
+        
+        // Show loading state on button
+        const originalText = scheduleBtn.innerHTML;
+        scheduleBtn.disabled = true;
+        scheduleBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px; opacity: 0.6;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg><span style="opacity: 0.6;">Loading...</span>';
+        
         try {
-          this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Try to open schedule modal - this will show error toast if it fails
+          await this.openScheduleModal(cardId, cardData, hasSchedule);
+          // Only remove edit card modal if schedule modal opened successfully
+          modal.remove();
         } catch (err) {
           console.error('Error opening schedule modal:', err);
-          alert('Failed to open schedule editor. Please try again.');
+          // Re-enable button on error
+          scheduleBtn.disabled = false;
+          scheduleBtn.innerHTML = originalText;
         }
       });
     }
 
     // Handle cancel with warning if there are unsaved changes
-    const handleCancel = () => {
-      if (hasUnpostedComment()) {
-        if (!confirm('You have an unposted comment. Are you sure you want to cancel?')) {
-          return;
+    let isCancelling = false;
+    const handleCancel = async () => {
+      // Atomic check-and-set: if already cancelling, return immediately
+      if (isCancelling) return;
+      isCancelling = true;
+      
+      // Disable cancel button immediately to prevent double-clicks
+      const wasCancelDisabled = cancelBtn.disabled;
+      cancelBtn.disabled = true;
+      
+      try {
+        if (hasUnpostedComment()) {
+          if (!await showConfirm('You have an unposted comment. Are you sure you want to cancel?', 'Confirm Action')) {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+            return;
+          }
         }
-      }
-      if (hasUnsavedChanges || checklistOrderChanged) {
-        if (confirm('You have unsaved changes. Are you sure you want to cancel?')) {
+        if (hasUnsavedChanges || checklistOrderChanged) {
+          if (await showConfirm('You have unsaved changes. Are you sure you want to cancel?', 'Confirm Cancellation')) {
+            modal.remove();
+          } else {
+            // User cancelled the cancellation, re-enable button
+            cancelBtn.disabled = wasCancelDisabled;
+            isCancelling = false;
+          }
+        } else {
           modal.remove();
         }
-      } else {
-        modal.remove();
+      } catch (err) {
+        // Re-enable button on error
+        cancelBtn.disabled = wasCancelDisabled;
+        isCancelling = false;
+        console.error('Error during cancel:', err);
       }
     };
     
@@ -2531,23 +3733,35 @@ class BoardManager {
         const saveEdit = async () => {
           const newName = input.value.trim();
           if (newName && newName !== currentName) {
-            await this.updateChecklistItem(itemId, { name: newName });
-            const newNameSpan = document.createElement('span');
-            newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = newName;
-            input.replaceWith(newNameSpan);
-            hasUnsavedChanges = false; // This action was already saved
+            // Show saving state
+            input.disabled = true;
+            
+            const success = await this.updateChecklistItem(itemId, { name: newName });
+            
+            if (success) {
+              const newNameSpan = document.createElement('span');
+              newNameSpan.className = 'checklist-item-name';
+              newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(newName));
+              input.replaceWith(newNameSpan);
+              hasUnsavedChanges = false; // This action was already saved
+            } else {
+              // Error toast already shown, restore input and re-enable
+              input.disabled = false;
+              input.focus();
+              input.select();
+              return; // Stay in edit mode to allow retry
+            }
           } else if (newName) {
             // No change, just restore
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           } else {
             // Empty name, restore original
             const newNameSpan = document.createElement('span');
             newNameSpan.className = 'checklist-item-name';
-            newNameSpan.textContent = currentName;
+            newNameSpan.innerHTML = linkifyUrls(this.escapeHtml(currentName));
             input.replaceWith(newNameSpan);
           }
           // Re-enable dragging
@@ -2577,48 +3791,106 @@ class BoardManager {
     });
 
     // Handle delete checklist item buttons
-    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        if (confirm('Delete this checklist item?')) {
+    const createDeleteHandler = (btn) => {
+      return async (e) => {
+        if (await showConfirm('Delete this checklist item?', 'Confirm Deletion')) {
           const itemId = parseInt(e.target.getAttribute('data-item-id'));
-          await this.deleteChecklistItem(itemId);
-          // Remove the item element in-place instead of closing modal
           const itemElement = e.target.closest('.checklist-item');
-          itemElement.remove();
-          // Update summary after deletion
-          updateEditModalSummary();
-          hasUnsavedChanges = false; // This action was already saved
           
-          // Update the card in board view to reflect deletion
-          const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
-          if (cardElement) {
-            const checklistElement = cardElement.querySelector('.card-checklist');
-            const remainingItems = modal.querySelectorAll('.checklist-item').length;
+          // Store item data for potential restoration
+          const itemData = {
+            id: itemId,
+            html: itemElement.outerHTML,
+            parentNode: itemElement.parentNode,
+            nextSibling: itemElement.nextSibling
+          };
+          
+          // Remove item from DOM
+          itemElement.remove();
+          updateEditModalSummary();
+          
+          // Attempt to delete from server
+          const success = await this.deleteChecklistItem(itemId);
+          
+          if (success) {
+            hasUnsavedChanges = false; // This action was already saved
             
-            // If no items left, remove the entire checklist section
-            if (remainingItems === 0 && checklistElement) {
-              checklistElement.remove();
-            } else if (checklistElement) {
-              // Update the checklist item count and remove this specific item from board view
-              const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
-              if (boardChecklistItem) {
-                boardChecklistItem.remove();
-              }
+            // Update the card in board view to reflect deletion
+            const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+            if (cardElement) {
+              const checklistElement = cardElement.querySelector('.card-checklist');
+              const remainingItems = modal.querySelectorAll('.checklist-item').length;
               
-              // Update summary in board view
-              const summaryElement = checklistElement.querySelector('.card-checklist-summary');
-              if (summaryElement) {
-                const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
-                const total = boardCheckboxes.length;
-                const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
-                const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
-                const percentage = calculateChecklistPercentage(items);
-                summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+              // If no items left, remove the entire checklist section
+              if (remainingItems === 0 && checklistElement) {
+                checklistElement.remove();
+              } else if (checklistElement) {
+                // Update the checklist item count and remove this specific item from board view
+                const boardChecklistItem = checklistElement.querySelector(`input[data-item-id="${itemId}"]`)?.closest('.card-checklist-item');
+                if (boardChecklistItem) {
+                  boardChecklistItem.remove();
+                }
+                
+                // Update summary in board view
+                const summaryElement = checklistElement.querySelector('.card-checklist-summary');
+                if (summaryElement) {
+                  const boardCheckboxes = checklistElement.querySelectorAll('.card-checklist-checkbox');
+                  const total = boardCheckboxes.length;
+                  const checked = Array.from(boardCheckboxes).filter(cb => cb.checked).length;
+                  const items = Array.from(boardCheckboxes).map(cb => ({ checked: cb.checked }));
+                  const percentage = calculateChecklistPercentage(items);
+                  summaryElement.textContent = `${checked}/${total} (${percentage}%)`;
+                }
               }
             }
+          } else {
+            // Restore item to DOM on failure
+            if (itemData.nextSibling) {
+              itemData.parentNode.insertBefore(document.createRange().createContextualFragment(itemData.html).firstChild, itemData.nextSibling);
+            } else {
+              itemData.parentNode.appendChild(document.createRange().createContextualFragment(itemData.html).firstChild);
+            }
+            
+            // Reattach event listeners to restored element
+            const restoredElement = itemData.parentNode.querySelector(`[data-item-id="${itemId}"]`);
+            if (restoredElement) {
+              const deleteBtn = restoredElement.querySelector('.checklist-delete-btn');
+              const editBtn = restoredElement.querySelector('.checklist-edit-btn');
+              const checkbox = restoredElement.querySelector('.checklist-checkbox');
+              
+              // Re-attach delete handler using the factory function
+              if (deleteBtn) {
+                deleteBtn.addEventListener('click', createDeleteHandler(deleteBtn));
+              }
+              
+              // Re-attach edit handler (simplified - full handler is complex, just show it's restorable)
+              if (editBtn) {
+                editBtn.addEventListener('click', async (e) => {
+                  this.showErrorToast('Please refresh the modal to edit this item after a failed delete.');
+                });
+              }
+              
+              // Re-attach checkbox handler
+              if (checkbox) {
+                checkbox.addEventListener('change', (e) => {
+                  const itemId = parseInt(e.target.getAttribute('data-item-id'));
+                  const checked = e.target.checked;
+                  checklistCheckboxChanges.set(itemId, checked);
+                  hasUnsavedChanges = true;
+                  updateEditModalSummary();
+                });
+              }
+            }
+            
+            updateEditModalSummary();
           }
         }
-      });
+      };
+    };
+    
+    // Attach delete handlers to all delete buttons
+    document.querySelectorAll('.checklist-delete-btn').forEach(btn => {
+      btn.addEventListener('click', createDeleteHandler(btn));
     });
 
     // Handle post comment button (only if comments section exists)
@@ -2633,9 +3905,16 @@ class BoardManager {
         
         // Validate comment length on client side
         if (commentText.length > MAX_COMMENT_LENGTH) {
-          alert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`);
+          await showAlert(`Comment is too long. Maximum length is ${MAX_COMMENT_LENGTH.toLocaleString()} characters. Your comment is ${commentText.length.toLocaleString()} characters.`, 'Invalid Input');
           return;
         }
+        
+        // Show posting state
+        postCommentBtn.disabled = true;
+        postCommentBtn.textContent = 'Posting...';
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         
         try {
           const response = await fetch(`/api/cards/${cardId}/comments`, {
@@ -2643,9 +3922,11 @@ class BoardManager {
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ comment: commentText })
+            body: JSON.stringify({ comment: commentText }),
+            signal: controller.signal
           });
           
+          clearTimeout(timeoutId);
           const data = await response.json();
           
           if (data.success) {
@@ -2675,14 +3956,27 @@ class BoardManager {
               });
             }
             
-            // Clear input
+            // Clear input and reset button
             newCommentInput.value = '';
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           } else {
-            alert('Failed to post comment: ' + data.message);
+            this.showErrorToast(`Failed to post comment: ${data.message}`);
+            postCommentBtn.disabled = false;
+            postCommentBtn.textContent = 'Post Comment';
           }
         } catch (err) {
+          clearTimeout(timeoutId);
           console.error('Error posting comment:', err);
-          alert('Error posting comment');
+          
+          if (err.name === 'AbortError') {
+            this.showErrorToast('Post comment timed out (5s). Please check your connection.');
+          } else {
+            this.showErrorToast(`Error posting comment: ${err.message}`);
+          }
+          
+          postCommentBtn.disabled = false;
+          postCommentBtn.textContent = 'Post Comment';
         }
       });
     }
@@ -2707,42 +4001,62 @@ class BoardManager {
       
       // Check for unposted comment
       if (hasUnpostedComment()) {
-        if (!confirm('You have an unposted comment. Are you sure you want to save without posting it?')) {
+        if (!await showConfirm('You have an unposted comment. Are you sure you want to save without posting it?', 'Confirm Action')) {
           return;
         }
       }
       
       const title = titleInput.value.trim();
       const description = document.getElementById('edit-card-description').value.trim();
+      // Save button is in modal header, not in form
+      const saveBtn = modal.querySelector('button[type="submit"]');
       
       if (title) {
         // Validate that template cards have a schedule
         if (isTemplate && !cardData.schedule) {
-          const createSchedule = confirm(
-            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\n' +
-            'Would you like to create a schedule for this template now?'
+          const createSchedule = await showConfirm(
+            'This is a template card without a schedule. Template cards need a schedule to automatically create task cards.\n\nWould you like to create a schedule for this template now?',
+            'Create Schedule?'
           );
           
           if (createSchedule) {
             // Save changes first, then open schedule modal
-            await this.updateCard(cardId, title, description);
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+            
+            const success = await this.updateCard(cardId, title, description);
+            
+            saveBtn.disabled = false;
+            saveBtn.textContent = 'Save';
+            
+            if (!success) {
+              // Error toast already shown by updateCard
+              return; // Stay in modal to allow retry
+            }
+            
             modal.remove();
             
             // Open schedule modal for this template
             try {
               this.openScheduleModal(cardData.id);
             } catch (err) {
-              alert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err));
+              await showAlert('Failed to open the schedule modal. Please try again.\n\nError: ' + (err && err.message ? err.message : err), 'Error');
             }
             return;
           } else {
             // User chose not to create a schedule, ask if they still want to save
-            const saveAnyway = confirm('Save template without a schedule? (You can add a schedule later using the Edit Schedule button)');
+            const saveAnyway = await showConfirm('Save template without a schedule? (You can add a schedule later using the Edit Schedule button)', 'Confirm Action');
             if (!saveAnyway) {
               return; // Don't save, stay in modal
             }
           }
         }
+        
+        // Show saving state
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        
+        let allSuccessful = true;
         
         // TODO: PERFORMANCE - Consider creating a batch endpoint PATCH /api/cards/{id}/batch that accepts
         // card updates + checklist item changes (creates, updates, deletes, reorders) in a single
@@ -2756,12 +4070,23 @@ class BoardManager {
         // Current implementation: N sequential API calls (can be slow for cards with many checklist items)
         
         // 1. Update the card
-        await this.updateCard(cardId, title, description);
+        const cardUpdateSuccess = await this.updateCard(cardId, title, description);
+        if (!cardUpdateSuccess) {
+          allSuccessful = false;
+        }
         
         // 2. Save checkbox changes for existing items
         // PERF: Sequential updates - could be batched
         for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
-          await this.updateChecklistItem(itemId, { checked });
+          const success = await this.updateChecklistItem(itemId, { checked });
+          if (!success) {
+            allSuccessful = false;
+            // Rollback checkbox in UI
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox) {
+              checkbox.checked = !checked;
+            }
+          }
         }
         
         // 3. Save any pending new checklist items in their current DOM order
@@ -2777,7 +4102,12 @@ class BoardManager {
             const pendingItem = pendingNewItems.find(item => item.tempId === Number(tempId));
             if (pendingItem && pendingItem.name) {
               // Save with the current position index and checked state
-              await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              const success = await this.createChecklistItem(cardId, pendingItem.name, i, pendingItem.checked);
+              if (!success) {
+                allSuccessful = false;
+                // Mark the item as failed (keep it in UI so user can retry)
+                el.classList.add('update-failed');
+              }
             }
           }
         }
@@ -2789,47 +4119,91 @@ class BoardManager {
             const el = allItems[i];
             const itemId = el.getAttribute('data-item-id');
             if (itemId && itemId !== 'null') {
-              await this.updateChecklistItem(parseInt(itemId), { order: i });
+              const success = await this.updateChecklistItem(parseInt(itemId), { order: i });
+              if (!success) {
+                allSuccessful = false;
+              }
             }
           }
         }
         
-        hasUnsavedChanges = false;
-        checklistOrderChanged = false;
-        modal.remove();
+        // Re-enable save button
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
         
-        // Reload board to show updated data
-        await this.loadBoard();
+        // Reload board if card update succeeded, even if checklist operations failed
+        // This ensures the card title/description changes are visible
+        if (cardUpdateSuccess || allSuccessful) {
+          await this.loadBoard();
+        }
+        
+        if (allSuccessful) {
+          hasUnsavedChanges = false;
+          checklistOrderChanged = false;
+          checklistCheckboxChanges.clear();
+          modal.remove();
+        } else {
+          // Some operations failed - stay in modal for retry
+          // Clear the checkbox changes that succeeded so they won't be retried
+          for (const [itemId, checked] of checklistCheckboxChanges.entries()) {
+            const checkbox = modal.querySelector(`.checklist-checkbox[data-item-id="${itemId}"]`);
+            if (checkbox && checkbox.checked === checked) {
+              // This one succeeded, remove from pending changes
+              checklistCheckboxChanges.delete(itemId);
+            }
+          }
+          
+          // Show appropriate message based on what succeeded
+          if (cardUpdateSuccess) {
+            this.showErrorToast('Card updated, but some checklist changes failed. Please review and try again.');
+          } else {
+            this.showErrorToast('Failed to save changes. Please try again.');
+          }
+        }
       }
     });
 
-    // Close modal on background click with warning
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        handleCancel();
-      }
-    });
+    // Close modal on background click with warning (ignore text selection drags)
+    setupModalBackgroundClose(modal, handleCancel);
   }
 
   async getCardData(cardId) {
     // Fetch single card data from dedicated endpoint
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
-      const response = await fetch(`/api/cards/${cardId}`);
+      const response = await fetch(`/api/cards/${cardId}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       const data = await response.json();
       
       if (data.success) {
         return data.card;
       } else {
         console.error('Failed to get card data:', data.message);
+        this.showErrorToast(`Failed to load card: ${data.message}`);
         return null;
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error('Error getting card data:', err.message);
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Load card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error loading card: ${err.message}`);
+      }
       return null;
     }
   }
 
   async createChecklistItem(cardId, name, order = null, checked = false) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const body = { name, checked };
       if (order !== null) {
@@ -2841,136 +4215,266 @@ class BoardManager {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to create checklist item: ' + data.message);
+        this.showErrorToast(`Failed to create checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      alert('Error creating checklist item: ' + err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Create checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error creating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateChecklistItem(itemId, updates) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(updates)
+        body: JSON.stringify(updates),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to update checklist item: ' + data.message);
+        this.showErrorToast(`Failed to update checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      alert('Error updating checklist item: ' + err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async deleteChecklistItem(itemId) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/checklist-items/${itemId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (!data.success) {
-        alert('Failed to delete checklist item: ' + data.message);
+        this.showErrorToast(`Failed to delete checklist item: ${data.message}`);
+        return false;
       }
+      return true;
     } catch (err) {
-      alert('Error deleting checklist item: ' + err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete checklist item timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting checklist item: ${err.message}`);
+      }
+      return false;
     }
   }
 
   async updateCard(cardId, title, description) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ title, description })
+        body: JSON.stringify({ title, description }),
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
-        // Reload board to show the updated card
-        await this.loadBoard();
+        // The server broadcasts card_updated to other clients via WebSocket.
+        // For the originating client, we return true immediately since the API
+        // request itself confirms the update succeeded. The client should reload
+        // the board if needed.
+        return true;
       } else {
-        alert('Failed to update card: ' + data.message);
+        this.showErrorToast(`Failed to update card: ${data.message}`);
+        return false;
       }
     } catch (err) {
-      alert('Error updating card: ' + err.message);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating card: ${err.message}`);
+      }
+      return false;
     }
   }
 
-  async deleteCard(cardId) {
-    if (!confirm('Are you sure you want to delete this card?')) {
+  async deleteCard(cardId, cardElement = null) {
+    if (!await showConfirm('Are you sure you want to delete this card?', 'Confirm Deletion')) {
       return;
     }
 
+    // Show loading state
+    if (cardElement) {
+      cardElement.classList.add('updating');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
+        // The server broadcasts card_deleted to other clients via WebSocket.
+        // For the originating client, we reload the board immediately below
+        // to ensure instant UI update and remove the card element.
+        
         // Reload board to reflect deletion
         await this.loadBoard();
       } else {
-        alert('Failed to delete card: ' + data.message);
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to delete card: ${data.message}`);
       }
     } catch (err) {
-      alert('Error deleting card: ' + err.message);
+      clearTimeout(timeoutId);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Delete card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error deleting card: ${err.message}`);
+      }
     }
   }
 
-  async archiveCard(cardId) {
+  async archiveCard(cardId, cardElement = null) {
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/archive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (data.success) {
+        clearTimeout(loadingTimeout);
         // Reload board to reflect archiving
         await this.loadBoard();
       } else {
-        alert('Failed to archive card: ' + data.message);
+        clearTimeout(loadingTimeout);
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to archive card: ${data.message}`);
       }
     } catch (err) {
-      alert('Error archiving card: ' + err.message);
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Archive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error archiving card: ${err.message}`);
+      }
     }
   }
 
-  async unarchiveCard(cardId) {
+  async unarchiveCard(cardId, cardElement = null) {
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
     try {
       const response = await fetch(`/api/cards/${cardId}/unarchive`, {
-        method: 'PATCH'
+        method: 'PATCH',
+        signal: controller.signal
       });
 
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
       const data = await response.json();
 
       if (data.success) {
         // Reload board to reflect unarchiving
         await this.loadBoard();
       } else {
-        alert('Failed to unarchive card: ' + data.message);
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        this.showErrorToast(`Failed to unarchive card: ${data.message}`);
       }
     } catch (err) {
-      alert('Error unarchiving card: ' + err.message);
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Unarchive card timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error unarchiving card: ${err.message}`);
+      }
     }
   }
 
@@ -3072,6 +4576,30 @@ class BoardManager {
     `;
   }
 
+  showBoardLoading() {
+    // Add or show loading overlay
+    let overlay = this.container.querySelector('.board-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'board-loading-overlay';
+      overlay.innerHTML = `
+        <div class="board-loading-content">
+          <div class="board-loading-spinner">⏳</div>
+          <div class="board-loading-text">Loading...</div>
+        </div>
+      `;
+      this.container.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+  }
+
+  hideBoardLoading() {
+    const overlay = this.container.querySelector('.board-loading-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+  }
+
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -3113,8 +4641,7 @@ class BoardManager {
     
     // Format as date/time for older comments (day/month/year format)
     const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
-    const timeOptions = { hour: '2-digit', minute: '2-digit' };
-    return date.toLocaleDateString('en-GB', dateOptions) + ' ' + date.toLocaleTimeString(undefined, timeOptions);
+    return date.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(date);
   }
 
   generateCommentHtml(comment) {
@@ -3122,7 +4649,7 @@ class BoardManager {
     return `
       <div class="comment-item" data-comment-id="${comment.id}">
         <div class="comment-header">
-          <span class="comment-date">${this.formatCommentDate(comment.created_at)}</span>
+          <span class="comment-date" data-tooltip="${formatTooltipDateTime(comment.created_at)}" aria-label="Created on ${formatTooltipDateTime(comment.created_at)}" tabindex="0">${this.formatCommentDate(comment.created_at)}</span>
           <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
         </div>
         <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${linkifyUrls(this.escapeHtml(comment.comment))}</div>
@@ -3134,7 +4661,7 @@ class BoardManager {
   async deleteCommentHandler(deleteBtn, cardId) {
     const commentId = parseInt(deleteBtn.getAttribute('data-comment-id'));
     
-    if (!confirm('Are you sure you want to delete this comment?')) {
+    if (!await showConfirm('Are you sure you want to delete this comment?', 'Confirm Deletion')) {
       return;
     }
     
@@ -3156,17 +4683,17 @@ class BoardManager {
           commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
         }
       } else {
-        alert('Failed to delete comment: ' + data.message);
+        await showAlert('Failed to delete comment: ' + data.message, 'Error');
       }
     } catch (err) {
       console.error('Error deleting comment:', err);
-      alert('Error deleting comment');
+      await showAlert('Error deleting comment', 'Error');
     }
   }
 }
 
 // Initialize board manager when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  const boardManager = new BoardManager();
-  boardManager.init();
+  window.boardManager = new BoardManager();
+  window.boardManager.init();
 });

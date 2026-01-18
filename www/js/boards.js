@@ -49,8 +49,10 @@ class BoardsManager {
 
   render() {
     this.container.innerHTML = `
-      <div class="boards-header">
-        <h3>My Boards</h3>
+      <div class="boards-header-panel">
+        <div class="boards-header">
+          <h3>My Boards</h3>
+        </div>
       </div>
       <div id="boards-list" class="loading">
         Loading boards...
@@ -152,11 +154,13 @@ class BoardsManager {
     if (this.boards.length === 0) {
       listContainer.className = ''; // Remove grid class
       listContainer.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📋</div>
-          <h3>No boards yet</h3>
-          <p>Create your first board to get started!</p>
-          <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+        <div class="empty-state-panel">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <h3>No boards yet</h3>
+            <p>Create your first board to get started!</p>
+            <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+          </div>
         </div>
       `;
       
@@ -229,7 +233,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || null;
     
     if (!boardName) {
-      alert('Please enter a board name');
+      await showAlert('Please enter a board name', 'Invalid Input');
       return;
     }
 
@@ -254,15 +258,15 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        alert('Failed to create board: ' + data.message);
+        await showAlert('Failed to create board: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error creating board: ' + err.message);
+      await showAlert('Error creating board: ' + err.message, 'Error');
     }
   }
 
   async handleDeleteBoard(boardId) {
-    if (!confirm('Are you sure you want to delete this board?')) {
+    if (!await showConfirm('Are you sure you want to delete this board?', 'Confirm Deletion')) {
       return;
     }
 
@@ -282,10 +286,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        alert('Failed to delete board: ' + data.message);
+        await showAlert('Failed to delete board: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error deleting board: ' + err.message);
+      await showAlert('Error deleting board: ' + err.message, 'Error');
     }
   }
 
@@ -313,7 +317,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || '';
     
     if (!boardName) {
-      alert('Please enter a board name');
+      await showAlert('Please enter a board name', 'Invalid Input');
       return;
     }
 
@@ -338,10 +342,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        alert('Failed to update board: ' + data.message);
+        await showAlert('Failed to update board: ' + data.message, 'Error');
       }
     } catch (err) {
-      alert('Error updating board: ' + err.message);
+      await showAlert('Error updating board: ' + err.message, 'Error');
     }
   }
 

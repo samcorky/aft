@@ -388,7 +388,7 @@ The `api_client` fixture provides the base URL for API calls:
 @pytest.fixture
 def api_client():
     """Provides the base URL for API endpoints."""
-    return "http://localhost:5000"
+    return "http://localhost"
 
 
 def test_example(api_client):

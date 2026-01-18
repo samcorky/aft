@@ -3,17 +3,20 @@
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: 0 20px;
 }
 
 .page-header {
-  margin-bottom: 30px;
+  margin-bottom: 24px;
 }
 
 .page-header h1 {
-  color: var(--text-color);
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 600;
+  color: var(--text-bold);
+  margin-bottom: 24px;
+  padding-bottom: 12px;
+  border-bottom: 3px solid var(--primary-color);
 }
 
 .info-grid {
@@ -24,9 +27,9 @@
 }
 
 .info-card {
-  background-color: var(--card-background);
+  background-color: var(--page-panel-background);
   border-radius: 8px;
-  padding: 20px;
+  padding: 24px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -35,12 +38,13 @@
 }
 
 .info-card h2 {
-  color: var(--text-color);
-  font-size: 18px;
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-bold);
+  font-size: 20px;
   font-weight: 600;
-  margin-bottom: 15px;
-  padding-bottom: 10px;
-  border-bottom: 2px solid var(--border-color);
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
 }
 
 .info-content {
@@ -92,6 +96,21 @@
   background-color: var(--error-color);
 }
 
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Status Badge Styles */
 .status-badge {
   display: inline-block;
@@ -101,14 +120,95 @@
   font-weight: 500;
 }
 
+.status-badge.status-loading {
+  background: var(--background-light);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .status-badge.status-healthy {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-color);
+  color: var(--header-text-color);
 }
 
 .status-badge.status-unhealthy {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--error-color);
+  color: var(--header-text-color);
+}
+
+/* Scheduler Details */
+.scheduler-details {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--background-color);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  position: relative;
+  cursor: help;
+}
+
+.scheduler-details:hover .scheduler-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
+.scheduler-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  z-index: 1000;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 10px;
+  background-color: var(--text-bold);
+  color: var(--header-text-color);
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.2s, visibility 0.2s;
+  max-width: 400px;
+  width: max-content;
+  text-align: left;
+  line-height: 1.6;
+}
+
+.scheduler-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--text-bold);
+}
+
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+}
+
+.detail-item:not(:last-child) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.detail-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.detail-value {
+  font-weight: 600;
+  color: var(--text-color);
+  font-family: 'Courier New', monospace;
 }
 
 .status-text {
@@ -125,7 +225,7 @@
 .stat-item {
   text-align: center;
   padding: 20px;
-  background-color: #f8f9fa;
+  background-color: var(--card-bg-color);
   border-radius: 8px;
 }
 
@@ -144,7 +244,7 @@
 /* Backup & Restore */
 .backup-card {
   border: 2px solid var(--primary-color);
-  background-color: #f0f8ff;
+  background-color: var(--page-panel-background);
 }
 
 .backup-card h2 {
@@ -164,6 +264,26 @@
   margin-bottom: 15px;
 }
 
+.settings-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-bold);
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-icon {
+  width: 24px;
+  height: 24px;
+  stroke: var(--primary-color);
+  flex-shrink: 0;
+}
+
 .backup-btn,
 .restore-btn {
   background-color: var(--primary-color);
@@ -178,6 +298,13 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.btn-icon {
+  width: 18px;
+  height: 18px;
+  stroke: var(--icon-color);
+  flex-shrink: 0;
 }
 
 .backup-btn:hover,
@@ -219,18 +346,18 @@
 }
 
 .backup-status.info {
-  background-color: #e3f2fd;
-  color: #1976d2;
+  background-color: color-mix(in srgb, var(--primary-color) 15%, var(--page-panel-background));
+  color: var(--primary-color);
 }
 
 .backup-status.success {
-  background-color: #e8f5e9;
-  color: #388e3c;
+  background-color: color-mix(in srgb, var(--success-color) 15%, var(--page-panel-background));
+  color: var(--success-color);
 }
 
 .backup-status.error {
-  background-color: #ffebee;
-  color: #d32f2f;
+  background-color: color-mix(in srgb, var(--error-color) 15%, var(--page-panel-background));
+  color: var(--error-color);
 }
 
 /* Danger Zone */
@@ -246,8 +373,20 @@
   gap: 10px;
 }
 
+.warning-icon {
+  width: 24px;
+  height: 24px;
+  stroke: var(--error-color);
+  flex-shrink: 0;
+}
+
+.plane-icon {
+  width: 20px;
+  height: 20px;
+  stroke: var(--error-color);
+}
+
 .plane-link {
-  font-size: 20px;
   text-decoration: none;
   opacity: 0.6;
   transition: all 0.2s;
@@ -307,7 +446,7 @@
 }
 
 .modal-content {
-  background-color: var(--card-background);
+  background-color: var(--page-panel-background);
   border-radius: 12px;
   padding: 30px;
   max-width: 500px;
@@ -343,7 +482,7 @@
   padding: 12px;
   border: 2px solid var(--border-color);
   border-radius: 6px;
-  background-color: #ffffff;
+  background-color: var(--page-panel-background);
   color: var(--text-color);
   font-size: 14px;
   margin-bottom: 10px;

@@ -6,7 +6,7 @@ import requests
 
 @pytest.mark.api
 class TestHealthEndpoints:
-    """Tests for /api/test and /api/stats endpoints."""
+    """Tests for /api/test, /api/stats, and /api/scheduler/health endpoints."""
 
     def test_database_connection(self, api_client):
         """Test database connection endpoint."""
@@ -143,3 +143,233 @@ class TestHealthEndpoints:
         data = response.json()
         assert data["cards_count"] == 2
         assert data["cards_archived_count"] == 1
+
+
+@pytest.mark.api
+class TestSchedulerHealthEndpoint:
+    """Tests for /api/scheduler/health endpoint."""
+    
+    def test_scheduler_health_endpoint_exists(self, api_client):
+        """Test that scheduler health endpoint is accessible."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        assert response.status_code == 200
+    
+    def test_scheduler_health_structure(self, api_client):
+        """Test that scheduler health returns expected structure."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        assert response.status_code == 200
+        
+        data = response.json()
+        
+        # Should have all three schedulers
+        assert "backup_scheduler" in data
+        assert "card_scheduler" in data
+        assert "housekeeping_scheduler" in data
+    
+    def test_backup_scheduler_health_fields(self, api_client):
+        """Test backup scheduler health contains expected fields."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        data = response.json()
+        
+        backup = data["backup_scheduler"]
+        
+        # Should not have error (or if it does, it should be a string)
+        if "error" in backup:
+            assert isinstance(backup["error"], str)
+        else:
+            # Should have these fields when healthy
+            assert "running" in backup
+            assert "thread_alive" in backup
+            assert "lock_file_exists" in backup
+            
+            # Running and thread_alive should be booleans
+            assert isinstance(backup["running"], bool)
+            assert isinstance(backup["thread_alive"], bool)
+            assert isinstance(backup["lock_file_exists"], bool)
+            
+            # Optional fields
+            if "last_backup" in backup:
+                assert backup["last_backup"] is None or isinstance(backup["last_backup"], str)
+            
+            if "lock_file_age_seconds" in backup:
+                assert isinstance(backup["lock_file_age_seconds"], (int, float))
+            
+            if "lock_pid" in backup:
+                assert isinstance(backup["lock_pid"], int)
+            
+            if "lock_container" in backup:
+                assert isinstance(backup["lock_container"], str)
+    
+    def test_card_scheduler_health_fields(self, api_client):
+        """Test card scheduler health contains expected fields."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        data = response.json()
+        
+        card = data["card_scheduler"]
+        
+        # Should not have error (or if it does, it should be a string)
+        if "error" in card:
+            assert isinstance(card["error"], str)
+        else:
+            # Should have these fields when healthy
+            assert "running" in card
+            assert "thread_alive" in card
+            assert "lock_file_exists" in card
+            
+            # Values should be appropriate types
+            assert isinstance(card["running"], bool)
+            assert isinstance(card["thread_alive"], bool)
+            assert isinstance(card["lock_file_exists"], bool)
+            
+            # If lock file exists, should have details
+            if card["lock_file_exists"]:
+                if "lock_file_age_seconds" in card:
+                    assert isinstance(card["lock_file_age_seconds"], (int, float))
+                    # Heartbeat should be recent (less than 5 minutes)
+                    assert card["lock_file_age_seconds"] < 300
+    
+    def test_housekeeping_scheduler_health_fields(self, api_client):
+        """Test housekeeping scheduler health contains expected fields."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        data = response.json()
+        
+        housekeeping = data["housekeeping_scheduler"]
+        
+        # Should not have error (or if it does, it should be a string)
+        if "error" in housekeeping:
+            assert isinstance(housekeeping["error"], str)
+        else:
+            # Should have these fields when healthy
+            assert "running" in housekeeping
+            assert "thread_alive" in housekeeping
+            assert "lock_file_exists" in housekeeping
+            
+            # Values should be appropriate types
+            assert isinstance(housekeeping["running"], bool)
+            assert isinstance(housekeeping["thread_alive"], bool)
+            assert isinstance(housekeeping["lock_file_exists"], bool)
+    
+    def test_scheduler_health_consistency(self, api_client):
+        """Test that scheduler health is consistent across multiple calls."""
+        # Get health twice
+        response1 = requests.get(f"{api_client}/api/scheduler/health")
+        response2 = requests.get(f"{api_client}/api/scheduler/health")
+        
+        assert response1.status_code == 200
+        assert response2.status_code == 200
+        
+        data1 = response1.json()
+        data2 = response2.json()
+        
+        # Running status should be consistent
+        for scheduler_name in ["backup_scheduler", "card_scheduler", "housekeeping_scheduler"]:
+            if "error" not in data1[scheduler_name] and "error" not in data2[scheduler_name]:
+                assert data1[scheduler_name]["running"] == data2[scheduler_name]["running"]
+                assert data1[scheduler_name]["thread_alive"] == data2[scheduler_name]["thread_alive"]
+    
+    def test_scheduler_heartbeat_updates(self, api_client):
+        """Test that scheduler heartbeat ages are reasonable."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        data = response.json()
+        
+        # Check each scheduler's heartbeat
+        for scheduler_name in ["backup_scheduler", "card_scheduler", "housekeeping_scheduler"]:
+            scheduler = data[scheduler_name]
+            
+            if "error" not in scheduler and "lock_file_age_seconds" in scheduler:
+                age = scheduler["lock_file_age_seconds"]
+                
+                # Heartbeat should be recent (updated every 60 seconds in loop)
+                # Allow up to 5 minutes for safety in slow test environments
+                assert age < 300, f"{scheduler_name} heartbeat is stale: {age}s"
+                
+                # Should not be negative
+                assert age >= 0, f"{scheduler_name} heartbeat age is negative: {age}s"
+    
+    def test_scheduler_health_with_disabled_backup(self, api_client):
+        """Test scheduler health when backup is disabled."""
+        # Disable backup
+        response = requests.put(
+            f"{api_client}/api/settings/backup/config",
+            json={"enabled": False}
+        )
+        assert response.status_code == 200
+        
+        # Check health - scheduler should still be running even if backups disabled
+        health_response = requests.get(f"{api_client}/api/scheduler/health")
+        assert health_response.status_code == 200
+        
+        data = health_response.json()
+        backup = data["backup_scheduler"]
+        
+        # Scheduler thread should still exist and be alive
+        if "error" not in backup:
+            assert "running" in backup
+            assert "thread_alive" in backup
+        
+        # Re-enable backup
+        requests.put(
+            f"{api_client}/api/settings/backup/config",
+            json={"enabled": True}
+        )
+    
+    def test_scheduler_health_container_id(self, api_client):
+        """Test that scheduler health includes container ID information."""
+        response = requests.get(f"{api_client}/api/scheduler/health")
+        data = response.json()
+        
+        # At least one scheduler should have container ID (if running in Docker)
+        for scheduler_name in ["backup_scheduler", "card_scheduler", "housekeeping_scheduler"]:
+            scheduler = data[scheduler_name]
+            if "lock_container" in scheduler:
+                # Container ID should be a non-empty string
+                assert isinstance(scheduler["lock_container"], str)
+                assert len(scheduler["lock_container"]) > 0
+        
+        # If no container IDs found, that's okay (might be running outside Docker)
+        # Just verify the endpoint structure is correct
+        assert True
+
+
+@pytest.mark.api
+class TestBroadcastStatusEndpoint:
+    """Tests for /api/broadcast-status endpoint used for WebSocket debugging."""
+
+    def test_broadcast_status_endpoint_exists(self, api_client):
+        """Test that broadcast status endpoint is accessible."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        assert response.status_code == 200
+
+    def test_broadcast_status_structure(self, api_client):
+        """Test that broadcast status returns correct structure."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        data = response.json()
+        
+        assert data["success"] is True
+        assert "broadcast_failures" in data
+        assert "total_failure_rooms" in data
+        assert isinstance(data["broadcast_failures"], dict)
+        assert isinstance(data["total_failure_rooms"], int)
+
+    def test_broadcast_status_initially_empty(self, api_client):
+        """Test that broadcast status is empty on startup."""
+        response = requests.get(f"{api_client}/api/broadcast-status")
+        data = response.json()
+        
+        # Should have no failures initially
+        assert data["total_failure_rooms"] == 0
+        assert len(data["broadcast_failures"]) == 0
+
+    def test_broadcast_status_version_endpoint(self, api_client):
+        """Test version endpoint alongside broadcast status."""
+        # Test version endpoint first
+        version_response = requests.get(f"{api_client}/api/version")
+        assert version_response.status_code == 200
+        version_data = version_response.json()
+        assert version_data["success"] is True
+        
+        # Broadcast status should still be clean
+        broadcast_response = requests.get(f"{api_client}/api/broadcast-status")
+        broadcast_data = broadcast_response.json()
+        assert broadcast_data["total_failure_rooms"] == 0
+

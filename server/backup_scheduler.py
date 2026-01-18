@@ -2,6 +2,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
@@ -49,6 +50,60 @@ class BackupScheduler:
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
     
+    def _is_lock_stale(self) -> bool:
+        """Check if existing lock file is stale.
+        
+        Returns:
+            True if lock file is stale and should be removed, False otherwise.
+        """
+        try:
+            lock_data = json.loads(self.lock_file.read_text())
+            
+            # Check container ID (hostname in Docker)
+            current_container = os.environ.get('HOSTNAME', 'unknown')
+            lock_container = lock_data.get('container_id', 'unknown')
+            if lock_container != current_container:
+                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
+                return True  # Different container = stale
+            
+            # Check heartbeat age
+            last_heartbeat_str = lock_data.get('last_heartbeat')
+            if last_heartbeat_str:
+                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
+                
+                if age_seconds > 300:  # 5 minutes without heartbeat = stale
+                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
+                    return True
+                
+                # Lock is fresh and from same container
+                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
+                return False
+            
+            # No heartbeat in lock file = old format or invalid
+            logger.info("Lock file has no heartbeat, considering stale")
+            return True
+            
+        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
+            logger.info(f"Lock file is invalid or corrupted: {e}")
+            return True  # Invalid lock file = stale
+        except Exception as e:
+            logger.warning(f"Error checking lock staleness: {e}")
+            return True  # Error reading = assume stale for safety
+    
+    def _update_heartbeat(self):
+        """Update lock file with current timestamp to prove thread is alive."""
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "backup"
+            }
+            self.lock_file.write_text(json.dumps(lock_data, indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to update heartbeat: {e}")
+    
     def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
         """Check if backup directory is writable.
         
@@ -88,38 +143,47 @@ class BackupScheduler:
         
     def start(self):
         """Start the backup scheduler thread."""
+        logger.info("=== Backup Scheduler Start Attempt ===")
+        logger.info(f"PID: {os.getpid()}, Container: {os.environ.get('HOSTNAME', 'unknown')}")
+        
         if self.running:
-            logger.warning("Backup scheduler already running")
+            logger.warning("Backup scheduler already running in this instance")
             return
         
-        # Use file lock to ensure only one worker starts the scheduler
-        try:
-            # Check if lock file exists and if the process is still running
-            if self.lock_file.exists():
+        # Check if lock file exists and if it's stale
+        if self.lock_file.exists():
+            if self._is_lock_stale():
+                logger.info("Removing stale lock file")
                 try:
-                    with open(self.lock_file, 'r') as f:
-                        old_pid = int(f.read().strip())
-                    # Check if process is still running
-                    try:
-                        os.kill(old_pid, 0)  # Signal 0 doesn't kill, just checks if process exists
-                        logger.info("Backup scheduler lock file exists, another worker is handling backups")
-                        return
-                    except OSError:
-                        # Process doesn't exist, remove stale lock file
-                        logger.info("Removing stale backup scheduler lock file")
-                        self.lock_file.unlink()
-                except (ValueError, FileNotFoundError):
-                    # Invalid lock file, remove it
                     self.lock_file.unlink()
+                except Exception as e:
+                    logger.error(f"Failed to remove stale lock file: {e}")
+                    return
+            else:
+                logger.info("Another scheduler instance is active, not starting")
+                return
+        
+        # Try to create lock file with initial heartbeat
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "backup"
+            }
             
-            # Try to create lock file exclusively (fails if already exists)
-            with open(self.lock_file, 'x') as f:
-                f.write(str(os.getpid()))
-        except FileExistsError:
-            logger.info("Backup scheduler lock file exists, another worker is handling backups")
-            return
+            # Atomic write: write to temp file then rename
+            # Use same directory as lock file for atomic rename
+            lock_dir = self.lock_file.parent
+            with tempfile.NamedTemporaryFile(mode='w', dir=str(lock_dir), delete=False) as tf:
+                json.dump(lock_data, tf, indent=2)
+                temp_path = tf.name
+            
+            os.rename(temp_path, str(self.lock_file))
+            logger.info(f"Created lock file: {self.lock_file}")
+            
         except Exception as e:
-            logger.error(f"Error creating scheduler lock file: {str(e)}")
+            logger.error(f"Error creating scheduler lock file: {e}")
             return
         
         # Check if backup directory is writable (force check on startup)
@@ -129,7 +193,9 @@ class BackupScheduler:
             self.permission_error = error_msg
             create_notification(
                 subject="⚠️ Backup Scheduler Permission Error",
-                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved."
+                message=f"Automatic backups cannot start due to permission error:\n\n{error_msg}\n\nBackups are disabled until this is resolved.",
+                action_title="View Backup Settings",
+                action_url="/backup-restore.html"
             )
             # Clean up lock file before returning
             if self.lock_file.exists():
@@ -164,15 +230,20 @@ class BackupScheduler:
         is_actually_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                try:
-                    os.kill(pid, 0)
-                    is_actually_running = True
-                except OSError:
-                    # Process doesn't exist, lock file is stale
-                    pass
-            except (ValueError, FileNotFoundError):
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                # Check if same container
+                if container_id == current_container:
+                    try:
+                        os.kill(pid, 0)
+                        is_actually_running = True
+                    except OSError:
+                        # Process doesn't exist, lock file is stale
+                        pass
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError):
                 # Invalid lock file or file disappeared
                 pass
         
@@ -233,7 +304,9 @@ class BackupScheduler:
                 logger.warning(f"Disabled backups due to invalid settings: {error_msg}")
                 create_notification(
                     subject="⚠️ Backups Disabled - Invalid Settings",
-                    message=f"Automatic backups have been disabled due to invalid configuration:\n\n{error_msg}\n\nPlease review backup settings and re-enable."
+                    message=f"Automatic backups have been disabled due to invalid configuration:\n\n{error_msg}\n\nPlease review backup settings and re-enable.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
         except Exception as e:
             logger.error(f"Failed to disable backups: {str(e)}")
@@ -541,7 +614,9 @@ class BackupScheduler:
                     overdue_by = time_since_last - frequency
                     create_notification(
                         subject="⚠️ Backup Overdue",
-                        message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues."
+                        message=f"Automatic backups are overdue by {self._format_timedelta(overdue_by)}.\n\nLast backup: {latest_backup_date.strftime('%Y-%m-%d %H:%M:%S')}\nExpected frequency: {freq_value} {freq_unit}\n\nCheck backup scheduler status and logs for issues.",
+                        action_title="View Backup Settings",
+                        action_url="/backup-restore.html"
                     )
                     logger.warning(f"Backup is overdue by {overdue_by}, notification sent")
             else:
@@ -583,7 +658,9 @@ class BackupScheduler:
                 logger.error(f"Backup skipped: {space_error}")
                 create_notification(
                     subject="❌ Backup Failed - Insufficient Disk Space",
-                    message=f"Automatic backup could not run due to insufficient free disk space.\n\n{space_error}\n\nPlease free up disk space or adjust the minimum free space requirement in backup settings."
+                    message=f"Automatic backup could not run due to insufficient free disk space.\n\n{space_error}\n\nPlease free up disk space or adjust the minimum free space requirement in backup settings.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
                 return
             
@@ -640,7 +717,9 @@ class BackupScheduler:
                 error_msg = f"mysqldump failed: {result.stderr}"
                 create_notification(
                     subject="⚠️ Automatic Backup Failed",
-                    message=f"Scheduled automatic backup failed:\n\n{error_msg}\n\nCheck database connection and mysqldump availability in server logs."
+                    message=f"Scheduled automatic backup failed:\n\n{error_msg}\n\nCheck database connection and mysqldump availability in server logs.",
+                    action_title="View Backup Settings",
+                    action_url="/backup-restore.html"
                 )
                 raise Exception(error_msg)
             
@@ -656,9 +735,18 @@ class BackupScheduler:
                 ).first()
                 
                 if existing_overdue:
+                    # Mark the overdue notification as read to prevent duplicate resolution messages
+                    existing_overdue.unread = False
+                    try:
+                        notification_db.commit()
+                    except Exception as e:
+                        logger.error(f"Error marking overdue notification as read: {str(e)}")
+                        notification_db.rollback()
                     create_notification(
                         subject="✅ Backup Completed",
-                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule."
+                        message=f"Automatic backup completed successfully after being overdue.\n\nBackup: {backup_filename}\nCreated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\nBackups are now on schedule.",
+                        action_title="View Backups",
+                        action_url="/backup-restore.html"
                     )
             finally:
                 notification_db.close()
@@ -669,7 +757,9 @@ class BackupScheduler:
             logger.error(f"Error creating automatic backup: {str(e)}")
             create_notification(
                 subject="⚠️ Automatic Backup Error",
-                message=f"Failed to create scheduled backup:\n\n{str(e)}\n\nCheck server logs for details. Backups will retry on next schedule."
+                message=f"Failed to create scheduled backup:\n\n{str(e)}\n\nCheck server logs for details. Backups will retry on next schedule.",
+                action_title="View Backup Settings",
+                action_url="/backup-restore.html"
             )
             return False
             
@@ -698,6 +788,9 @@ class BackupScheduler:
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
+                # Update heartbeat to prove we're alive
+                self._update_heartbeat()
+                
                 # Recheck permissions periodically to detect if they've been fixed or broken (force check)
                 is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
                 if not is_writable:
@@ -706,7 +799,9 @@ class BackupScheduler:
                         # Create notification when permission error first detected or changes
                         create_notification(
                             subject="⚠️ Backup Permission Error",
-                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved."
+                            message=f"Automatic backups cannot run due to permission error:\n\n{error_msg}\n\nBackups are paused until this is resolved.",
+                            action_title="View Backup Settings",
+                            action_url="/backup-restore.html"
                         )
                     self.permission_error = error_msg
                     # Skip backup if we can't write
@@ -718,7 +813,9 @@ class BackupScheduler:
                     logger.info("Backup directory permissions have been fixed")
                     create_notification(
                         subject="✅ Backup Permissions Restored",
-                        message="Backup directory permissions have been fixed. Automatic backups will resume on schedule."
+                        message="Backup directory permissions have been fixed. Automatic backups will resume on schedule.",
+                        action_title="View Backup Settings",
+                        action_url="/backup-restore.html"
                     )
                 self.permission_error = None
                 
@@ -727,8 +824,10 @@ class BackupScheduler:
                 should_run = self._should_run_backup(settings)
                 logger.info(f"Backup check: should_run={should_run}, enabled={settings.get('backup_enabled')}, last_backup={self.last_backup_time}")
                 
-                # Check if backup is overdue and send notification if needed
-                if settings.get('backup_enabled'):
+                # Only check if backup is overdue if we're NOT about to run a backup
+                # This prevents creating an overdue notification and resolution notification
+                # in the same cycle (race condition)
+                if settings.get('backup_enabled') and not should_run:
                     self._check_and_notify_overdue(settings)
                 
                 if should_run:
@@ -776,22 +875,31 @@ class BackupScheduler:
                 logger.info("Backup directory permissions are now OK, clearing error")
             self.permission_error = None
         
-        # Check if scheduler is actually running by checking lock file and process
+        # Check if scheduler is actually running by checking lock file
         is_running = False
         if self.lock_file.exists():
             try:
-                with open(self.lock_file, 'r') as f:
-                    pid = int(f.read().strip())
-                logger.info(f"Lock file exists with PID {pid}, checking if process is alive")
-                try:
-                    os.kill(pid, 0)  # Check if process exists
-                    is_running = True
-                    logger.info(f"Process {pid} is alive, scheduler is running")
-                except OSError as e:
-                    # Process doesn't exist
-                    logger.warning(f"Process {pid} not found (errno {e.errno}), scheduler not running")
+                lock_data = json.loads(self.lock_file.read_text())
+                pid = lock_data.get('pid')
+                container_id = lock_data.get('container_id', 'unknown')
+                current_container = os.environ.get('HOSTNAME', 'unknown')
+                
+                logger.info(f"Lock file exists with PID {pid}, container {container_id}, checking if process is alive")
+                
+                # Check if same container
+                if container_id != current_container:
+                    logger.warning(f"Lock file from different container: {container_id} vs {current_container}")
                     is_running = False
-            except (ValueError, FileNotFoundError) as e:
+                else:
+                    try:
+                        os.kill(pid, 0)  # Check if process exists
+                        is_running = True
+                        logger.info(f"Process {pid} is alive, scheduler is running")
+                    except OSError as e:
+                        # Process doesn't exist
+                        logger.warning(f"Process {pid} not found (errno {e.errno}), scheduler not running")
+                        is_running = False
+            except (ValueError, FileNotFoundError, json.JSONDecodeError, KeyError) as e:
                 logger.error(f"Error reading lock file: {str(e)}")
                 is_running = False
         else:

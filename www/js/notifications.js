@@ -25,13 +25,11 @@ class Notifications {
       return;
     }
 
-    console.log('Notifications: Initializing...');
-
     // Set up event listeners
     this.iconLink.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.togglePopup();
+      this.togglePin();
     });
 
     // Mark all as read button
@@ -43,19 +41,20 @@ class Notifications {
       });
     }
 
-    // Close popup when clicking outside
-    document.addEventListener('click', (e) => {
-      if (this.isPopupOpen && !this.popup.contains(e.target) && !this.iconLink.contains(e.target)) {
-        this.closePopup();
-      }
-    });
-
-    // Close popup on Escape key for accessibility
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isPopupOpen) {
-        this.closePopup();
-      }
-    });
+    // Hover behavior - load notifications when hovering
+    const notificationsDropdown = document.querySelector('.notifications-dropdown');
+    if (notificationsDropdown) {
+      notificationsDropdown.addEventListener('mouseenter', () => {
+        // Only reload if last load was more than 5 seconds ago
+        const now = Date.now();
+        const timeSinceLastLoad = now - this.lastLoadTime;
+        const RELOAD_THRESHOLD = 5000; // 5 seconds
+        
+        if (timeSinceLastLoad > RELOAD_THRESHOLD) {
+          this.loadNotifications();
+        }
+      });
+    }
 
     // Event delegation for notification actions
     this.list.addEventListener('click', (e) => this.handleNotificationClick(e));
@@ -91,9 +90,9 @@ class Notifications {
   }
 
   /**
-   * Toggle the notifications popup.
+   * Toggle the pin state of the notifications popup.
    */
-  togglePopup() {
+  togglePin() {
     if (this.isPopupOpen) {
       this.closePopup();
     } else {
@@ -102,11 +101,21 @@ class Notifications {
   }
 
   /**
-   * Open the notifications popup.
+   * Open the notifications popup (pin it).
    */
   openPopup() {
-    this.popup.classList.add('show');
+    // Close other menus through centralized coordination
+    if (typeof closeAllMenusExcept === 'function') {
+      closeAllMenusExcept(this.popup);
+    }
+    
+    this.popup.classList.add('pinned');
     this.isPopupOpen = true;
+    
+    // Update hover state - disable hover on all menus when one is pinned
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
+    }
     
     // Only reload if last load was more than 5 seconds ago
     const now = Date.now();
@@ -128,19 +137,19 @@ class Notifications {
         this.popup.setAttribute('tabindex', '-1');
         this.popup.focus();
       }
-    }, 50); // Small delay to ensure DOM is updated after show class
+    }, 50); // Small delay to ensure DOM is updated after pinned class
   }
 
   /**
-   * Close the notifications popup.
+   * Close the notifications popup (unpin it).
    */
   closePopup() {
-    this.popup.classList.remove('show');
+    this.popup.classList.remove('pinned');
     this.isPopupOpen = false;
     
-    // Return focus to the trigger button
-    if (this.iconLink) {
-      this.iconLink.focus();
+    // Update hover state - re-enable hover when no menus are pinned
+    if (typeof updateMenuHoverState === 'function') {
+      updateMenuHoverState();
     }
     
     // Return focus to the trigger button for accessibility
@@ -171,6 +180,32 @@ class Notifications {
   }
 
   /**
+   * Validate that a URL uses a safe protocol.
+   * @param {string} url - The URL to validate
+   * @returns {boolean} - True if URL is safe, false otherwise
+   */
+  isSafeUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+    
+    const urlLower = url.trim().toLowerCase();
+    
+    // Allow relative paths starting with /
+    if (urlLower.startsWith('/')) {
+      return true;
+    }
+    
+    // Allow http and https
+    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+      return true;
+    }
+    
+    // Reject everything else including dangerous protocols
+    return false;
+  }
+
+  /**
    * Render the notifications list.
    */
   renderNotifications() {
@@ -185,6 +220,24 @@ class Notifications {
     });
 
     this.list.innerHTML = sortedNotifications.map(notification => {
+      // Build action button HTML if action is present and URL is safe
+      let actionButtonHtml = '';
+      if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
+        const escapedTitle = this.escapeHtml(notification.action_title);
+        // URL is already validated by isSafeUrl(), no need to escape
+        actionButtonHtml = `
+          <a href="${notification.action_url}" 
+             class="notification-action-link" 
+             data-tooltip="${escapedTitle}"
+             data-notification-id="${notification.id}"
+             data-is-unread="${notification.unread}"
+             aria-label="${escapedTitle}"
+             tabindex="0">
+            ${escapedTitle}
+          </a>
+        `;
+      }
+      
       return `
         <div class="notification-item ${notification.unread ? 'unread' : ''}" 
              data-id="${notification.id}"
@@ -194,7 +247,8 @@ class Notifications {
           <div class="notification-content">
             <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
             <div class="notification-message">${this.escapeHtml(notification.message)}</div>
-            <div class="notification-time">${this.formatTime(notification.created_at)}</div>
+            ${actionButtonHtml}
+            <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}" aria-label="Created on ${formatTooltipDateTime(notification.created_at)}" tabindex="0">${this.formatTime(notification.created_at)}</div>
           </div>
           <div class="notification-actions">
             <button class="notification-action-btn read-btn" 
@@ -224,9 +278,26 @@ class Notifications {
   handleNotificationClick(e) {
     const target = e.target;
     
+    // Handle action link clicks - preserve native link behavior
+    if (target.classList.contains('notification-action-link')) {
+      // Let the browser handle the link navigation naturally
+      // The document-level click handler in header.js will see this click is inside
+      // the notifications popup and won't close the menu
+      const id = parseInt(target.dataset.notificationId);
+      const isUnread = target.dataset.isUnread === 'true';
+      if (isUnread) {
+        // Mark as read asynchronously, don't wait for response
+        this.markAsRead(id, true);
+      }
+      return;
+    }
+    
     // Handle action button clicks
     if (target.classList.contains('notification-action-btn')) {
-      e.stopPropagation();
+      // Prevent default for buttons to avoid any form submission behavior
+      e.preventDefault();
+      e.stopPropagation(); // Prevent event from bubbling to document-level handlers
+      
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';
@@ -242,6 +313,7 @@ class Notifications {
     // Handle notification item click (mark as read if unread)
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent event from bubbling to document-level handlers
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);
@@ -261,6 +333,7 @@ class Notifications {
     
     // Handle action button keyboard activation
     if (target.classList.contains('notification-action-btn')) {
+      e.stopPropagation(); // Prevent the popup from closing
       const action = target.dataset.action;
       const id = parseInt(target.dataset.id);
       const isUnread = target.dataset.unread === 'true';
@@ -276,6 +349,7 @@ class Notifications {
     // Handle notification item keyboard activation
     const notificationItem = target.closest('.notification-item');
     if (notificationItem) {
+      e.stopPropagation(); // Prevent the popup from closing
       const id = parseInt(notificationItem.dataset.id);
       const isUnread = notificationItem.dataset.unread === 'true';
       this.markAsRead(id, isUnread);

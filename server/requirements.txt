@@ -1,8 +1,15 @@
 flask==3.1.2
-sqlalchemy==2.0.44
-alembic==1.17.2
+flask-cors==6.0.2
+flask-socketio==5.6.0
+python-socketio==5.16.0
+redis==7.1.0
+sqlalchemy==2.0.45
+alembic==1.18.0
 pymysql==1.1.2
 cryptography==46.0.3
 gunicorn==23.0.0
 flask-swagger-ui==5.21.0
 flasgger==0.9.7.1
+psutil==7.2.1
+requests==2.32.5
+packaging==25.0

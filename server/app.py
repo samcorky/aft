@@ -1,10 +1,20 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
+from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask_cors import CORS
 import logging
 import json
+import os
+import time
+import tempfile
+import uuid
+import threading
+from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
 from sqlalchemy import text, func
+from werkzeug.routing import BaseConverter
+from werkzeug.exceptions import BadRequest
 from utils import (
     validate_string_length,
     validate_integer,
@@ -21,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "1.2.1"
+APP_VERSION = "2026.1.0"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -73,6 +83,18 @@ SETTINGS_SCHEMA = {
         "nullable": True,
         "description": "ISO timestamp of the last backup run",
         "validate": lambda value: value is None or isinstance(value, str),
+    },
+    "housekeeping_enabled": {
+        "type": "boolean",
+        "nullable": False,
+        "description": "Enable or disable housekeeping scheduler for version checks",
+        "validate": lambda value: isinstance(value, bool),
+    },
+    "time_format": {
+        "type": "string",
+        "nullable": False,
+        "description": "Time format preference: '12' for 12-hour or '24' for 24-hour",
+        "validate": lambda value: isinstance(value, str) and value in ["12", "24"],
     },
 }
 
@@ -130,7 +152,205 @@ def validate_setting(key, value):
     return True, None
 
 
+def validate_safe_url(url):
+    """Validate that a URL uses a safe protocol.
+    
+    Allows:
+    - Relative paths starting with /
+    - http:// and https:// protocols
+    
+    Rejects:
+    - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    - URLs without proper structure
+    
+    Args:
+        url: The URL string to validate
+        
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    if not url or not isinstance(url, str):
+        return False, "URL must be a non-empty string"
+    
+    url_lower = url.strip().lower()
+    
+    # Allow relative paths starting with /
+    if url_lower.startswith('/'):
+        return True, None
+    
+    # Allow http and https
+    if url_lower.startswith('http://') or url_lower.startswith('https://'):
+        return True, None
+    
+    # Reject all other protocols including dangerous ones
+    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
+    for protocol in dangerous_protocols:
+        if url_lower.startswith(protocol):
+            return False, f"URL protocol '{protocol}' is not allowed for security reasons"
+    
+    # Reject anything that doesn't match allowed patterns
+    return False, "URL must be a relative path starting with / or use http:// or https:// protocol"
+
+
 app = Flask(__name__)
+
+# Custom path converter that allows safe filenames (validation happens in the endpoint)
+class SafeFilenameConverter(BaseConverter):
+    """Converter for image filenames - matches filenames with a restricted safe character set.
+    
+    The actual security validation (preventing .. traversal) is done in the endpoint
+    function itself, not in the regex. The regex here ensures only safe characters are
+    accepted in the path segment.
+    """
+    regex = r'[a-zA-Z0-9._-]+'  # Only allow alphanumerics, dot, underscore, and hyphen
+
+app.url_map.converters['safe_filename'] = SafeFilenameConverter
+
+# Initialize CORS for HTTP and WebSocket endpoints
+# Parse CORS allowed origins from environment variable
+# Controls which origins can connect via HTTP/HTTPS and WebSocket
+cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
+cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
+
+# Initialize Flask-CORS for HTTP/HTTPS endpoints
+# Flask-CORS validates all cross-origin requests (requests with Origin header) against
+# the configured origins list. Requests without an Origin header are processed normally
+# (same-origin requests in browsers, or requests from non-browser clients).
+# For disallowed origins, Flask-CORS will not add CORS headers to the response,
+# which causes the browser to reject the cross-origin request.
+CORS(
+    app,
+    origins=cors_allowed_origins,
+    supports_credentials=True,
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+)
+
+# Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
+# Redis allows multiple gunicorn workers to communicate WebSocket events to each other
+redis_url = os.getenv('REDIS_URL')
+
+# Validate Redis configuration for multi-worker deployment
+if not redis_url:
+    logger.warning(
+        "⚠️  REDIS_URL not configured. WebSocket broadcasts will NOT work across multiple gunicorn workers. "
+        "Real-time updates may be lost if requests are routed to different workers. "
+        "Set REDIS_URL environment variable to enable cross-worker WebSocket communication."
+    )
+
+socketio = SocketIO(
+    app, 
+    cors_allowed_origins=cors_allowed_origins,
+    async_mode='threading',
+    message_queue=redis_url  # Connect to Redis for message queue (None if not configured)
+)
+
+# Thread-safe dictionary to track recent broadcast failures
+# Format: {room_name: {event_name: error_message, timestamp: datetime}}
+# Used for debugging and monitoring WebSocket broadcast issues
+# Protected by lock for concurrent access in multi-worker/multi-threaded environment
+# IMPORTANT: All access to broadcast_failures must occur within a "with broadcast_failures_lock:" block
+# to prevent race conditions in multi-threaded environments
+broadcast_failures = {}
+broadcast_failures_lock = threading.Lock()
+
+def record_broadcast_failure(room_name, event_name, error_message):
+    """Thread-safe helper to record a broadcast failure.
+    
+    Args:
+        room_name: Name of the room where broadcast failed
+        event_name: Name of the event that failed
+        error_message: Error message to record
+    """
+    with broadcast_failures_lock:
+        if room_name not in broadcast_failures:
+            broadcast_failures[room_name] = {}
+        broadcast_failures[room_name][event_name] = error_message
+
+def clear_broadcast_failure(room_name, event_name):
+    """Thread-safe helper to clear a broadcast failure record.
+    
+    Args:
+        room_name: Name of the room
+        event_name: Name of the event
+    """
+    with broadcast_failures_lock:
+        if room_name in broadcast_failures:
+            broadcast_failures[room_name].pop(event_name, None)
+
+# ============================================================================
+# TESTING FLAG: WebSocket Connection Rejection
+# ============================================================================
+# Set to True to test WebSocket disconnection scenarios (header shows "WebSocket Disconnected")
+# All Socket.IO connection attempts will be rejected, forcing clients to reconnect
+#
+# WARNING: This must NEVER be enabled (True) in production deployments.
+# To use for local/testing purposes, set the environment variable
+# REJECT_SOCKETIO_CONNECTIONS=true. It defaults to False when unset.
+REJECT_SOCKETIO_CONNECTIONS = os.getenv("REJECT_SOCKETIO_CONNECTIONS", "false").lower() == "true"
+
+# Helper function to broadcast WebSocket events from route handlers
+def broadcast_event(event_name, data, board_id, skip_sid=None):
+    """Broadcast a WebSocket event to all clients in a board room.
+    
+    Args:
+        event_name: Name of the event to broadcast
+        data: Event data to send
+        board_id: Board ID to broadcast to (determines the room)
+        skip_sid: Optional Socket.IO session ID to exclude from broadcast (usually request.sid)
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. The calling route should implement client-side
+    refresh logic as a fallback (e.g., client reloads board on reconnection).
+    """
+    room_name = f'board_{board_id}'
+    
+    def do_emit():
+        try:
+            logger.info(f"Broadcasting {event_name} to room {room_name} with data: {data}")
+            # Use socketio.emit to broadcast to all clients in the room
+            # skip_sid prevents the originating client from receiving a duplicate update
+            socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
+            logger.info(f"✓ Successfully emitted {event_name}")
+            # Clear any previous failure for this event
+            clear_broadcast_failure(room_name, event_name)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"❌ Error broadcasting {event_name} to {room_name}: {error_msg}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            record_broadcast_failure(room_name, event_name, error_msg)
+    
+    # Use background task to ensure proper context
+    socketio.start_background_task(do_emit)
+
+
+def broadcast_theme_event(event_name, data):
+    """Broadcast a WebSocket event to all clients in the theme room.
+    
+    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
+    do not affect the API response. Clients should implement refresh logic as fallback.
+    """
+    room_name = 'theme'
+    
+    def do_emit():
+        try:
+            logger.info(f"📢 Broadcasting {event_name} to theme room with data: {data}")
+            # Use socketio.emit to broadcast to all clients in the theme room
+            socketio.emit(event_name, data, room=room_name, namespace='/')
+            logger.info(f"✓ Successfully emitted {event_name} to theme room")
+            # Clear any previous failure for this event
+            clear_broadcast_failure(room_name, event_name)
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            # Track the failure for debugging
+            record_broadcast_failure(room_name, event_name, error_msg)
+    
+    # Use background task to ensure proper context
+    socketio.start_background_task(do_emit)
 
 # Configure maximum upload size (110MB)
 app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
@@ -441,6 +661,205 @@ def get_version():
         return jsonify({"success": False, "message": str(e)}), 500
     finally:
         db.close()
+
+
+@app.route("/api/broadcast-status")
+def get_broadcast_status():
+    """Get WebSocket broadcast error status for debugging.
+    
+    Returns recent broadcast failures tracked by the system. Useful for monitoring
+    whether WebSocket events are being delivered to connected clients.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Broadcast status information
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            broadcast_failures:
+              type: object
+              description: Map of room names to recent errors
+              example: {"board_1": {"card_updated": "Connection timeout"}}
+            total_failure_rooms:
+              type: integer
+              example: 0
+      500:
+        description: Failed to get broadcast status
+    """
+    with broadcast_failures_lock:
+        # Create a copy to avoid holding the lock during serialization
+        failures_copy = dict(broadcast_failures)
+        total_rooms = len(broadcast_failures)
+    
+    return jsonify({
+        "success": True,
+        "broadcast_failures": failures_copy,
+        "total_failure_rooms": total_rooms
+    })
+
+
+@app.route("/api/scheduler/health")
+def get_scheduler_health():
+    """Get health status of all background schedulers.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Scheduler health information
+        schema:
+          type: object
+          properties:
+            backup_scheduler:
+              type: object
+            card_scheduler:
+              type: object
+            housekeeping_scheduler:
+              type: object
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+    
+    health = {}
+    
+    # Backup scheduler
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
+                
+                health['backup_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id'),
+                    'permission_error': scheduler.permission_error
+                }
+            except Exception as e:
+                health['backup_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e),
+                    'permission_error': scheduler.permission_error
+                }
+        else:
+            health['backup_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                'lock_file_exists': False,
+                'permission_error': scheduler.permission_error
+            }
+    except Exception as e:
+        health['backup_scheduler'] = {'error': str(e)}
+    
+    # Card scheduler
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval for consistency)
+                is_healthy = lock_age < 150
+                
+                health['card_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['card_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['card_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['card_scheduler'] = {'error': str(e)}
+    
+    # Housekeeping scheduler
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        
+        # In multi-worker setup, check lock file for true health status
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+        lock_age = None
+        
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                # Consider healthy if heartbeat is less than 2.5 minutes old (2.5x the 60s loop interval)
+                is_healthy = lock_age < 150
+                
+                health['housekeeping_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['housekeeping_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['housekeeping_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['housekeeping_scheduler'] = {'error': str(e)}
+    
+    return jsonify(health), 200
 
 
 @app.route("/api/test")
@@ -956,6 +1375,25 @@ def restore_database():
         if result.returncode != 0:
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
+        # Clean up stale scheduler lock files after successful restore
+        # This forces the scheduler threads to create fresh lock files with current timestamps
+        # Otherwise the system info page will show stale heartbeat ages from before the restore
+        logger.info("Cleaning up scheduler lock files after restore")
+        temp_dir = Path(tempfile.gettempdir())
+        lock_files_to_clean = [
+            temp_dir / "aft_backup_scheduler.lock",
+            temp_dir / "aft_card_scheduler.lock",
+            temp_dir / "aft_housekeeping_scheduler.lock",
+        ]
+        
+        for lock_file in lock_files_to_clean:
+            try:
+                if lock_file.exists():
+                    lock_file.unlink()
+                    logger.info(f"Cleaned up scheduler lock file after restore: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean lock file {lock_file}: {e}")
+
         # If backup version differs from current, run migrations to upgrade
         if backup_version != current_version:
             logger.info(
@@ -1287,6 +1725,113 @@ def delete_backup(filename):
         
     except Exception as e:
         logger.error(f"Error deleting backup: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/database/backups/delete-multiple", methods=["POST"])
+def delete_multiple_backups():
+    """Delete multiple backup files.
+    ---
+    tags:
+      - Database
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - filenames
+          properties:
+            filenames:
+              type: array
+              items:
+                type: string
+              description: Array of backup filenames to delete
+    responses:
+      200:
+        description: Backups deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            deleted:
+              type: integer
+              description: Number of backups successfully deleted
+            failed:
+              type: integer
+              description: Number of backups that failed to delete
+            errors:
+              type: array
+              items:
+                type: string
+              description: List of error messages for failed deletions
+      400:
+        description: Invalid request
+      500:
+        description: Failed to delete backups
+    """
+    try:
+        from pathlib import Path
+        import re
+        
+        data = request.get_json()
+        
+        if not data or 'filenames' not in data:
+            return jsonify({"success": False, "message": "Missing filenames array"}), 400
+        
+        filenames = data['filenames']
+        
+        if not isinstance(filenames, list):
+            return jsonify({"success": False, "message": "filenames must be an array"}), 400
+        
+        if len(filenames) == 0:
+            return jsonify({"success": False, "message": "filenames array is empty"}), 400
+        
+        if len(filenames) > 100:
+            return jsonify({"success": False, "message": "Cannot delete more than 100 backups at once"}), 400
+        
+        backup_dir = Path("/app/backups")
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+        
+        for filename in filenames:
+            try:
+                # Validate filename to prevent path traversal
+                if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+                    errors.append(f"{filename}: Invalid backup filename")
+                    failed_count += 1
+                    continue
+                
+                backup_path = backup_dir / filename
+                
+                if not backup_path.exists():
+                    errors.append(f"{filename}: File not found")
+                    failed_count += 1
+                    continue
+                
+                # Delete the backup file
+                backup_path.unlink()
+                deleted_count += 1
+                
+            except Exception as e:
+                errors.append(f"{filename}: {str(e)}")
+                failed_count += 1
+        
+        logger.info(f"Bulk delete completed: {deleted_count} deleted, {failed_count} failed")
+        
+        return jsonify({
+            "success": True,
+            "deleted": deleted_count,
+            "failed": failed_count,
+            "errors": errors,
+            "message": f"Deleted {deleted_count} backup(s)" + (f", {failed_count} failed" if failed_count > 0 else "")
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in bulk delete: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -1863,6 +2408,186 @@ def get_backup_status():
     except Exception as e:
         logger.error(f"Error getting backup status: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/status", methods=["GET"])
+def get_housekeeping_status():
+    """Get housekeeping scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Housekeeping scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+        status = scheduler.get_status()
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting housekeeping status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/housekeeping/config", methods=["PUT"])
+def update_housekeeping_config():
+    """Update housekeeping scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="housekeeping_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Housekeeping configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating housekeeping config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/settings/card-scheduler/status", methods=["GET"])
+def get_card_scheduler_status():
+    """Get card scheduler status.
+    ---
+    tags:
+      - Settings
+    responses:
+      200:
+        description: Card scheduler status
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            status:
+              type: object
+    """
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+        
+        # Get enabled setting
+        db = SessionLocal()
+        try:
+            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+            if setting is not None and setting.value is not None:
+                enabled = json.loads(str(setting.value))
+            else:
+                enabled = True  # Default to enabled
+        finally:
+            db.close()
+        
+        status = {
+            "running": scheduler.running,
+            "enabled": enabled
+        }
+        
+        return jsonify({"success": True, "status": status})
+    except Exception as e:
+        logger.error(f"Error getting card scheduler status: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/settings/card-scheduler/config", methods=["PUT"])
+def update_card_scheduler_config():
+    """Update card scheduler configuration.
+    ---
+    tags:
+      - Settings
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+    responses:
+      200:
+        description: Configuration updated successfully
+      400:
+        description: Bad request
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "enabled" not in data:
+            return jsonify({"success": False, "message": "enabled field is required"}), 400
+        
+        enabled = data["enabled"]
+        if not isinstance(enabled, bool):
+            return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
+        
+        # Update setting
+        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+        value = json.dumps(enabled)
+        
+        if setting:
+            setting.value = value
+        else:
+            setting = Setting(key="card_scheduler_enabled", value=value)
+            db.add(setting)
+        
+        db.commit()
+        
+        return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card scheduler config: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
 
 
 @app.route("/api/boards", methods=["GET"])
@@ -2843,6 +3568,13 @@ def update_column(column_id):
             "order": column.order,
         }
 
+        # Broadcast column update event
+        broadcast_event('column_updated', {
+            'board_id': board_id,
+            'column_id': column.id,
+            'column_data': result
+        }, board_id)
+
         return jsonify({"success": True, "column": result}), 200
     except Exception as e:
         db.rollback()
@@ -3342,6 +4074,18 @@ def create_card(column_id):
             "archived": card.archived
         }
 
+        # Get board_id for WebSocket broadcast
+        board_id = column.board_id
+        if board_id is not None:
+            broadcast_event('card_created', {
+                'board_id': board_id,
+                'column_id': column_id,
+                'card_id': card.id,
+                'card_data': result
+            }, board_id)
+        else:
+            logger.warning(f"Skipping card_created broadcast for card {card.id}: column {column_id} has no board_id")
+
         return create_success_response({"card": result}, status_code=201)
 
     except Exception as e:
@@ -3581,6 +4325,16 @@ def move_all_cards_in_column(source_column_id):
                 card.order = start_order + i
 
         db.commit()
+
+        # Broadcast column reorder/move event to both affected boards
+        if source_column.board_id:
+            broadcast_event('cards_moved', {
+                'board_id': source_column.board_id,
+                'source_column_id': source_column_id,
+                'target_column_id': target_column_id,
+                'moved_count': len(source_cards),
+                'position': position
+            }, source_column.board_id)
 
         return (
             jsonify(
@@ -3911,6 +4665,17 @@ def update_card(card_id):
             "order": card.order,
         }
 
+        # Get board_id for WebSocket broadcast
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        if column:
+            broadcast_event('card_updated', {
+                'board_id': column.board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': result,
+                'moved': old_column_id != card.column_id or old_order != card.order
+            }, column.board_id, getattr(request, "sid", None))
+
         return create_success_response({"card": result})
 
     except Exception as e:
@@ -3969,7 +4734,7 @@ def delete_card(card_id):
     """
     try:
         db = SessionLocal()
-        from models import Card
+        from models import Card, BoardColumn
 
         card = db.query(Card).filter(Card.id == card_id).first()
 
@@ -3977,9 +4742,23 @@ def delete_card(card_id):
             db.close()
             return jsonify({"success": False, "message": "Card not found"}), 404
 
+        # Get board_id for WebSocket broadcast before deleting
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
         db.delete(card)
         db.commit()
         db.close()
+
+        # Broadcast card deletion
+        if board_id:
+            broadcast_event('card_deleted', {
+                'board_id': board_id,
+                'card_id': card_id,
+                'column_id': card.column_id
+            }, board_id)
+        else:
+            logger.warning(f"⚠️  Failed to broadcast card_deleted for card {card_id}: column or board_id not found")
 
         return jsonify({"success": True, "message": "Card deleted successfully"}), 200
     except Exception as e:
@@ -4020,13 +4799,12 @@ def archive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
 
+        board_id = card.column.board_id if card.column else None
         card.archived = True
         db.commit()
         
@@ -4040,6 +4818,15 @@ def archive_card(card_id):
             "order": card.order,
             "archived": card.archived
         }
+
+        # Broadcast card archived event
+        if board_id:
+            broadcast_event('card_archived', {
+                'board_id': board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': card_dict
+            }, board_id)
 
         return jsonify({"success": True, "message": "Card archived successfully", "card": card_dict}), 200
     except Exception as e:
@@ -4080,8 +4867,6 @@ def unarchive_card(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card
-
         card = db.query(Card).filter(Card.id == card_id).first()
 
         if not card:
@@ -4115,6 +4900,16 @@ def unarchive_card(card_id):
             "order": card.order,
             "archived": card.archived
         }
+
+        # Get board_id for broadcast
+        board_id = card.column.board_id if card.column else None
+        if board_id:
+            broadcast_event('card_unarchived', {
+                'board_id': board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'card_data': card_dict
+            }, board_id)
 
         return jsonify({"success": True, "message": "Card unarchived successfully", "card": card_dict}), 200
     except Exception as e:
@@ -4935,7 +5730,7 @@ def create_checklist_item(card_id):
         if not data or "name" not in data:
             return create_error_response("Name is required", 400)
 
-        from models import Card, ChecklistItem
+        from models import Card, ChecklistItem, BoardColumn
 
         # Verify card exists
         card = db.query(Card).filter(Card.id == card_id).first()
@@ -4991,6 +5786,21 @@ def create_checklist_item(card_id):
         db.add(checklist_item)
         db.commit()
         db.refresh(checklist_item)
+
+        # Get board_id for WebSocket broadcast
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        if column:
+            broadcast_event('checklist_item_added', {
+                'board_id': column.board_id,
+                'card_id': card_id,
+                'item_id': checklist_item.id,
+                'item_data': {
+                    'id': checklist_item.id,
+                    'name': checklist_item.name,
+                    'checked': checklist_item.checked,
+                    'order': checklist_item.order
+                }
+            }, column.board_id)
 
         return jsonify({
             "success": True,
@@ -5100,15 +5910,29 @@ def update_checklist_item(item_id):
         db.commit()
         db.refresh(checklist_item)
 
+        result = {
+            "id": checklist_item.id,
+            "card_id": checklist_item.card_id,
+            "name": checklist_item.name,
+            "checked": checklist_item.checked,
+            "order": checklist_item.order
+        }
+
+        # Get board_id for broadcast
+        from models import Card
+        card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
+        if card and card.column:
+            board_id = card.column.board_id
+            broadcast_event('checklist_item_updated', {
+                'board_id': board_id,
+                'card_id': checklist_item.card_id,
+                'item_id': checklist_item.id,
+                'item_data': result
+            }, board_id)
+
         return jsonify({
             "success": True,
-            "checklist_item": {
-                "id": checklist_item.id,
-                "card_id": checklist_item.card_id,
-                "name": checklist_item.name,
-                "checked": checklist_item.checked,
-                "order": checklist_item.order
-            }
+            "checklist_item": result
         }), 200
 
     except Exception as e:
@@ -5443,6 +6267,8 @@ def get_notifications():
                         "message": n.message,
                         "unread": n.unread,
                         "created_at": n.created_at.isoformat() if n.created_at else None,
+                        "action_title": n.action_title,
+                        "action_url": n.action_url,
                     }
                     for n in notifications
                 ],
@@ -5484,6 +6310,14 @@ def create_notification():
               type: string
               description: Message content of the notification
               example: "Check out our new dark mode feature!"
+            action_title:
+              type: string
+              description: Optional action button title (recommended max 50 chars, hard limit 100)
+              example: "Learn More"
+            action_url:
+              type: string
+              description: Optional action button URL (max 500 chars)
+              example: "/settings"
     responses:
       201:
         description: Notification created successfully
@@ -5507,6 +6341,10 @@ def create_notification():
                 created_at:
                   type: string
                   format: date-time
+                action_title:
+                  type: string
+                action_url:
+                  type: string
       400:
         description: Invalid request
       500:
@@ -5536,11 +6374,33 @@ def create_notification():
         if len(message) > 65535:
             return jsonify({"success": False, "message": "Message must be 65535 characters or less"}), 400
 
+        # Process optional action fields
+        action_title = data.get('action_title', '').strip() or None if 'action_title' in data else None
+        action_url = data.get('action_url', '').strip() or None if 'action_url' in data else None
+        
+        # Validate action fields if provided
+        if action_title is not None:
+            if len(action_title) > 100:
+                return jsonify({"success": False, "message": "Action title must be 100 characters or less"}), 400
+            # Recommend max 50 chars for better UX
+            if len(action_title) > 50:
+                logger.warning(f"Action title exceeds recommended length of 50 chars: {len(action_title)} chars")
+            
+        if action_url is not None:
+            if len(action_url) > 500:
+                return jsonify({"success": False, "message": "Action URL must be 500 characters or less"}), 400
+            # Validate URL safety
+            is_valid, error_msg = validate_safe_url(action_url)
+            if not is_valid:
+                return jsonify({"success": False, "message": f"Invalid action URL: {error_msg}"}), 400
+
         # Create notification
         notification = Notification(
             subject=subject,
             message=message,
-            unread=True
+            unread=True,
+            action_title=action_title,
+            action_url=action_url
         )
         
         db.add(notification)
@@ -5557,6 +6417,8 @@ def create_notification():
                 "message": notification.message,
                 "unread": notification.unread,
                 "created_at": notification.created_at.isoformat() if notification.created_at else None,
+                "action_title": notification.action_title,
+                "action_url": notification.action_url,
             }
         }), 201
 
@@ -5857,6 +6719,32 @@ def internal_error(error):
 
 
 # Initialize backup scheduler on app startup
+def cleanup_stale_scheduler_locks():
+    """Remove all scheduler lock files on application startup.
+    
+    This ensures clean state after container restarts where lock files
+    from previous containers may persist but are no longer valid.
+    Called once before any scheduler initialization.
+    """
+    from pathlib import Path
+    import tempfile
+    
+    temp_dir = Path(tempfile.gettempdir())
+    lock_files = [
+        temp_dir / "aft_backup_scheduler.lock",
+        temp_dir / "aft_card_scheduler.lock",
+        temp_dir / "aft_housekeeping_scheduler.lock",
+    ]
+    
+    for lock_file in lock_files:
+        try:
+            if lock_file.exists():
+                lock_file.unlink()
+                logger.info(f"Cleaned up stale lock file: {lock_file}")
+        except Exception as e:
+            logger.warning(f"Failed to clean lock file {lock_file}: {e}")
+
+
 def init_backup_scheduler():
     """Initialize and start the backup scheduler."""
     try:
@@ -5878,9 +6766,975 @@ def init_card_scheduler():
     except Exception as e:
         logger.error(f"Failed to initialize card scheduler: {str(e)}")
 
+# Initialize housekeeping scheduler on app startup
+def init_housekeeping_scheduler():
+    """Initialize and start the housekeeping scheduler."""
+    try:
+        from housekeeping_scheduler import start_housekeeping_scheduler
+        start_housekeeping_scheduler(APP_VERSION)
+        logger.info("Housekeeping scheduler initialization attempted")
+    except Exception as e:
+        logger.error(f"Failed to initialize housekeeping scheduler: {str(e)}")
+
 # Start schedulers when module is loaded
-init_backup_scheduler()
-init_card_scheduler()
+# Use file lock to ensure only one worker initializes schedulers
+# This prevents race conditions with Gunicorn multi-worker setup
+
+# Only initialize schedulers in the first worker to start
+# Use a combination of lock file AND worker tracking
+init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
+
+# Clean up stale init lock files from previous container instances
+# This must happen BEFORE trying to acquire the lock
+# If the init lock is stale (from a dead container process), we want to remove it
+# so this container's worker can acquire it and initialize schedulers
+try:
+    if init_lock_file.exists():
+        # Check if the lock file is stale (older than 5 minutes)
+        # In a container, if no worker has refreshed the lock in 5 minutes, assume the container died
+        from datetime import datetime
+        lock_age = (datetime.now() - datetime.fromtimestamp(init_lock_file.stat().st_mtime)).total_seconds()
+        if lock_age > 300:  # 5 minutes
+            logger.info(f"Init lock file is stale ({lock_age}s old), removing it")
+            init_lock_file.unlink()
+except Exception as e:
+    logger.warning(f"Failed to clean stale init lock file: {e}")
+
+should_init = False
+
+try:
+    # Try to create lock file exclusively (fails if already exists)
+    fd = os.open(init_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    os.write(fd, str(os.getpid()).encode())
+    os.close(fd)
+    should_init = True
+    logger.info(f"Worker PID {os.getpid()}: Acquired scheduler init lock")
+except FileExistsError:
+    # Lock already exists - another worker is initializing or already initialized
+    logger.info(f"Worker PID {os.getpid()}: Init lock exists, skipping scheduler initialization")
+    should_init = False
+
+if should_init:
+    try:
+        logger.info(f"Worker PID {os.getpid()}: Initializing schedulers")
+        
+        # Clean up any stale lock files from previous container instances
+        # This must happen AFTER acquiring init lock to prevent race conditions
+        cleanup_stale_scheduler_locks()
+        
+        # Now start all schedulers
+        init_backup_scheduler()
+        init_card_scheduler()
+        init_housekeeping_scheduler()  # Housekeeping also monitors other schedulers' health
+        
+        # Give schedulers a moment to create their lock files
+        time.sleep(0.5)
+    except Exception as e:
+        logger.error(f"Error initializing schedulers: {e}")
+else:
+    logger.info(f"Worker PID {os.getpid()}: Waiting for first worker to initialize schedulers")
+    # Wait for the first worker to finish initializing
+    time.sleep(2)
+
+
+# ============================================================================
+# Theme API Endpoints
+# ============================================================================
+
+@app.route("/api/themes", methods=["GET"])
+def get_themes():
+    """Retrieve all themes from the database.
+    
+    Fetches and returns a list of all available themes, including both
+    system themes and user-created custom themes. Each theme includes
+    its ID, name, settings, background image, and system theme flag.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with list of theme objects
+            - 500: Server error during database query
+    
+    Example:
+        GET /api/themes
+        Response: [{"id": 1, "name": "Dark", "settings": {...}, ...}, ...]
+    """
+    session = SessionLocal()
+    try:
+        themes = session.query(Theme).all()
+        return jsonify([theme.to_dict() for theme in themes]), 200
+    except Exception as e:
+        logger.error(f"Error getting themes: {str(e)}")
+        return create_error_response(f"Error getting themes: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>", methods=["GET"])
+def get_theme(theme_id):
+    """Retrieve a specific theme by its unique ID.
+    
+    Fetches detailed information about a single theme including its
+    name, color settings, background image, and whether it's a system
+    theme. Useful for loading a theme for preview or editing.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to retrieve
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with theme object
+            - 404: Theme with specified ID not found
+            - 500: Server error during database query
+    
+    Example:
+        GET /api/themes/5
+        Response: {"id": 5, "name": "Custom Blue", "settings": {...}, ...}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error getting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error getting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>", methods=["PUT"])
+def update_theme(theme_id):
+    """Update an existing custom theme's properties.
+    
+    Modifies one or more properties of a user-created theme. System themes
+    cannot be modified. Supports partial updates - only specified fields
+    are changed. When updating the name, uniqueness is validated.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to update
+    
+    Request Body:
+        name (str, optional): New name for the theme (must be unique)
+        settings (dict, optional): Theme color settings and configurations
+        background_image (str, optional): Filename of background image
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with updated theme object
+            - 400: Cannot update system theme or name already exists
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/themes/5
+        Body: {"name": "Updated Theme", "settings": {"primary-color": "#3498db"}}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot update system themes", 400)
+        
+        try:
+            data = request.get_json(silent=True)
+        except BadRequest:
+            data = None
+        
+        if not data or not isinstance(data, dict):
+            return create_error_response("Request body must contain valid JSON object", 400)
+        
+        if 'name' in data:
+            # Check if name is unique
+            existing = session.query(Theme).filter(Theme.name == data['name'], Theme.id != theme_id).first()
+            if existing:
+                return create_error_response("Theme name already exists", 400)
+            theme.name = data['name']
+        
+        if 'settings' in data:
+            theme.settings = json.dumps(data['settings'])
+        
+        if 'background_image' in data:
+            theme.background_image = data['background_image']
+        
+        session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_updated', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error updating theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
+def rename_theme(theme_id):
+    """Change the name of an existing custom theme.
+    
+    Provides a dedicated endpoint for renaming themes. System themes
+    cannot be renamed. The new name must be unique across all themes.
+    This is a convenience endpoint that performs only name updates.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to rename
+    
+    Request Body:
+        name (str, required): The new name for the theme
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with updated theme object
+            - 400: Missing name, cannot rename system theme, or name exists
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/themes/5/rename
+        Body: {"name": "My Blue Theme"}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot rename system themes", 400)
+        
+        data = request.get_json()
+        new_name = data.get('name')
+        
+        if not new_name:
+            return create_error_response("name is required", 400)
+        
+        # Check if name is unique
+        existing = session.query(Theme).filter(Theme.name == new_name, Theme.id != theme_id).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        theme.name = new_name
+        session.commit()
+        
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error renaming theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error renaming theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
+def delete_theme(theme_id):
+    """Delete a custom theme.
+    
+    Removes a theme from the database. System themes cannot be deleted.
+    If the deleted theme is currently selected, the selected_theme setting
+    will become invalid and should be updated by the client.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to delete
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with confirmation message
+            - 400: Cannot delete system themes
+            - 404: Theme with specified ID not found
+            - 500: Server error during deletion
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        DELETE /api/themes/5
+        Response: {"success": true, "message": "Theme deleted successfully"}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        if theme.system_theme:
+            return create_error_response("Cannot delete system themes", 400)
+        
+        session.delete(theme)
+        session.commit()
+        
+        return create_success_response(message="Theme deleted successfully")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error deleting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error deleting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/copy", methods=["POST"])
+def copy_theme():
+    """Create a duplicate of an existing theme with a new name.
+    
+    Copies all settings and properties from a source theme to create a new
+    independent theme. This is useful for customizing existing themes without
+    modifying the original. The copy is always created as a custom (non-system)
+    theme, even if the source is a system theme.
+    
+    Request Body:
+        source_theme_id (int, required): ID of the theme to duplicate
+        new_name (str, required): Unique name for the new theme
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 201: Success with newly created theme object
+            - 400: Missing required fields or name already exists
+            - 404: Source theme with specified ID not found
+            - 500: Server error during creation
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        POST /api/themes/copy
+        Body: {"source_theme_id": 1, "new_name": "My Custom Dark"}
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        source_id = data.get('source_theme_id')
+        new_name = data.get('new_name')
+        
+        if not source_id or not new_name:
+            return create_error_response("source_theme_id and new_name are required", 400)
+        
+        # Check if source theme exists
+        source_theme = session.query(Theme).filter(Theme.id == source_id).first()
+        if not source_theme:
+            return create_error_response("Source theme not found", 404)
+        
+        # Check if new name is unique
+        existing = session.query(Theme).filter(Theme.name == new_name).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        # Create new theme as copy
+        new_theme = Theme(
+            name=new_name,
+            settings=source_theme.settings,
+            background_image=source_theme.background_image,
+            system_theme=False  # Copied themes are never system themes
+        )
+        session.add(new_theme)
+        session.commit()
+        
+        return jsonify(new_theme.to_dict()), 201
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error copying theme: {str(e)}")
+        return create_error_response(f"Error copying theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/import", methods=["POST"])
+def import_theme():
+    """Import a theme from external JSON data.
+    
+    Creates a new theme from JSON configuration, typically from an exported
+    theme file. Validates that the settings object contains required color
+    properties. The imported theme is created as a custom (non-system) theme
+    with a unique name.
+    
+    Request Body:
+        name (str, required): Unique name for the imported theme
+        settings (dict, required): Theme configuration with required keys:
+            - primary-color: Main UI color
+            - text-color: Text color
+            - background-light: Light background color
+            - card-bg-color: Card background color
+        background_image (str, optional): Background image filename
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 201: Success with newly created theme object
+            - 400: Missing fields, invalid structure, or name already exists
+            - 500: Server error during creation
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        POST /api/themes/import
+        Body: {"name": "Imported", "settings": {"primary-color": "#3498db", ...}}
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        name = data.get('name')
+        settings = data.get('settings')
+        
+        if not name or not settings:
+            return create_error_response("name and settings are required", 400)
+        
+        # Validate settings structure - should have color properties
+        required_keys = ['primary-color', 'text-color', 'background-light', 'card-bg-color']
+        if not all(key in settings for key in required_keys):
+            return create_error_response("Invalid theme settings structure", 400)
+        
+        # Check if name is unique
+        existing = session.query(Theme).filter(Theme.name == name).first()
+        if existing:
+            return create_error_response("Theme name already exists", 400)
+        
+        # Create new theme
+        new_theme = Theme(
+            name=name,
+            settings=json.dumps(settings),
+            background_image=data.get('background_image'),
+            system_theme=False
+        )
+        session.add(new_theme)
+        session.commit()
+        
+        return jsonify(new_theme.to_dict()), 201
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error importing theme: {str(e)}")
+        return create_error_response(f"Error importing theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/<int:theme_id>/export", methods=["GET"])
+def export_theme(theme_id):
+    """Export a theme configuration as JSON data.
+    
+    Retrieves a theme and formats it as a JSON object suitable for export
+    and sharing. The exported data includes the theme name, all settings,
+    and background image reference. This data can be imported on other
+    installations using the import_theme endpoint.
+    
+    Args:
+        theme_id (int): The unique identifier of the theme to export
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with exportable theme object (name, settings, background_image)
+            - 404: Theme with specified ID not found
+            - 500: Server error during retrieval
+    
+    Example:
+        GET /api/themes/5/export
+        Response: {"name": "My Theme", "settings": {...}, "background_image": "..."}
+    """
+    session = SessionLocal()
+    try:
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        export_data = {
+            'name': theme.name,
+            'settings': json.loads(theme.settings) if isinstance(theme.settings, str) else theme.settings,
+            'background_image': theme.background_image
+        }
+        
+        return jsonify(export_data), 200
+    except Exception as e:
+        logger.error(f"Error exporting theme {theme_id}: {str(e)}")
+        return create_error_response(f"Error exporting theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/themes/upload-image", methods=["POST"])
+def upload_theme_image():
+    """Upload a background image file for use in themes.
+    
+    Accepts image file uploads via multipart form data and saves them to
+    the backgrounds directory. Generates a unique filename combining timestamp
+    and UUID to prevent collisions. Only common image formats are accepted.
+    
+    Form Data:
+        image (file, required): Image file to upload
+            Allowed formats: .jpg, .jpeg, .png, .gif, .webp
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with generated filename {"filename": "theme_bg_1234567890.jpg"}
+            - 400: No file provided, empty filename, or invalid file type
+            - 500: Server error during file save
+    
+    Example:
+        POST /api/themes/upload-image
+        Content-Type: multipart/form-data
+        image: [binary file data]
+        Response: {"filename": "theme_bg_1702839123.jpg"}
+    """
+    try:
+        if 'image' not in request.files:
+            return create_error_response("No image file provided", 400)
+        
+        file = request.files['image']
+        if file.filename == '':
+            return create_error_response("No file selected", 400)
+        
+        # Validate file extension
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in allowed_extensions:
+            return create_error_response(f"Invalid file type. Allowed: {', '.join(allowed_extensions)}", 400)
+        
+        # Create backgrounds directory if it doesn't exist
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        backgrounds_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename with timestamp and UUID to prevent collisions
+        timestamp = int(time.time())
+        unique_id = str(uuid.uuid4())[:8]
+        filename = f"theme_bg_{timestamp}_{unique_id}{file_ext}"
+        filepath = backgrounds_dir / filename
+        
+        # Save file
+        file.save(str(filepath))
+        
+        return jsonify({'filename': filename}), 200
+    except Exception as e:
+        logger.error(f"Error uploading theme image: {str(e)}")
+        return create_error_response(f"Error uploading image: {str(e)}", 500)
+
+
+@app.route("/api/themes/images", methods=["GET"])
+def list_theme_images():
+    """List all available background images in the backgrounds directory.
+    
+    Scans the backgrounds directory and returns a sorted list of all image
+    files that can be used as theme backgrounds. Creates the directory if
+    it doesn't exist. Only files with supported image extensions are included.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with object containing images array
+                {"images": ["theme_bg_123.jpg", "custom_bg.png", ...]}
+            - 500: Server error during directory scan
+    
+    Example:
+        GET /api/themes/images
+        Response: {"images": ["bg1.jpg", "bg2.png", "theme_bg_1702839123.webp"]}
+    """
+    try:
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        backgrounds_dir.mkdir(parents=True, exist_ok=True)
+        
+        # List all image files
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        images = []
+        
+        for file in backgrounds_dir.iterdir():
+            if file.is_file() and file.suffix.lower() in allowed_extensions:
+                images.append(file.name)
+        
+        # Sort alphabetically
+        images.sort()
+        
+        return jsonify({'images': images}), 200
+    except Exception as e:
+        logger.error(f"Error listing theme images: {str(e)}")
+        return create_error_response(f"Error listing images: {str(e)}", 500)
+
+
+@app.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
+def get_theme_image(filename):
+    """Retrieve a specific background image file.
+    
+    Downloads a background image from the backgrounds directory. Includes
+    security validation to prevent directory traversal attacks - the resolved
+    path must be within the backgrounds directory. Returns the image file
+    with appropriate content type headers.
+    
+    Args:
+        filename (str): Name of the image file to retrieve
+    
+    Returns:
+        tuple: (File or JSON response, HTTP status code)
+            - 200: Success with image file data
+            - 400: Invalid file path (security violation)
+            - 404: Image file not found
+            - 500: Server error during file retrieval
+    
+    Example:
+        GET /api/themes/images/theme_bg_1702839123.jpg
+        Response: [binary image data with appropriate content-type]
+    """
+    try:
+        logger.info(f"get_theme_image called with filename: {repr(filename)}")
+        
+        # Security: reject paths containing .. (path traversal attempts)
+        # Note: SafeFilenameConverter regex r'[^/]+' already prevents forward slashes
+        # Backslash check is not needed since Flask URL routing filters path separators
+        if '..' in filename:
+            logger.warning(f"Path traversal attempt blocked: {repr(filename)}")
+            return create_error_response("Invalid file path", 400)
+        
+        backgrounds_dir = Path('/var/www/images/backgrounds')
+        filepath = backgrounds_dir / filename
+        
+        # Security check - ensure file is in backgrounds directory
+        # Use os.path.commonpath as additional safety check
+        try:
+            common = os.path.commonpath([str(filepath.resolve()), str(backgrounds_dir.resolve())])
+            if common != str(backgrounds_dir.resolve()):
+                logger.warning(f"Path outside backgrounds directory: {filepath.resolve()}")
+                return create_error_response("Invalid file path", 400)
+        except ValueError:
+            # Paths on different drives (Windows)
+            logger.warning(f"Paths on different drives: {filepath.resolve()}")
+            return create_error_response("Invalid file path", 400)
+        
+        if not filepath.exists():
+            logger.info(f"Image file not found: {filepath}")
+            return create_error_response("Image not found", 404)
+        
+        if not filepath.is_file():
+            logger.warning(f"Path is not a file: {filepath}")
+            return create_error_response("Invalid file path", 400)
+        
+        logger.info(f"Serving image file: {filepath}")
+        return send_file(str(filepath))
+    except Exception as e:
+        logger.error(f"Error getting theme image {filename}: {str(e)}")
+        return create_error_response(f"Error getting image: {str(e)}", 500)
+
+
+@app.route("/api/settings/theme", methods=["GET"])
+def get_current_theme():
+    """Retrieve the currently active theme for the application.
+    
+    Looks up the 'selected_theme' setting to determine which theme is
+    currently active, then returns the complete theme object. This is
+    used by the frontend to apply the active theme on page load.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with active theme object
+            - 404: No theme selected in settings or selected theme not found
+            - 500: Server error during retrieval
+    
+    Example:
+        GET /api/settings/theme
+        Response: {"id": 1, "name": "Dark", "settings": {...}, ...}
+    """
+    session = SessionLocal()
+    try:
+        # Get selected_theme setting
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if not setting:
+            return create_error_response("No theme selected", 404)
+        
+        theme_id = int(setting.value)
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        
+        if not theme:
+            return create_error_response("Selected theme not found", 404)
+        
+        return jsonify(theme.to_dict()), 200
+    except Exception as e:
+        logger.error(f"Error getting current theme: {str(e)}")
+        return create_error_response(f"Error getting current theme: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/settings/theme", methods=["PUT"])
+def update_current_theme():
+    """Set the active theme for the application.
+    
+    Updates the 'selected_theme' setting to change which theme is currently
+    active. Validates that the specified theme exists before updating.
+    Creates the setting if it doesn't exist. This change affects all users
+    of the application.
+    
+    Request Body:
+        theme_id (int, required): ID of the theme to activate
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with confirmation message
+            - 400: Missing theme_id in request body
+            - 404: Theme with specified ID not found
+            - 500: Server error during update
+    
+    Raises:
+        Exception: Database errors during commit are caught and rolled back
+    
+    Example:
+        PUT /api/settings/theme
+        Body: {"theme_id": 5}
+        Response: {"status": "success", "message": "Theme selection updated"}
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        theme_id = data.get('theme_id')
+        
+        if not theme_id:
+            return create_error_response("theme_id is required", 400)
+        
+        # Verify theme exists
+        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        if not theme:
+            return create_error_response("Theme not found", 404)
+        
+        # Update or create selected_theme setting
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if setting:
+            setting.value = str(theme_id)
+        else:
+            setting = Setting()
+            setting.key = 'selected_theme'
+            setting.value = str(theme_id)
+            session.add(setting)
+        
+        session.commit()
+        
+        # Broadcast theme change to all connected clients
+        broadcast_theme_event('theme_changed', {
+            'theme_id': theme_id,
+            'theme_name': theme.name
+        })
+        
+        return create_success_response(message="Theme selection updated")
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating current theme: {str(e)}")
+        return create_error_response(f"Error updating theme selection: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+# ============================================================================
+# WebSocket Event Handlers for Real-Time Board Updates
+# ============================================================================
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle client connection to WebSocket.
+    
+    When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
+    to simulate WebSocket failure for testing purposes.
+    """
+    if REJECT_SOCKETIO_CONNECTIONS:
+        logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
+        return False  # Reject the connection
+    
+    logger.info(f"Client connected: {request.sid}")
+    emit('connected', {'data': 'Connected to board server'})
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection from WebSocket."""
+    logger.info(f"Client disconnected: {request.sid}")
+
+
+@socketio.on('join_board')
+def on_join_board(data):
+    """Join a board's WebSocket room for real-time updates.
+    
+    Args:
+        data: Dictionary containing 'board_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        join_room(room)
+        logger.info(f"Client {request.sid} joined board {board_id}")
+        emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+
+
+@socketio.on('leave_board')
+def on_leave_board(data):
+    """Leave a board's WebSocket room.
+    
+    Args:
+        data: Dictionary containing 'board_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        leave_room(room)
+        logger.info(f"Client {request.sid} left board {board_id}")
+
+
+@socketio.on('card_moved')
+def broadcast_card_moved(data):
+    """Broadcast when a card is moved to different position or column.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'from_column_id', 
+              'to_column_id', 'from_index', 'to_index'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_moved', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card move for board {board_id}")
+
+
+@socketio.on('card_updated')
+def broadcast_card_updated(data):
+    """Broadcast when a card's content or metadata is updated.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', and updated fields
+              (title, description, color, etc.)
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_updated', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card update for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('card_created')
+def broadcast_card_created(data):
+    """Broadcast when a new card is created.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'column_id', 'card_id', 'card_data'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_created', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card creation for board {board_id}")
+
+
+@socketio.on('card_deleted')
+def broadcast_card_deleted(data):
+    """Broadcast when a card is deleted.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'column_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('card_deleted', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted card deletion for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('column_reordered')
+def broadcast_column_reordered(data):
+    """Broadcast when columns are reordered.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'column_order' (list of column IDs)
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('column_reordered', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted column reorder for board {board_id}")
+
+
+@socketio.on('checklist_item_added')
+def broadcast_checklist_item_added(data):
+    """Broadcast when a checklist item is added to a card.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'item_data'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_added', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item addition for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('checklist_item_updated')
+def broadcast_checklist_item_updated(data):
+    """Broadcast when a checklist item is updated.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'updated_fields'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_updated', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item update for board {board_id}, card {data.get('card_id')}")
+
+
+@socketio.on('checklist_item_deleted')
+def broadcast_checklist_item_deleted(data):
+    """Broadcast when a checklist item is deleted.
+    
+    Args:
+        data: Dictionary containing 'board_id', 'card_id', 'item_id'
+    """
+    board_id = data.get('board_id')
+    if board_id:
+        room = f'board_{board_id}'
+        emit('checklist_item_deleted', data, room=room, skip_sid=request.sid)
+        logger.info(f"Broadcasted checklist item deletion for board {board_id}, card {data.get('card_id')}")
+
+
+# ============================================================================
+# WebSocket Handlers for Theme Updates
+# ============================================================================
+
+@socketio.on('join_theme')
+def on_join_theme():
+    """Handle client joining the theme room to receive theme updates."""
+    join_room('theme')
+    logger.info(f"✓ Client {request.sid} joined theme room")
+    
+    # Send current theme to the new client
+    try:
+        session = SessionLocal()
+        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        if setting:
+            try:
+                theme_id = int(setting.value)
+                logger.info(f"📢 Sending current theme {theme_id} to client {request.sid}")
+                # Emit current theme to this client only
+                emit('theme_changed', {
+                    'theme_id': theme_id
+                })
+                logger.info(f"✓ Emitted theme_changed to client {request.sid}")
+            except (ValueError, json.JSONDecodeError) as e:
+                logger.error(f"✗ Error parsing theme_id: {str(e)}")
+        else:
+            logger.info("ℹ No selected_theme setting found")
+        session.close()
+    except Exception as e:
+        logger.error(f"✗ Error sending current theme to client: {str(e)}")
+
+
+@socketio.on('leave_theme')
+def on_leave_theme():
+    """Handle client leaving the theme room."""
+    leave_room('theme')
+    logger.info(f"Client {request.sid} left theme room")
+
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    socketio.run(app, host="0.0.0.0", port=5000)
+
+

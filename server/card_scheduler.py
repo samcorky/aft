@@ -2,6 +2,7 @@
 import os
 import threading
 import time
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -20,36 +21,99 @@ class CardScheduler:
     """Manages automatic card creation on a schedule."""
     
     def __init__(self):
+        import tempfile
         self.running = False
         self.thread: Optional[threading.Thread] = None
-        self.lock_file = Path("/tmp/aft_card_scheduler.lock")
+        self.lock_file = Path(tempfile.gettempdir()) / "aft_card_scheduler.lock"
+    
+    def _is_lock_stale(self) -> bool:
+        """Check if existing lock file is stale.
+        
+        Returns:
+            True if lock file is stale and should be removed, False otherwise.
+        """
+        try:
+            import json
+            lock_data = json.loads(self.lock_file.read_text())
+            
+            # Check container ID (hostname in Docker)
+            current_container = os.environ.get('HOSTNAME', 'unknown')
+            lock_container = lock_data.get('container_id', 'unknown')
+            if lock_container != current_container:
+                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
+                return True  # Different container = stale
+            
+            # Check heartbeat age
+            last_heartbeat_str = lock_data.get('last_heartbeat')
+            if last_heartbeat_str:
+                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
+                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
+                
+                if age_seconds > 300:  # 5 minutes without heartbeat = stale
+                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
+                    return True
+                
+                # Lock is fresh and from same container
+                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
+                return False
+            
+            # No heartbeat in lock file = old format or invalid
+            logger.info("Lock file has no heartbeat, considering stale")
+            return True
+            
+        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
+            logger.info(f"Lock file is invalid or corrupted: {e}")
+            return True  # Invalid lock file = stale
+        except Exception as e:
+            logger.warning(f"Error checking lock staleness: {e}")
+            return True  # Error reading = assume stale for safety
+    
+    def _update_heartbeat(self):
+        """Update lock file with current timestamp to prove thread is alive."""
+        try:
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "card"
+            }
+            self.lock_file.write_text(json.dumps(lock_data, indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to update heartbeat: {e}")
     
     def _acquire_lock(self) -> bool:
-        """Attempt to acquire the scheduler lock.
+        """Attempt to acquire the scheduler lock with heartbeat.
         
         Returns:
             bool: True if lock acquired, False otherwise
         """
         try:
             if self.lock_file.exists():
-                # Check if lock is stale by verifying if the PID is still running
-                try:
-                    pid_text = self.lock_file.read_text().strip()
-                    pid = int(pid_text)
-                    # Check if process is alive
-                    os.kill(pid, 0)
-                    # If no exception, process is alive; lock is not stale
-                    return False
-                except (ValueError, OSError):
-                    # PID not valid or process not running; consider lock stale
-                    logger.warning("Removing stale card scheduler lock file")
+                if self._is_lock_stale():
+                    logger.info("Removing stale lock file")
                     self.lock_file.unlink()
+                else:
+                    return False  # Active lock exists
             
-            # Create lock file with PID
-            self.lock_file.write_text(str(os.getpid()))
+            # Create lock file with heartbeat
+            lock_data = {
+                "pid": os.getpid(),
+                "container_id": os.environ.get('HOSTNAME', 'unknown'),
+                "last_heartbeat": datetime.now().isoformat(),
+                "scheduler_type": "card"
+            }
+            
+            # Atomic write: write to temp file then rename
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', dir=tempfile.gettempdir(), delete=False) as tf:
+                json.dump(lock_data, tf, indent=2)
+                temp_path = tf.name
+            
+            os.rename(temp_path, str(self.lock_file))
             return True
+            
         except Exception as e:
-            logger.error(f"Error acquiring card scheduler lock: {str(e)}")
+            logger.error(f"Error acquiring card scheduler lock: {e}")
             return False
     
     def _release_lock(self):
@@ -62,18 +126,21 @@ class CardScheduler:
     
     def start(self):
         """Start the card scheduler in a background thread."""
+        logger.info("=== Card Scheduler Start Attempt ===")
+        logger.info(f"PID: {os.getpid()}, Container: {os.environ.get('HOSTNAME', 'unknown')}")
+        
         if self.running:
-            logger.warning("Card scheduler is already running")
+            logger.warning("Card scheduler is already running in this instance")
             return
         
         if not self._acquire_lock():
-            logger.error("Could not acquire card scheduler lock - another instance may be running")
+            logger.info("Could not acquire card scheduler lock - another instance is active")
             return
         
         self.running = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
-        logger.info("Card scheduler started")
+        logger.info(f"✓ Card scheduler started successfully - PID: {os.getpid()}, Thread ID: {self.thread.ident}")
     
     def stop(self):
         """Stop the card scheduler."""
@@ -93,7 +160,14 @@ class CardScheduler:
         
         while self.running:
             try:
-                self._check_and_create_cards()
+                # Update heartbeat to prove we're alive
+                self._update_heartbeat()
+                
+                # Check if card scheduler is enabled
+                if self._is_enabled():
+                    self._check_and_create_cards()
+                else:
+                    logger.debug("Card scheduler is disabled, skipping card creation")
             except Exception as e:
                 logger.error(f"Error in card scheduler loop: {str(e)}")
                 create_notification(
@@ -106,6 +180,24 @@ class CardScheduler:
                 if not self.running:
                     break
                 time.sleep(1)
+    
+    def _is_enabled(self) -> bool:
+        """Check if card scheduler is enabled in settings."""
+        try:
+            import json
+            from models import Setting
+            
+            db = SessionLocal()
+            try:
+                setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+                if setting is not None and setting.value is not None:
+                    return json.loads(str(setting.value))
+                return True  # Default to enabled
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Error checking card_scheduler_enabled setting: {e}")
+            return True  # Default to enabled on error
     
     def _check_and_create_cards(self):
         """Check all enabled schedules and create cards if needed."""

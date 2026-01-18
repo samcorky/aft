@@ -739,7 +739,9 @@ class BoardManager {
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
+    this.showDone = false; // Track whether to show done cards (for board_task_category style)
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
+    this.workingStyle = 'kanban'; // Track working style: 'kanban' or 'board_task_category'
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
     this.currentLoadController = null; // Track in-flight board load requests
@@ -807,6 +809,38 @@ class BoardManager {
     }, duration);
   }
 
+  showSuccessToast(message, duration = 3000) {
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = 'success-toast';
+    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #27ae60;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    // Remove after specified duration
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -822,10 +856,31 @@ class BoardManager {
     // Initialize WebSocket for real-time updates
     this.wsManager = new WebSocketManager(this.boardId, this);
     
+    // Load working style preference
+    await this.loadWorkingStyle();
+    
     await this.loadBoard();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
     this.setupViewListener();
+  }
+
+  async loadWorkingStyle() {
+    try {
+      const response = await fetch('/api/settings/working-style');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          this.workingStyle = data.value || 'kanban';
+        }
+      } else if (response.status === 404) {
+        // Setting doesn't exist, default to kanban
+        this.workingStyle = 'kanban';
+      }
+    } catch (error) {
+      console.error('Error loading working style:', error);
+      this.workingStyle = 'kanban';
+    }
   }
 
   setupViewListener() {
@@ -843,9 +898,14 @@ class BoardManager {
       } else if (newView === 'scheduled') {
         this.currentView = 'scheduled';
         this.showArchived = false;
+      } else if (newView === 'done') {
+        this.currentView = 'task';
+        this.showArchived = false;
+        this.showDone = true;
       } else { // 'task'
         this.currentView = 'task';
         this.showArchived = false;
+        this.showDone = false;
       }
       
       await this.loadBoard();
@@ -958,6 +1018,23 @@ class BoardManager {
     try {
       this.boardName = board.name;
       this.columns = board.columns;
+      
+      // Filter cards based on done status and view
+      if (this.workingStyle === 'board_task_category') {
+        if (this.showDone) {
+          // In done view, show only cards where done=true
+          this.columns = this.columns.map(column => ({
+            ...column,
+            cards: (column.cards || []).filter(card => card.done)
+          }));
+        } else {
+          // In task view, show only cards where done=false
+          this.columns = this.columns.map(column => ({
+            ...column,
+            cards: (column.cards || []).filter(card => !card.done)
+          }));
+        }
+      }
       
       // Update header with board name and page title
       this.updateBoardTitle();
@@ -1107,7 +1184,7 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
                       <div class="card-action-buttons" draggable="false">
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
@@ -1119,14 +1196,19 @@ class BoardManager {
                                 <path d="M9 14l3 2 3-2"></path>
                               </svg>
                             </button>` :
-                            `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                                <line x1="3" y1="10" x2="21" y2="10"></line>
-                                <path d="M12 14v2"></path>
-                                <path d="M9 16l3-2 3 2"></path>
-                              </svg>
-                            </button>`
+                            `${this.workingStyle === 'board_task_category' ? 
+                              `<button class="card-done-btn" data-card-id="${card.id}" title="${card.done ? 'Mark as not done' : 'Mark as done'}" draggable="false">
+                                ${card.done ? '○' : '✓'}
+                              </button>` :
+                              `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                                  <path d="M12 14v2"></path>
+                                  <path d="M9 16l3-2 3 2"></path>
+                                </svg>
+                              </button>`
+                            }`
                         }
                         <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
                       </div>
@@ -1446,6 +1528,20 @@ class BoardManager {
           const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
           const cardElement = e.currentTarget.closest('.card');
           await this.unarchiveCard(cardId, cardElement);
+        });
+      });
+      
+      // Add event listeners for card done buttons
+      document.querySelectorAll('.card-done-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
+          const cardElement = e.currentTarget.closest('.card');
+          const currentDone = cardElement.getAttribute('data-done') === 'true';
+          await this.updateCardDoneStatus(cardId, !currentDone, cardElement);
         });
       });
       
@@ -3389,7 +3485,13 @@ class BoardManager {
                 </button>` :
                 cardData.archived ? 
                   `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` :
-                  `<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
+                  `${this.workingStyle === 'board_task_category' ? 
+                    `<button type="button" class="btn btn-secondary" id="done-card-detail-btn" data-card-id="${cardData.id}" title="${cardData.done ? 'Mark as not done' : 'Mark as done'}">
+                      ${cardData.done ? '○ Mark Not Done' : '✓ Mark Done'}
+                    </button>` :
+                    ''
+                  }
+                  <button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
               }
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
@@ -3520,6 +3622,19 @@ class BoardManager {
         const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
         modal.remove();
         await this.unarchiveCard(cardId, cardElement);
+      });
+    }
+
+    // Handle done button (for board_task_category working style)
+    const doneBtn = document.getElementById('done-card-detail-btn');
+    if (doneBtn) {
+      doneBtn.addEventListener('click', async () => {
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+        // Toggle done status
+        const newDoneStatus = !cardData.done;
+        // Wait for update to complete before removing modal
+        await this.updateCardDoneStatus(cardId, newDoneStatus, cardElement);
+        modal.remove();
       });
     }
 
@@ -4474,6 +4589,77 @@ class BoardManager {
         this.showErrorToast('Unarchive card timed out (5s). Please check your connection.');
       } else {
         this.showErrorToast(`Error unarchiving card: ${err.message}`);
+      }
+    }
+  }
+
+  async updateCardDoneStatus(cardId, done, cardElement = null) {
+    // Show loading state after delay to avoid flashing on fast connections
+    const loadingTimeout = setTimeout(() => {
+      if (cardElement) {
+        cardElement.classList.add('updating');
+      }
+    }, 500);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(`/api/cards/${cardId}/done`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ done: done }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Show success message
+        const statusText = done ? 'Card marked as done' : 'Card marked as not done';
+        this.showSuccessToast(statusText, 2000);
+        
+        // If in board_task_category mode, reload the board so the card appears/disappears based on done status
+        if (this.workingStyle === 'board_task_category') {
+          await this.loadBoard();
+        } else {
+          // For kanban mode, just update the button
+          if (cardElement) {
+            cardElement.setAttribute('data-done', done);
+            
+            // Update the button appearance
+            const btn = cardElement.querySelector('.card-done-btn');
+            if (btn) {
+              btn.textContent = done ? '✓' : '○';
+              btn.setAttribute('title', done ? 'Mark as not done' : 'Mark as done');
+            }
+            
+            cardElement.classList.remove('updating');
+          }
+        }
+      } else {
+        if (cardElement) {
+          cardElement.classList.remove('updating');
+        }
+        const errorMsg = data.message || `Server error: ${response.status}`;
+        this.showErrorToast(`Failed to update card status: ${errorMsg}`);
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      clearTimeout(loadingTimeout);
+      if (cardElement) {
+        cardElement.classList.remove('updating');
+      }
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Update card status timed out (5s). Please check your connection.');
+      } else {
+        this.showErrorToast(`Error updating card status: ${err.message}`);
       }
     }
   }

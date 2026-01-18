@@ -141,7 +141,15 @@ pip install -r requirements.txt
 pip install -r requirements-dev.txt  # For testing/linting
 ```
 
-2. Set environment variables:
+2. Configure environment variables:
+
+Copy the `.env.example` file to `.env` and update it with your configuration:
+```bash
+cp .env.example .env
+# Edit .env with your settings
+```
+
+Or set environment variables directly:
 ```bash
 export MYSQL_USER=your_user
 export MYSQL_PASSWORD=your_password
@@ -244,6 +252,16 @@ Required:
 Optional:
 - `FLASK_ENV` - Set to "development" for debug mode
 - `LOG_LEVEL` - Logging level (default: INFO)
+
+### Managing Environment Variables
+
+The `.env.example` file contains all available configuration options with default values. When upgrading or pulling new changes:
+
+1. **On upgrade/pull**: Always review the `.env.example` file for new variables
+2. **Update your `.env`**: Add any new variables that don't exist in your current `.env` file
+3. **Keep your values**: Preserve your existing configuration values while adding new keys
+
+This ensures you have all required configuration options and won't miss new features or security-critical settings.
 
 ## Deployment
 

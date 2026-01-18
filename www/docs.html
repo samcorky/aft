@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Docs - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/docs.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <h1 class="page-title">Docs</h1>
+    
+    <div class="docs-toc">
+      <h2>Table of Contents</h2>
+      <ul>
+        <li><a href="#keyboard-shortcuts">Keyboard Shortcuts</a></li>
+        <li><a href="#working-style">Working Style</a></li>
+      </ul>
+    </div>
+
+    <section id="keyboard-shortcuts" class="docs-section">
+      <h3>Keyboard Shortcuts</h3>
+      <p>Use these keyboard shortcuts for faster card creation:</p>
+      <ul>
+        <li><strong>N</strong> - Add a new card at the <strong>top</strong> of a column</li>
+        <li><strong>M</strong> - Add a new card at the <strong>bottom</strong> of a column</li>
+      </ul>
+      <p>To use these shortcuts:</p>
+      <ul>
+        <li>Hover your mouse over the column where you want to add the card, then press the shortcut key</li>
+        <li>After adding a card, press the shortcut again to quickly add another card to the same column</li>
+        <li>Shortcuts won't work while typing in text fields or when a modal is open</li>
+      </ul>
+    </section>
+
+    <section id="working-style" class="docs-section">
+      <h3>Working Style</h3>
+      <p>AFT supports different working styles to accommodate various team preferences and workflows. You can configure your preferred working style in the General Settings.</p>
+      
+      <h4>Available Working Styles</h4>
+      <p>There are two main working styles available:</p>
+      
+      <div class="docs-image-container">
+        <img src="/images/working_style_options.png" alt="Working Style Options" class="docs-image">
+      </div>
+      
+      <ul>
+        <li><strong>Kanban</strong> - Traditional column-based workflow where cards move through stages (To Do, In Progress, Done, etc.)</li>
+        <li><strong>Board as Task Category</strong> - Boards represent work categories, and columns represent task statuses or subcategories within those boards</li>
+      </ul>
+
+      <h4>Done/Not Done Functionality</h4>
+      <p>When using Board as task Category working style, cards display a <strong>Done button</strong> (checkbox) that allows you to mark individual cards as complete without moving them. This provides quick task completion tracking:</p>
+      
+      <div class="docs-image-container">
+        <img src="/images/done_button_and_counts.png" alt="Done Button and Column Counts" class="docs-image">
+      </div>
+      
+      <p>The Done button provides:</p>
+      <ul>
+        <li>Quick visual indicator of task completion status</li>
+        <li>Ability to mark tasks complete without moving cards between columns</li>
+        <li>Dynamic column count updates showing total cards and completed cards</li>
+      </ul>
+
+      <h4>Done View</h4>
+      <p>A dedicated "Done View" is available that displays only the cards you've marked as done across all columns. This view helps you:</p>
+      
+      <div class="docs-image-container">
+        <img src="/images/done_task_view.png" alt="Done Task View" class="docs-image">
+      </div>
+      
+      <ul>
+        <li>Quickly review completed work</li>
+        <li>Track progress and accomplishments</li>
+        <li>Filter out incomplete tasks to focus on what's finished</li>
+        <li>Access the view from the views dropdown in the header next to the board view options</li>
+      </ul>
+
+      <h4>Column Count Updates</h4>
+      <p>When using the Done button functionality, column headers display updated counts:</p>
+      <ul>
+        <li><strong>Total Count</strong> - Total number of cards in the column (all cards regardless of done status)</li>
+        <li><strong>Done Count</strong> - Number of cards marked as done in the column (shown in parentheses)</li>
+        <li>For example: "To Do (2/5)" means 5 total cards with 2 marked as done</li>
+      </ul>
+    </section>
+  </main>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+</body>
+</html>

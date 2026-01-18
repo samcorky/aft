@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "2026.1.0"
+APP_VERSION = "2026.1.1"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -95,6 +95,12 @@ SETTINGS_SCHEMA = {
         "nullable": False,
         "description": "Time format preference: '12' for 12-hour or '24' for 24-hour",
         "validate": lambda value: isinstance(value, str) and value in ["12", "24"],
+    },
+    "working_style": {
+        "type": "string",
+        "nullable": False,
+        "description": "Working style preference: 'kanban' for traditional kanban board or 'board_task_category' for board as task category with done status",
+        "validate": lambda value: isinstance(value, str) and value in ["kanban", "board_task_category"],
     },
 }
 
@@ -2823,6 +2829,7 @@ def get_board_scheduled_cards(board_id):
                     "description": card.description,
                     "order": card.order,
                     "archived": card.archived,
+                    "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
                     "checklist_items": [
@@ -3670,6 +3677,7 @@ def get_column_cards(column_id):
                 "description": c.description,
                 "order": c.order,
                 "archived": c.archived,
+                "done": c.done,
                 "scheduled": c.scheduled,
                 "schedule": c.schedule,
                 "checklist_items": [
@@ -3833,6 +3841,7 @@ def get_board_cards(board_id):
                     "description": card.description,
                     "order": card.order,
                     "archived": card.archived,
+                    "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
                     "checklist_items": [
@@ -4071,7 +4080,8 @@ def create_card(column_id):
             "order": card.order,
             "scheduled": card.scheduled,
             "schedule": card.schedule,
-            "archived": card.archived
+            "archived": card.archived,
+            "done": card.done
         }
 
         # Get board_id for WebSocket broadcast
@@ -4411,6 +4421,7 @@ def get_card(card_id):
             "column_id": card.column_id,
             "order": card.order,
             "archived": card.archived,
+            "done": card.done,
             "scheduled": card.scheduled,
             "schedule": card.schedule,
             "checklist_items": [
@@ -4663,6 +4674,8 @@ def update_card(card_id):
             "title": card.title,
             "description": card.description,
             "order": card.order,
+            "done": card.done,
+            "archived": card.archived
         }
 
         # Get board_id for WebSocket broadcast
@@ -4816,7 +4829,8 @@ def archive_card(card_id):
             "title": card.title,
             "description": card.description,
             "order": card.order,
-            "archived": card.archived
+            "archived": card.archived,
+            "done": card.done
         }
 
         # Broadcast card archived event
@@ -4898,7 +4912,8 @@ def unarchive_card(card_id):
             "title": card.title,
             "description": card.description,
             "order": card.order,
-            "archived": card.archived
+            "archived": card.archived,
+            "done": card.done
         }
 
         # Get board_id for broadcast
@@ -4916,6 +4931,162 @@ def unarchive_card(card_id):
         db.rollback()
         logger.error(f"Error unarchiving card {card_id}: {str(e)}")
         return jsonify({"success": False, "message": "Failed to unarchive card"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/done", methods=["GET"])
+def get_card_done_status(card_id):
+    """Get the done status of a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+    responses:
+      200:
+        description: Card done status retrieved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            card_id:
+              type: integer
+              example: 1
+            done:
+              type: boolean
+              example: false
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        card = db.query(Card).filter(Card.id == card_id).first()
+        
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        return jsonify({
+            "success": True,
+            "card_id": card.id,
+            "done": card.done
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting card done status {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to get card done status"}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/done", methods=["PATCH"])
+def update_card_done_status(card_id):
+    """Update the done status of a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - done
+          properties:
+            done:
+              type: boolean
+              example: true
+              description: The new done status
+    responses:
+      200:
+        description: Card done status updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Card done status updated successfully"
+            card_id:
+              type: integer
+              example: 1
+            done:
+              type: boolean
+              example: true
+      400:
+        description: Invalid request
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json()
+        
+        if data is None or "done" not in data:
+            return jsonify({"success": False, "message": "done status is required"}), 400
+        
+        done_status = data.get("done")
+        if not isinstance(done_status, bool):
+            return jsonify({"success": False, "message": "done must be a boolean"}), 400
+        
+        card = db.query(Card).filter(Card.id == card_id).first()
+        
+        if not card:
+            return jsonify({"success": False, "message": "Card not found"}), 404
+        
+        board_id = card.column.board_id if card.column else None
+        card.done = done_status
+        db.commit()
+        
+        # Refresh card
+        db.refresh(card)
+        card_dict = {
+            "id": card.id,
+            "column_id": card.column_id,
+            "title": card.title,
+            "description": card.description,
+            "order": card.order,
+            "archived": card.archived,
+            "done": card.done
+        }
+        
+        # Broadcast card done status change event
+        if board_id:
+            broadcast_event('card_done_status_changed', {
+                'board_id': board_id,
+                'card_id': card.id,
+                'column_id': card.column_id,
+                'done': done_status,
+                'card_data': card_dict
+            }, board_id)
+        
+        return jsonify({
+            "success": True,
+            "message": "Card done status updated successfully",
+            "card_id": card.id,
+            "done": card.done
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card done status {card_id}: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to update card done status"}), 500
     finally:
         db.close()
 
@@ -7523,6 +7694,112 @@ def update_current_theme():
         session.rollback()
         logger.error(f"Error updating current theme: {str(e)}")
         return create_error_response(f"Error updating theme selection: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/settings/working-style", methods=["GET"])
+def get_working_style():
+    """Retrieve the current working style preference.
+    
+    Looks up the 'working_style' setting to determine which working style
+    is currently active ('kanban' or 'board_task_category'). Returns the
+    working style value with validation.
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with working_style value
+            - 404: No working style setting found
+            - 500: Server error during retrieval
+    
+    Example:
+        GET /api/settings/working-style
+        Response: {"success": true, "value": "kanban"}
+    """
+    session = SessionLocal()
+    try:
+        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        
+        if not setting:
+            return create_error_response("Working style setting not found", 404)
+        
+        # Parse the JSON-encoded value
+        try:
+            value = json.loads(setting.value)
+        except (json.JSONDecodeError, TypeError):
+            value = setting.value
+        
+        return jsonify({
+            "success": True,
+            "value": value
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting working style: {str(e)}")
+        return create_error_response(f"Error getting working style: {str(e)}", 500)
+    finally:
+        session.close()
+
+
+@app.route("/api/settings/working-style", methods=["PUT"])
+def set_working_style():
+    """Set the working style preference.
+    
+    Updates the 'working_style' setting to change the working style preference.
+    Valid values are 'kanban' (traditional kanban board) or 'board_task_category'
+    (board as task category with done status). Creates the setting if it doesn't exist.
+    
+    Request Body:
+        value (str, required): 'kanban' or 'board_task_category'
+    
+    Returns:
+        tuple: (JSON response, HTTP status code)
+            - 200: Success with confirmation message
+            - 400: Invalid or missing value
+            - 500: Server error during update
+    
+    Example:
+        PUT /api/settings/working-style
+        Body: {"value": "board_task_category"}
+        Response: {"success": true, "message": "Working style updated"}
+    """
+    session = SessionLocal()
+    try:
+        data = request.get_json()
+        
+        if not data or "value" not in data:
+            return create_error_response("value is required", 400)
+        
+        working_style = data.get("value")
+        
+        # Validate working_style value
+        if working_style not in ["kanban", "board_task_category"]:
+            return create_error_response(
+                "Invalid working_style. Must be 'kanban' or 'board_task_category'",
+                400
+            )
+        
+        # Update or create working_style setting
+        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        
+        if setting:
+            setting.value = f'"{working_style}"'  # JSON-encode the value
+        else:
+            setting = Setting()
+            setting.key = 'working_style'
+            setting.value = f'"{working_style}"'  # JSON-encode the value
+            session.add(setting)
+        
+        session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": "Working style updated",
+            "value": working_style
+        }), 200
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error setting working style: {str(e)}")
+        return create_error_response(f"Error setting working style: {str(e)}", 500)
     finally:
         session.close()
 

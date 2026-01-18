@@ -1,0 +1,119 @@
+/* Docs page styles */
+
+/* Constrain docs page content width for better readability */
+.canvas {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.docs-toc {
+  background: var(--page-panel-background);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 30px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.docs-toc h2 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-bold);
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
+}
+
+.docs-toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.docs-toc li {
+  margin: 8px 0;
+}
+
+.docs-toc a {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 16px;
+  display: inline-block;
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+  transition: border-bottom 0.2s ease;
+}
+
+.docs-toc a:hover {
+  border-bottom: 1px solid var(--primary-color);
+}
+
+.docs-section {
+  background: var(--page-panel-background);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  scroll-margin-top: 100px;
+}
+
+.docs-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--text-bold);
+  font-size: 20px;
+  font-weight: 600;
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
+}
+
+.docs-section p {
+  margin: 12px 0;
+  line-height: 1.6;
+  color: var(--text-color);
+}
+
+.docs-section ul {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.docs-section li {
+  margin: 8px 0;
+  line-height: 1.6;
+  color: var(--text-color);
+}
+
+.docs-section a {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.docs-section a:hover {
+  text-decoration: underline;
+}
+.docs-section h4 {
+  margin-top: 24px;
+  margin-bottom: 12px;
+  color: var(--text-bold);
+  font-size: 16px;
+  font-weight: 600;
+  border-left: 4px solid var(--primary-color);
+  padding-left: 12px;
+}
+
+.docs-image-container {
+  margin: 20px 0;
+  text-align: center;
+}
+
+.docs-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin: 12px 0;
+}

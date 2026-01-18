@@ -59,6 +59,7 @@ class Header {
     this.statusText = null;
     this.versionInfo = null;
     this.currentView = 'task'; // Default view
+    this.workingStyle = 'kanban'; // Working style: 'kanban' or 'board_task_category'
     this.dbConnected = false; // Track database connection status
     this.wsConnected = false; // Track WebSocket connection status
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
@@ -98,6 +99,9 @@ class Header {
     
     // Initialize dropdown pin behavior for settings and user menus
     this.initializeDropdownPin();
+    
+    // Load working style preference
+    await this.loadWorkingStyle();
     
     // Initialize views dropdown
     this.initializeViewsDropdown();
@@ -305,6 +309,70 @@ class Header {
     }
   }
 
+  // Load working style preference
+  async loadWorkingStyle() {
+    try {
+      const response = await fetch('/api/settings/working-style');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          this.workingStyle = data.value || 'kanban';
+          // Update views dropdown based on working style
+          this.updateViewsDropdown();
+        }
+      } else if (response.status === 404) {
+        // Setting doesn't exist, default to kanban
+        this.workingStyle = 'kanban';
+        this.updateViewsDropdown();
+      }
+    } catch (error) {
+      console.error('Error loading working style:', error);
+      this.workingStyle = 'kanban';
+      this.updateViewsDropdown();
+    }
+  }
+
+  // Update views dropdown to show/hide done view based on working style
+  updateViewsDropdown() {
+    const dropdownMenu = document.getElementById('views-dropdown-menu');
+    if (!dropdownMenu) return;
+
+    if (this.workingStyle === 'board_task_category') {
+      // Check if done view already exists
+      if (!document.querySelector('[data-view="done"]')) {
+        // Add done view option
+        const doneItem = document.createElement('button');
+        doneItem.className = 'views-dropdown-item';
+        doneItem.setAttribute('data-view', 'done');
+        doneItem.innerHTML = `
+          <svg class="views-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span>Done View</span>
+        `;
+        
+        // Add click handler directly to the new item
+        doneItem.addEventListener('click', (e) => {
+          if (doneItem.classList.contains('active')) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          this.setView('done');
+          document.getElementById('views-dropdown-menu').classList.remove('show');
+        });
+        
+        dropdownMenu.appendChild(doneItem);
+      }
+    } else {
+      // Remove done view if it exists
+      const doneItem = document.querySelector('[data-view="done"]');
+      if (doneItem) {
+        doneItem.remove();
+      }
+    }
+  }
+
   // Initialize dropdown pin behavior for settings and user menus
   initializeDropdownPin() {
     const dropdowns = [
@@ -423,7 +491,8 @@ class Header {
       const viewNames = {
         'task': 'Task View',
         'scheduled': 'Scheduled View',
-        'archived': 'Archived View'
+        'archived': 'Archived View',
+        'done': 'Done View'
       };
       label.textContent = viewNames[view] || 'Task View';
     }

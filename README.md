@@ -53,6 +53,17 @@ Use at your own risk.
 
 ## Features
 
+### Working Style Configuration
+The application supports different working styles to accommodate various team preferences. Configure your preferred working style through the General Settings page:
+
+![Working Style Options](images/working_style_options.png)
+
+**Available Options:**
+- **Kanban** - Traditional column-based workflow where cards move through stages (To Do, In Progress, Done, etc.)
+- **Board as Task Category** - Boards represent work categories, and columns represent task statuses or subcategories within those boards
+
+Both styles support the Done button functionality for marking cards as complete without moving them, and access to a dedicated Done View for reviewing completed work. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
+
 ### 📋 Board Management
 - **Create Multiple Boards** - Organize different projects with separate Kanban boards
 - **Update Board Details** - Rename boards and modify their properties
@@ -122,6 +133,12 @@ Use at your own risk.
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
 - **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
+- **Working Style** - Choose between Kanban and Board as Task Category workflow styles
+  - **Kanban**: Traditional column-based workflow where cards move through stages
+  - **Board as Task Category**: Boards represent work categories, columns represent task statuses
+  - **Done Button**: Mark cards as complete without moving them between columns
+  - **Done View**: Dedicated view to see only completed cards across all columns
+  - **Smart Column Counts**: See total and done counts in column headers (e.g., "To Do (2/5)")
 
 ![Settings](images/settings.png)
 
@@ -165,11 +182,23 @@ Use at your own risk.
 
 ![Backup Settings](images/backup_configuration.png)
 
+### � Documentation
+- **Comprehensive Docs** - Full documentation available in-app via the Docs page
+- **Keyboard Shortcuts** - Quick reference for card creation shortcuts (N for top, M for bottom)
+- **Working Style Guide** - Detailed guide on using different working styles:
+  - Available working style options and when to use each
+  - Done/Not Done button functionality and task completion tracking
+  - Done View feature for reviewing completed work
+  - Column count display and what each number means
+  - Screenshots and visual examples of each feature
+- **Easy Access** - Link to Docs from the user menu in the header
+
 ### 🔔 Notifications
 - **System Notifications** - Receive alerts about important events
 - **Backup Notifications** - Alerts for overdue backups or backup failures
 - **Schedule Notifications** - Alerts for schedule errors or when schedules end
 - **Version Notifications** - Automatic alerts when new AFT releases are available
+- **Documentation Notification** - Welcome notification on first installation directing users to Docs
 - **Action Buttons** - Optional action buttons on notifications with secure URL validation
 - **Notification Center** - View and manage all notifications from the header
 - **Mark as Read** - Individual or bulk mark notifications as read and delete

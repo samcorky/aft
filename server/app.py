@@ -6782,6 +6782,23 @@ def init_housekeeping_scheduler():
 # Only initialize schedulers in the first worker to start
 # Use a combination of lock file AND worker tracking
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
+
+# Clean up stale init lock files from previous container instances
+# This must happen BEFORE trying to acquire the lock
+# If the init lock is stale (from a dead container process), we want to remove it
+# so this container's worker can acquire it and initialize schedulers
+try:
+    if init_lock_file.exists():
+        # Check if the lock file is stale (older than 5 minutes)
+        # In a container, if no worker has refreshed the lock in 5 minutes, assume the container died
+        from datetime import datetime, timedelta
+        lock_age = (datetime.now() - datetime.fromtimestamp(init_lock_file.stat().st_mtime)).total_seconds()
+        if lock_age > 300:  # 5 minutes
+            logger.info(f"Init lock file is stale ({lock_age}s old), removing it")
+            init_lock_file.unlink()
+except Exception as e:
+    logger.warning(f"Failed to clean stale init lock file: {e}")
+
 should_init = False
 
 try:
@@ -6813,13 +6830,6 @@ if should_init:
         time.sleep(0.5)
     except Exception as e:
         logger.error(f"Error initializing schedulers: {e}")
-    finally:
-        # Clean up the init lock file to allow other workers or subsequent runs to initialize if needed
-        try:
-            init_lock_file.unlink()
-            logger.info(f"Worker PID {os.getpid()}: Cleaned up init lock file")
-        except Exception as e:
-            logger.warning(f"Failed to clean up init lock file: {e}")
 else:
     logger.info(f"Worker PID {os.getpid()}: Waiting for first worker to initialize schedulers")
     # Wait for the first worker to finish initializing

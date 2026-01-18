@@ -163,7 +163,59 @@ class TestThemesAPI:
         # Cleanup
         requests.delete(f'{api_client}/api/themes/{theme_id}')
     
-    def test_update_system_theme_fails(self, api_client):
+    def test_update_theme_missing_request_body(self, api_client):
+        """Test that updating a theme without a request body returns 400."""
+        # Create a theme to update
+        themes_response = requests.get(f'{api_client}/api/themes')
+        source_theme = themes_response.json()[0]
+        
+        unique_name = f'Body Test Theme {int(time.time() * 1000)}'
+        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+            'source_theme_id': source_theme['id'],
+            'new_name': unique_name
+        })
+        theme_id = create_response.json()['id']
+        
+        try:
+            # Try to update without a request body
+            response = requests.put(f'{api_client}/api/themes/{theme_id}')
+            assert response.status_code == 400
+            data = response.json()
+            assert data['success'] is False
+            assert 'valid JSON' in data['message'] or 'required' in data['message']
+        finally:
+            # Cleanup
+            requests.delete(f'{api_client}/api/themes/{theme_id}')
+    
+    def test_update_theme_invalid_json(self, api_client):
+        """Test that updating a theme with invalid JSON returns 400."""
+        # Create a theme to update
+        themes_response = requests.get(f'{api_client}/api/themes')
+        source_theme = themes_response.json()[0]
+        
+        unique_name = f'Invalid JSON Test Theme {int(time.time() * 1000)}'
+        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+            'source_theme_id': source_theme['id'],
+            'new_name': unique_name
+        })
+        theme_id = create_response.json()['id']
+        
+        try:
+            # Try to update with invalid JSON (malformed request)
+            # This is handled by Flask's request.get_json() raising BadRequest
+            response = requests.put(
+                f'{api_client}/api/themes/{theme_id}',
+                data='invalid json',
+                headers={'Content-Type': 'application/json'}
+            )
+            assert response.status_code == 400
+            data = response.json()
+            assert data['success'] is False
+        finally:
+            # Cleanup
+            requests.delete(f'{api_client}/api/themes/{theme_id}')
+    
+
         """Test that system themes cannot be updated."""
         # Get a system theme
         themes_response = requests.get(f'{api_client}/api/themes')

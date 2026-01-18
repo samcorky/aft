@@ -339,7 +339,7 @@ class Settings {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ working_style: workingStyle })
+        body: JSON.stringify({ value: workingStyle })
       });
 
       const data = await response.json();

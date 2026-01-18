@@ -6813,6 +6813,13 @@ if should_init:
         time.sleep(0.5)
     except Exception as e:
         logger.error(f"Error initializing schedulers: {e}")
+    finally:
+        # Clean up the init lock file to allow other workers or subsequent runs to initialize if needed
+        try:
+            init_lock_file.unlink()
+            logger.info(f"Worker PID {os.getpid()}: Cleaned up init lock file")
+        except Exception as e:
+            logger.warning(f"Failed to clean up init lock file: {e}")
 else:
     logger.info(f"Worker PID {os.getpid()}: Waiting for first worker to initialize schedulers")
     # Wait for the first worker to finish initializing

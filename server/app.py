@@ -210,7 +210,19 @@ app.url_map.converters['safe_filename'] = SafeFilenameConverter
 # Controls which origins can connect via HTTP/HTTPS and WebSocket
 cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost')
 cors_allowed_origins = [origin.strip() for origin in cors_origins_env.split(',')]
-CORS(app, origins=cors_allowed_origins, supports_credentials=True)
+
+# Initialize Flask-CORS for HTTP/HTTPS endpoints
+# Flask-CORS validates all cross-origin requests (requests with Origin header) against
+# the configured origins list. Requests without an Origin header are processed normally
+# (same-origin requests in browsers, or requests from non-browser clients).
+# For disallowed origins, Flask-CORS will not add CORS headers to the response,
+# which causes the browser to reject the cross-origin request.
+CORS(
+    app,
+    origins=cors_allowed_origins,
+    supports_credentials=True,
+    methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH']
+)
 
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
@@ -228,7 +240,6 @@ socketio = SocketIO(
     app, 
     cors_allowed_origins=cors_allowed_origins,
     async_mode='threading',
-    serve_client=True,
     message_queue=redis_url  # Connect to Redis for message queue (None if not configured)
 )
 

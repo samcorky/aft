@@ -7714,7 +7714,7 @@ def get_working_style():
     
     Example:
         GET /api/settings/working-style
-        Response: {"success": true, "key": "working_style", "value": "kanban"}
+        Response: {"success": true, "value": "kanban"}
     """
     session = SessionLocal()
     try:
@@ -7725,14 +7725,12 @@ def get_working_style():
         
         # Parse the JSON-encoded value
         try:
-            import json
             value = json.loads(setting.value)
         except (json.JSONDecodeError, TypeError):
             value = setting.value
         
         return jsonify({
             "success": True,
-            "key": "working_style",
             "value": value
         }), 200
     except Exception as e:
@@ -7751,27 +7749,27 @@ def set_working_style():
     (board as task category with done status). Creates the setting if it doesn't exist.
     
     Request Body:
-        working_style (str, required): 'kanban' or 'board_task_category'
+        value (str, required): 'kanban' or 'board_task_category'
     
     Returns:
         tuple: (JSON response, HTTP status code)
             - 200: Success with confirmation message
-            - 400: Invalid or missing working_style value
+            - 400: Invalid or missing value
             - 500: Server error during update
     
     Example:
         PUT /api/settings/working-style
-        Body: {"working_style": "board_task_category"}
+        Body: {"value": "board_task_category"}
         Response: {"success": true, "message": "Working style updated"}
     """
     session = SessionLocal()
     try:
         data = request.get_json()
         
-        if not data or "working_style" not in data:
-            return create_error_response("working_style is required", 400)
+        if not data or "value" not in data:
+            return create_error_response("value is required", 400)
         
-        working_style = data.get("working_style")
+        working_style = data.get("value")
         
         # Validate working_style value
         if working_style not in ["kanban", "board_task_category"]:
@@ -7796,7 +7794,7 @@ def set_working_style():
         return jsonify({
             "success": True,
             "message": "Working style updated",
-            "working_style": working_style
+            "value": working_style
         }), 200
     except Exception as e:
         session.rollback()

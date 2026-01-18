@@ -736,6 +736,7 @@ class BoardManager {
     this.boardId = null;
     this.boardName = '';
     this.columns = [];
+    this.originalColumns = []; // Store original unfiltered columns for accurate card counting
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
@@ -1017,6 +1018,8 @@ class BoardManager {
   processBoard(board) {
     try {
       this.boardName = board.name;
+      // Store the original unfiltered columns for counting purposes
+      this.originalColumns = JSON.parse(JSON.stringify(board.columns));
       this.columns = board.columns;
       
       // Filter cards based on done status and view
@@ -1116,6 +1119,44 @@ class BoardManager {
     await this.loadBoard();
   }
 
+  /**
+   * Get the card count display for a column.
+   * In board_task_category mode:
+   *   - Task view: shows "done/total" format using original unfiltered data
+   *   - Done view: shows only count of done cards
+   * Otherwise, shows just the total count.
+   * 
+   * All counts exclude archived and scheduled template cards.
+   * 
+   * @param {Object} column - The column object with cards array
+   * @param {number} columnIndex - The index of the column in the columns array
+   * @returns {string} Card count display string
+   */
+  getColumnCardCount(column, columnIndex) {
+    if (!column.cards) return '0';
+    
+    if (this.workingStyle === 'board_task_category') {
+      // Use original unfiltered column data for accurate counts
+      const originalColumn = this.originalColumns[columnIndex];
+      if (!originalColumn || !originalColumn.cards) return '0';
+      
+      // Count all active cards (non-archived, non-scheduled) in the original data
+      const allActiveCards = originalColumn.cards.filter(card => !card.archived && !card.scheduled);
+      const doneCards = allActiveCards.filter(card => card.done);
+      
+      if (this.currentView === 'task' && !this.showArchived) {
+        // Task view: show done/total format
+        return `${doneCards.length}/${allActiveCards.length}`;
+      } else if (this.showDone) {
+        // Done view: show only done count
+        return doneCards.length.toString();
+      }
+    }
+    
+    // Default behavior: just show total count
+    return column.cards.length.toString();
+  }
+
   renderBoard() {
     // Show/hide views dropdown in header based on columns
     if (window.header) {
@@ -1140,11 +1181,11 @@ class BoardManager {
     } else {
       this.container.innerHTML = `
         <div class="columns-container">
-          ${this.columns.map(column => `
+          ${this.columns.map((column, index) => `
             <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
               <div class="column-header">
                 <div class="column-title-group">
-                  <h4>${this.escapeHtml(column.name)} <span class="card-count">(${column.cards ? column.cards.length : 0})</span></h4>
+                  <h4>${this.escapeHtml(column.name)} <span class="card-count">(${this.getColumnCardCount(column, index)})</span></h4>
                   <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
                 </div>
                 <div class="column-actions">

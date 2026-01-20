@@ -15,7 +15,7 @@ class TestBackupNotifications:
         The implementation is verified through code review.
         """
         # Overdue detection happens in scheduler loop every 60 seconds
-        # Notification created when time_since_last > frequency * 2
+        # Notification created when time_since_last > frequency + 5 minutes
         pass
     
     def test_manual_backup_creates_notification_on_database_error(self, api_client):

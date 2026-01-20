@@ -149,6 +149,26 @@ class BackupRestore {
         await this.toggleBackupEnabled(e.target.checked);
       });
     }
+
+    // Frequency unit change - disable frequency value input for daily
+    if (this.frequencyUnit) {
+      this.frequencyUnit.addEventListener('change', (e) => {
+        if (this.frequencyValue) {
+          if (e.target.value === 'daily') {
+            this.frequencyValue.disabled = true;
+            this.frequencyValue.value = 1;
+            this.frequencyValue.style.opacity = '0.5';
+            this.frequencyValue.style.cursor = 'not-allowed';
+          } else {
+            this.frequencyValue.disabled = false;
+            this.frequencyValue.style.opacity = '1';
+            this.frequencyValue.style.cursor = 'auto';
+          }
+        }
+      });
+      // Trigger change event on init to set initial state
+      this.frequencyUnit.dispatchEvent(new Event('change'));
+    }
   }
 
   async downloadBackup() {

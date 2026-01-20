@@ -80,7 +80,7 @@
           </svg>
           Automatic Backups
         </h3>
-        <p class="setting-help">Configure automatic database backups to protect your data. Backups align to the start time pattern. If a backup is overdue (more than 2x the frequency interval), it will run immediately and then resume the normal schedule.</p>
+        <p class="setting-help">Configure automatic database backups to protect your data. Backups run at scheduled times based on your frequency settings. If a backup is overdue (more than frequency + 5 minutes), it will run immediately and then resume the normal schedule.</p>
         
         <div class="status-info">
           <dl>
@@ -117,14 +117,14 @@
               <label for="frequencyValue">Backup Frequency: Run every</label>
               <input type="number" id="frequencyValue" name="frequency_value" 
                      min="1" max="99" value="24" required>
-              <p class="setting-help">Value between 1 and 99</p>
+              <p class="setting-help">Value between 1 and 99 (disabled for daily)</p>
             </div>
             <div class="setting-item">
               <label for="frequencyUnit">Unit</label>
               <select id="frequencyUnit" name="frequency_unit" class="setting-select" required>
                 <option value="minutes">Minutes</option>
                 <option value="hours" selected>Hours</option>
-                <option value="days">Days</option>
+                <option value="daily">Daily</option>
               </select>
             </div>
           </div>
@@ -132,7 +132,7 @@
           <div class="setting-item">
             <label for="startTime">Backup Start Time (UTC)</label>
             <input type="time" id="startTime" name="start_time" value="02:00" required>
-            <p class="setting-help">Time to align backups in UTC timezone (HH:MM). For daily backups, this is the time of day. For hourly backups, backups run at this minute past each hour (e.g., 02:45 runs at :45 past every hour). For minute intervals, backups align to this time (e.g., 16:09 with 5-minute interval runs at 16:09, 16:14, 16:19, etc.).</p>
+            <p class="setting-help">Time to align backups in UTC timezone (HH:MM). For daily backups, this is the time of day. For hourly backups, backups run at this minute past each frequency-aligned hour (e.g., start time 02:45 with 6-hour frequency runs at :45 past hours 0, 6, 12, 18). For minute intervals, backups run at frequency-aligned minutes.</p>
           </div>
 
           <div class="setting-item">

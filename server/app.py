@@ -57,8 +57,8 @@ SETTINGS_SCHEMA = {
     "backup_frequency_unit": {
         "type": "string",
         "nullable": False,
-        "description": "Unit for backup frequency (minutes, hours, days)",
-        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "days"],
+        "description": "Unit for backup frequency (minutes, hours, daily)",
+        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "daily"],
     },
     "backup_start_time": {
         "type": "string",
@@ -2222,7 +2222,7 @@ def get_backup_config():
                 defaults = {
                     "backup_enabled": False,
                     "backup_frequency_value": 1,
-                    "backup_frequency_unit": "days",
+                    "backup_frequency_unit": "daily",
                     "backup_start_time": "00:00",
                     "backup_retention_count": 7,
                     "backup_minimum_free_space_mb": 100,
@@ -2324,6 +2324,12 @@ def update_backup_config():
                 if not is_valid:
                     errors.append(error_msg)
         
+        # Additional validation: If frequency_unit is "daily", frequency_value must be 1
+        if "frequency_unit" in data and data.get("frequency_unit") == "daily":
+            if "frequency_value" in data and data.get("frequency_value") != 1:
+                errors.append("Daily backups must have frequency_value of 1 (not configurable)")
+            # If frequency_unit is daily but frequency_value not provided, will be caught below when enabling
+        
         if errors:
             return jsonify({"success": False, "message": "; ".join(errors)}), 400
         
@@ -2354,6 +2360,10 @@ def update_backup_config():
                     is_valid, error_msg = validate_setting(key, value)
                     if not is_valid:
                         required_errors.append(error_msg)
+            
+            # Additional validation: If frequency_unit is daily, frequency_value must be 1
+            if final_settings.get("frequency_unit") == "daily" and final_settings.get("frequency_value") != 1:
+                required_errors.append("Daily backups require frequency_value of 1")
             
             if required_errors:
                 return jsonify({

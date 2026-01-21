@@ -122,8 +122,17 @@ git checkout -b fix/your-bugfix-name
 **⚠️ IMPORTANT**: If your changes include database schema modifications (new tables, columns, etc.), follow these steps:
 
 1. **Create Migration**: Follow the [Alembic Migration Guide](server/alembic/MIGRATION_GUIDE.md)
-2. **Update Schema Validation**: Add new tables to `expected_tables` in `server/app.py` (line ~315)
-3. **Test Backup/Restore**: Verify backup and restore functionality works with your changes
+
+2. **Update Schema Validation**: When adding new tables to the database:
+   - Add the table name to the `expected_tables` list in the `validate_schema_integrity()` function in [server/app.py](server/app.py#L545)
+   - This list defines which tables are allowed during backup restoration
+   - Current expected tables: `alembic_version`, `boards`, `cards`, `checklist_items`, `columns`, `comments`, `notifications`, `scheduled_cards`, `settings`, `themes`
+   - Failure to update this list will cause backup restoration to fail with "Unexpected tables found in backup" error
+
+3. **Test Backup/Restore**: Verify backup and restore functionality works with your changes:
+   - Create a manual backup using the Backup & Restore interface
+   - Verify the backup file doesn't trigger security validation errors
+   - Test restoring the backup to confirm it passes all validations
 
 See the [Migration Guide](server/alembic/MIGRATION_GUIDE.md) for detailed instructions on creating migrations and updating schema validation.
 

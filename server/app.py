@@ -451,6 +451,7 @@ def validate_backup_file_security(file_path):
     import re
 
     # Patterns that indicate potentially dangerous SQL
+    # Note: Patterns must be specific to SQL commands, not matching text in data
     dangerous_patterns = [
         (r'\bGRANT\s+', 'GRANT statements (privilege manipulation)'),
         (r'\bCREATE\s+USER\b', 'CREATE USER statements'),
@@ -459,7 +460,8 @@ def validate_backup_file_security(file_path):
         (r'\bINTO\s+OUTFILE\b', 'INTO OUTFILE (file system access)'),
         (r'\bLOAD\s+DATA\b', 'LOAD DATA (file system access)'),
         (r'\bCREATE\s+(PROCEDURE|FUNCTION)\b', 'Stored procedures/functions'),
-        (r'\bUSE\s+`?\w+`?\s*', 'USE statements (cross-database operation)'),
+        # USE must be at start of statement (after comments/whitespace) followed by db name and semicolon
+        (r'^\s*USE\s+[`\']?\w+[`\']?\s*;', 'USE statements (cross-database operation)'),
         (r'\\!', 'MySQL shell commands'),
         (r'\bSELECT\s+.+?\bINTO\s+@', 'Variable assignment with SELECT'),
         (r'\bEXECUTE\s+', 'Dynamic SQL execution'),
@@ -552,6 +554,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'settings',
             'notifications',
             'scheduled_cards',
+            'themes',
             'alembic_version'
         ]
 

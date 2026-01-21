@@ -61,6 +61,7 @@
   padding-bottom: 20px;
   min-height: calc(100vh - 190px);
   justify-content: safe center;
+  color-scheme: light dark;
 }
 
 .add-column-placeholder {
@@ -357,6 +358,27 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  color-scheme: light dark;
+}
+
+/* Column cards scrollbar styling */
+.column-cards::-webkit-scrollbar {
+  width: 8px;
+}
+
+.column-cards::-webkit-scrollbar-track {
+  background: var(--background-light);
+  border-radius: 4px;
+}
+
+.column-cards::-webkit-scrollbar-thumb {
+  background: var(--secondary-color);
+  border-radius: 4px;
+  border: 2px solid var(--background-light);
+}
+
+.column-cards::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 
 .column-cards .add-card-btn {
@@ -777,12 +799,13 @@
 
 .columns-container::-webkit-scrollbar-track {
   background: var(--background-light);
-  border-radius: 5px;
+  border-radius: 4px;
 }
 
 .columns-container::-webkit-scrollbar-thumb {
   background: var(--secondary-color);
-  border-radius: 5px;
+  border-radius: 4px;
+  border: 2px solid var(--background-light);
 }
 
 .columns-container::-webkit-scrollbar-thumb:hover {

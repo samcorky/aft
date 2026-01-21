@@ -49,6 +49,7 @@ class BackupScheduler:
         self.permission_error = None  # Stores permission error message if directory not writable
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
+        self._last_scheduled_minute_trigger: Optional[tuple] = None  # (hour, minute) tuple to prevent re-triggering in same minute
     
     def _is_lock_stale(self) -> bool:
         """Check if existing lock file is stale.
@@ -517,6 +518,13 @@ class BackupScheduler:
             logger.info(f"Backup interval coverage check: last backup was {time_since_last} ago (>= {frequency}), running backup")
             return True
         
+        # Additional deduplication: even if interval coverage check passes,
+        # skip if we ran a backup in the last 60 seconds (covers all scheduled time windows)
+        # Use <= to catch exact 60-second boundaries due to processing delays
+        if time_since_last <= timedelta(seconds=60):
+            logger.debug(f"Backup ran {time_since_last.total_seconds():.0f}s ago, skipping to prevent duplicates within same minute window")
+            return False
+        
         # Check 2: Is this a scheduled backup time?
         try:
             start_hour, start_minute = map(int, start_time.split(':'))
@@ -527,7 +535,12 @@ class BackupScheduler:
         
         if freq_unit == "daily":
             # Daily backup: check if we're at the scheduled time
-            if now.hour == start_hour and now.minute == start_minute:
+            # Use second-level granularity to prevent multiple backups in the same minute
+            if now.hour == start_hour and now.minute == start_minute and now.second < 60:
+                # Only run if we haven't run in the last 60 seconds (covers entire minute window)
+                if self.last_backup_time and (now - self.last_backup_time).total_seconds() < 60:
+                    logger.debug(f"Scheduled daily time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                    return False
                 logger.info(f"Scheduled daily backup time reached: {start_time}")
                 return True
         
@@ -538,6 +551,10 @@ class BackupScheduler:
                 hours_since_midnight = now.hour
                 # Check if we're at a frequency-aligned hour (e.g., every 6 hours means 0, 6, 12, 18)
                 if hours_since_midnight % freq_value == 0:
+                    # Only run if we haven't run in the last 60 seconds (covers entire minute window)
+                    if self.last_backup_time and (now - self.last_backup_time).total_seconds() < 60:
+                        logger.debug(f"Scheduled hourly time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                        return False
                     logger.info(f"Scheduled hourly backup time reached: every {freq_value} hours at :{start_minute:02d}")
                     return True
         
@@ -547,6 +564,22 @@ class BackupScheduler:
             minutes_since_midnight = now.hour * 60 + now.minute
             # Check if we're at a frequency-aligned minute
             if minutes_since_midnight % freq_value == 0:
+                # Additional deduplication: only run if we haven't run in the last 60 seconds
+                # Use <= to catch exact 60-second boundaries due to processing delays
+                if self.last_backup_time and (now - self.last_backup_time).total_seconds() <= 60:
+                    logger.debug(f"Scheduled minute time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                    return False
+                # Use second-precision: only trigger once per minute window
+                # Store the last scheduled trigger time (rounded to minute) to prevent re-triggering within same minute
+                if not hasattr(self, '_last_scheduled_minute_trigger'):
+                    self._last_scheduled_minute_trigger = None
+                
+                current_minute_key = (now.hour, now.minute)
+                if self._last_scheduled_minute_trigger == current_minute_key:
+                    logger.debug(f"Already triggered backup for minute {now.hour:02d}:{now.minute:02d}, skipping")
+                    return False
+                
+                self._last_scheduled_minute_trigger = current_minute_key
                 logger.info(f"Scheduled minute backup time reached: every {freq_value} minutes")
                 return True
         
@@ -828,6 +861,12 @@ class BackupScheduler:
                     logger.info("Running scheduled backup")
                     
                     if self._create_backup():
+                        # Update in-memory last_backup_time IMMEDIATELY to prevent race conditions
+                        # This prevents another scheduler iteration from creating a duplicate backup
+                        # before the database update completes
+                        self.last_backup_time = datetime.now()
+                        
+                        # Also persist to database (non-critical if fails, in-memory timestamp prevents duplicates)
                         self._update_last_backup_setting()
                         
                         # Rotate old backups

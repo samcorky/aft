@@ -459,14 +459,14 @@ class BackupScheduler:
         
         Two simple checks determine if a backup should run:
         
-        Check 1 - Scheduled time reached:
+            Check 1 - Backup interval coverage:
+            - Runs immediately if no backup exists, OR
+            - Runs if last backup was more than frequency ago (catches missed/late backups)
+
+            Check 2 - Scheduled time reached:
             - Daily: now matches start_time (HH:MM)
             - Hourly: now.minute matches start_minute, and we're at a frequency-aligned hour
             - Minute: we're at a frequency-aligned minute
-        
-        Check 2 - Backup interval coverage:
-            - Runs immediately if no backup exists, OR
-            - Runs if last backup was more than frequency ago (catches missed/late backups)
         
         If both checks fail, the overdue monitor (frequency + 5 minutes) will detect
         and notify about any unexpected backup gaps.
@@ -525,7 +525,7 @@ class BackupScheduler:
             logger.warning(f"Invalid start_time format: {start_time}, skipping scheduled time check")
             return False
         
-        if freq_unit == "days":
+        if freq_unit == "daily":
             # Daily backup: check if we're at the scheduled time
             if now.hour == start_hour and now.minute == start_minute:
                 logger.info(f"Scheduled daily backup time reached: {start_time}")
@@ -963,9 +963,9 @@ class BackupScheduler:
     def _is_backup_within_window(self, backup_date: datetime, freq_value: int, freq_unit: str) -> bool:
         """Check if backup is within the expected backup window.
         
-        This is a generous window (2x frequency) for status reporting purposes,
-        allowing users to see if backups are running regularly. The actual overdue
-        threshold for notifications is much stricter (frequency + 5 minutes).
+        This uses the same threshold as the overdue monitor (frequency + 5 minutes)
+        for consistency. Backups within this window are considered healthy in the
+        status widget.
         
         Args:
             backup_date: Date of the backup file
@@ -977,14 +977,14 @@ class BackupScheduler:
         """
         now = datetime.now()
         
-        # Calculate window (frequency * 2 for status reporting)
-        # Note: This is separate from the overdue threshold used for notifications
+        # Calculate window (frequency + 5 minutes for status reporting)
+        # This matches the overdue threshold used for notifications
         if freq_unit == "minutes":
-            window = timedelta(minutes=freq_value * 2)
+            window = timedelta(minutes=freq_value) + timedelta(minutes=5)
         elif freq_unit == "hours":
-            window = timedelta(hours=freq_value * 2)
-        elif freq_unit == "days":
-            window = timedelta(days=freq_value * 2)
+            window = timedelta(hours=freq_value) + timedelta(minutes=5)
+        elif freq_unit == "daily":
+            window = timedelta(days=freq_value) + timedelta(minutes=5)
         else:
             # Unknown unit, assume not within window
             return False

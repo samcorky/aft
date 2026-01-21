@@ -50,6 +50,7 @@ class BackupScheduler:
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
         self._last_scheduled_minute_trigger: Optional[tuple] = None  # (hour, minute) tuple to prevent re-triggering in same minute
+        self._scheduler_loop_running = False  # Guard against multiple scheduler loop threads
     
     def _is_lock_stale(self) -> bool:
         """Check if existing lock file is stale.
@@ -149,6 +150,10 @@ class BackupScheduler:
         
         if self.running:
             logger.warning("Backup scheduler already running in this instance")
+            return
+        
+        if self.thread is not None and self.thread.is_alive():
+            logger.warning("Backup scheduler thread already alive, not starting duplicate")
             return
         
         # Check if lock file exists and if it's stale
@@ -817,6 +822,13 @@ class BackupScheduler:
         """Main scheduler loop."""
         logger.info("Backup scheduler loop started")
         
+        # Guard against multiple scheduler threads in same instance
+        if hasattr(self, '_scheduler_loop_running') and self._scheduler_loop_running:
+            logger.error("Scheduler loop already running! Multiple threads detected, aborting")
+            return
+        
+        self._scheduler_loop_running = True
+        
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
@@ -891,6 +903,7 @@ class BackupScheduler:
                 logger.error(f"Error in backup scheduler loop: {str(e)}")
                 time.sleep(60)  # Sleep before retrying
                 
+        self._scheduler_loop_running = False
         logger.info("Backup scheduler loop stopped")
         
     def get_status(self) -> dict:

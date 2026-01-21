@@ -2326,9 +2326,19 @@ def update_backup_config():
         
         # Additional validation: If frequency_unit is "daily", frequency_value must be 1
         if "frequency_unit" in data and data.get("frequency_unit") == "daily":
-            if "frequency_value" in data and data.get("frequency_value") != 1:
+            freq_value = data.get("frequency_value")
+            # If frequency_value not in request, check the existing database value
+            if freq_value is None:
+                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value").first()
+                if setting:
+                    try:
+                        freq_value = json.loads(setting.value)
+                    except (json.JSONDecodeError, TypeError):
+                        freq_value = None
+            
+            # Now validate that frequency_value is 1 if daily
+            if freq_value is not None and freq_value != 1:
                 errors.append("Daily backups must have frequency_value of 1 (not configurable)")
-            # If frequency_unit is daily but frequency_value not provided, will be caught below when enabling
         
         if errors:
             return jsonify({"success": False, "message": "; ".join(errors)}), 400

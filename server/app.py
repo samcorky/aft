@@ -57,8 +57,8 @@ SETTINGS_SCHEMA = {
     "backup_frequency_unit": {
         "type": "string",
         "nullable": False,
-        "description": "Unit for backup frequency (minutes, hours, days)",
-        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "days"],
+        "description": "Unit for backup frequency (minutes, hours, daily)",
+        "validate": lambda value: isinstance(value, str) and value in ["minutes", "hours", "daily"],
     },
     "backup_start_time": {
         "type": "string",
@@ -451,6 +451,7 @@ def validate_backup_file_security(file_path):
     import re
 
     # Patterns that indicate potentially dangerous SQL
+    # Note: Patterns must be specific to SQL commands, not matching text in data
     dangerous_patterns = [
         (r'\bGRANT\s+', 'GRANT statements (privilege manipulation)'),
         (r'\bCREATE\s+USER\b', 'CREATE USER statements'),
@@ -459,7 +460,8 @@ def validate_backup_file_security(file_path):
         (r'\bINTO\s+OUTFILE\b', 'INTO OUTFILE (file system access)'),
         (r'\bLOAD\s+DATA\b', 'LOAD DATA (file system access)'),
         (r'\bCREATE\s+(PROCEDURE|FUNCTION)\b', 'Stored procedures/functions'),
-        (r'\bUSE\s+`?\w+`?\s*', 'USE statements (cross-database operation)'),
+        # USE must be at start of statement (after comments/whitespace) followed by db name and semicolon
+        (r'^\s*USE\s+[`\']?\w+[`\']?\s*;', 'USE statements (cross-database operation)'),
         (r'\\!', 'MySQL shell commands'),
         (r'\bSELECT\s+.+?\bINTO\s+@', 'Variable assignment with SELECT'),
         (r'\bEXECUTE\s+', 'Dynamic SQL execution'),
@@ -552,6 +554,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'settings',
             'notifications',
             'scheduled_cards',
+            'themes',
             'alembic_version'
         ]
 
@@ -2222,7 +2225,7 @@ def get_backup_config():
                 defaults = {
                     "backup_enabled": False,
                     "backup_frequency_value": 1,
-                    "backup_frequency_unit": "days",
+                    "backup_frequency_unit": "daily",
                     "backup_start_time": "00:00",
                     "backup_retention_count": 7,
                     "backup_minimum_free_space_mb": 100,
@@ -2324,6 +2327,22 @@ def update_backup_config():
                 if not is_valid:
                     errors.append(error_msg)
         
+        # Additional validation: If frequency_unit is "daily", frequency_value must be 1
+        if "frequency_unit" in data and data.get("frequency_unit") == "daily":
+            freq_value = data.get("frequency_value")
+            # If frequency_value not in request, check the existing database value
+            if freq_value is None:
+                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value").first()
+                if setting:
+                    try:
+                        freq_value = json.loads(setting.value)
+                    except (json.JSONDecodeError, TypeError):
+                        freq_value = None
+            
+            # Now validate that frequency_value is 1 if daily
+            if freq_value is not None and freq_value != 1:
+                errors.append("Daily backups must have frequency_value of 1 (not configurable)")
+        
         if errors:
             return jsonify({"success": False, "message": "; ".join(errors)}), 400
         
@@ -2354,6 +2373,10 @@ def update_backup_config():
                     is_valid, error_msg = validate_setting(key, value)
                     if not is_valid:
                         required_errors.append(error_msg)
+            
+            # Additional validation: If frequency_unit is daily, frequency_value must be 1
+            if final_settings.get("frequency_unit") == "daily" and final_settings.get("frequency_value") != 1:
+                required_errors.append("Daily backups require frequency_value of 1")
             
             if required_errors:
                 return jsonify({

@@ -108,7 +108,7 @@ class TestBackupSettingsAPI:
     
     def test_update_backup_config_valid_frequency_units(self, api_client):
         """Test all valid frequency units."""
-        for unit in ['minutes', 'hours', 'days']:
+        for unit in ['minutes', 'hours', 'daily']:
             response = requests.put(
                 f'{api_client}/api/settings/backup/config',
                 json={'frequency_unit': unit}
@@ -339,3 +339,72 @@ class TestBackupSettingsAPI:
         get_response = requests.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['enabled'] is True
+    
+    def test_daily_frequency_unit_must_have_frequency_value_1(self, api_client):
+        """Test that daily frequency_unit requires frequency_value of 1."""
+        # Daily with frequency_value > 1 should fail
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json={'frequency_unit': 'daily', 'frequency_value': 2}
+        )
+        assert response.status_code == 400
+        assert 'Daily backups must have frequency_value of 1' in response.json()['message']
+        
+        # Daily with frequency_value = 1 should succeed
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json={'frequency_unit': 'daily', 'frequency_value': 1}
+        )
+        assert response.status_code == 200
+        
+        # Verify it was saved
+        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        config = get_response.json()['config']
+        assert config['frequency_unit'] == 'daily'
+        assert config['frequency_value'] == 1
+    
+    def test_cannot_enable_daily_with_invalid_frequency_value(self, api_client):
+        """Test that you cannot enable daily backups with frequency_value != 1."""
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json={
+                'enabled': True,
+                'frequency_unit': 'daily',
+                'frequency_value': 7,
+                'start_time': '02:00',
+                'retention_count': 7
+            }
+        )
+        assert response.status_code == 400
+        assert 'Daily backups' in response.json()['message'] and 'frequency_value of 1' in response.json()['message']
+    
+    def test_can_enable_daily_with_frequency_value_1(self, api_client):
+        """Test that you can enable daily backups with frequency_value of 1."""
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json={
+                'enabled': True,
+                'frequency_unit': 'daily',
+                'frequency_value': 1,
+                'start_time': '02:00',
+                'retention_count': 7
+            }
+        )
+        assert response.status_code == 200
+        
+        # Verify settings were saved
+        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        config = get_response.json()['config']
+        assert config['enabled'] is True
+        assert config['frequency_unit'] == 'daily'
+        assert config['frequency_value'] == 1
+    
+    def test_old_days_unit_should_be_rejected(self, api_client):
+        """Test that old 'days' frequency_unit is no longer accepted."""
+        response = requests.put(
+            f'{api_client}/api/settings/backup/config',
+            json={'frequency_unit': 'days'}
+        )
+        assert response.status_code == 400
+        assert 'frequency_unit' in response.json()['message']
+        assert 'daily' in response.json()['message'].lower() or 'invalid' in response.json()['message'].lower()

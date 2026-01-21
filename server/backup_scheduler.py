@@ -299,7 +299,7 @@ class BackupScheduler:
         try:
             setting = db.query(Setting).filter(Setting.key == "backup_enabled").first()
             if setting:
-                setting.value = json.dumps(False)
+                setting.value = json.dumps(False)  # type: ignore
                 db.commit()
                 logger.warning(f"Disabled backups due to invalid settings: {error_msg}")
                 create_notification(
@@ -382,7 +382,7 @@ class BackupScheduler:
             usage = shutil.disk_usage(self.backup_dir)
             free_space_mb = usage.free / (1024 * 1024)
             
-            if free_space_mb < min_space_mb:
+            if free_space_mb < int(min_space_mb):  # type: ignore
                 error_msg = (
                     f"Insufficient disk space for backup. "
                     f"Available: {free_space_mb:.0f} MB, Required: {min_space_mb} MB"
@@ -407,7 +407,7 @@ class BackupScheduler:
             timestamp = datetime.now().isoformat()
             setting = db.query(Setting).filter(Setting.key == "backup_last_run").first()
             if setting:
-                setting.value = json.dumps(timestamp)
+                setting.value = json.dumps(timestamp)  # type: ignore
             else:
                 setting = Setting(key="backup_last_run", value=json.dumps(timestamp))
                 db.add(setting)
@@ -499,9 +499,9 @@ class BackupScheduler:
             db = SessionLocal()
             try:
                 last_run = _get_setting_value(db, "backup_last_run")
-                if last_run:
+                if last_run:  # type: ignore
                     try:
-                        self.last_backup_time = datetime.fromisoformat(last_run)
+                        self.last_backup_time = datetime.fromisoformat(str(last_run))  # type: ignore
                     except ValueError:
                         pass
             finally:
@@ -551,7 +551,7 @@ class BackupScheduler:
                 return True
         
         # Not time yet
-        logger.debug(f"Not scheduled time yet for backup, waiting")
+        logger.debug("Not scheduled time yet for backup, waiting")
         return False
         
     def _check_and_notify_overdue(self, settings: dict):
@@ -735,7 +735,7 @@ class BackupScheduler:
                 
                 if existing_overdue:
                     # Mark the overdue notification as read to prevent duplicate resolution messages
-                    existing_overdue.unread = False
+                    existing_overdue.unread = False  # type: ignore
                     try:
                         notification_db.commit()
                     except Exception as e:

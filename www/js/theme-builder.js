@@ -478,11 +478,9 @@ class ThemeBuilder {
   }
   
   async doApplyTheme() {
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot apply theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes.
     
     const applyBtn = this.applyBtn;
     const originalText = applyBtn.textContent;

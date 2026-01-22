@@ -1196,17 +1196,34 @@ class BoardManager {
                     <button class="column-menu-btn" data-column-id="${column.id}" title="Column menu">⋮</button>
                     <div class="column-menu-dropdown" data-column-id="${column.id}">
                       <button class="column-menu-item column-move-all-cards-btn" data-column-id="${column.id}">
-                        <span>🔀</span>
+                        <span class="icon-span">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M7 8l3 3-3 3"></path>
+                            <path d="M14 8l3 3-3 3"></path>
+                          </svg>
+                        </span>
                         <span>Move all cards...</span>
                       </button>
                       ${this.showArchived ? `
                         <button class="column-menu-item column-unarchive-all-cards-btn" data-column-id="${column.id}">
-                          <span>📤</span>
+                          <span class="icon-span">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M12 2v10"></path>
+                              <path d="M7 7l5-5 5 5"></path>
+                              <rect x="2" y="13" width="20" height="9" rx="2"></rect>
+                            </svg>
+                          </span>
                           <span>Unarchive all cards</span>
                         </button>
                       ` : `
                         <button class="column-menu-item column-archive-all-cards-btn" data-column-id="${column.id}">
-                          <span>📥</span>
+                          <span class="icon-span">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M12 10v4"></path>
+                              <path d="M7 15l5 5 5-5"></path>
+                              <rect x="2" y="3" width="20" height="8" rx="2"></rect>
+                            </svg>
+                          </span>
                           <span>Archive all cards</span>
                         </button>
                       `}

@@ -329,6 +329,22 @@
   justify-content: center;
 }
 
+.column-menu-item .icon-span {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.column-menu-item .icon-span svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+
 /* Delete column button - only applies when NOT in menu */
 .column-header > .column-actions > .column-delete-btn {
   background: none;

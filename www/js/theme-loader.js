@@ -34,10 +34,13 @@
     
     if (savedTheme) {
       try {
+        // Note: savedTheme is already the settings object (not wrapped in .settings)
+        // because sessionStorage stores JSON.stringify(theme.settings) directly
         const theme = JSON.parse(savedTheme);
         const root = document.documentElement;
         
         // Apply all CSS variables from cache
+        // (theme is the settings object, unlike API responses which have theme.settings)
         Object.keys(theme).forEach(key => {
           root.style.setProperty(`--${key}`, theme[key]);
         });
@@ -93,17 +96,23 @@
   }
 
   // Initialize theme loading
-  async function init() {
+  function init() {
     // First, apply cached theme if available (prevents flash)
     const hasCachedTheme = applyFromSessionStorage();
     
-    // Then, load fresh theme from API in background
-    // This ensures we always have the latest theme from the database
-    await loadThemeFromAPI();
+    // Only load from API if we don't have a cached theme
+    // This reduces unnecessary API calls for same-session navigation
+    if (!hasCachedTheme) {
+      // Load fresh theme from API in background without blocking
+      // Don't await - let it run asynchronously while page continues loading
+      // This ensures we always have the latest theme from the database
+      loadThemeFromAPI().catch(error => {
+        // Silently handle API errors - cached theme or defaults are already applied
+        console.debug('Background theme API update failed:', error.message);
+      });
+    }
   }
 
   // Run initialization
-  init().catch(error => {
-    console.error('Theme loader initialization error:', error);
-  });
+  init();
 })();

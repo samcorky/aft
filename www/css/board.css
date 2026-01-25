@@ -742,6 +742,20 @@
   color: var(--text-muted);
 }
 
+/* Card timestamp display */
+.card-timestamp {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: 8px;
+  padding-top: 4px;
+  cursor: help;
+}
+
+.card-timestamp:hover {
+  color: var(--text-bold);
+}
+
 .add-card-empty-btn {
   width: 100%;
   padding: 12px;
@@ -1201,6 +1215,39 @@
 
 .checklist-delete-btn {
   color: var(--error-color);
+}
+
+/* Card Metadata Section (in modal) */
+.card-metadata {
+  margin-top: 20px;
+  padding: 12px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.card-metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-metadata-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.card-metadata-value {
+  color: var(--text-bold);
+  font-size: 13px;
+  cursor: help;
+}
+
+.card-metadata-value:hover {
+  text-decoration: underline;
 }
 
 /* Comments Section */

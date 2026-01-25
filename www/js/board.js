@@ -1296,6 +1296,11 @@ class BoardManager {
                             `).join('')}
                           </div>
                         ` : ''}
+                        ${card.updated_at ? `
+                          <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
+                            ${formatTimeAgo(card.updated_at)}
+                          </div>
+                        ` : ''}
                       </div>
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
                     </div>
@@ -3614,6 +3619,16 @@ class BoardManager {
             </div>
             
             ${!isTemplate ? `
+            <div class="card-metadata">
+              <div class="card-metadata-item">
+                <span class="card-metadata-label">Created:</span>
+                <span class="card-metadata-value" ${cardData.created_at ? `data-tooltip="${formatTooltipDateTime(cardData.created_at)}" aria-label="Created on ${formatTooltipDateTime(cardData.created_at)}" tabindex="0"` : ''}>${cardData.created_at ? formatTimeAgoLong(cardData.created_at) : 'Unknown'}</span>
+              </div>
+              <div class="card-metadata-item">
+                <span class="card-metadata-label">Updated:</span>
+                <span class="card-metadata-value" ${cardData.updated_at ? `data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated on ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0"` : ''}>${cardData.updated_at ? formatTimeAgoLong(cardData.updated_at) : 'Unknown'}</span>
+              </div>
+            </div>
             <div class="comments-section">
               <div class="comments-header">
                 <h3>Comments</h3>

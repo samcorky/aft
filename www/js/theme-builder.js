@@ -625,12 +625,10 @@ class ThemeBuilder {
       return;
     }
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot save theme: Database not connected');
-      this.lastSaveError = true;
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const saveBtn = this.saveBtn;
     const originalText = saveBtn.textContent;
@@ -729,11 +727,10 @@ class ThemeBuilder {
   }
   
   showCopyModal() {
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot copy theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const modal = document.getElementById('copy-theme-modal');
     const nameInput = document.getElementById('copy-theme-name');
@@ -839,11 +836,10 @@ class ThemeBuilder {
       return;
     }
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot rename theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const modal = document.getElementById('rename-theme-modal');
     const nameInput = document.getElementById('rename-theme-name');
@@ -1061,11 +1057,10 @@ class ThemeBuilder {
         throw new Error('Invalid theme file format');
       }
       
-      // Check database connection
-      if (!window.header || !window.header.dbConnected) {
-        this.showErrorToast('Cannot import theme: Database not connected');
-        return;
-      }
+      // Note: We don't check dbConnected here because REST API calls work independently
+      // of the periodic database status checks. The dbConnected flag is primarily for
+      // blocking card creation, not for theme changes. The API call itself will fail
+      // gracefully if there's an actual connectivity issue.
       
       // Import via API
       const controller = new AbortController();
@@ -1172,12 +1167,10 @@ class ThemeBuilder {
     const file = event.target.files[0];
     if (!file) return;
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot upload background: Database not connected');
-      event.target.value = '';
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const uploadBtn = document.getElementById('upload-bg-btn');
     const originalText = uploadBtn.textContent;

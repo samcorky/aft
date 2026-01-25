@@ -273,7 +273,8 @@ class Header {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      // Note: dbConnected NOT set to false - REST API calls still work
+      // Note: Don't modify dbConnected here - this method doesn't verify server/DB health
+      // Only checkDatabaseStatus() can safely set dbConnected=true after verifying server is reachable
       return;
     }
     
@@ -283,7 +284,8 @@ class Header {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      // Note: dbConnected NOT set to false - REST API calls still work
+      // Note: Don't modify dbConnected here - this method doesn't verify server/DB health
+      // Only checkDatabaseStatus() can safely set dbConnected=true after verifying server is reachable
     }
   }
 
@@ -611,7 +613,9 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
-        // Note: dbConnected NOT set to false - REST API calls still work
+        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // WebSocket failure doesn't affect REST API calls or database operations
+        this.dbConnected = true;
         return;
       }
       
@@ -625,7 +629,9 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-        // Note: dbConnected NOT set to false - REST API calls and card creation still work
+        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // WebSocket failure doesn't affect REST API calls or database operations
+        this.dbConnected = true;
         return;
       }
       

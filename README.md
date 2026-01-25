@@ -247,9 +247,9 @@ The header displays a real-time system status indicator in the top-right corner.
 | Status | Icon | Color | Meaning | Troubleshooting |
 |--------|------|-------|---------|-----------------|
 | **Connected** | ✅ | Green | All systems operational | None needed - everything is working normally |
-| **Server Disconnected** | ❌ | Red | Cannot reach API server | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
-| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. |
-| **DB Error** | ❌ | Red | Database connection failed | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
+| **Server Disconnected** | ❌ | Red | Cannot reach API server (blocks all operations) | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
+| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable (REST API still works) | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. **Note:** Database operations (create/edit/delete) still work via REST API. |
+| **DB Error** | ❌ | Red | Database connection failed (blocks all operations) | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
 
 ### Status Checking Order (Priority)
 
@@ -264,7 +264,9 @@ The widget checks system status in this order and stops at the first failure:
    - Only checked on board/dashboard pages (where real-time updates are needed)
    - Monitors Socket.IO connection status
    - If loading takes >30 seconds, shows "WebSocket Disconnected"
-   - Shows updates but may be delayed without real-time sync
+   - **Important:** WebSocket failures do NOT block database operations
+   - REST API calls (create, edit, delete) continue to work normally
+   - Only real-time sync features are affected (live updates from other users)
 
 3. **Database Health** (Lower Priority)
    - Queries database directly via API

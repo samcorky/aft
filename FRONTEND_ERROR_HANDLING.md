@@ -66,10 +66,13 @@ async checkDatabaseStatus() {
 
 ### Block Operations When Disconnected
 
+**Important:** The `dbConnected` flag tracks Server and Database connectivity, NOT WebSocket status. WebSocket disconnections do not block database operations since REST API calls still work.
+
 ```javascript
 // Check before opening modals
 openAddCardModal(columnId) {
-  // Block if database disconnected
+  // Block if database or server disconnected
+  // Note: WebSocket disconnections do NOT block this - REST API still works
   if (!window.header || !window.header.dbConnected) {
     this.showErrorToast('Cannot create card: Database not connected');
     return;

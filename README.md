@@ -95,6 +95,12 @@ Both styles support the Done button functionality for marking cards as complete 
 - **Unarchive Cards** - Restore archived cards back to active view when needed
 - **View Switching** - Switch between Task, Scheduled, and Archived views using the header dropdown
 - **Batch Operations** - Archive or unarchive multiple cards at once via column menu
+- **Timestamps** - Track creation and last update times for all cards, columns, boards, and checklist items
+  - Cards display "Updated X ago" on the board view
+  - Edit modal shows created and updated timestamps for cards
+  - Checklist items show created/updated timestamps in tooltips
+  - Timestamps update when content changes (title, description, column) but not when reordering
+  - Adding/editing comments or checklist items updates the parent card's timestamp
 
 ![Card Detail](images/card_detail.png)
 ![Archive View](images/archive_screen.png)

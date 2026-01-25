@@ -211,21 +211,114 @@
   font-style: italic;
 }
 
-/* Copy Theme Modal */
-.error-message {
+/* Modal Styles */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0,0,0,0.5);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-content {
+  background: var(--page-panel-background);
+  padding: 30px;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-bold);
+}
+
+.modal-header.error h3 {
   color: var(--error-color);
-  font-size: 0.9rem;
-  margin-top: 10px;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--secondary-color);
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  color: var(--secondary-hover);
+}
+
+.modal-body {
+  margin-bottom: 20px;
+}
+
+.modal-body label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-bold);
+  font-weight: 500;
 }
 
 .modal-body input[type="text"] {
   width: 100%;
-  padding: 8px 12px;
+  padding: 10px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 5px;
+  font-size: 14px;
+  box-sizing: border-box;
   background-color: var(--card-bg-color);
   color: var(--text-color);
-  font-size: 1rem;
+}
+
+.modal-body input[type="text"]:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.modal-body p {
+  color: var(--text-color);
+  line-height: 1.5;
+  margin: 0 0 15px 0;
+}
+
+.modal-body p strong {
+  color: var(--text-bold);
+}
+
+.modal-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.error-message {
+  color: var(--error-color);
+  font-size: 0.9rem;
+  margin-top: 10px;
 }
 
 @media (max-width: 768px) {

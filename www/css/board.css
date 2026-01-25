@@ -725,6 +725,33 @@
   gap: 4px;
 }
 
+.card-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.card-checklist-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.card-checklist-name {
+  color: var(--text-bold);
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+
+.card-checklist-name.checked {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
 /* Card timestamp display */
 .card-timestamp {
   font-size: 11px;

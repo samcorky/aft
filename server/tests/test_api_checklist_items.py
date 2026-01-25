@@ -20,6 +20,8 @@ class TestChecklistItemsAPI:
         assert data['checklist_item']['card_id'] == sample_card['id']
         assert data['checklist_item']['checked'] is False
         assert 'order' in data['checklist_item']
+        assert 'created_at' in data['checklist_item']
+        assert 'updated_at' in data['checklist_item']
     
     def test_create_checklist_item_with_checked(self, api_client, sample_card):
         """Test creating a checklist item with checked status."""

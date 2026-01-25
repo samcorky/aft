@@ -3130,6 +3130,10 @@ def update_board(board_id):
 
             board.description = description
 
+        # Set updated_at timestamp
+        from datetime import datetime
+        board.updated_at = datetime.utcnow()
+
         db.commit()
         db.refresh(board)
 
@@ -3559,6 +3563,9 @@ def update_column(column_id):
 
         old_order = column.order
         board_id = column.board_id
+        
+        # Track if user changed the name (not just reordering)
+        name_changed = False
 
         # Update and validate name if provided
         if "name" in data:
@@ -3575,6 +3582,7 @@ def update_column(column_id):
                 return create_error_response(error, 400)
 
             column.name = name
+            name_changed = True
 
         # Handle order change if provided
         if "order" in data:
@@ -3613,6 +3621,11 @@ def update_column(column_id):
                         col.order -= 1
 
                 column.order = new_order
+        
+        # Set updated_at timestamp only if name changed (not just reordering)
+        if name_changed:
+            from datetime import datetime
+            column.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(column)
@@ -4622,6 +4635,9 @@ def update_card(card_id):
 
         old_column_id = card.column_id
         old_order = card.order
+        
+        # Track if user made content changes (not just reordering within same column)
+        user_content_changed = False
 
         # Update and validate title if provided
         if "title" in data:
@@ -4638,6 +4654,7 @@ def update_card(card_id):
                 return create_error_response(error, 400)
 
             card.title = title
+            user_content_changed = True
 
         # Update and validate description if provided
         if "description" in data:
@@ -4654,6 +4671,7 @@ def update_card(card_id):
                     return create_error_response(error, 400)
 
             card.description = description
+            user_content_changed = True
 
         # Update archived status if provided
         if "archived" in data:
@@ -4661,6 +4679,7 @@ def update_card(card_id):
             if not isinstance(archived, bool):
                 return create_error_response("Archived must be a boolean", 400)
             card.archived = archived
+            user_content_changed = True
 
         # Handle column and order changes
         if "column_id" in data or "order" in data:
@@ -4690,6 +4709,9 @@ def update_card(card_id):
                 )
                 if not column:
                     return create_error_response("Target column not found", 404)
+                
+                # Moving to different column is a state change - update timestamp
+                user_content_changed = True
 
             # If moving to a different column
             if new_column_id != old_column_id:
@@ -4730,6 +4752,11 @@ def update_card(card_id):
                     ).update({Card.order: Card.order - 1})
 
                 card.order = new_order
+        
+        # Set updated_at timestamp if user made content changes
+        if user_content_changed:
+            from datetime import datetime
+            card.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(card)
@@ -4887,6 +4914,11 @@ def archive_card(card_id):
 
         board_id = card.column.board_id if card.column else None
         card.archived = True
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         
         # Refresh and serialize the card
@@ -4960,6 +4992,10 @@ def unarchive_card(card_id):
 
         # Unarchive the card first
         card.archived = False
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
 
         # Increment order of all active cards at this position and above
         # This ensures the unarchived card is inserted at its order position
@@ -5121,6 +5157,11 @@ def update_card_done_status(card_id):
         
         board_id = card.column.board_id if card.column else None
         card.done = done_status
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         
         # Refresh card
@@ -5365,6 +5406,10 @@ def batch_unarchive_cards():
                 
                 # Unarchive the card
                 card.archived = False
+                
+                # Set updated_at timestamp
+                from datetime import datetime
+                card.updated_at = datetime.utcnow()
         
         db.commit()
 
@@ -6023,6 +6068,11 @@ def create_checklist_item(card_id):
         )
 
         db.add(checklist_item)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         db.refresh(checklist_item)
 
@@ -6118,6 +6168,9 @@ def update_checklist_item(item_id):
 
         if not checklist_item:
             return create_error_response("Checklist item not found", 404)
+        
+        # Track if user made content changes (not just reordering)
+        content_changed = False
 
         # Update name if provided
         if "name" in data:
@@ -6134,6 +6187,7 @@ def update_checklist_item(item_id):
                 return create_error_response(error, 400)
 
             checklist_item.name = name
+            content_changed = True
 
         # Update checked if provided
         if "checked" in data:
@@ -6141,6 +6195,7 @@ def update_checklist_item(item_id):
             if not isinstance(checked, bool):
                 return create_error_response("Checked must be a boolean", 400)
             checklist_item.checked = checked
+            content_changed = True
 
         # Update order if provided
         if "order" in data:
@@ -6149,6 +6204,18 @@ def update_checklist_item(item_id):
             if not is_valid:
                 return create_error_response(error, 400)
             checklist_item.order = order
+        
+        # Set updated_at timestamp for checklist item only if content changed (not just reordering)
+        if content_changed:
+            from datetime import datetime
+            checklist_item.updated_at = datetime.utcnow()
+        
+        # Update parent card's updated_at timestamp for any checklist change (including reordering)
+        from models import Card
+        from datetime import datetime
+        card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(checklist_item)
@@ -6210,14 +6277,24 @@ def delete_checklist_item(item_id):
     """
     db = SessionLocal()
     try:
-        from models import ChecklistItem
+        from models import ChecklistItem, Card
 
         checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
 
         if not checklist_item:
             return create_error_response("Checklist item not found", 404)
+        
+        # Get card_id before deleting
+        card_id = checklist_item.card_id
 
         db.delete(checklist_item)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
+        
         db.commit()
 
         return jsonify({"success": True, "message": "Checklist item deleted successfully"}), 200
@@ -6387,6 +6464,11 @@ def create_comment(card_id):
             order=next_order
         )
         db.add(comment)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         db.refresh(comment)
 
@@ -6433,14 +6515,24 @@ def delete_comment(comment_id):
     """
     db = SessionLocal()
     try:
-        from models import Comment
+        from models import Comment, Card
 
         comment = db.query(Comment).filter(Comment.id == comment_id).first()
 
         if not comment:
             return create_error_response("Comment not found", 404)
+        
+        # Get card_id before deleting
+        card_id = comment.card_id
 
         db.delete(comment)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
+        
         db.commit()
 
         return jsonify({"success": True, "message": "Comment deleted successfully"}), 200

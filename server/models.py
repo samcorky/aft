@@ -45,7 +45,7 @@ class Board(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
-    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     
     # Relationship to columns
     columns = relationship("BoardColumn", back_populates="board", cascade="all, delete-orphan")
@@ -64,7 +64,7 @@ class BoardColumn(Base):
     name = Column(String(255), nullable=False)
     order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
-    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     
     # Relationship to board
     board = relationship("Board", back_populates="columns")
@@ -91,7 +91,7 @@ class Card(Base):
     schedule = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NULL'), nullable=True, index=True)
     done = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
-    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")
@@ -124,7 +124,7 @@ class ChecklistItem(Base):
     checked = Column(Boolean, nullable=False, default=False)
     order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
-    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, nullable=True)
     
     # Relationship to card
     card = relationship("Card", back_populates="checklist_items")

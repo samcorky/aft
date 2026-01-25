@@ -1296,12 +1296,12 @@ class BoardManager {
                             `).join('')}
                           </div>
                         ` : ''}
-                        ${card.updated_at ? `
-                          <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
-                            ${formatTimeAgo(card.updated_at)}
-                          </div>
-                        ` : ''}
                       </div>
+                      ${card.updated_at ? `
+                        <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
+                          ${formatTimeAgo(card.updated_at)}
+                        </div>
+                      ` : ''}
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
                     </div>
                   `).join('') : ''
@@ -3998,7 +3998,7 @@ class BoardManager {
           updateEditModalSummary();
           
           // Attempt to delete from server
-          const success = await this.deleteChecklistItem(itemId);
+          const success = await this.deleteChecklistItem(itemId, cardId);
           
           if (success) {
             hasUnsavedChanges = false; // This action was already saved
@@ -4143,6 +4143,9 @@ class BoardManager {
                 this.toggleCommentCollapse(commentText, e.target);
               });
             }
+            
+            // Update card timestamp in UI
+            await this.updateCardTimestamp(cardId);
             
             // Clear input and reset button
             newCommentInput.value = '';
@@ -4388,6 +4391,55 @@ class BoardManager {
     }
   }
 
+  async updateCardTimestamp(cardId) {
+    // Fetch updated card data and update timestamps in UI
+    const cardData = await this.getCardData(cardId);
+    if (!cardData) return;
+
+    // Update the timestamp in the card edit modal if it's open for this card
+    const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+    if (modalCardId && parseInt(modalCardId) === cardId) {
+      // Update the updated_at metadata in the modal
+      const updatedMetadataValue = document.querySelector('.card-metadata-item:nth-child(2) .card-metadata-value');
+      if (updatedMetadataValue) {
+        if (cardData.updated_at) {
+          updatedMetadataValue.textContent = formatTimeAgoLong(cardData.updated_at);
+          updatedMetadataValue.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+          updatedMetadataValue.setAttribute('aria-label', `Last updated on ${formatTooltipDateTime(cardData.updated_at)}`);
+          updatedMetadataValue.setAttribute('tabindex', '0');
+        } else {
+          updatedMetadataValue.textContent = 'Unknown';
+          updatedMetadataValue.removeAttribute('data-tooltip');
+          updatedMetadataValue.removeAttribute('aria-label');
+          updatedMetadataValue.removeAttribute('tabindex');
+        }
+      }
+    }
+
+    // Update the timestamp on the card itself on the board
+    const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+    if (cardElement) {
+      const timestampElement = cardElement.querySelector('.card-timestamp');
+      if (cardData.updated_at) {
+        if (timestampElement) {
+          // Update existing timestamp
+          timestampElement.textContent = formatTimeAgo(cardData.updated_at);
+          timestampElement.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+          timestampElement.setAttribute('aria-label', `Last updated ${formatTooltipDateTime(cardData.updated_at)}`);
+        } else {
+          // Create timestamp element if it doesn't exist
+          const expandBtn = cardElement.querySelector('.card-expand-btn');
+          if (expandBtn) {
+            const timestampHtml = `<div class="card-timestamp" data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0">
+              ${formatTimeAgo(cardData.updated_at)}
+            </div>`;
+            expandBtn.insertAdjacentHTML('beforebegin', timestampHtml);
+          }
+        }
+      }
+    }
+  }
+
   async createChecklistItem(cardId, name, order = null, checked = false) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -4414,6 +4466,8 @@ class BoardManager {
         this.showErrorToast(`Failed to create checklist item: ${data.message}`);
         return false;
       }
+      // Update card timestamp in UI
+      await this.updateCardTimestamp(cardId);
       return true;
     } catch (err) {
       clearTimeout(timeoutId);
@@ -4447,6 +4501,11 @@ class BoardManager {
         this.showErrorToast(`Failed to update checklist item: ${data.message}`);
         return false;
       }
+      // Update card timestamp in UI - extract cardId from DOM
+      const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+      if (modalCardId) {
+        await this.updateCardTimestamp(parseInt(modalCardId));
+      }
       return true;
     } catch (err) {
       clearTimeout(timeoutId);
@@ -4459,7 +4518,7 @@ class BoardManager {
     }
   }
 
-  async deleteChecklistItem(itemId) {
+  async deleteChecklistItem(itemId, cardId = null) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -4475,6 +4534,16 @@ class BoardManager {
       if (!data.success) {
         this.showErrorToast(`Failed to delete checklist item: ${data.message}`);
         return false;
+      }
+      // Update card timestamp in UI
+      if (cardId) {
+        await this.updateCardTimestamp(cardId);
+      } else {
+        // Get cardId from modal if not provided
+        const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+        if (modalCardId) {
+          await this.updateCardTimestamp(parseInt(modalCardId));
+        }
       }
       return true;
     } catch (err) {
@@ -4941,6 +5010,9 @@ class BoardManager {
         if (commentsList && commentsList.querySelectorAll('.comment-item').length === 0) {
           commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
         }
+        
+        // Update card timestamp in UI
+        await this.updateCardTimestamp(cardId);
       } else {
         await showAlert('Failed to delete comment: ' + data.message, 'Error');
       }

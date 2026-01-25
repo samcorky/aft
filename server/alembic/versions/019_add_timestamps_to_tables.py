@@ -21,29 +21,31 @@ def upgrade():
     
     Existing records will have NULL timestamps to accurately represent that we don't know
     when they were created/updated. New records will automatically get timestamps.
+    Note: updated_at is NOT auto-updated on every change - it must be set explicitly
+    for user-initiated changes only (not system operations like reordering).
     """
     
     # Add timestamps to boards table (nullable for existing records)
     op.add_column('boards', sa.Column('created_at', sa.DateTime(), server_default=func.current_timestamp(), nullable=True))
-    op.add_column('boards', sa.Column('updated_at', sa.DateTime(), server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True))
+    op.add_column('boards', sa.Column('updated_at', sa.DateTime(), nullable=True))
     # Set existing records to NULL
     op.execute('UPDATE boards SET created_at = NULL, updated_at = NULL')
     
     # Add timestamps to columns table (nullable for existing records)
     op.add_column('columns', sa.Column('created_at', sa.DateTime(), server_default=func.current_timestamp(), nullable=True))
-    op.add_column('columns', sa.Column('updated_at', sa.DateTime(), server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True))
+    op.add_column('columns', sa.Column('updated_at', sa.DateTime(), nullable=True))
     # Set existing records to NULL
     op.execute('UPDATE columns SET created_at = NULL, updated_at = NULL')
     
     # Add timestamps to cards table (nullable for existing records)
     op.add_column('cards', sa.Column('created_at', sa.DateTime(), server_default=func.current_timestamp(), nullable=True))
-    op.add_column('cards', sa.Column('updated_at', sa.DateTime(), server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True))
+    op.add_column('cards', sa.Column('updated_at', sa.DateTime(), nullable=True))
     # Set existing records to NULL
     op.execute('UPDATE cards SET created_at = NULL, updated_at = NULL')
     
     # Add timestamps to checklist_items table (nullable for existing records)
     op.add_column('checklist_items', sa.Column('created_at', sa.DateTime(), server_default=func.current_timestamp(), nullable=True))
-    op.add_column('checklist_items', sa.Column('updated_at', sa.DateTime(), server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True))
+    op.add_column('checklist_items', sa.Column('updated_at', sa.DateTime(), nullable=True))
     # Set existing records to NULL
     op.execute('UPDATE checklist_items SET created_at = NULL, updated_at = NULL')
 

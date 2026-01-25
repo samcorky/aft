@@ -791,11 +791,25 @@ class ThemeBuilder {
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
       
-      // Add to select
+      // Add to User Themes optgroup (new themes are always user themes)
+      let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
+      if (!userGroup) {
+        // Create User Themes optgroup if it doesn't exist
+        userGroup = document.createElement('optgroup');
+        userGroup.label = 'User Themes';
+        // Insert before System Themes if it exists, otherwise append
+        const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
+        if (systemGroup) {
+          this.themeSelect.insertBefore(userGroup, systemGroup);
+        } else {
+          this.themeSelect.appendChild(userGroup);
+        }
+      }
+      
       const option = document.createElement('option');
       option.value = newTheme.id;
       option.textContent = newTheme.name;
-      this.themeSelect.appendChild(option);
+      userGroup.appendChild(option);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;
@@ -1087,11 +1101,25 @@ class ThemeBuilder {
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
       
-      // Add to select
+      // Add to User Themes optgroup (imported themes are always user themes)
+      let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
+      if (!userGroup) {
+        // Create User Themes optgroup if it doesn't exist
+        userGroup = document.createElement('optgroup');
+        userGroup.label = 'User Themes';
+        // Insert before System Themes if it exists, otherwise append
+        const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
+        if (systemGroup) {
+          this.themeSelect.insertBefore(userGroup, systemGroup);
+        } else {
+          this.themeSelect.appendChild(userGroup);
+        }
+      }
+      
       const option = document.createElement('option');
       option.value = newTheme.id;
       option.textContent = newTheme.name;
-      this.themeSelect.appendChild(option);
+      userGroup.appendChild(option);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;

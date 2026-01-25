@@ -422,7 +422,16 @@ class SystemInfo {
       if (!data.success) {
         // Revert toggle on error
         this.backupToggle.checked = !enabled;
-        await showAlert(data.message, 'Error');
+        
+        // Check if error is about missing configuration
+        if (data.message && data.message.includes('must be set before enabling')) {
+          await showAlert(
+            'Backup configuration is incomplete. Please configure backup settings on the Backup & Restore page before enabling.\n\nGo to: Backup & Restore → Automatic Backup Settings',
+            'Configuration Required'
+          );
+        } else {
+          await showAlert(data.message, 'Error');
+        }
       }
     } catch (error) {
       console.error('Error toggling backup:', error);

@@ -1275,14 +1275,14 @@ class BoardManager {
                         <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
                         ${card.updated_at || (card.comments && card.comments.length > 0) ? `
                           <div class="card-meta-row">
-                            ${card.updated_at ? `
-                              <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
-                                ${formatTimeAgo(card.updated_at)}
-                              </div>
-                            ` : ''}
                             ${card.comments && card.comments.length > 0 ? `
                               <div class="card-comments-indicator">
                                 💬 ${card.comments.length} ${card.comments.length === 1 ? 'comment' : 'comments'}
+                              </div>
+                            ` : ''}
+                            ${card.updated_at ? `
+                              <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
+                                ${formatTimeAgo(card.updated_at)}
                               </div>
                             ` : ''}
                           </div>

@@ -742,6 +742,11 @@ def get_scheduler_health():
         from backup_scheduler import get_scheduler
         scheduler = get_scheduler()
         
+        # Get latest backup info from filesystem (consistent with /api/settings/backup/status)
+        latest_backup_info = scheduler._get_latest_backup_info()
+        latest_backup_date = latest_backup_info.get('date')
+        last_backup_iso = latest_backup_date.isoformat() if latest_backup_date else None
+        
         # In multi-worker setup, check lock file for true health status
         lock_file_exists = scheduler.lock_file.exists()
         is_healthy = False
@@ -758,7 +763,7 @@ def get_scheduler_health():
                 health['backup_scheduler'] = {
                     'running': is_healthy,
                     'thread_alive': is_healthy,  # Use lock file freshness instead of thread.is_alive() for multi-worker
-                    'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                    'last_backup': last_backup_iso,
                     'lock_file_exists': True,
                     'lock_file_age_seconds': lock_age,
                     'lock_pid': lock_data.get('pid'),
@@ -777,7 +782,7 @@ def get_scheduler_health():
             health['backup_scheduler'] = {
                 'running': False,
                 'thread_alive': False,
-                'last_backup': scheduler.last_backup_time.isoformat() if scheduler.last_backup_time else None,
+                'last_backup': last_backup_iso,
                 'lock_file_exists': False,
                 'permission_error': scheduler.permission_error
             }

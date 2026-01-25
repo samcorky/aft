@@ -147,7 +147,10 @@ class ThemeBuilder {
     });
   }
   
-  async loadThemes() {
+  async loadThemes(preserveSelection = false) {
+    // Store current selection if preserving
+    const currentSelection = preserveSelection ? this.themeSelect.value : null;
+    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -200,14 +203,18 @@ class ThemeBuilder {
         this.themeSelect.appendChild(systemGroup);
       }
       
-      // Only load current theme selection if no URL parameter
-      const urlParams = new URLSearchParams(window.location.search);
-      const themeParam = urlParams.get('theme');
-      
-      if (!themeParam) {
-        // Load current theme selection from settings
-        const settingsController = new AbortController();
-        const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
+      // Restore preserved selection if requested and it exists in the loaded themes
+      if (preserveSelection && currentSelection && this.themes[currentSelection]) {
+        this.themeSelect.value = currentSelection;
+      } else {
+        // Only load current theme selection if no URL parameter and not preserving
+        const urlParams = new URLSearchParams(window.location.search);
+        const themeParam = urlParams.get('theme');
+        
+        if (!themeParam) {
+          // Load current theme selection from settings
+          const settingsController = new AbortController();
+          const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
         
         try {
           const settingsResponse = await fetch('/api/settings/theme', {
@@ -229,6 +236,7 @@ class ThemeBuilder {
           } else {
             console.error('Error fetching settings:', err);
           }
+        }
         }
       }
     } catch (error) {
@@ -1341,13 +1349,13 @@ function initializeWebSocketForThemeBuilder() {
     socket.on('theme_changed', (data) => {
       // Refresh themes list if we're on the theme builder
       if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
-        window.AFT.themeBuilder.loadThemes();
+        window.AFT.themeBuilder.loadThemes(true); // Preserve selection when reloading
       }
     });
 
     socket.on('theme_updated', (data) => {
       if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
-        window.AFT.themeBuilder.loadThemes();
+        window.AFT.themeBuilder.loadThemes(true); // Preserve selection when reloading
       }
     });
 

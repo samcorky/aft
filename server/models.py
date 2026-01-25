@@ -44,6 +44,8 @@ class Board(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
     
     # Relationship to columns
     columns = relationship("BoardColumn", back_populates="board", cascade="all, delete-orphan")
@@ -61,6 +63,8 @@ class BoardColumn(Base):
     board_id = Column(Integer, ForeignKey('boards.id', ondelete='CASCADE'), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
     
     # Relationship to board
     board = relationship("Board", back_populates="columns")
@@ -86,6 +90,8 @@ class Card(Base):
     scheduled = Column(Boolean, nullable=False, default=False, index=True)
     schedule = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NULL'), nullable=True, index=True)
     done = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
     
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")
@@ -117,6 +123,8 @@ class ChecklistItem(Base):
     name = Column(String(500), nullable=False)
     checked = Column(Boolean, nullable=False, default=False)
     order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
+    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp(), nullable=True)
     
     # Relationship to card
     card = relationship("Card", back_populates="checklist_items")

@@ -2660,7 +2660,13 @@ def get_boards():
             {
                 "success": True,
                 "boards": [
-                    {"id": b.id, "name": b.name, "description": b.description}
+                    {
+                        "id": b.id, 
+                        "name": b.name, 
+                        "description": b.description,
+                        "created_at": b.created_at.isoformat() if b.created_at else None,
+                        "updated_at": b.updated_at.isoformat() if b.updated_at else None
+                    }
                     for b in boards
                 ],
             }
@@ -2780,7 +2786,13 @@ def create_board():
         db.commit()
         db.refresh(board)
 
-        result = {"id": board.id, "name": board.name, "description": board.description}
+        result = {
+            "id": board.id, 
+            "name": board.name, 
+            "description": board.description,
+            "created_at": board.created_at.isoformat() if board.created_at else None,
+            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+        }
         return create_success_response({"board": result}, status_code=201)
 
     except Exception as e:
@@ -2852,13 +2864,17 @@ def get_board_scheduled_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
+                    "created_at": card.created_at.isoformat() if card.created_at else None,
+                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "checklist_items": [
                         {
                             "id": item.id,
                             "card_id": item.card_id,
                             "name": item.name,
                             "checked": item.checked,
-                            "order": item.order
+                            "order": item.order,
+                            "created_at": item.created_at.isoformat() if item.created_at else None,
+                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
                         }
                         for item in card.checklist_items
                     ],
@@ -2880,6 +2896,8 @@ def get_board_scheduled_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
+                "created_at": column.created_at.isoformat() if column.created_at else None,
+                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -3115,7 +3133,13 @@ def update_board(board_id):
         db.commit()
         db.refresh(board)
 
-        result = {"id": board.id, "name": board.name, "description": board.description}
+        result = {
+            "id": board.id, 
+            "name": board.name, 
+            "description": board.description,
+            "created_at": board.created_at.isoformat() if board.created_at else None,
+            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+        }
         return create_success_response(
             {"board": result, "message": "Board updated successfully"}
         )
@@ -3196,6 +3220,8 @@ def get_board_columns(board_id):
                         "board_id": c.board_id,
                         "name": c.name,
                         "order": c.order,
+                        "created_at": c.created_at.isoformat() if c.created_at else None,
+                        "updated_at": c.updated_at.isoformat() if c.updated_at else None
                     }
                     for c in columns
                 ],
@@ -3351,6 +3377,8 @@ def create_column(board_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
+            "created_at": column.created_at.isoformat() if column.created_at else None,
+            "updated_at": column.updated_at.isoformat() if column.updated_at else None
         }
 
         return create_success_response({"column": result}, status_code=201)
@@ -3593,6 +3621,8 @@ def update_column(column_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
+            "created_at": column.created_at.isoformat() if column.created_at else None,
+            "updated_at": column.updated_at.isoformat() if column.updated_at else None
         }
 
         # Broadcast column update event
@@ -3700,13 +3730,17 @@ def get_column_cards(column_id):
                 "done": c.done,
                 "scheduled": c.scheduled,
                 "schedule": c.schedule,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
                 "checklist_items": [
                     {
                         "id": item.id,
                         "card_id": item.card_id,
                         "name": item.name,
                         "checked": item.checked,
-                        "order": item.order
+                        "order": item.order,
+                        "created_at": item.created_at.isoformat() if item.created_at else None,
+                        "updated_at": item.updated_at.isoformat() if item.updated_at else None
                     }
                     for item in c.checklist_items
                 ]
@@ -3864,13 +3898,17 @@ def get_board_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
+                    "created_at": card.created_at.isoformat() if card.created_at else None,
+                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "checklist_items": [
                         {
                             "id": item.id,
                             "card_id": item.card_id,
                             "name": item.name,
                             "checked": item.checked,
-                            "order": item.order
+                            "order": item.order,
+                            "created_at": item.created_at.isoformat() if item.created_at else None,
+                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
                         }
                         for item in card.checklist_items
                     ],
@@ -3892,6 +3930,8 @@ def get_board_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
+                "created_at": column.created_at.isoformat() if column.created_at else None,
+                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -4101,7 +4141,9 @@ def create_card(column_id):
             "scheduled": card.scheduled,
             "schedule": card.schedule,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for WebSocket broadcast
@@ -4444,12 +4486,16 @@ def get_card(card_id):
             "done": card.done,
             "scheduled": card.scheduled,
             "schedule": card.schedule,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None,
             "checklist_items": [
                 {
                     "id": item.id,
                     "name": item.name,
                     "checked": item.checked,
-                    "order": item.order
+                    "order": item.order,
+                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                    "updated_at": item.updated_at.isoformat() if item.updated_at else None
                 }
                 for item in sorted(card.checklist_items, key=lambda x: x.order)
             ],
@@ -4695,7 +4741,9 @@ def update_card(card_id):
             "description": card.description,
             "order": card.order,
             "done": card.done,
-            "archived": card.archived
+            "archived": card.archived,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for WebSocket broadcast
@@ -5989,7 +6037,9 @@ def create_checklist_item(card_id):
                     'id': checklist_item.id,
                     'name': checklist_item.name,
                     'checked': checklist_item.checked,
-                    'order': checklist_item.order
+                    'order': checklist_item.order,
+                    'created_at': checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+                    'updated_at': checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
                 }
             }, column.board_id)
 
@@ -6000,7 +6050,9 @@ def create_checklist_item(card_id):
                 "card_id": checklist_item.card_id,
                 "name": checklist_item.name,
                 "checked": checklist_item.checked,
-                "order": checklist_item.order
+                "order": checklist_item.order,
+                "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+                "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
             }
         }), 201
 
@@ -6106,7 +6158,9 @@ def update_checklist_item(item_id):
             "card_id": checklist_item.card_id,
             "name": checklist_item.name,
             "checked": checklist_item.checked,
-            "order": checklist_item.order
+            "order": checklist_item.order,
+            "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+            "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
         }
 
         # Get board_id for broadcast

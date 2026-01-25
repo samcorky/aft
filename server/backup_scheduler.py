@@ -49,6 +49,8 @@ class BackupScheduler:
         self.permission_error = None  # Stores permission error message if directory not writable
         self.last_permission_check: Optional[datetime] = None  # Timestamp of last permission check
         self.permission_check_ttl = 30  # Cache permission check for 30 seconds
+        self._last_scheduled_minute_trigger: Optional[tuple] = None  # (hour, minute) tuple to prevent re-triggering in same minute
+        self._scheduler_loop_running = False  # Guard against multiple scheduler loop threads
     
     def _is_lock_stale(self) -> bool:
         """Check if existing lock file is stale.
@@ -148,6 +150,10 @@ class BackupScheduler:
         
         if self.running:
             logger.warning("Backup scheduler already running in this instance")
+            return
+        
+        if self.thread is not None and self.thread.is_alive():
+            logger.warning("Backup scheduler thread already alive, not starting duplicate")
             return
         
         # Check if lock file exists and if it's stale
@@ -299,7 +305,7 @@ class BackupScheduler:
         try:
             setting = db.query(Setting).filter(Setting.key == "backup_enabled").first()
             if setting:
-                setting.value = json.dumps(False)
+                setting.value = json.dumps(False)  # type: ignore
                 db.commit()
                 logger.warning(f"Disabled backups due to invalid settings: {error_msg}")
                 create_notification(
@@ -329,8 +335,8 @@ class BackupScheduler:
             raise ValueError(f"backup_frequency_value must be integer 1-99, got {freq_value}")
         
         freq_unit = settings.get("backup_frequency_unit")
-        if freq_unit not in ["minutes", "hours", "days"]:
-            raise ValueError(f"backup_frequency_unit must be minutes/hours/days, got {freq_unit}")
+        if freq_unit not in ["minutes", "hours", "daily"]:
+            raise ValueError(f"backup_frequency_unit must be minutes/hours/daily, got {freq_unit}")
         
         start_time = settings.get("backup_start_time")
         if not isinstance(start_time, str):
@@ -356,7 +362,7 @@ class BackupScheduler:
             settings = {
                 "backup_enabled": _get_setting_value(db, "backup_enabled", False),
                 "backup_frequency_value": _get_setting_value(db, "backup_frequency_value", 1),
-                "backup_frequency_unit": _get_setting_value(db, "backup_frequency_unit", "days"),
+                "backup_frequency_unit": _get_setting_value(db, "backup_frequency_unit", "daily"),
                 "backup_start_time": _get_setting_value(db, "backup_start_time", "00:00"),
                 "backup_retention_count": _get_setting_value(db, "backup_retention_count", 7),
                 "backup_minimum_free_space_mb": _get_setting_value(db, "backup_minimum_free_space_mb", 100)
@@ -382,7 +388,7 @@ class BackupScheduler:
             usage = shutil.disk_usage(self.backup_dir)
             free_space_mb = usage.free / (1024 * 1024)
             
-            if free_space_mb < min_space_mb:
+            if free_space_mb < int(min_space_mb):  # type: ignore
                 error_msg = (
                     f"Insufficient disk space for backup. "
                     f"Available: {free_space_mb:.0f} MB, Required: {min_space_mb} MB"
@@ -407,7 +413,7 @@ class BackupScheduler:
             timestamp = datetime.now().isoformat()
             setting = db.query(Setting).filter(Setting.key == "backup_last_run").first()
             if setting:
-                setting.value = json.dumps(timestamp)
+                setting.value = json.dumps(timestamp)  # type: ignore
             else:
                 setting = Setting(key="backup_last_run", value=json.dumps(timestamp))
                 db.add(setting)
@@ -455,7 +461,25 @@ class BackupScheduler:
         return timedelta(hours=24)
         
     def _should_run_backup(self, settings: dict) -> bool:
-        """Determine if a backup should run now."""
+        """Determine if a backup should run now.
+        
+        Two simple checks determine if a backup should run:
+        
+            Check 1 - Backup interval coverage:
+            - Runs immediately if no backup exists, OR
+            - Runs if last backup was more than frequency ago (catches missed/late backups)
+
+            Check 2 - Scheduled time reached:
+            - Daily: now matches start_time (HH:MM)
+            - Hourly: now.minute matches start_minute, and we're at a frequency-aligned hour
+            - Minute: we're at a frequency-aligned minute
+        
+        If both checks fail, the overdue monitor (frequency + 5 minutes) will detect
+        and notify about any unexpected backup gaps.
+        
+        Note: Only frequencies of X minutes, X hours, or daily are supported.
+        Less frequent than daily (e.g., every X days) is not supported as it's against best practice.
+        """
         # Check if backups are enabled
         if not settings.get("backup_enabled"):
             return False
@@ -467,114 +491,123 @@ class BackupScheduler:
             logger.error(f"Invalid backup settings detected: {str(e)}")
             self._disable_backups_due_to_invalid_settings(str(e))
             return False
-            
-        # Get frequency settings
+        
+        # Get frequency and start time settings
         freq_value = settings.get("backup_frequency_value", 1)
-        freq_unit = settings.get("backup_frequency_unit", "days")
+        freq_unit = settings.get("backup_frequency_unit", "daily")
         start_time = settings.get("backup_start_time", "00:00")
         
         frequency = self._get_frequency_timedelta(freq_value, freq_unit)
         now = datetime.now()
         
-        # If no last backup time, check if we should run initial backup
+        # Load last backup time from class or database if not set
         if not self.last_backup_time:
-            # Load last run from settings
             db = SessionLocal()
             try:
                 last_run = _get_setting_value(db, "backup_last_run")
-                if last_run:
+                if last_run:  # type: ignore
                     try:
-                        self.last_backup_time = datetime.fromisoformat(last_run)
+                        self.last_backup_time = datetime.fromisoformat(str(last_run))  # type: ignore
                     except ValueError:
-                        # Invalid timestamp format, leave last_backup_time as None
                         pass
             finally:
                 db.close()
-                
-            # If still no last backup, run immediately if we're past the first interval
-            if not self.last_backup_time:
-                # For the first backup, check if we're within one frequency period of start_time
-                # If we are, wait for the next aligned time. If not, run immediately.
-                start_hour, start_minute = map(int, start_time.split(':'))
-                today_start = now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
-                yesterday_start = today_start - timedelta(days=1)
-                
-                # Find the most recent start_time occurrence
-                if now >= today_start:
-                    last_start = today_start
-                else:
-                    last_start = yesterday_start
-                
-                time_since_start = now - last_start
-                
-                # If we're more than one frequency period past the start time, run immediately
-                if time_since_start > frequency:
-                    logger.info(f"No previous backup and overdue by {time_since_start - frequency}, running immediately")
-                    return True
-                else:
-                    # Within the window, wait for next aligned time
-                    next_scheduled = self._parse_start_time(start_time)
-                    return now >= next_scheduled
         
-        # Check if enough time has passed since last backup
-        time_since_last = now - self.last_backup_time
-        if time_since_last < frequency:
-            return False
-        
-        # If we're significantly overdue (more than 2x frequency), run immediately
-        if time_since_last > frequency * 2:
-            logger.info(f"Backup overdue by {time_since_last - frequency}, running immediately")
+        # Check 1: Has enough time passed since last backup? (or no previous backup exists)
+        if not self.last_backup_time:
+            logger.info("No previous backup found, running immediately")
             return True
         
-        # Align to start_time pattern for hourly/minute intervals
-        if freq_unit in ["minutes", "hours"]:
-            start_hour, start_minute = map(int, start_time.split(':'))
-            
-            if freq_unit == "minutes":
-                # Calculate minutes since start_time alignment
-                minutes_since_midnight = now.hour * 60 + now.minute
-                start_minutes_since_midnight = start_hour * 60 + start_minute
-                
-                # Calculate how many intervals have passed since start_time
-                if minutes_since_midnight >= start_minutes_since_midnight:
-                    minutes_diff = minutes_since_midnight - start_minutes_since_midnight
-                else:
-                    # Wrap around to previous day
-                    minutes_diff = (1440 - start_minutes_since_midnight) + minutes_since_midnight
-                
-                # Check if we're at an interval boundary
-                if minutes_diff % freq_value == 0:
-                    # Make sure we haven't already run in this minute
-                    if self.last_backup_time.hour != now.hour or self.last_backup_time.minute != now.minute:
-                        return True
-                return False
-            
-            elif freq_unit == "hours":
-                # For hourly, run at the specified minute past each hour
-                if now.minute == start_minute:
-                    # Make sure we haven't already run in this hour
-                    if self.last_backup_time.hour != now.hour:
-                        return True
-                return False
+        time_since_last = now - self.last_backup_time
+        if time_since_last >= frequency:
+            logger.info(f"Backup interval coverage check: last backup was {time_since_last} ago (>= {frequency}), running backup")
+            return True
         
-        # For daily backups, check if we're at the scheduled time
-        elif freq_unit == "days":
-            start_hour, start_minute = map(int, start_time.split(':'))
-            
-            # Check if current time matches start_time (within the same minute)
-            if now.hour == start_hour and now.minute == start_minute:
-                # Make sure we haven't already run today
-                if self.last_backup_time.date() != now.date():
-                    return True
+        # Additional deduplication: even if interval coverage check passes,
+        # skip if we ran a backup in the last 60 seconds (covers all scheduled time windows)
+        # Use <= to catch exact 60-second boundaries due to processing delays
+        if time_since_last <= timedelta(seconds=60):
+            logger.debug(f"Backup ran {time_since_last.total_seconds():.0f}s ago, skipping to prevent duplicates within same minute window")
             return False
         
+        # Check 2: Is this a scheduled backup time?
+        try:
+            start_hour, start_minute = map(int, start_time.split(':'))
+        except (ValueError, AttributeError):
+            # Invalid start_time, skip scheduled check
+            logger.warning(f"Invalid start_time format: {start_time}, skipping scheduled time check")
+            return False
+        
+        if freq_unit == "daily":
+            # Daily backup: check if we're at the scheduled time
+            # Use second-level granularity to prevent multiple backups in the same minute
+            if now.hour == start_hour and now.minute == start_minute and now.second < 60:
+                # Only run if we haven't run in the last 60 seconds (covers entire minute window)
+                if self.last_backup_time and (now - self.last_backup_time).total_seconds() < 60:
+                    logger.debug(f"Scheduled daily time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                    return False
+                logger.info(f"Scheduled daily backup time reached: {start_time}")
+                return True
+        
+        elif freq_unit == "hours":
+            # Hourly backup: check if we're at the scheduled minute and at a frequency-aligned hour
+            if now.minute == start_minute:
+                # Calculate hours since midnight
+                hours_since_midnight = now.hour
+                # Check if we're at a frequency-aligned hour (e.g., every 6 hours means 0, 6, 12, 18)
+                if hours_since_midnight % freq_value == 0:
+                    # Only run if we haven't run in the last 60 seconds (covers entire minute window)
+                    if self.last_backup_time and (now - self.last_backup_time).total_seconds() < 60:
+                        logger.debug(f"Scheduled hourly time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                        return False
+                    logger.info(f"Scheduled hourly backup time reached: every {freq_value} hours at :{start_minute:02d}")
+                    return True
+        
+        elif freq_unit == "minutes":
+            # Minute backup: check if we're at a frequency-aligned minute
+            # Calculate minutes since midnight
+            minutes_since_midnight = now.hour * 60 + now.minute
+            # Check if we're at a frequency-aligned minute
+            if minutes_since_midnight % freq_value == 0:
+                # Additional deduplication: only run if we haven't run in the last 60 seconds
+                # Use <= to catch exact 60-second boundaries due to processing delays
+                if self.last_backup_time and (now - self.last_backup_time).total_seconds() <= 60:
+                    logger.debug(f"Scheduled minute time reached but backup ran {(now - self.last_backup_time).total_seconds():.0f}s ago, skipping")
+                    return False
+                # Use second-precision: only trigger once per minute window
+                # Store the last scheduled trigger time (rounded to minute) to prevent re-triggering within same minute
+                if not hasattr(self, '_last_scheduled_minute_trigger'):
+                    self._last_scheduled_minute_trigger = None
+                
+                current_minute_key = (now.hour, now.minute)
+                if self._last_scheduled_minute_trigger == current_minute_key:
+                    logger.debug(f"Already triggered backup for minute {now.hour:02d}:{now.minute:02d}, skipping")
+                    return False
+                
+                self._last_scheduled_minute_trigger = current_minute_key
+                logger.info(f"Scheduled minute backup time reached: every {freq_value} minutes")
+                return True
+        
+        # Not time yet
+        logger.debug("Not scheduled time yet for backup, waiting")
         return False
         
     def _check_and_notify_overdue(self, settings: dict):
         """Check if backup is overdue and send notification if needed.
         
-        A backup is considered overdue if it's more than 2x the configured frequency
-        since the last backup, and backups are enabled.
+        A backup is considered OVERDUE (and requires user attention) if it's more than
+        frequency + 5 minutes since last backup. This gives the scheduler at least
+        4 passes (5 minutes / 60 second interval) to attempt the backup.
+        
+        This is separate from the normal scheduling: a backup can be on-schedule but
+        still appear "missed" in the UI if it's overdue. The overdue check helps
+        detect when:
+        - Scheduler crashed or is stuck
+        - Previous backup failed silently
+        - Backups were disabled for too long then re-enabled
+        
+        Won't flag as overdue if backups were just turned on after being offline
+        since the check happens after the backup attempt.
         
         Checks database for existing unread overdue notifications to prevent
         duplicates across process restarts.
@@ -589,7 +622,7 @@ class BackupScheduler:
                 return
             
             freq_value = settings.get("backup_frequency_value", 1)
-            freq_unit = settings.get("backup_frequency_unit", "days")
+            freq_unit = settings.get("backup_frequency_unit", "daily")
             
             # Calculate frequency in timedelta
             if freq_unit == "minutes":
@@ -602,8 +635,12 @@ class BackupScheduler:
             now = datetime.now()
             time_since_last = now - latest_backup_date
             
-            # If overdue by more than 2x frequency, send notification
-            if time_since_last > frequency * 2:
+            # Overdue threshold is frequency + 5 minutes
+            # This gives scheduler 4+ passes (5 min / 60 sec) to attempt the backup
+            overdue_threshold = frequency + timedelta(minutes=5)
+            
+            # If overdue by more than the threshold, send notification
+            if time_since_last > overdue_threshold:
                 # Check if an unread overdue notification already exists
                 existing_notification = db.query(Notification).filter(
                     Notification.subject.like("%Backup Overdue%"),
@@ -736,7 +773,7 @@ class BackupScheduler:
                 
                 if existing_overdue:
                     # Mark the overdue notification as read to prevent duplicate resolution messages
-                    existing_overdue.unread = False
+                    existing_overdue.unread = False  # type: ignore
                     try:
                         notification_db.commit()
                     except Exception as e:
@@ -785,6 +822,13 @@ class BackupScheduler:
         """Main scheduler loop."""
         logger.info("Backup scheduler loop started")
         
+        # Guard against multiple scheduler threads in same instance
+        if hasattr(self, '_scheduler_loop_running') and self._scheduler_loop_running:
+            logger.error("Scheduler loop already running! Multiple threads detected, aborting")
+            return
+        
+        self._scheduler_loop_running = True
+        
         while self.running:
             logger.info("Backup scheduler loop iteration starting")
             try:
@@ -824,16 +868,17 @@ class BackupScheduler:
                 should_run = self._should_run_backup(settings)
                 logger.info(f"Backup check: should_run={should_run}, enabled={settings.get('backup_enabled')}, last_backup={self.last_backup_time}")
                 
-                # Only check if backup is overdue if we're NOT about to run a backup
-                # This prevents creating an overdue notification and resolution notification
-                # in the same cycle (race condition)
-                if settings.get('backup_enabled') and not should_run:
-                    self._check_and_notify_overdue(settings)
-                
+                # Attempt to run backup if scheduled
                 if should_run:
                     logger.info("Running scheduled backup")
                     
                     if self._create_backup():
+                        # Update in-memory last_backup_time IMMEDIATELY to prevent race conditions
+                        # This prevents another scheduler iteration from creating a duplicate backup
+                        # before the database update completes
+                        self.last_backup_time = datetime.now()
+                        
+                        # Also persist to database (non-critical if fails, in-memory timestamp prevents duplicates)
                         self._update_last_backup_setting()
                         
                         # Rotate old backups
@@ -845,6 +890,12 @@ class BackupScheduler:
                         except (ValueError, TypeError):
                             logger.warning("Invalid retention count, skipping rotation")
                 
+                # Check if backup is overdue AFTER attempting to run
+                # This avoids race condition and also detects overdue status even if backups are minute-frequency
+                # (scheduler runs every 60 seconds, so minute-frequency backups would never be checked otherwise)
+                if settings.get('backup_enabled'):
+                    self._check_and_notify_overdue(settings)
+                
                 # Sleep for 1 minute before next check
                 time.sleep(60)
                 
@@ -852,6 +903,7 @@ class BackupScheduler:
                 logger.error(f"Error in backup scheduler loop: {str(e)}")
                 time.sleep(60)  # Sleep before retrying
                 
+        self._scheduler_loop_running = False
         logger.info("Backup scheduler loop stopped")
         
     def get_status(self) -> dict:
@@ -860,7 +912,7 @@ class BackupScheduler:
         
         enabled = settings.get("backup_enabled", False)
         freq_value = settings.get("backup_frequency_value", 1)
-        freq_unit = settings.get("backup_frequency_unit", "days")
+        freq_unit = settings.get("backup_frequency_unit", "daily")
         retention = settings.get("backup_retention_count", 7)
         
         # Check permissions with caching (uses TTL to avoid expensive file ops on frequent polling)
@@ -963,23 +1015,28 @@ class BackupScheduler:
     def _is_backup_within_window(self, backup_date: datetime, freq_value: int, freq_unit: str) -> bool:
         """Check if backup is within the expected backup window.
         
+        This uses the same threshold as the overdue monitor (frequency + 5 minutes)
+        for consistency. Backups within this window are considered healthy in the
+        status widget.
+        
         Args:
             backup_date: Date of the backup file
             freq_value: Frequency value (e.g., 5, 24, 7)
-            freq_unit: Frequency unit ('minutes', 'hours', 'days')
+            freq_unit: Frequency unit ('minutes', 'hours', 'daily')
             
         Returns:
             bool: True if backup is within expected window, False otherwise
         """
         now = datetime.now()
         
-        # Calculate expected window (frequency * 2 to allow some leeway)
+        # Calculate window (frequency + 5 minutes for status reporting)
+        # This matches the overdue threshold used for notifications
         if freq_unit == "minutes":
-            window = timedelta(minutes=freq_value * 2)
+            window = timedelta(minutes=freq_value) + timedelta(minutes=5)
         elif freq_unit == "hours":
-            window = timedelta(hours=freq_value * 2)
-        elif freq_unit == "days":
-            window = timedelta(days=freq_value * 2)
+            window = timedelta(hours=freq_value) + timedelta(minutes=5)
+        elif freq_unit == "daily":
+            window = timedelta(days=freq_value) + timedelta(minutes=5)
         else:
             # Unknown unit, assume not within window
             return False

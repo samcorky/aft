@@ -4,6 +4,7 @@ class Settings {
     this.defaultBoardSelect = document.getElementById('default-board');
     this.timeFormatRadios = document.querySelectorAll('input[name="time-format"]');
     this.themeSelect = document.getElementById('theme-select');
+    this.workingStyleSelect = document.getElementById('working-style');
     this.statusElement = document.getElementById('settings-status');
     this.saveTimeout = null;
   }
@@ -12,6 +13,7 @@ class Settings {
     await this.loadBoards();
     await this.loadSettings();
     await this.loadThemes();
+    await this.loadWorkingStyle();
     await this.applyThemeColors(); // Ensure theme is loaded on page load
     this.attachEventListeners();
   }
@@ -143,6 +145,41 @@ class Settings {
       }
     } catch (error) {
       console.error('Error loading themes:', error);
+    }
+  }
+
+  async loadWorkingStyle() {
+    try {
+      // Populate working style options
+      this.workingStyleSelect.innerHTML = '';
+      
+      const options = [
+        { value: 'kanban', label: 'Kanban' },
+        { value: 'board_task_category', label: 'Board is Task Category' }
+      ];
+      
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        this.workingStyleSelect.appendChild(option);
+      });
+      
+      // Load current working style setting
+      const response = await fetch('/api/settings/working-style');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          this.workingStyleSelect.value = data.value || 'kanban';
+        }
+      } else if (response.status === 404) {
+        // Setting doesn't exist yet, default to kanban
+        this.workingStyleSelect.value = 'kanban';
+      } else {
+        console.error('Error loading working style:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error loading working style:', error);
     }
   }
   
@@ -290,6 +327,48 @@ class Settings {
     }
   }
 
+  async saveWorkingStyle() {
+    try {
+      // Show saving status
+      this.showStatus('Saving...', 'info');
+      
+      const workingStyle = this.workingStyleSelect.value;
+
+      const response = await fetch('/api/settings/working-style', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value: workingStyle })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        const errorMessage = data.message || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      if (data.success) {
+        // Update session storage
+        sessionStorage.setItem('workingStyle', workingStyle);
+        
+        this.showStatus('Saved', 'success');
+
+        // Clear status after 2 seconds
+        setTimeout(() => {
+          this.statusElement.textContent = '';
+          this.statusElement.className = 'settings-status';
+        }, 2000);
+      } else {
+        this.showStatus('Error: ' + data.message, 'error');
+      }
+
+    } catch (err) {
+      this.showStatus('Error: ' + err.message, 'error');
+    }
+  }
+
   attachEventListeners() {
     this.defaultBoardSelect.addEventListener('change', () => {
       // Clear any pending save
@@ -328,6 +407,24 @@ class Settings {
     if (this.themeSelect) {
       this.themeSelect.addEventListener('change', () => {
         this.onThemeChange();
+      });
+    }
+    
+    // Working style selector
+    if (this.workingStyleSelect) {
+      this.workingStyleSelect.addEventListener('change', () => {
+        // Clear any pending save
+        if (this.saveTimeout) {
+          clearTimeout(this.saveTimeout);
+        }
+        
+        // Show pending status immediately
+        this.showStatus('Pending...', 'info');
+        
+        // Debounce save by 500ms
+        this.saveTimeout = setTimeout(() => {
+          this.saveWorkingStyle();
+        }, 500);
       });
     }
     

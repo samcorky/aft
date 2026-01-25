@@ -53,6 +53,17 @@ Use at your own risk.
 
 ## Features
 
+### Working Style Configuration
+The application supports different working styles to accommodate various team preferences. Configure your preferred working style through the General Settings page:
+
+![Working Style Options](images/working_style_options.png)
+
+**Available Options:**
+- **Kanban** - Traditional column-based workflow where cards move through stages (To Do, In Progress, Done, etc.)
+- **Board as Task Category** - Boards represent work categories, and columns represent task statuses or subcategories within those boards
+
+Both styles support the Done button functionality for marking cards as complete without moving them, and access to a dedicated Done View for reviewing completed work. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
+
 ### 📋 Board Management
 - **Create Multiple Boards** - Organize different projects with separate Kanban boards
 - **Update Board Details** - Rename boards and modify their properties
@@ -122,6 +133,12 @@ Use at your own risk.
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
 - **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
+- **Working Style** - Choose between Kanban and Board as Task Category workflow styles
+  - **Kanban**: Traditional column-based workflow where cards move through stages
+  - **Board as Task Category**: Boards represent work categories, columns represent task statuses
+  - **Done Button**: Mark cards as complete without moving them between columns
+  - **Done View**: Dedicated view to see only completed cards across all columns
+  - **Smart Column Counts**: See total and done counts in column headers (e.g., "To Do (2/5)")
 
 ![Settings](images/settings.png)
 
@@ -165,11 +182,23 @@ Use at your own risk.
 
 ![Backup Settings](images/backup_configuration.png)
 
+### � Documentation
+- **Comprehensive Docs** - Full documentation available in-app via the Docs page
+- **Keyboard Shortcuts** - Quick reference for card creation shortcuts (N for top, M for bottom)
+- **Working Style Guide** - Detailed guide on using different working styles:
+  - Available working style options and when to use each
+  - Done/Not Done button functionality and task completion tracking
+  - Done View feature for reviewing completed work
+  - Column count display and what each number means
+  - Screenshots and visual examples of each feature
+- **Easy Access** - Link to Docs from the user menu in the header
+
 ### 🔔 Notifications
 - **System Notifications** - Receive alerts about important events
 - **Backup Notifications** - Alerts for overdue backups or backup failures
 - **Schedule Notifications** - Alerts for schedule errors or when schedules end
 - **Version Notifications** - Automatic alerts when new AFT releases are available
+- **Documentation Notification** - Welcome notification on first installation directing users to Docs
 - **Action Buttons** - Optional action buttons on notifications with secure URL validation
 - **Notification Center** - View and manage all notifications from the header
 - **Mark as Read** - Individual or bulk mark notifications as read and delete
@@ -218,9 +247,9 @@ The header displays a real-time system status indicator in the top-right corner.
 | Status | Icon | Color | Meaning | Troubleshooting |
 |--------|------|-------|---------|-----------------|
 | **Connected** | ✅ | Green | All systems operational | None needed - everything is working normally |
-| **Server Disconnected** | ❌ | Red | Cannot reach API server | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
-| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. |
-| **DB Error** | ❌ | Red | Database connection failed | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
+| **Server Disconnected** | ❌ | Red | Cannot reach API server (blocks all operations) | Server is down, check docker containers with `docker compose ps`. Verify network connectivity. Try refreshing the page. |
+| **WebSocket Disconnected** | ❌ | Red | Real-time updates unavailable (REST API still works) | Refresh page to reconnect. If persistent, check browser console for errors. Verify CORS settings in `.env`. **Note:** Database operations (create/edit/delete) still work via REST API. |
+| **DB Error** | ❌ | Red | Database connection failed (blocks all operations) | Check database container health: `docker compose logs db`. Verify database is running and accessible. Check disk space. |
 
 ### Status Checking Order (Priority)
 
@@ -235,7 +264,9 @@ The widget checks system status in this order and stops at the first failure:
    - Only checked on board/dashboard pages (where real-time updates are needed)
    - Monitors Socket.IO connection status
    - If loading takes >30 seconds, shows "WebSocket Disconnected"
-   - Shows updates but may be delayed without real-time sync
+   - **Important:** WebSocket failures do NOT block database operations
+   - REST API calls (create, edit, delete) continue to work normally
+   - Only real-time sync features are affected (live updates from other users)
 
 3. **Database Health** (Lower Priority)
    - Queries database directly via API

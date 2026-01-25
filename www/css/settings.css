@@ -83,6 +83,41 @@
   font-size: 16px;
 }
 
+.setting-label-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.setting-label-with-icon label {
+  margin-bottom: 0;
+}
+
+.setting-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--primary-color);
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.setting-help-icon:hover {
+  background-color: var(--primary-color);
+  color: var(--page-panel-background);
+}
+
+.setting-help-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.5;
+}
+
 .setting-help {
   color: var(--text-secondary);
   font-size: 14px;

@@ -22,3 +22,8 @@ htmlcov/
 *.swp
 *.swo
 *~
+
+# User Compose Override
+compose.override.y*ml
+docker-compose.override.y*ml
+

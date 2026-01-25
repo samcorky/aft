@@ -123,9 +123,22 @@ def _delete_all_data():
         if delete_notif_response.status_code != 200:
             print(f"Warning: Failed to delete notifications: {delete_notif_response.status_code}")
         
-        # Reset settings to null
+        # Reset settings to defaults
         requests.put(f"{API_BASE_URL}/api/settings/default_board", 
                     json={'value': None}, 
+                    timeout=5)
+        
+        # Reset backup settings to migration defaults
+        # This ensures tests start with known state matching fresh install
+        requests.put(f"{API_BASE_URL}/api/settings/backup/config",
+                    json={
+                        'enabled': False,
+                        'frequency_value': 1,
+                        'frequency_unit': 'daily',
+                        'start_time': '00:00',
+                        'retention_count': 7,
+                        'minimum_free_space_mb': 100
+                    },
                     timeout=5)
     except requests.exceptions.RequestException as e:
         # If cleanup fails, tests will handle it

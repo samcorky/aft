@@ -502,8 +502,8 @@
   position: absolute;
   bottom: 100%;
   left: 0;
-  background: rgba(0, 0, 0, 0.9);
-  color: var(--header-text-color);
+  background: var(--page-panel-background);
+  color: var(--text-color);
   padding: 8px 12px;
   border-radius: 4px;
   white-space: normal;

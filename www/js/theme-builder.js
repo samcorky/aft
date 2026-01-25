@@ -147,7 +147,40 @@ class ThemeBuilder {
     });
   }
   
-  async loadThemes() {
+  /**
+   * Get or create the User Themes optgroup and add a theme option to it
+   * @param {string} themeId - The theme ID
+   * @param {string} themeName - The theme display name
+   * @returns {HTMLOptionElement} The created option element
+   */
+  addThemeToUserGroup(themeId, themeName) {
+    // Find or create User Themes optgroup
+    let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
+    if (!userGroup) {
+      userGroup = document.createElement('optgroup');
+      userGroup.label = 'User Themes';
+      // Insert before System Themes if it exists, otherwise append
+      const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
+      if (systemGroup) {
+        this.themeSelect.insertBefore(userGroup, systemGroup);
+      } else {
+        this.themeSelect.appendChild(userGroup);
+      }
+    }
+    
+    // Create and append the option
+    const option = document.createElement('option');
+    option.value = themeId;
+    option.textContent = themeName;
+    userGroup.appendChild(option);
+    
+    return option;
+  }
+  
+  async loadThemes(preserveSelection = false) {
+    // Store current selection if preserving
+    const currentSelection = preserveSelection ? this.themeSelect.value : null;
+    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -200,16 +233,20 @@ class ThemeBuilder {
         this.themeSelect.appendChild(systemGroup);
       }
       
-      // Only load current theme selection if no URL parameter
-      const urlParams = new URLSearchParams(window.location.search);
-      const themeParam = urlParams.get('theme');
-      
-      if (!themeParam) {
-        // Load current theme selection from settings
-        const settingsController = new AbortController();
-        const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
+      // Restore preserved selection if requested and it exists in the loaded themes
+      if (preserveSelection && currentSelection && this.themes[currentSelection]) {
+        this.themeSelect.value = currentSelection;
+      } else {
+        // Only load current theme selection if no URL parameter and not preserving
+        const urlParams = new URLSearchParams(window.location.search);
+        const themeParam = urlParams.get('theme');
         
-        try {
+        if (!themeParam) {
+          // Load current theme selection from settings
+          const settingsController = new AbortController();
+          const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
+          
+          try {
           const settingsResponse = await fetch('/api/settings/theme', {
             signal: settingsController.signal
           });
@@ -229,6 +266,7 @@ class ThemeBuilder {
           } else {
             console.error('Error fetching settings:', err);
           }
+        }
         }
       }
     } catch (error) {
@@ -478,11 +516,9 @@ class ThemeBuilder {
   }
   
   async doApplyTheme() {
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot apply theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes.
     
     const applyBtn = this.applyBtn;
     const originalText = applyBtn.textContent;
@@ -627,12 +663,10 @@ class ThemeBuilder {
       return;
     }
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot save theme: Database not connected');
-      this.lastSaveError = true;
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const saveBtn = this.saveBtn;
     const originalText = saveBtn.textContent;
@@ -731,11 +765,10 @@ class ThemeBuilder {
   }
   
   showCopyModal() {
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot copy theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const modal = document.getElementById('copy-theme-modal');
     const nameInput = document.getElementById('copy-theme-name');
@@ -796,11 +829,8 @@ class ThemeBuilder {
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
       
-      // Add to select
-      const option = document.createElement('option');
-      option.value = newTheme.id;
-      option.textContent = newTheme.name;
-      this.themeSelect.appendChild(option);
+      // Add to User Themes optgroup (new themes are always user themes)
+      this.addThemeToUserGroup(newTheme.id, newTheme.name);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;
@@ -841,11 +871,10 @@ class ThemeBuilder {
       return;
     }
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot rename theme: Database not connected');
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const modal = document.getElementById('rename-theme-modal');
     const nameInput = document.getElementById('rename-theme-name');
@@ -1063,11 +1092,10 @@ class ThemeBuilder {
         throw new Error('Invalid theme file format');
       }
       
-      // Check database connection
-      if (!window.header || !window.header.dbConnected) {
-        this.showErrorToast('Cannot import theme: Database not connected');
-        return;
-      }
+      // Note: We don't check dbConnected here because REST API calls work independently
+      // of the periodic database status checks. The dbConnected flag is primarily for
+      // blocking card creation, not for theme changes. The API call itself will fail
+      // gracefully if there's an actual connectivity issue.
       
       // Import via API
       const controller = new AbortController();
@@ -1094,11 +1122,8 @@ class ThemeBuilder {
       // Add to themes list
       this.themes[newTheme.id] = newTheme;
       
-      // Add to select
-      const option = document.createElement('option');
-      option.value = newTheme.id;
-      option.textContent = newTheme.name;
-      this.themeSelect.appendChild(option);
+      // Add to User Themes optgroup (imported themes are always user themes)
+      this.addThemeToUserGroup(newTheme.id, newTheme.name);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;
@@ -1174,12 +1199,10 @@ class ThemeBuilder {
     const file = event.target.files[0];
     if (!file) return;
     
-    // Check database connection
-    if (!window.header || !window.header.dbConnected) {
-      this.showErrorToast('Cannot upload background: Database not connected');
-      event.target.value = '';
-      return;
-    }
+    // Note: We don't check dbConnected here because REST API calls work independently
+    // of the periodic database status checks. The dbConnected flag is primarily for
+    // blocking card creation, not for theme changes. The API call itself will fail
+    // gracefully if there's an actual connectivity issue.
     
     const uploadBtn = document.getElementById('upload-bg-btn');
     const originalText = uploadBtn.textContent;
@@ -1322,13 +1345,13 @@ function initializeWebSocketForThemeBuilder() {
     socket.on('theme_changed', (data) => {
       // Refresh themes list if we're on the theme builder
       if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
-        window.AFT.themeBuilder.loadThemes();
+        window.AFT.themeBuilder.loadThemes(true); // Preserve selection when reloading
       }
     });
 
     socket.on('theme_updated', (data) => {
       if (window.AFT?.themeBuilder && typeof window.AFT.themeBuilder.loadThemes === 'function') {
-        window.AFT.themeBuilder.loadThemes();
+        window.AFT.themeBuilder.loadThemes(true); // Preserve selection when reloading
       }
     });
 

@@ -85,6 +85,7 @@ class Card(Base):
     archived = Column(Boolean, nullable=False, default=False, index=True)
     scheduled = Column(Boolean, nullable=False, default=False, index=True)
     schedule = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NULL'), nullable=True, index=True)
+    done = Column(Boolean, nullable=False, default=False, index=True)
     
     # Relationship to column
     column = relationship("BoardColumn", back_populates="cards")

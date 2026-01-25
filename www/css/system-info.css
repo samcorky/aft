@@ -164,8 +164,8 @@
   left: 50%;
   transform: translateX(-50%);
   margin-bottom: 10px;
-  background-color: var(--text-bold);
-  color: var(--header-text-color);
+  background-color: var(--page-panel-background);
+  color: var(--text-color);
   padding: 12px 16px;
   border-radius: 6px;
   font-size: 12px;
@@ -185,7 +185,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: var(--text-bold);
+  border-top-color: var(--page-panel-background);
 }
 
 .detail-item {

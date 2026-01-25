@@ -101,8 +101,7 @@ body {
   border-radius: 2px;
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus::after {
+[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   bottom: 100%;
@@ -118,10 +117,12 @@ body {
   z-index: 1000;
   margin-bottom: 5px;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.7s;
 }
 
-[data-tooltip]:hover::before,
-[data-tooltip]:focus::before {
+[data-tooltip]::before {
   content: '';
   position: absolute;
   bottom: 100%;
@@ -131,6 +132,28 @@ body {
   border-top-color: var(--page-panel-background);
   z-index: 1000;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.7s;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus::after {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out 0.5s, visibility 0s linear 0.5s;
+}
+
+[data-tooltip]:hover::before,
+[data-tooltip]:focus::before {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.2s ease-in-out 0.5s, visibility 0s linear 0.5s;
+}
+
+[data-tooltip]:focus::after,
+[data-tooltip]:focus::before {
+  transition-delay: 0s;
 }
 
 /* App Modal Dialog Styles */

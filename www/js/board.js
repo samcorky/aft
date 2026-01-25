@@ -3594,7 +3594,7 @@ class BoardManager {
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
-                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true">
+                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true" ${item.created_at || item.updated_at ? `data-tooltip="Created: ${item.created_at ? formatTooltipDateTime(item.created_at) : 'Unknown'}&#10;Updated: ${item.updated_at ? formatTooltipDateTime(item.updated_at) : 'Unknown'}"` : ''}>
                       <span class="drag-handle" title="Drag to reorder">&#9776;</span>
                       <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
                       <span class="checklist-item-name">${linkifyUrls(this.escapeHtml(item.name))}</span>

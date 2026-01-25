@@ -147,6 +147,36 @@ class ThemeBuilder {
     });
   }
   
+  /**
+   * Get or create the User Themes optgroup and add a theme option to it
+   * @param {string} themeId - The theme ID
+   * @param {string} themeName - The theme display name
+   * @returns {HTMLOptionElement} The created option element
+   */
+  addThemeToUserGroup(themeId, themeName) {
+    // Find or create User Themes optgroup
+    let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
+    if (!userGroup) {
+      userGroup = document.createElement('optgroup');
+      userGroup.label = 'User Themes';
+      // Insert before System Themes if it exists, otherwise append
+      const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
+      if (systemGroup) {
+        this.themeSelect.insertBefore(userGroup, systemGroup);
+      } else {
+        this.themeSelect.appendChild(userGroup);
+      }
+    }
+    
+    // Create and append the option
+    const option = document.createElement('option');
+    option.value = themeId;
+    option.textContent = themeName;
+    userGroup.appendChild(option);
+    
+    return option;
+  }
+  
   async loadThemes(preserveSelection = false) {
     // Store current selection if preserving
     const currentSelection = preserveSelection ? this.themeSelect.value : null;
@@ -215,8 +245,8 @@ class ThemeBuilder {
           // Load current theme selection from settings
           const settingsController = new AbortController();
           const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
-        
-        try {
+          
+          try {
           const settingsResponse = await fetch('/api/settings/theme', {
             signal: settingsController.signal
           });
@@ -800,24 +830,7 @@ class ThemeBuilder {
       this.themes[newTheme.id] = newTheme;
       
       // Add to User Themes optgroup (new themes are always user themes)
-      let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
-      if (!userGroup) {
-        // Create User Themes optgroup if it doesn't exist
-        userGroup = document.createElement('optgroup');
-        userGroup.label = 'User Themes';
-        // Insert before System Themes if it exists, otherwise append
-        const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
-        if (systemGroup) {
-          this.themeSelect.insertBefore(userGroup, systemGroup);
-        } else {
-          this.themeSelect.appendChild(userGroup);
-        }
-      }
-      
-      const option = document.createElement('option');
-      option.value = newTheme.id;
-      option.textContent = newTheme.name;
-      userGroup.appendChild(option);
+      this.addThemeToUserGroup(newTheme.id, newTheme.name);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;
@@ -1110,24 +1123,7 @@ class ThemeBuilder {
       this.themes[newTheme.id] = newTheme;
       
       // Add to User Themes optgroup (imported themes are always user themes)
-      let userGroup = this.themeSelect.querySelector('optgroup[label="User Themes"]');
-      if (!userGroup) {
-        // Create User Themes optgroup if it doesn't exist
-        userGroup = document.createElement('optgroup');
-        userGroup.label = 'User Themes';
-        // Insert before System Themes if it exists, otherwise append
-        const systemGroup = this.themeSelect.querySelector('optgroup[label="System Themes"]');
-        if (systemGroup) {
-          this.themeSelect.insertBefore(userGroup, systemGroup);
-        } else {
-          this.themeSelect.appendChild(userGroup);
-        }
-      }
-      
-      const option = document.createElement('option');
-      option.value = newTheme.id;
-      option.textContent = newTheme.name;
-      userGroup.appendChild(option);
+      this.addThemeToUserGroup(newTheme.id, newTheme.name);
       
       // Select the new theme
       this.themeSelect.value = newTheme.id;

@@ -366,11 +366,11 @@ class BackupRestore {
       if (data.success && data.config) {
         const config = data.config;
         if (this.backupEnabled) this.backupEnabled.checked = config.enabled || false;
-        if (this.frequencyValue) this.frequencyValue.value = config.frequency_value || 24;
-        if (this.frequencyUnit) this.frequencyUnit.value = config.frequency_unit || 'hours';
-        if (this.startTime) this.startTime.value = config.start_time || '02:00';
-        if (this.retentionCount) this.retentionCount.value = config.retention_count || 7;
-        if (this.minimumFreeSpace) this.minimumFreeSpace.value = config.minimum_free_space_mb || 100;
+        if (this.frequencyValue) this.frequencyValue.value = config.frequency_value ?? '';
+        if (this.frequencyUnit) this.frequencyUnit.value = config.frequency_unit ?? '';
+        if (this.startTime) this.startTime.value = config.start_time ?? '';
+        if (this.retentionCount) this.retentionCount.value = config.retention_count ?? '';
+        if (this.minimumFreeSpace) this.minimumFreeSpace.value = config.minimum_free_space_mb ?? '';
       }
     } catch (err) {
       console.error('Error loading backup config:', err);
@@ -912,7 +912,16 @@ class BackupRestore {
       if (!response.ok) {
         const data = await response.json();
         if (this.backupEnabled) this.backupEnabled.checked = !enabled;
-        this.showStatus(`Error: ${data.message || 'Failed to update backup settings'}`, 'error');
+        
+        // Check if error is about missing configuration
+        if (data.message && data.message.includes('must be set before enabling')) {
+          await showAlert(
+            'Please configure all backup settings below before enabling automatic backups.',
+            'Configuration Required'
+          );
+        } else {
+          await showAlert(data.message || 'Failed to update backup settings', 'Error');
+        }
         return;
       }
 
@@ -921,7 +930,16 @@ class BackupRestore {
       if (!data.success) {
         // Revert toggle on error
         if (this.backupEnabled) this.backupEnabled.checked = !enabled;
-        this.showStatus(`Error: ${data.message}`, 'error');
+        
+        // Check if error is about missing configuration
+        if (data.message && data.message.includes('must be set before enabling')) {
+          await showAlert(
+            'Please configure all backup settings below before enabling automatic backups.',
+            'Configuration Required'
+          );
+        } else {
+          await showAlert(data.message, 'Error');
+        }
       } else {
         // Reload status to show updated info
         await this.loadBackupStatus();
@@ -930,7 +948,7 @@ class BackupRestore {
       console.error('Error toggling backup:', error);
       // Revert toggle on error
       if (this.backupEnabled) this.backupEnabled.checked = !enabled;
-      this.showStatus(`Error: ${error.message}`, 'error');
+      await showAlert(error.message, 'Error');
     }
   }
 

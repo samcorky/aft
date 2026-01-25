@@ -2225,17 +2225,8 @@ def get_backup_config():
                 except (json.JSONDecodeError, TypeError):
                     config[key.replace("backup_", "")] = setting.value
             else:
-                # Default values
-                defaults = {
-                    "backup_enabled": False,
-                    "backup_frequency_value": 1,
-                    "backup_frequency_unit": "daily",
-                    "backup_start_time": "00:00",
-                    "backup_retention_count": 7,
-                    "backup_minimum_free_space_mb": 100,
-                    "backup_last_run": None
-                }
-                config[key.replace("backup_", "")] = defaults.get(key)
+                # No default - return None if setting doesn't exist
+                config[key.replace("backup_", "")] = None
         
         return jsonify({"success": True, "config": config})
     except Exception as e:
@@ -2362,6 +2353,8 @@ def update_backup_config():
                             current_settings[field] = json.loads(setting.value)
                         except (json.JSONDecodeError, TypeError):
                             current_settings[field] = None
+                    else:
+                        current_settings[field] = None
             
             # Merge with new data
             final_settings = {**current_settings, **data}

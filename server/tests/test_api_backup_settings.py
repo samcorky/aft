@@ -268,20 +268,29 @@ class TestBackupSettingsAPI:
         assert config['frequency_value'] == 99
         assert config['retention_count'] == 100
     
-    def test_cannot_enable_with_missing_settings(self, api_client):
-        """Test that enabling backups requires all settings to be configured."""
-        # First set valid settings
-        requests.put(
-            f'{api_client}/api/settings/backup/config',
-            json={'frequency_value': 1, 'frequency_unit': 'hours'}
-        )
+    def test_can_enable_with_database_defaults(self, api_client):
+        """Test that enabling backups works when database has default settings.
         
-        # Now try to enable - should succeed because settings are valid
+        This test assumes the database has been initialized with default backup
+        settings via Alembic migration 018. On a fresh install, all backup settings
+        should exist in the database with sensible defaults.
+        """
+        # Try to enable - should succeed because DB has defaults from migration
         response = requests.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True}
         )
         assert response.status_code == 200
+        
+        # Verify default values are present
+        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        config = get_response.json()['config']
+        assert config['enabled'] is True
+        assert config['frequency_value'] == 1
+        assert config['frequency_unit'] == 'daily'
+        assert config['start_time'] == '00:00'
+        assert config['retention_count'] == 7
+        assert config['minimum_free_space_mb'] == 100
     
     def test_cannot_enable_with_invalid_frequency_value(self, api_client):
         """Test that you cannot enable backups if frequency_value would be invalid."""

@@ -273,7 +273,7 @@ class Header {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      // Note: dbConnected NOT set to false - REST API calls still work
+      // Note: dbConnected is not updated here - it retains its current value from checkDatabaseStatus
       return;
     }
     
@@ -283,7 +283,7 @@ class Header {
       this.statusIcon.className = 'status-icon error';
       this.statusText.textContent = 'WebSocket Disconnected';
       this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-      // Note: dbConnected NOT set to false - REST API calls still work
+      // Note: dbConnected is not updated here - it retains its current value from checkDatabaseStatus
     }
   }
 
@@ -611,7 +611,8 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
-        // Note: dbConnected NOT set to false - REST API calls still work
+        // Set dbConnected to true - REST API calls and database operations still work
+        this.dbConnected = true;
         return;
       }
       
@@ -625,7 +626,8 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-        // Note: dbConnected NOT set to false - REST API calls and card creation still work
+        // Set dbConnected to true - REST API calls and database operations still work
+        this.dbConnected = true;
         return;
       }
       

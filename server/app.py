@@ -742,10 +742,9 @@ def get_scheduler_health():
         from backup_scheduler import get_scheduler
         scheduler = get_scheduler()
         
-        # Get latest backup info from filesystem (consistent with /api/settings/backup/status)
-        latest_backup_info = scheduler._get_latest_backup_info()
-        latest_backup_date = latest_backup_info.get('date')
-        last_backup_iso = latest_backup_date.isoformat() if latest_backup_date else None
+        # Get status which includes latest_backup_date from filesystem (consistent with /api/settings/backup/status)
+        status = scheduler.get_status()
+        last_backup_iso = status.get('latest_backup_date')  # Already in ISO format from get_status()
         
         # In multi-worker setup, check lock file for true health status
         lock_file_exists = scheduler.lock_file.exists()

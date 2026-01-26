@@ -80,6 +80,12 @@ Both styles support the Done button functionality for marking cards as complete 
 - **Column Menu** - Access column actions via three-dots menu:
   - **Move All Cards** - Batch move all cards from one column to another (top or bottom position)
   - **Archive All Cards** - Archive all active cards in a column at once
+  - **Archive After...** - Automatically archive cards older than a specified time period
+    - Configure time period (e.g., 7 days, 2 weeks, 3 months)
+    - Preview which cards will be archived before committing
+    - See the most recent card that will be archived with card details
+    - Uses card's last update time to determine eligibility
+    - Ideal for automatically cleaning up completed or stale tasks
   - **Unarchive All Cards** - Unarchive all archived cards in a column (visible in archive view)
   - **Delete All Cards** - Remove all cards from a column
   - **Delete Column** - Remove the entire column

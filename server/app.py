@@ -6332,6 +6332,8 @@ def update_checklist_item(item_id):
     """
     db = SessionLocal()
     try:
+        from datetime import datetime
+        
         # Handle case where get_json() might raise an exception for empty body
         try:
             data = request.get_json()
@@ -6386,7 +6388,6 @@ def update_checklist_item(item_id):
         
         # Set updated_at timestamp for checklist item only if content changed (not just reordering)
         if content_changed:
-            from datetime import datetime
             checklist_item.updated_at = datetime.utcnow()
         
         # Update parent card's updated_at timestamp for any checklist change (including reordering)

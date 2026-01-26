@@ -2,7 +2,6 @@
 import pytest
 import requests
 import time
-from datetime import datetime, timedelta
 
 
 @pytest.mark.api
@@ -23,9 +22,9 @@ class TestArchiveAfterAPI:
         
         # Wait a moment then create another card
         time.sleep(0.1)
-        recent_card = requests.post(f'{api_client}/api/columns/{column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{column["id"]}/cards', json={
             'title': 'Recent Card'
-        }).json()['card']
+        })
         
         # Note: In real world, cards would have different updated_at timestamps
         # For testing, we use a very short period that captures all cards
@@ -70,13 +69,13 @@ class TestArchiveAfterAPI:
     def test_archive_after_execute(self, api_client, sample_column):
         """Test actually archiving cards after a time period."""
         # Create cards
-        card1 = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Card 1'
-        }).json()['card']
+        })
         
-        card2 = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Card 2'
-        }).json()['card']
+        })
         
         # Execute archive with very short period to capture all cards
         response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/archive-after', json={
@@ -219,9 +218,9 @@ class TestArchiveAfterAPI:
         requests.patch(f'{api_client}/api/cards/{archived_card["id"]}/archive')
         
         # Create a non-archived card
-        active_card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Active Card'
-        }).json()['card']
+        })
         
         # Dry run to check count
         response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/archive-after', json={
@@ -240,10 +239,11 @@ class TestArchiveAfterAPI:
     def test_archive_after_preserves_other_card_properties(self, api_client, sample_column):
         """Test that archive-after only changes archived status."""
         # Create a card with properties
-        card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        card_response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Test Card',
             'description': 'Test description'
-        }).json()['card']
+        })
+        card_id = card_response.json()['card']['id']
         
         # Execute archive
         requests.post(f'{api_client}/api/columns/{sample_column["id"]}/archive-after', json={
@@ -253,7 +253,7 @@ class TestArchiveAfterAPI:
         })
         
         # Get card and verify other properties are preserved
-        card_response = requests.get(f'{api_client}/api/cards/{card["id"]}')
+        card_response = requests.get(f'{api_client}/api/cards/{card_id}')
         updated_card = card_response.json()['card']
         assert updated_card['title'] == 'Test Card'
         assert updated_card['description'] == 'Test description'
@@ -262,15 +262,15 @@ class TestArchiveAfterAPI:
     def test_archive_after_most_recent_card_details(self, api_client, sample_column):
         """Test that dry run returns correct most recent card details."""
         # Create multiple cards
-        card1 = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Card 1'
-        }).json()['card']
+        })
         
         time.sleep(0.1)
         
-        card2 = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Card 2 - Most Recent'
-        }).json()['card']
+        })
         
         # Dry run
         response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/archive-after', json={
@@ -348,9 +348,9 @@ class TestArchiveAfterAPI:
     def test_archive_after_default_dry_run(self, api_client, sample_column):
         """Test that dry_run defaults to False if not specified."""
         # Create a card
-        card = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+        requests.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Test Card'
-        }).json()['card']
+        })
         
         # Call without dry_run parameter (should execute)
         response = requests.post(f'{api_client}/api/columns/{sample_column["id"]}/archive-after', json={

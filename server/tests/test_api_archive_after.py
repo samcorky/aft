@@ -182,7 +182,7 @@ class TestArchiveAfterAPI:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
-        assert 'quantity must be a positive integer' in data['message']
+        assert 'quantity is required' in data['message']
     
     def test_archive_after_missing_period(self, api_client, sample_column):
         """Test archive-after without period parameter."""
@@ -194,7 +194,7 @@ class TestArchiveAfterAPI:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
-        assert 'period must be one of' in data['message']
+        assert 'period is required' in data['message']
     
     def test_archive_after_nonexistent_column(self, api_client):
         """Test archive-after with non-existent column."""

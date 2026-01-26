@@ -4432,12 +4432,33 @@ class BoardManager {
           timestampElement.setAttribute('aria-label', `Last updated ${formatTooltipDateTime(cardData.updated_at)}`);
         } else {
           // Create timestamp element if it doesn't exist
-          const expandBtn = cardElement.querySelector('.card-expand-btn');
-          if (expandBtn) {
-            const timestampHtml = `<div class="card-timestamp" data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0">
-              ${formatTimeAgo(cardData.updated_at)}
-            </div>`;
-            expandBtn.insertAdjacentHTML('beforebegin', timestampHtml);
+          // First check if card-meta-row exists
+          let metaRow = cardElement.querySelector('.card-meta-row');
+          if (!metaRow) {
+            // Create the meta row structure
+            const cardContentWrapper = cardElement.querySelector('.card-content-wrapper');
+            const checklistElement = cardElement.querySelector('.card-checklist');
+            if (cardContentWrapper) {
+              metaRow = document.createElement('div');
+              metaRow.className = 'card-meta-row';
+              // Insert before checklist or at the end of content wrapper
+              if (checklistElement) {
+                cardContentWrapper.insertBefore(metaRow, checklistElement);
+              } else {
+                cardContentWrapper.appendChild(metaRow);
+              }
+            }
+          }
+          
+          if (metaRow) {
+            // Create and append timestamp element to the meta row
+            const timestamp = document.createElement('div');
+            timestamp.className = 'card-timestamp';
+            timestamp.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+            timestamp.setAttribute('aria-label', `Last updated ${formatTooltipDateTime(cardData.updated_at)}`);
+            timestamp.setAttribute('tabindex', '0');
+            timestamp.textContent = formatTimeAgo(cardData.updated_at);
+            metaRow.appendChild(timestamp);
           }
         }
       }

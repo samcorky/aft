@@ -3563,7 +3563,10 @@ class BoardManager {
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
               <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
             </div>
-            <h2>${isTemplate ? 'Edit Card Template' : 'Edit Card'}</h2>
+            <h2>
+              ${isTemplate ? 'Edit Card Template' : 'Edit Card'}
+              <span class="card-ref-number">Ref: #${cardData.id}</span>
+            </h2>
           </div>
           <form id="edit-card-form">
             <div class="form-group">

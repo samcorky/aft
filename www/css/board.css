@@ -898,6 +898,17 @@
   width: 100%;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h2 .card-ref-number {
+  font-size: 0.6em;
+  font-weight: normal;
+  color: var(--text-subtle);
+  margin-left: 10px;
+  white-space: nowrap;
 }
 
 .modal-header-actions {

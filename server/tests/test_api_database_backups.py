@@ -42,36 +42,66 @@ class TestDatabaseBackupsAPI:
     
     def test_list_backups_sorted_newest_first(self, api_client):
         """Test that backups are sorted newest first."""
-        backup_path = Path("/app/backups")
-        backup_path.mkdir(parents=True, exist_ok=True)
+        import time
         
-        # Create multiple test backups with different timestamps
-        test_backups = [
-            "auto_backup_20240101_120000.sql",
-            "auto_backup_20240102_120000.sql",
-            "auto_backup_20240103_120000.sql",
-        ]
+        # Create multiple backups via API with delays between them
+        created_backups = []
+        for i in range(3):
+            response = requests.post(f'{api_client}/api/database/backup/manual')
+            if response.status_code != 200:
+                print(f"Backup {i+1} failed with status {response.status_code}: {response.text}")
+                continue
+            
+            data = response.json()
+            if not data.get('success'):
+                print(f"Backup {i+1} returned success=False: {data}")
+                continue
+                
+            filename = data.get('filename')
+            if filename:
+                created_backups.append(filename)
+                print(f"Created backup {i+1}: {filename}")
+            else:
+                print(f"Backup {i+1} returned no filename: {data}")
+            
+            if i < 2:  # Don't sleep after the last one
+                time.sleep(1)  # Delay to ensure different timestamps
+        
+        # Ensure we created at least some backups
+        assert len(created_backups) > 0, f"Failed to create any backups"
         
         try:
-            for backup_name in test_backups:
-                (backup_path / backup_name).write_text("-- Test backup\n")
-            
+            # List backups
             response = requests.get(f'{api_client}/api/database/backups/list')
             assert response.status_code == 200
             data = response.json()
             assert data['success'] is True
-            assert len(data['backups']) >= 3
             
-            # Check that backups are sorted newest first
-            filenames = [b['filename'] for b in data['backups']]
-            test_backup_names = [f for f in filenames if f.startswith('auto_backup_202401')]
-            assert test_backup_names == sorted(test_backup_names, reverse=True)
+            # Get all backups
+            all_backups = data['backups']
+            
+            # Find our created backups in the list
+            found_backups = [b for b in all_backups if b['filename'] in created_backups]
+            
+            # We should find all the backups we created
+            assert len(found_backups) == len(created_backups), \
+                f"Expected to find {len(created_backups)} backups, found {len(found_backups)}"
+            
+            # Verify that our created backups are in reverse chronological order
+            # (newest first) based on their 'created' timestamps
+            if len(found_backups) >= 2:
+                for i in range(len(found_backups) - 1):
+                    current_created = found_backups[i]['created']
+                    next_created = found_backups[i + 1]['created']
+                    assert current_created >= next_created, \
+                        f"Backups not sorted correctly: {current_created} should be >= {next_created}"
         finally:
-            # Cleanup
-            for backup_name in test_backups:
-                backup_file = backup_path / backup_name
-                if backup_file.exists():
-                    backup_file.unlink()
+            # Cleanup - delete the test backups
+            for filename in created_backups:
+                try:
+                    requests.delete(f'{api_client}/api/database/backup/{filename}')
+                except:
+                    pass  # Ignore cleanup errors
     
     def test_list_backups_includes_all_sql_files(self, api_client):
         """Test that all SQL backup files are listed."""

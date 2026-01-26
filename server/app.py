@@ -5437,6 +5437,180 @@ def batch_unarchive_cards():
         db.close()
 
 
+@app.route("/api/columns/<int:column_id>/archive-after", methods=["POST"])
+def archive_cards_after_period(column_id):
+    """Archive cards in a column that haven't been updated within a specified time period.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: column_id
+        in: path
+        type: integer
+        required: true
+        description: ID of the column
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - quantity
+            - period
+          properties:
+            quantity:
+              type: integer
+              description: Numeric value for the time period
+              example: 7
+            period:
+              type: string
+              description: Time unit (minutes, hours, days, weeks)
+              enum: [minutes, hours, days, weeks]
+              example: days
+            dry_run:
+              type: boolean
+              description: If true, only return preview data without archiving
+              example: true
+    responses:
+      200:
+        description: Cards archived successfully or preview returned
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "Archived 5 cards"
+            archived_count:
+              type: integer
+              example: 5
+            affected_count:
+              type: integer
+              description: Number of cards that would be archived (dry run only)
+              example: 5
+            most_recent_card:
+              type: object
+              description: Details of the most recent card to be archived (dry run only)
+              properties:
+                id:
+                  type: integer
+                title:
+                  type: string
+                updated_at:
+                  type: string
+                created_at:
+                  type: string
+      400:
+        description: Invalid request
+      404:
+        description: Column not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card
+        from datetime import datetime, timedelta
+
+        # Validate column exists
+        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+        if not column:
+            return jsonify({"success": False, "message": "Column not found"}), 404
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
+        quantity = data.get("quantity")
+        period = data.get("period")
+        dry_run = data.get("dry_run", False)
+
+        # Validate inputs
+        if quantity is None:
+            return jsonify({"success": False, "message": "quantity is required"}), 400
+        
+        if not isinstance(quantity, int) or quantity < 1:
+            return jsonify({"success": False, "message": "quantity must be a positive integer"}), 400
+
+        if not period:
+            return jsonify({"success": False, "message": "period is required"}), 400
+        if period not in ["minutes", "hours", "days", "weeks"]:
+            return jsonify({"success": False, "message": "period must be one of: minutes, hours, days, weeks"}), 400
+
+        # Calculate the cutoff datetime
+        now = datetime.utcnow()
+        if period == "minutes":
+            cutoff = now - timedelta(minutes=quantity)
+        elif period == "hours":
+            cutoff = now - timedelta(hours=quantity)
+        elif period == "days":
+            cutoff = now - timedelta(days=quantity)
+        elif period == "weeks":
+            cutoff = now - timedelta(weeks=quantity)
+
+        # Find cards that meet the criteria:
+        # - In the specified column
+        # - Not already archived
+        # - updated_at (or created_at if updated_at is null) is older than cutoff
+        query = db.query(Card).filter(
+            Card.column_id == column_id,
+            Card.archived == False
+        )
+        
+        # Use COALESCE to handle null updated_at by falling back to created_at
+        query = query.filter(
+            func.coalesce(Card.updated_at, Card.created_at) < cutoff
+        )
+
+        if dry_run:
+            # For dry run, get the count and the most recent card
+            affected_cards = query.all()
+            affected_count = len(affected_cards)
+            
+            if affected_count > 0:
+                # Sort by updated_at (or created_at) descending to get most recent
+                most_recent = max(
+                    affected_cards,
+                    key=lambda c: c.updated_at or c.created_at
+                )
+                
+                return jsonify({
+                    "success": True,
+                    "affected_count": affected_count,
+                    "most_recent_card": {
+                        "id": most_recent.id,
+                        "title": most_recent.title,
+                        "updated_at": most_recent.updated_at.isoformat() if most_recent.updated_at else None,
+                        "created_at": most_recent.created_at.isoformat() if most_recent.created_at else None
+                    }
+                }), 200
+            else:
+                return jsonify({
+                    "success": True,
+                    "affected_count": 0,
+                    "most_recent_card": None
+                }), 200
+        else:
+            # Actually archive the cards
+            archived_count = query.update({Card.archived: True}, synchronize_session=False)
+            db.commit()
+
+            return jsonify({
+                "success": True,
+                "message": f"Archived {archived_count} cards",
+                "archived_count": archived_count
+            }), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error archiving cards after period: {str(e)}")
+        return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 # Scheduled Cards API endpoints
 @app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
 def get_scheduled_cards(column_id):
@@ -6166,6 +6340,8 @@ def update_checklist_item(item_id):
     """
     db = SessionLocal()
     try:
+        from datetime import datetime
+        
         # Handle case where get_json() might raise an exception for empty body
         try:
             data = request.get_json()
@@ -6220,7 +6396,6 @@ def update_checklist_item(item_id):
         
         # Set updated_at timestamp for checklist item only if content changed (not just reordering)
         if content_changed:
-            from datetime import datetime
             checklist_item.updated_at = datetime.utcnow()
         
         # Update parent card's updated_at timestamp for any checklist change (including reordering)

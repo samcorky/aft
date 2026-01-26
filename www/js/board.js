@@ -1226,6 +1226,15 @@ class BoardManager {
                           </span>
                           <span>Archive all cards</span>
                         </button>
+                        <button class="column-menu-item column-archive-after-btn" data-column-id="${column.id}">
+                          <span class="icon-span">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <circle cx="12" cy="12" r="10"></circle>
+                              <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                          </span>
+                          <span>Archive after...</span>
+                        </button>
                       `}
                       <button class="column-menu-item column-delete-cards-btn" data-column-id="${column.id}">
                         <span>🗑</span>
@@ -1426,6 +1435,16 @@ class BoardManager {
           // Close the dropdown
           document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
           this.unarchiveAllCardsInColumn(columnId);
+        });
+      });
+      
+      // Add event listeners for archive after... buttons
+      document.querySelectorAll('.column-archive-after-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const columnId = parseInt(e.currentTarget.getAttribute('data-column-id'));
+          // Close the dropdown
+          document.querySelectorAll('.column-menu-dropdown').forEach(d => d.classList.remove('show'));
+          this.openArchiveAfterModal(columnId);
         });
       });
       
@@ -3085,6 +3104,197 @@ class BoardManager {
 
     // Close modal on background click (ignore text selection drags)
     setupModalBackgroundClose(modal, () => modal.remove());
+  }
+
+  async openArchiveAfterModal(columnId) {
+    // Check database connection
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot archive cards: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
+    // Get column and its cards
+    const column = this.columns.find(c => c.id === columnId);
+    if (!column) {
+      await showAlert('Column not found', 'Error');
+      return;
+    }
+
+    // Create modal HTML
+    const modalHtml = `
+      <div class="modal" id="archive-after-modal" role="dialog" aria-modal="true" aria-labelledby="archive-after-title" aria-describedby="archive-after-description">
+        <div class="modal-content">
+          <h2 id="archive-after-title">Archive Cards After Period</h2>
+          <p id="archive-after-description" class="modal-description">This will archive all cards in <strong>${this.escapeHtml(column.name)}</strong> that haven't been updated within the specified time period. The card's last update time is used to determine eligibility.</p>
+          <form id="archive-after-form">
+            <div class="form-group">
+              <label for="archive-quantity">Archive cards older than:</label>
+              <div style="display: flex; gap: 10px;">
+                <input type="number" id="archive-quantity" name="quantity" min="1" step="1" value="7" required aria-required="true" style="flex: 1;">
+                <select id="archive-period" name="period" required aria-required="true" style="flex: 1;">
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                  <option value="days" selected>Days</option>
+                  <option value="weeks">Weeks</option>
+                </select>
+              </div>
+            </div>
+            <div id="preview-section" style="margin-top: 20px; padding: 15px; background: var(--card-bg, #f5f5f5); border-radius: 5px; display: none;" role="region" aria-live="polite">
+              <h3 style="margin-top: 0; font-size: 0.9em; color: var(--text-secondary, #666);">Preview - Most Recent Card to Archive:</h3>
+              <div id="preview-content"></div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-archive-after-btn">Cancel</button>
+              <button type="button" class="btn btn-secondary" id="preview-archive-after-btn">Preview</button>
+              <button type="submit" class="btn btn-primary">Archive</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Get modal elements
+    const modal = document.getElementById('archive-after-modal');
+    const form = document.getElementById('archive-after-form');
+    const cancelBtn = document.getElementById('cancel-archive-after-btn');
+    const previewBtn = document.getElementById('preview-archive-after-btn');
+    const quantityInput = document.getElementById('archive-quantity');
+    const periodSelect = document.getElementById('archive-period');
+    const previewSection = document.getElementById('preview-section');
+    const previewContent = document.getElementById('preview-content');
+
+    // Focus on quantity input
+    quantityInput.focus();
+    quantityInput.select();
+
+    // Handle cancel
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    // Handle preview
+    previewBtn.addEventListener('click', async () => {
+      const quantity = parseInt(quantityInput.value);
+      const period = periodSelect.value;
+      
+      if (!quantity || quantity < 1) {
+        await showAlert('Please enter a valid quantity (minimum 1)', 'Warning');
+        return;
+      }
+      
+      previewBtn.disabled = true;
+      previewBtn.textContent = 'Loading...';
+      
+      try {
+        const response = await fetch(`/api/columns/${columnId}/archive-after`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            quantity: quantity,
+            period: period,
+            dry_run: true
+          })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+          if (data.affected_count === 0) {
+            previewContent.innerHTML = '<p style="color: var(--text-secondary, #666); font-style: italic;">No cards would be archived with these settings.</p>';
+          } else {
+            const card = data.most_recent_card;
+            const updatedDate = new Date(card.updated_at || card.created_at);
+            const now = new Date();
+            const daysDiff = Math.floor((now - updatedDate) / (1000 * 60 * 60 * 24));
+            
+            previewContent.innerHTML = `
+              <div style="padding: 10px; background: var(--bg-primary, white); border-radius: 3px; border-left: 3px solid var(--accent-primary, #007bff);">
+                <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(card.title)}</div>
+                <div style="font-size: 0.85em; color: var(--text-secondary, #666);">
+                  Last updated: ${updatedDate.toLocaleString()} (${daysDiff} days ago)
+                </div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color, #ddd); font-size: 0.85em;">
+                  <strong>${data.affected_count}</strong> card(s) would be archived
+                </div>
+              </div>
+            `;
+          }
+          previewSection.style.display = 'block';
+        } else {
+          await showAlert(data.message || 'Failed to preview archive operation', 'Error');
+        }
+      } catch (err) {
+        console.error('Error previewing archive:', err);
+        await showAlert('Error previewing archive operation', 'Error');
+      } finally {
+        previewBtn.disabled = false;
+        previewBtn.textContent = 'Preview';
+      }
+    });
+
+    // Handle form submit
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const quantity = parseInt(quantityInput.value);
+      const period = periodSelect.value;
+      
+      if (!quantity || quantity < 1) {
+        await showAlert('Please enter a valid quantity (minimum 1)', 'Warning');
+        return;
+      }
+      
+      modal.remove();
+      await this.archiveCardsAfter(columnId, quantity, period);
+    });
+
+    // Close modal on background click
+    setupModalBackgroundClose(modal, () => modal.remove());
+  }
+
+  async archiveCardsAfter(columnId, quantity, period) {
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    try {
+      const response = await fetch(`/api/columns/${columnId}/archive-after`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          quantity: quantity,
+          period: period,
+          dry_run: false
+        }),
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const data = await this.parseResponse(response);
+      
+      if (response.ok && data.success) {
+        this.showSuccessToast(`Archived ${data.archived_count} card(s)`);
+        await this.loadBoard(this.currentBoardId);
+      } else {
+        this.showErrorToast(data.message || 'Failed to archive cards');
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.error('Error archiving cards:', err);
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Archive request timed out. Please check your connection.');
+      } else {
+        this.showErrorToast('Error archiving cards');
+      }
+    }
   }
 
   async moveAllCards(sourceColumnId, targetColumnId, position, includeArchived = false) {

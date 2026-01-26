@@ -197,7 +197,7 @@ class TestTimestamps:
         )
         card1_id = response1.json()['card']['id']
         
-        response2 = requests.post(
+        requests.post(
             f'{api_client}/api/columns/{sample_column["id"]}/cards',
             json={'title': 'Card 2'}
         )

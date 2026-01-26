@@ -6084,7 +6084,6 @@ def create_checklist_item(card_id):
         db.add(checklist_item)
         
         # Update parent card's updated_at timestamp
-        from datetime import datetime
         card.updated_at = datetime.utcnow()
         
         db.commit()
@@ -6226,7 +6225,6 @@ def update_checklist_item(item_id):
         
         # Update parent card's updated_at timestamp for any checklist change (including reordering)
         from models import Card
-        from datetime import datetime
         card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
         if card:
             card.updated_at = datetime.utcnow()

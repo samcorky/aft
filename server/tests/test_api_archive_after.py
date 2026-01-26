@@ -362,4 +362,5 @@ class TestArchiveAfterAPI:
         data = response.json()
         assert data['success'] is True
         # Should have 'archived_count' not 'affected_count' (execute mode)
-        assert 'archived_count' in data or 'affected_count' not in data
+        assert 'archived_count' in data
+        assert 'affected_count' not in data

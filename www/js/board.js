@@ -3122,16 +3122,16 @@ class BoardManager {
 
     // Create modal HTML
     const modalHtml = `
-      <div class="modal" id="archive-after-modal">
+      <div class="modal" id="archive-after-modal" role="dialog" aria-modal="true" aria-labelledby="archive-after-title" aria-describedby="archive-after-description">
         <div class="modal-content">
-          <h2>Archive Cards After Period</h2>
-          <p class="modal-description">This will archive all cards in <strong>${this.escapeHtml(column.name)}</strong> that haven't been updated within the specified time period. The card's last update time is used to determine eligibility.</p>
+          <h2 id="archive-after-title">Archive Cards After Period</h2>
+          <p id="archive-after-description" class="modal-description">This will archive all cards in <strong>${this.escapeHtml(column.name)}</strong> that haven't been updated within the specified time period. The card's last update time is used to determine eligibility.</p>
           <form id="archive-after-form">
             <div class="form-group">
               <label for="archive-quantity">Archive cards older than:</label>
               <div style="display: flex; gap: 10px;">
-                <input type="number" id="archive-quantity" name="quantity" min="1" step="1" value="7" required style="flex: 1;">
-                <select id="archive-period" name="period" required style="flex: 1;">
+                <input type="number" id="archive-quantity" name="quantity" min="1" step="1" value="7" required aria-required="true" style="flex: 1;">
+                <select id="archive-period" name="period" required aria-required="true" style="flex: 1;">
                   <option value="minutes">Minutes</option>
                   <option value="hours">Hours</option>
                   <option value="days" selected>Days</option>
@@ -3139,7 +3139,7 @@ class BoardManager {
                 </select>
               </div>
             </div>
-            <div id="preview-section" style="margin-top: 20px; padding: 15px; background: var(--card-bg, #f5f5f5); border-radius: 5px; display: none;">
+            <div id="preview-section" style="margin-top: 20px; padding: 15px; background: var(--card-bg, #f5f5f5); border-radius: 5px; display: none;" role="region" aria-live="polite">
               <h3 style="margin-top: 0; font-size: 0.9em; color: var(--text-secondary, #666);">Preview - Most Recent Card to Archive:</h3>
               <div id="preview-content"></div>
             </div>
@@ -3257,6 +3257,10 @@ class BoardManager {
   }
 
   async archiveCardsAfter(columnId, quantity, period) {
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
     try {
       const response = await fetch(`/api/columns/${columnId}/archive-after`, {
         method: 'POST',
@@ -3267,20 +3271,29 @@ class BoardManager {
           quantity: quantity,
           period: period,
           dry_run: false
-        })
+        }),
+        signal: controller.signal
       });
       
-      const data = await response.json();
+      clearTimeout(timeoutId);
+      
+      const data = await this.parseResponse(response);
       
       if (response.ok && data.success) {
         this.showSuccessToast(`Archived ${data.archived_count} card(s)`);
         await this.loadBoard(this.currentBoardId);
       } else {
-        await showAlert(data.message || 'Failed to archive cards', 'Error');
+        this.showErrorToast(data.message || 'Failed to archive cards');
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error('Error archiving cards:', err);
-      await showAlert('Error archiving cards', 'Error');
+      
+      if (err.name === 'AbortError') {
+        this.showErrorToast('Archive request timed out. Please check your connection.');
+      } else {
+        this.showErrorToast('Error archiving cards');
+      }
     }
   }
 

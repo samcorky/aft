@@ -5520,14 +5520,22 @@ def archive_cards_after_period(column_id):
             return jsonify({"success": False, "message": "Column not found"}), 404
 
         data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "message": "Request body is required"}), 400
+        
         quantity = data.get("quantity")
         period = data.get("period")
         dry_run = data.get("dry_run", False)
 
         # Validate inputs
-        if not quantity or not isinstance(quantity, int) or quantity < 1:
+        if quantity is None:
+            return jsonify({"success": False, "message": "quantity is required"}), 400
+        
+        if not isinstance(quantity, int) or quantity < 1:
             return jsonify({"success": False, "message": "quantity must be a positive integer"}), 400
 
+        if not period:
+            return jsonify({"success": False, "message": "period is required"}), 400
         if period not in ["minutes", "hours", "days", "weeks"]:
             return jsonify({"success": False, "message": "period must be one of: minutes, hours, days, weeks"}), 400
 

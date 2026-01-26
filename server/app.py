@@ -2781,7 +2781,9 @@ def create_board():
                 return create_error_response(error, 400)
 
         # Create board
-        board = Board(name=name, description=description)
+        from datetime import datetime
+        now = datetime.utcnow()
+        board = Board(name=name, description=description, updated_at=now)
         db.add(board)
         db.commit()
         db.refresh(board)
@@ -3371,7 +3373,9 @@ def create_column(board_id):
             )
             order = max_order
 
-        column = BoardColumn(board_id=board_id, name=name, order=order)
+        from datetime import datetime
+        now = datetime.utcnow()
+        column = BoardColumn(board_id=board_id, name=name, order=order, updated_at=now)
         db.add(column)
         db.commit()
         db.refresh(column)
@@ -4133,13 +4137,16 @@ def create_card(column_id):
                 return create_error_response("Schedule must be an integer", 400)
 
         # Create card
+        from datetime import datetime
+        now = datetime.utcnow()
         card = Card(
             column_id=column_id, 
             title=title, 
             description=description, 
             order=order,
             scheduled=scheduled,
-            schedule=schedule
+            schedule=schedule,
+            updated_at=now
         )
         db.add(card)
         db.commit()
@@ -4930,7 +4937,9 @@ def archive_card(card_id):
             "description": card.description,
             "order": card.order,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Broadcast card archived event
@@ -5017,7 +5026,9 @@ def unarchive_card(card_id):
             "description": card.description,
             "order": card.order,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for broadcast
@@ -6060,11 +6071,14 @@ def create_checklist_item(card_id):
             order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
 
         # Create checklist item
+        from datetime import datetime
+        now = datetime.utcnow()
         checklist_item = ChecklistItem(
             card_id=card_id,
             name=name,
             checked=checked,
-            order=order
+            order=order,
+            updated_at=now
         )
 
         db.add(checklist_item)

@@ -51,7 +51,7 @@ class TestTimestamps:
         initial_updated_at = initial_board['updated_at']
         
         # Wait a moment to ensure timestamp would be different
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Update the board
         response2 = requests.patch(f'{api_client}/api/boards/{board_id}', json={
@@ -99,7 +99,7 @@ class TestTimestamps:
         initial_column = next(c for c in initial_columns if c['id'] == column_id)
         initial_updated_at = initial_column['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Update column name
         response2 = requests.patch(f'{api_client}/api/columns/{column_id}', json={
@@ -150,7 +150,7 @@ class TestTimestamps:
         response1 = requests.get(f'{api_client}/api/cards/{card_id}')
         initial_updated_at = response1.json()['card']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Update title
         response2 = requests.patch(f'{api_client}/api/cards/{card_id}', json={
@@ -175,7 +175,7 @@ class TestTimestamps:
         response1 = requests.get(f'{api_client}/api/cards/{sample_card["id"]}')
         initial_updated_at = response1.json()['card']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Move card to new column
         response2 = requests.patch(f'{api_client}/api/cards/{sample_card["id"]}', json={
@@ -227,7 +227,7 @@ class TestTimestamps:
         response1 = requests.get(f'{api_client}/api/cards/{card_id}')
         initial_updated_at = response1.json()['card']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Archive card
         response2 = requests.patch(f'{api_client}/api/cards/{card_id}/archive')
@@ -278,7 +278,7 @@ class TestTimestamps:
         item_id = create_response.json()['checklist_item']['id']
         initial_updated_at = create_response.json()['checklist_item']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Update name
         update_response = requests.patch(
@@ -301,7 +301,7 @@ class TestTimestamps:
         item_id = create_response.json()['checklist_item']['id']
         initial_updated_at = create_response.json()['checklist_item']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Update checked
         update_response = requests.patch(
@@ -320,7 +320,7 @@ class TestTimestamps:
         response1 = requests.get(f'{api_client}/api/cards/{sample_card["id"]}')
         initial_card_updated_at = response1.json()['card']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Add checklist item
         requests.post(
@@ -397,7 +397,7 @@ class TestTimestamps:
         response1 = requests.get(f'{api_client}/api/cards/{sample_card["id"]}')
         initial_card_updated_at = response1.json()['card']['updated_at']
         
-        time.sleep(0.1)
+        time.sleep(1.0)
         
         # Add comment
         requests.post(
@@ -438,3 +438,75 @@ class TestTimestamps:
         # Card should be updated
         if initial_card_updated_at and updated_card_updated_at:
             assert updated_card_updated_at != initial_card_updated_at
+    
+    # Test that new entities have updated_at matching created_at
+    def test_board_initial_timestamps_match(self, api_client):
+        """Test that newly created boards have updated_at matching created_at."""
+        response = requests.post(f'{api_client}/api/boards', json={
+            'name': 'New Board for Timestamp Test'
+        })
+        assert response.status_code == 201
+        board = response.json()['board']
+        
+        # Both should be set
+        assert board['created_at'] is not None
+        assert board['updated_at'] is not None
+        
+        # They should match (within a small tolerance for processing time)
+        created = datetime.fromisoformat(board['created_at'].replace('Z', '+00:00'))
+        updated = datetime.fromisoformat(board['updated_at'].replace('Z', '+00:00'))
+        assert abs((created - updated).total_seconds()) <= 1
+    
+    def test_column_initial_timestamps_match(self, api_client, sample_board):
+        """Test that newly created columns have updated_at matching created_at."""
+        response = requests.post(
+            f'{api_client}/api/boards/{sample_board["id"]}/columns',
+            json={'name': 'New Column for Timestamp Test'}
+        )
+        assert response.status_code == 201
+        column = response.json()['column']
+        
+        # Both should be set
+        assert column['created_at'] is not None
+        assert column['updated_at'] is not None
+        
+        # They should match (within a small tolerance for processing time)
+        created = datetime.fromisoformat(column['created_at'].replace('Z', '+00:00'))
+        updated = datetime.fromisoformat(column['updated_at'].replace('Z', '+00:00'))
+        assert abs((created - updated).total_seconds()) <= 1
+    
+    def test_card_initial_timestamps_match(self, api_client, sample_column):
+        """Test that newly created cards have updated_at matching created_at."""
+        response = requests.post(
+            f'{api_client}/api/columns/{sample_column["id"]}/cards',
+            json={'title': 'New Card for Timestamp Test'}
+        )
+        assert response.status_code == 201
+        card = response.json()['card']
+        
+        # Both should be set
+        assert card['created_at'] is not None
+        assert card['updated_at'] is not None
+        
+        # They should match (within a small tolerance for processing time)
+        created = datetime.fromisoformat(card['created_at'].replace('Z', '+00:00'))
+        updated = datetime.fromisoformat(card['updated_at'].replace('Z', '+00:00'))
+        assert abs((created - updated).total_seconds()) <= 1
+    
+    def test_checklist_item_initial_timestamps_match(self, api_client, sample_card):
+        """Test that newly created checklist items have updated_at matching created_at."""
+        response = requests.post(
+            f'{api_client}/api/cards/{sample_card["id"]}/checklist-items',
+            json={'name': 'New Checklist Item for Timestamp Test'}
+        )
+        assert response.status_code == 201
+        item = response.json()['checklist_item']
+        
+        # Both should be set
+        assert item['created_at'] is not None
+        assert item['updated_at'] is not None
+        
+        # They should match (within a small tolerance for processing time)
+        created = datetime.fromisoformat(item['created_at'].replace('Z', '+00:00'))
+        updated = datetime.fromisoformat(item['updated_at'].replace('Z', '+00:00'))
+        assert abs((created - updated).total_seconds()) <= 1

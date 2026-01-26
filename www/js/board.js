@@ -1273,9 +1273,18 @@ class BoardManager {
                       <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
                         <p class="card-description">${linkifyUrls(this.escapeHtml(card.description))}</p>
-                        ${card.comments && card.comments.length > 0 ? `
-                          <div class="card-comments-indicator">
-                            💬 ${card.comments.length} ${card.comments.length === 1 ? 'comment' : 'comments'}
+                        ${card.updated_at || (card.comments && card.comments.length > 0) ? `
+                          <div class="card-meta-row">
+                            ${card.comments && card.comments.length > 0 ? `
+                              <div class="card-comments-indicator">
+                                💬 ${card.comments.length} ${card.comments.length === 1 ? 'comment' : 'comments'}
+                              </div>
+                            ` : ''}
+                            ${card.updated_at ? `
+                              <div class="card-timestamp" data-tooltip="${formatTooltipDateTime(card.updated_at)}" aria-label="Last updated ${formatTooltipDateTime(card.updated_at)}" tabindex="0">
+                                ${formatTimeAgo(card.updated_at)}
+                              </div>
+                            ` : ''}
                           </div>
                         ` : ''}
                         ${card.checklist_items && card.checklist_items.length > 0 ? `
@@ -3585,7 +3594,7 @@ class BoardManager {
                 <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
-                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true">
+                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true" ${item.created_at || item.updated_at ? `data-tooltip="Created: ${item.created_at ? formatTooltipDateTime(item.created_at) : 'Unknown'}&#10;Updated: ${item.updated_at ? formatTooltipDateTime(item.updated_at) : 'Unknown'}"` : ''}>
                       <span class="drag-handle" title="Drag to reorder">&#9776;</span>
                       <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
                       <span class="checklist-item-name">${linkifyUrls(this.escapeHtml(item.name))}</span>
@@ -3614,6 +3623,16 @@ class BoardManager {
             </div>
             
             ${!isTemplate ? `
+            <div class="card-metadata">
+              <div class="card-metadata-item">
+                <span class="card-metadata-label">Created:</span>
+                <span class="card-metadata-value" ${cardData.created_at ? `data-tooltip="${formatTooltipDateTime(cardData.created_at)}" aria-label="Created on ${formatTooltipDateTime(cardData.created_at)}" tabindex="0"` : ''}>${cardData.created_at ? formatTimeAgoLong(cardData.created_at) : 'Unknown'}</span>
+              </div>
+              <div class="card-metadata-item">
+                <span class="card-metadata-label">Updated:</span>
+                <span class="card-metadata-value" ${cardData.updated_at ? `data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated on ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0"` : ''}>${cardData.updated_at ? formatTimeAgoLong(cardData.updated_at) : 'Unknown'}</span>
+              </div>
+            </div>
             <div class="comments-section">
               <div class="comments-header">
                 <h3>Comments</h3>
@@ -3983,7 +4002,7 @@ class BoardManager {
           updateEditModalSummary();
           
           // Attempt to delete from server
-          const success = await this.deleteChecklistItem(itemId);
+          const success = await this.deleteChecklistItem(itemId, cardId);
           
           if (success) {
             hasUnsavedChanges = false; // This action was already saved
@@ -4128,6 +4147,9 @@ class BoardManager {
                 this.toggleCommentCollapse(commentText, e.target);
               });
             }
+            
+            // Update card timestamp in UI
+            await this.updateCardTimestamp(cardId);
             
             // Clear input and reset button
             newCommentInput.value = '';
@@ -4373,6 +4395,76 @@ class BoardManager {
     }
   }
 
+  async updateCardTimestamp(cardId) {
+    // Fetch updated card data and update timestamps in UI
+    const cardData = await this.getCardData(cardId);
+    if (!cardData) return;
+
+    // Update the timestamp in the card edit modal if it's open for this card
+    const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+    if (modalCardId && parseInt(modalCardId) === cardId) {
+      // Update the updated_at metadata in the modal
+      const updatedMetadataValue = document.querySelector('.card-metadata-item:nth-child(2) .card-metadata-value');
+      if (updatedMetadataValue) {
+        if (cardData.updated_at) {
+          updatedMetadataValue.textContent = formatTimeAgoLong(cardData.updated_at);
+          updatedMetadataValue.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+          updatedMetadataValue.setAttribute('aria-label', `Last updated on ${formatTooltipDateTime(cardData.updated_at)}`);
+          updatedMetadataValue.setAttribute('tabindex', '0');
+        } else {
+          updatedMetadataValue.textContent = 'Unknown';
+          updatedMetadataValue.removeAttribute('data-tooltip');
+          updatedMetadataValue.removeAttribute('aria-label');
+          updatedMetadataValue.removeAttribute('tabindex');
+        }
+      }
+    }
+
+    // Update the timestamp on the card itself on the board
+    const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+    if (cardElement) {
+      const timestampElement = cardElement.querySelector('.card-timestamp');
+      if (cardData.updated_at) {
+        if (timestampElement) {
+          // Update existing timestamp
+          timestampElement.textContent = formatTimeAgo(cardData.updated_at);
+          timestampElement.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+          timestampElement.setAttribute('aria-label', `Last updated ${formatTooltipDateTime(cardData.updated_at)}`);
+        } else {
+          // Create timestamp element if it doesn't exist
+          // First check if card-meta-row exists
+          let metaRow = cardElement.querySelector('.card-meta-row');
+          if (!metaRow) {
+            // Create the meta row structure
+            const cardContentWrapper = cardElement.querySelector('.card-content-wrapper');
+            const checklistElement = cardElement.querySelector('.card-checklist');
+            if (cardContentWrapper) {
+              metaRow = document.createElement('div');
+              metaRow.className = 'card-meta-row';
+              // Insert before checklist or at the end of content wrapper
+              if (checklistElement) {
+                cardContentWrapper.insertBefore(metaRow, checklistElement);
+              } else {
+                cardContentWrapper.appendChild(metaRow);
+              }
+            }
+          }
+          
+          if (metaRow) {
+            // Create and append timestamp element to the meta row
+            const timestamp = document.createElement('div');
+            timestamp.className = 'card-timestamp';
+            timestamp.setAttribute('data-tooltip', formatTooltipDateTime(cardData.updated_at));
+            timestamp.setAttribute('aria-label', `Last updated ${formatTooltipDateTime(cardData.updated_at)}`);
+            timestamp.setAttribute('tabindex', '0');
+            timestamp.textContent = formatTimeAgo(cardData.updated_at);
+            metaRow.appendChild(timestamp);
+          }
+        }
+      }
+    }
+  }
+
   async createChecklistItem(cardId, name, order = null, checked = false) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -4399,6 +4491,8 @@ class BoardManager {
         this.showErrorToast(`Failed to create checklist item: ${data.message}`);
         return false;
       }
+      // Update card timestamp in UI
+      await this.updateCardTimestamp(cardId);
       return true;
     } catch (err) {
       clearTimeout(timeoutId);
@@ -4432,6 +4526,11 @@ class BoardManager {
         this.showErrorToast(`Failed to update checklist item: ${data.message}`);
         return false;
       }
+      // Update card timestamp in UI - extract cardId from DOM
+      const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+      if (modalCardId) {
+        await this.updateCardTimestamp(parseInt(modalCardId));
+      }
       return true;
     } catch (err) {
       clearTimeout(timeoutId);
@@ -4444,7 +4543,7 @@ class BoardManager {
     }
   }
 
-  async deleteChecklistItem(itemId) {
+  async deleteChecklistItem(itemId, cardId = null) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
@@ -4460,6 +4559,16 @@ class BoardManager {
       if (!data.success) {
         this.showErrorToast(`Failed to delete checklist item: ${data.message}`);
         return false;
+      }
+      // Update card timestamp in UI
+      if (cardId) {
+        await this.updateCardTimestamp(cardId);
+      } else {
+        // Get cardId from modal if not provided
+        const modalCardId = document.getElementById('edit-card-modal')?.getAttribute('data-card-id');
+        if (modalCardId) {
+          await this.updateCardTimestamp(parseInt(modalCardId));
+        }
       }
       return true;
     } catch (err) {
@@ -4926,6 +5035,9 @@ class BoardManager {
         if (commentsList && commentsList.querySelectorAll('.comment-item').length === 0) {
           commentsList.innerHTML = '<p class="no-comments">No comments yet.</p>';
         }
+        
+        // Update card timestamp in UI
+        await this.updateCardTimestamp(cardId);
       } else {
         await showAlert('Failed to delete comment: ' + data.message, 'Error');
       }

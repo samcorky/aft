@@ -35,6 +35,8 @@ class TestCardsAPI:
         assert data['card']['column_id'] == sample_card['column_id']
         assert 'checklist_items' in data['card']
         assert isinstance(data['card']['checklist_items'], list)
+        assert 'created_at' in data['card']
+        assert 'updated_at' in data['card']
     
     def test_get_single_card_not_found(self, api_client):
         """Test getting a non-existent card."""
@@ -68,6 +70,10 @@ class TestCardsAPI:
         assert data['card']['checklist_items'][0]['checked'] is False
         assert data['card']['checklist_items'][1]['name'] == 'Second item'
         assert data['card']['checklist_items'][1]['checked'] is True
+        # Check timestamps on checklist items
+        for item in data['card']['checklist_items']:
+            assert 'created_at' in item
+            assert 'updated_at' in item
     
     def test_create_card(self, api_client, sample_column):
         """Test creating a new card."""
@@ -80,6 +86,8 @@ class TestCardsAPI:
         assert data['success'] is True
         assert data['card']['title'] == 'New Task'
         assert data['card']['column_id'] == sample_column['id']
+        assert 'created_at' in data['card']
+        assert 'updated_at' in data['card']
     
     def test_create_card_missing_title(self, api_client, sample_column):
         """Test creating a card without title fails."""

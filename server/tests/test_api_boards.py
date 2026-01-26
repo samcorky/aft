@@ -23,6 +23,8 @@ class TestBoardsAPI:
         assert data['success'] is True
         assert len(data['boards']) == 1
         assert data['boards'][0]['name'] == 'Test Board'
+        assert 'created_at' in data['boards'][0]
+        assert 'updated_at' in data['boards'][0]
     
     def test_create_board(self, api_client):
         """Test creating a new board."""
@@ -35,6 +37,8 @@ class TestBoardsAPI:
         assert data['success'] is True
         assert data['board']['name'] == 'New Board'
         assert 'id' in data['board']
+        assert 'created_at' in data['board']
+        assert 'updated_at' in data['board']
     
     def test_create_board_missing_name(self, api_client):
         """Test creating a board without a name fails."""

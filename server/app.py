@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "2026.1.1"
+APP_VERSION = "2026.1.2"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -2660,7 +2660,13 @@ def get_boards():
             {
                 "success": True,
                 "boards": [
-                    {"id": b.id, "name": b.name, "description": b.description}
+                    {
+                        "id": b.id, 
+                        "name": b.name, 
+                        "description": b.description,
+                        "created_at": b.created_at.isoformat() if b.created_at else None,
+                        "updated_at": b.updated_at.isoformat() if b.updated_at else None
+                    }
                     for b in boards
                 ],
             }
@@ -2775,12 +2781,20 @@ def create_board():
                 return create_error_response(error, 400)
 
         # Create board
-        board = Board(name=name, description=description)
+        from datetime import datetime
+        now = datetime.utcnow()
+        board = Board(name=name, description=description, updated_at=now)
         db.add(board)
         db.commit()
         db.refresh(board)
 
-        result = {"id": board.id, "name": board.name, "description": board.description}
+        result = {
+            "id": board.id, 
+            "name": board.name, 
+            "description": board.description,
+            "created_at": board.created_at.isoformat() if board.created_at else None,
+            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+        }
         return create_success_response({"board": result}, status_code=201)
 
     except Exception as e:
@@ -2852,13 +2866,17 @@ def get_board_scheduled_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
+                    "created_at": card.created_at.isoformat() if card.created_at else None,
+                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "checklist_items": [
                         {
                             "id": item.id,
                             "card_id": item.card_id,
                             "name": item.name,
                             "checked": item.checked,
-                            "order": item.order
+                            "order": item.order,
+                            "created_at": item.created_at.isoformat() if item.created_at else None,
+                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
                         }
                         for item in card.checklist_items
                     ],
@@ -2880,6 +2898,8 @@ def get_board_scheduled_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
+                "created_at": column.created_at.isoformat() if column.created_at else None,
+                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -3112,10 +3132,20 @@ def update_board(board_id):
 
             board.description = description
 
+        # Set updated_at timestamp
+        from datetime import datetime
+        board.updated_at = datetime.utcnow()
+
         db.commit()
         db.refresh(board)
 
-        result = {"id": board.id, "name": board.name, "description": board.description}
+        result = {
+            "id": board.id, 
+            "name": board.name, 
+            "description": board.description,
+            "created_at": board.created_at.isoformat() if board.created_at else None,
+            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+        }
         return create_success_response(
             {"board": result, "message": "Board updated successfully"}
         )
@@ -3196,6 +3226,8 @@ def get_board_columns(board_id):
                         "board_id": c.board_id,
                         "name": c.name,
                         "order": c.order,
+                        "created_at": c.created_at.isoformat() if c.created_at else None,
+                        "updated_at": c.updated_at.isoformat() if c.updated_at else None
                     }
                     for c in columns
                 ],
@@ -3341,7 +3373,9 @@ def create_column(board_id):
             )
             order = max_order
 
-        column = BoardColumn(board_id=board_id, name=name, order=order)
+        from datetime import datetime
+        now = datetime.utcnow()
+        column = BoardColumn(board_id=board_id, name=name, order=order, updated_at=now)
         db.add(column)
         db.commit()
         db.refresh(column)
@@ -3351,6 +3385,8 @@ def create_column(board_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
+            "created_at": column.created_at.isoformat() if column.created_at else None,
+            "updated_at": column.updated_at.isoformat() if column.updated_at else None
         }
 
         return create_success_response({"column": result}, status_code=201)
@@ -3531,6 +3567,9 @@ def update_column(column_id):
 
         old_order = column.order
         board_id = column.board_id
+        
+        # Track if user changed the name (not just reordering)
+        name_changed = False
 
         # Update and validate name if provided
         if "name" in data:
@@ -3547,6 +3586,7 @@ def update_column(column_id):
                 return create_error_response(error, 400)
 
             column.name = name
+            name_changed = True
 
         # Handle order change if provided
         if "order" in data:
@@ -3585,6 +3625,11 @@ def update_column(column_id):
                         col.order -= 1
 
                 column.order = new_order
+        
+        # Set updated_at timestamp only if name changed (not just reordering)
+        if name_changed:
+            from datetime import datetime
+            column.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(column)
@@ -3593,6 +3638,8 @@ def update_column(column_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
+            "created_at": column.created_at.isoformat() if column.created_at else None,
+            "updated_at": column.updated_at.isoformat() if column.updated_at else None
         }
 
         # Broadcast column update event
@@ -3700,13 +3747,17 @@ def get_column_cards(column_id):
                 "done": c.done,
                 "scheduled": c.scheduled,
                 "schedule": c.schedule,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
                 "checklist_items": [
                     {
                         "id": item.id,
                         "card_id": item.card_id,
                         "name": item.name,
                         "checked": item.checked,
-                        "order": item.order
+                        "order": item.order,
+                        "created_at": item.created_at.isoformat() if item.created_at else None,
+                        "updated_at": item.updated_at.isoformat() if item.updated_at else None
                     }
                     for item in c.checklist_items
                 ]
@@ -3864,13 +3915,17 @@ def get_board_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
+                    "created_at": card.created_at.isoformat() if card.created_at else None,
+                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "checklist_items": [
                         {
                             "id": item.id,
                             "card_id": item.card_id,
                             "name": item.name,
                             "checked": item.checked,
-                            "order": item.order
+                            "order": item.order,
+                            "created_at": item.created_at.isoformat() if item.created_at else None,
+                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
                         }
                         for item in card.checklist_items
                     ],
@@ -3892,6 +3947,8 @@ def get_board_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
+                "created_at": column.created_at.isoformat() if column.created_at else None,
+                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -4080,13 +4137,16 @@ def create_card(column_id):
                 return create_error_response("Schedule must be an integer", 400)
 
         # Create card
+        from datetime import datetime
+        now = datetime.utcnow()
         card = Card(
             column_id=column_id, 
             title=title, 
             description=description, 
             order=order,
             scheduled=scheduled,
-            schedule=schedule
+            schedule=schedule,
+            updated_at=now
         )
         db.add(card)
         db.commit()
@@ -4101,7 +4161,9 @@ def create_card(column_id):
             "scheduled": card.scheduled,
             "schedule": card.schedule,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for WebSocket broadcast
@@ -4444,12 +4506,16 @@ def get_card(card_id):
             "done": card.done,
             "scheduled": card.scheduled,
             "schedule": card.schedule,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None,
             "checklist_items": [
                 {
                     "id": item.id,
                     "name": item.name,
                     "checked": item.checked,
-                    "order": item.order
+                    "order": item.order,
+                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                    "updated_at": item.updated_at.isoformat() if item.updated_at else None
                 }
                 for item in sorted(card.checklist_items, key=lambda x: x.order)
             ],
@@ -4576,6 +4642,9 @@ def update_card(card_id):
 
         old_column_id = card.column_id
         old_order = card.order
+        
+        # Track if user made content changes (not just reordering within same column)
+        user_content_changed = False
 
         # Update and validate title if provided
         if "title" in data:
@@ -4592,6 +4661,7 @@ def update_card(card_id):
                 return create_error_response(error, 400)
 
             card.title = title
+            user_content_changed = True
 
         # Update and validate description if provided
         if "description" in data:
@@ -4608,6 +4678,7 @@ def update_card(card_id):
                     return create_error_response(error, 400)
 
             card.description = description
+            user_content_changed = True
 
         # Update archived status if provided
         if "archived" in data:
@@ -4615,6 +4686,7 @@ def update_card(card_id):
             if not isinstance(archived, bool):
                 return create_error_response("Archived must be a boolean", 400)
             card.archived = archived
+            user_content_changed = True
 
         # Handle column and order changes
         if "column_id" in data or "order" in data:
@@ -4644,6 +4716,9 @@ def update_card(card_id):
                 )
                 if not column:
                     return create_error_response("Target column not found", 404)
+                
+                # Moving to different column is a state change - update timestamp
+                user_content_changed = True
 
             # If moving to a different column
             if new_column_id != old_column_id:
@@ -4684,6 +4759,11 @@ def update_card(card_id):
                     ).update({Card.order: Card.order - 1})
 
                 card.order = new_order
+        
+        # Set updated_at timestamp if user made content changes
+        if user_content_changed:
+            from datetime import datetime
+            card.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(card)
@@ -4695,7 +4775,9 @@ def update_card(card_id):
             "description": card.description,
             "order": card.order,
             "done": card.done,
-            "archived": card.archived
+            "archived": card.archived,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for WebSocket broadcast
@@ -4839,6 +4921,11 @@ def archive_card(card_id):
 
         board_id = card.column.board_id if card.column else None
         card.archived = True
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         
         # Refresh and serialize the card
@@ -4850,7 +4937,9 @@ def archive_card(card_id):
             "description": card.description,
             "order": card.order,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Broadcast card archived event
@@ -4912,6 +5001,10 @@ def unarchive_card(card_id):
 
         # Unarchive the card first
         card.archived = False
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
 
         # Increment order of all active cards at this position and above
         # This ensures the unarchived card is inserted at its order position
@@ -4933,7 +5026,9 @@ def unarchive_card(card_id):
             "description": card.description,
             "order": card.order,
             "archived": card.archived,
-            "done": card.done
+            "done": card.done,
+            "created_at": card.created_at.isoformat() if card.created_at else None,
+            "updated_at": card.updated_at.isoformat() if card.updated_at else None
         }
 
         # Get board_id for broadcast
@@ -5073,6 +5168,11 @@ def update_card_done_status(card_id):
         
         board_id = card.column.board_id if card.column else None
         card.done = done_status
+        
+        # Set updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         
         # Refresh card
@@ -5317,6 +5417,10 @@ def batch_unarchive_cards():
                 
                 # Unarchive the card
                 card.archived = False
+                
+                # Set updated_at timestamp
+                from datetime import datetime
+                card.updated_at = datetime.utcnow()
         
         db.commit()
 
@@ -5967,14 +6071,21 @@ def create_checklist_item(card_id):
             order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
 
         # Create checklist item
+        from datetime import datetime
+        now = datetime.utcnow()
         checklist_item = ChecklistItem(
             card_id=card_id,
             name=name,
             checked=checked,
-            order=order
+            order=order,
+            updated_at=now
         )
 
         db.add(checklist_item)
+        
+        # Update parent card's updated_at timestamp
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         db.refresh(checklist_item)
 
@@ -5989,7 +6100,9 @@ def create_checklist_item(card_id):
                     'id': checklist_item.id,
                     'name': checklist_item.name,
                     'checked': checklist_item.checked,
-                    'order': checklist_item.order
+                    'order': checklist_item.order,
+                    'created_at': checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+                    'updated_at': checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
                 }
             }, column.board_id)
 
@@ -6000,7 +6113,9 @@ def create_checklist_item(card_id):
                 "card_id": checklist_item.card_id,
                 "name": checklist_item.name,
                 "checked": checklist_item.checked,
-                "order": checklist_item.order
+                "order": checklist_item.order,
+                "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+                "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
             }
         }), 201
 
@@ -6066,6 +6181,9 @@ def update_checklist_item(item_id):
 
         if not checklist_item:
             return create_error_response("Checklist item not found", 404)
+        
+        # Track if user made content changes (not just reordering)
+        content_changed = False
 
         # Update name if provided
         if "name" in data:
@@ -6082,6 +6200,7 @@ def update_checklist_item(item_id):
                 return create_error_response(error, 400)
 
             checklist_item.name = name
+            content_changed = True
 
         # Update checked if provided
         if "checked" in data:
@@ -6089,6 +6208,7 @@ def update_checklist_item(item_id):
             if not isinstance(checked, bool):
                 return create_error_response("Checked must be a boolean", 400)
             checklist_item.checked = checked
+            content_changed = True
 
         # Update order if provided
         if "order" in data:
@@ -6097,6 +6217,17 @@ def update_checklist_item(item_id):
             if not is_valid:
                 return create_error_response(error, 400)
             checklist_item.order = order
+        
+        # Set updated_at timestamp for checklist item only if content changed (not just reordering)
+        if content_changed:
+            from datetime import datetime
+            checklist_item.updated_at = datetime.utcnow()
+        
+        # Update parent card's updated_at timestamp for any checklist change (including reordering)
+        from models import Card
+        card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
 
         db.commit()
         db.refresh(checklist_item)
@@ -6106,7 +6237,9 @@ def update_checklist_item(item_id):
             "card_id": checklist_item.card_id,
             "name": checklist_item.name,
             "checked": checklist_item.checked,
-            "order": checklist_item.order
+            "order": checklist_item.order,
+            "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
+            "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
         }
 
         # Get board_id for broadcast
@@ -6156,14 +6289,24 @@ def delete_checklist_item(item_id):
     """
     db = SessionLocal()
     try:
-        from models import ChecklistItem
+        from models import ChecklistItem, Card
 
         checklist_item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
 
         if not checklist_item:
             return create_error_response("Checklist item not found", 404)
+        
+        # Get card_id before deleting
+        card_id = checklist_item.card_id
 
         db.delete(checklist_item)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
+        
         db.commit()
 
         return jsonify({"success": True, "message": "Checklist item deleted successfully"}), 200
@@ -6333,6 +6476,11 @@ def create_comment(card_id):
             order=next_order
         )
         db.add(comment)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card.updated_at = datetime.utcnow()
+        
         db.commit()
         db.refresh(comment)
 
@@ -6379,14 +6527,24 @@ def delete_comment(comment_id):
     """
     db = SessionLocal()
     try:
-        from models import Comment
+        from models import Comment, Card
 
         comment = db.query(Comment).filter(Comment.id == comment_id).first()
 
         if not comment:
             return create_error_response("Comment not found", 404)
+        
+        # Get card_id before deleting
+        card_id = comment.card_id
 
         db.delete(comment)
+        
+        # Update parent card's updated_at timestamp
+        from datetime import datetime
+        card = db.query(Card).filter(Card.id == card_id).first()
+        if card:
+            card.updated_at = datetime.utcnow()
+        
         db.commit()
 
         return jsonify({"success": True, "message": "Comment deleted successfully"}), 200

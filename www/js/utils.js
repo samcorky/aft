@@ -134,6 +134,66 @@ function formatTooltipDateTime(date) {
 }
 
 /**
+ * Format a timestamp as relative time (e.g., "2m ago", "5h ago", "3d ago")
+ * Similar to formatCommentDate but more concise for display on cards
+ * 
+ * @param {Date|string|null} date - Date object or ISO date string, or null
+ * @returns {string} Formatted relative time string
+ */
+function formatTimeAgo(date) {
+  if (!date) return '';
+  
+  const dateObj = date instanceof Date ? date : new Date(date);
+  const now = new Date();
+  
+  const diffMs = now - dateObj;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  const diffWeeks = Math.floor(diffMs / 604800000);
+  const diffMonths = Math.floor(diffMs / 2592000000);
+  const diffYears = Math.floor(diffMs / 31536000000);
+  
+  if (diffSecs < 10) return 'just now';
+  if (diffSecs < 60) return `${diffSecs}s ago`;
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffWeeks < 4) return `${diffWeeks}w ago`;
+  if (diffMonths < 12) return `${diffMonths}mo ago`;
+  return `${diffYears}y ago`;
+}
+
+/**
+ * Format a timestamp as relative time with longer format (e.g., "2 minutes ago", "5 hours ago")
+ * Used for more prominent displays like in modals
+ * 
+ * @param {Date|string|null} date - Date object or ISO date string, or null
+ * @returns {string} Formatted relative time string
+ */
+function formatTimeAgoLong(date) {
+  if (!date) return '';
+  
+  const dateObj = date instanceof Date ? date : new Date(date);
+  const now = new Date();
+  
+  const diffMs = now - dateObj;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  
+  // For older dates, show the formatted date
+  const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
+  return dateObj.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(dateObj);
+}
+
+/**
  * Modal Dialog System
  * Replaces browser alert(), confirm(), and prompt() with styled modals
  */

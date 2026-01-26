@@ -692,6 +692,8 @@
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
 }
 
 .card-checklist-summary {
@@ -701,18 +703,26 @@
   font-weight: 500;
 }
 
+.card-description:not(:empty) + .card-meta-row {
+  margin-top: 10px;
+}
+
+/* Card meta row - contains timestamp and comments */
+.card-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .card-comments-indicator {
   font-size: 11px;
   color: var(--text-muted);
-  margin-bottom: 8px;
   font-weight: 500;
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-.card-description:not(:empty) + .card-comments-indicator {
-  margin-top: 10px;
 }
 
 .card-checklist-item {
@@ -740,6 +750,20 @@
 .card-checklist-name.checked {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+/* Card timestamp display */
+.card-timestamp {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+  cursor: help;
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.card-timestamp:hover {
+  color: var(--text-bold);
 }
 
 .add-card-empty-btn {
@@ -1201,6 +1225,39 @@
 
 .checklist-delete-btn {
   color: var(--error-color);
+}
+
+/* Card Metadata Section (in modal) */
+.card-metadata {
+  margin-top: 20px;
+  padding: 12px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.card-metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-metadata-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.card-metadata-value {
+  color: var(--text-bold);
+  font-size: 13px;
+  cursor: help;
+}
+
+.card-metadata-value:hover {
+  text-decoration: underline;
 }
 
 /* Comments Section */

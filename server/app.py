@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
@@ -743,6 +743,128 @@ def get_version():
     except Exception as e:
         logger.error(f"Error getting version: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/admin/test-user", methods=["POST"])
+@track_endpoint(protected=True)
+@require_permission("manage_users")
+def toggle_test_user():
+    """Toggle test admin user (create if doesn't exist, delete if exists).
+    
+    ⚠️ WARNING: FOR TESTING ONLY - DO NOT USE IN PRODUCTION
+    
+    This endpoint creates or removes a test admin user account with known credentials.
+    It's designed for development and testing environments only.
+    
+    Test user credentials:
+    - Email: test-admin@localhost
+    - Username: test-admin
+    - Password: TestAdmin123!
+    ---
+    tags:
+      - Administration
+    responses:
+      200:
+        description: Test user created or deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            action:
+              type: string
+              enum: [created, deleted]
+            message:
+              type: string
+      403:
+        description: Forbidden - requires manage_users permission
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        # Check if test-admin user exists
+        test_user = db.query(User).filter(
+            User.email == "test-admin@localhost"
+        ).first()
+        
+        if test_user:
+            # Delete the test user
+            user_id = test_user.id
+            username = test_user.username
+            
+            # Delete user roles first (foreign key constraint)
+            db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+            
+            # Delete the user
+            db.delete(test_user)
+            db.commit()
+            
+            logger.info(f"Test user deleted: {username} (ID: {user_id})")
+            
+            return jsonify({
+                "success": True,
+                "action": "deleted",
+                "message": f"Test user '{username}' has been deleted"
+            })
+        else:
+            # Create test-admin user
+            from auth import hash_password
+            
+            # Check if username already exists
+            existing_username = db.query(User).filter(
+                User.username == "test-admin"
+            ).first()
+            
+            if existing_username:
+                return jsonify({
+                    "success": False,
+                    "message": "Username 'test-admin' already exists with different email"
+                }), 400
+            
+            # Create new test admin user
+            test_user = User(
+                email="test-admin@localhost",
+                username="test-admin",
+                display_name="Test Admin",
+                password_hash=hash_password("TestAdmin123!"),
+                is_active=True,
+                is_approved=True,
+                email_verified=True
+            )
+            
+            db.add(test_user)
+            db.flush()  # Get user ID
+            
+            # Assign administrator role
+            admin_role = db.query(Role).filter(Role.name == 'administrator').first()
+            if admin_role:
+                user_role = UserRole(
+                    user_id=test_user.id,
+                    role_id=admin_role.id,
+                    board_id=None  # Global role
+                )
+                db.add(user_role)
+            
+            db.commit()
+            
+            logger.info(f"Test user created: test-admin@localhost (ID: {test_user.id})")
+            
+            return jsonify({
+                "success": True,
+                "action": "created",
+                "message": "Test user 'test-admin' created successfully. Password: TestAdmin123!"
+            })
+            
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error toggling test user: {e}")
+        return jsonify({
+            "success": False,
+            "message": f"Failed to toggle test user: {str(e)}"
+        }), 500
     finally:
         db.close()
 
@@ -3035,7 +3157,8 @@ def get_board_scheduled_cards(board_id):
 
 
 @app.route("/api/boards/<int:board_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_board_access()
+@track_endpoint(protected=True)
 def delete_board(board_id):
     """Delete a board by ID.
     ---
@@ -3083,7 +3206,8 @@ def delete_board(board_id):
     """
     db = SessionLocal()
     try:
-        board = db.query(Board).filter(Board.id == board_id).first()
+        user_id = get_current_user_id()
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
 
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
@@ -3117,7 +3241,8 @@ def delete_board(board_id):
 
 
 @app.route("/api/boards/<int:board_id>", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_board_access()
+@track_endpoint(protected=True)
 def update_board(board_id):
     """Update a board's name and/or description with validation.
 
@@ -3219,7 +3344,8 @@ def update_board(board_id):
                 "At least one field (name or description) is required", 400
             )
 
-        board = db.query(Board).filter(Board.id == board_id).first()
+        user_id = get_current_user_id()
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
         if not board:
             return create_error_response("Board not found", 404)
 
@@ -3370,7 +3496,8 @@ def get_board_columns(board_id):
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_board_access()
+@track_endpoint(protected=True)
 def create_column(board_id):
     """Create a new column for a board with input validation.
 
@@ -3531,7 +3658,8 @@ def create_column(board_id):
 
 
 @app.route("/api/columns/<int:column_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('column.delete')
+@track_endpoint(protected=True)
 def delete_column(column_id):
     """Delete a column by ID.
     ---
@@ -3581,10 +3709,16 @@ def delete_column(column_id):
     try:
         from models import BoardColumn
 
+        user_id = get_current_user_id()
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
 
         if not column:
             return jsonify({"success": False, "message": "Column not found"}), 404
+
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied"}), 403
 
         db.delete(column)
         db.commit()
@@ -3598,7 +3732,8 @@ def delete_column(column_id):
 
 
 @app.route("/api/columns/<int:column_id>", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('column.update')
+@track_endpoint(protected=True)
 def update_column(column_id):
     """Update a column's name and/or order.
     ---
@@ -3693,10 +3828,16 @@ def update_column(column_id):
 
         from models import BoardColumn
 
+        user_id = get_current_user_id()
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
 
         if not column:
             return create_error_response("Column not found", 404)
+
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return create_error_response("Access denied", 403)
 
         old_order = column.order
         board_id = column.board_id
@@ -4099,7 +4240,8 @@ def get_board_cards(board_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.create')
+@track_endpoint(protected=True)
 def create_card(column_id):
     """Create a new card in a column with input validation.
 
@@ -4689,7 +4831,8 @@ def get_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def update_card(card_id):
     """Update a card's title, description, column, and/or order.
     ---
@@ -4952,7 +5095,8 @@ def update_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.delete')
+@track_endpoint(protected=True)
 def delete_card(card_id):
     """Delete a card by ID.
     ---
@@ -5035,7 +5179,8 @@ def delete_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def archive_card(card_id):
     """Archive a card by ID.
     ---
@@ -5112,7 +5257,8 @@ def archive_card(card_id):
         db.close()
 
 @app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def unarchive_card(card_id):
     """Unarchive a card by ID.
     ---
@@ -5262,7 +5408,8 @@ def get_card_done_status(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/done", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def update_card_done_status(card_id):
     """Update the done status of a card.
     ---
@@ -5373,7 +5520,8 @@ def update_card_done_status(card_id):
 
 
 @app.route("/api/cards/batch/archive", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def batch_archive_cards():
     """Archive multiple cards in a single transaction.
     ---
@@ -5467,7 +5615,8 @@ def batch_archive_cards():
 
 
 @app.route("/api/cards/batch/unarchive", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def batch_unarchive_cards():
     """Unarchive multiple cards in a single transaction.
     ---
@@ -5601,7 +5750,8 @@ def batch_unarchive_cards():
 
 
 @app.route("/api/columns/<int:column_id>/archive-after", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def archive_cards_after_period(column_id):
     """Archive cards in a column that haven't been updated within a specified time period.
     ---
@@ -5852,7 +6002,8 @@ def get_scheduled_cards(column_id):
 
 
 @app.route("/api/schedules", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.create')
+@track_endpoint(protected=True)
 def create_schedule():
     """Create a new schedule for a card.
     ---
@@ -6124,7 +6275,8 @@ def get_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def update_schedule(schedule_id):
     """Update a schedule.
     ---
@@ -6243,7 +6395,8 @@ def update_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.delete')
+@track_endpoint(protected=True)
 def delete_schedule(schedule_id):
     """Delete a schedule and update related cards.
     ---
@@ -6303,7 +6456,8 @@ def delete_schedule(schedule_id):
 
 # Checklist Items API endpoints
 @app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def create_checklist_item(card_id):
     """Create a new checklist item for a card.
     ---
@@ -6478,7 +6632,8 @@ def create_checklist_item(card_id):
 
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["PATCH"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def update_checklist_item(item_id):
     """Update a checklist item's name, checked status, and/or order.
     ---
@@ -6620,7 +6775,8 @@ def update_checklist_item(item_id):
 
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def delete_checklist_item(item_id):
     """Delete a checklist item by ID.
     ---
@@ -6753,7 +6909,8 @@ def get_card_comments(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def create_comment(card_id):
     """Create a new comment for a card.
     ---
@@ -6864,7 +7021,8 @@ def create_comment(card_id):
 
 
 @app.route("/api/comments/<int:comment_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.update')
+@track_endpoint(protected=True)
 def delete_comment(comment_id):
     """Delete a comment by ID.
     
@@ -7003,7 +7161,8 @@ from notification_utils import create_notification as create_notification_intern
 
 
 @app.route("/api/notifications", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def create_notification():
     """Create a new notification.
     ---
@@ -7117,7 +7276,8 @@ def create_notification():
             message=message,
             unread=True,
             action_title=action_title,
-            action_url=action_url
+            action_url=action_url,
+            user_id=get_current_user_id()  # Associate with authenticated user
         )
         
         db.add(notification)
@@ -7148,7 +7308,8 @@ def create_notification():
 
 
 @app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def mark_notification_read(notification_id):
     """Mark a notification as read.
     ---
@@ -7201,7 +7362,8 @@ def mark_notification_read(notification_id):
 
 
 @app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def mark_notification_unread(notification_id):
     """Mark a notification as unread.
     ---
@@ -7254,7 +7416,8 @@ def mark_notification_unread(notification_id):
 
 
 @app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def delete_notification(notification_id):
     """Delete a notification.
     ---
@@ -7307,7 +7470,8 @@ def delete_notification(notification_id):
 
 
 @app.route("/api/notifications/mark-all-read", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def mark_all_notifications_read():
     """Mark all notifications as read.
     ---
@@ -7355,7 +7519,8 @@ def mark_all_notifications_read():
 
 
 @app.route("/api/notifications/delete-all", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
+@track_endpoint(protected=True)
 def delete_all_notifications():
     """Delete all notifications.
     ---
@@ -7637,7 +7802,8 @@ def get_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.update')
+@track_endpoint(protected=True)
 def update_theme(theme_id):
     """Update an existing custom theme's properties.
     
@@ -7715,7 +7881,8 @@ def update_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.update')
+@track_endpoint(protected=True)
 def rename_theme(theme_id):
     """Change the name of an existing custom theme.
     
@@ -7776,7 +7943,8 @@ def rename_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.delete')
+@track_endpoint(protected=True)
 def delete_theme(theme_id):
     """Delete a custom theme.
     
@@ -7823,7 +7991,8 @@ def delete_theme(theme_id):
 
 
 @app.route("/api/themes/copy", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.create')
+@track_endpoint(protected=True)
 def copy_theme():
     """Create a duplicate of an existing theme with a new name.
     
@@ -7889,7 +8058,8 @@ def copy_theme():
 
 
 @app.route("/api/themes/import", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.create')
+@track_endpoint(protected=True)
 def import_theme():
     """Import a theme from external JSON data.
     

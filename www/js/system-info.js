@@ -28,6 +28,9 @@ class SystemInfo {
     
     // Load data
     await this.loadSystemInfo();
+    
+    // Check test user status after loading system info
+    await this.checkTestUserStatus();
   }
 
   setupEventListeners() {
@@ -83,6 +86,14 @@ class SystemInfo {
     if (this.cardSchedulerToggle) {
       this.cardSchedulerToggle.addEventListener('change', async (e) => {
         await this.toggleCardScheduler(e.target.checked);
+      });
+    }
+
+    // Test user button
+    const testUserBtn = document.getElementById('test-user-btn');
+    if (testUserBtn) {
+      testUserBtn.addEventListener('click', async () => {
+        await this.toggleTestUser();
       });
     }
   }
@@ -488,6 +499,119 @@ class SystemInfo {
       // Revert toggle on error
       this.cardSchedulerToggle.checked = !enabled;
       await showAlert(error.message, 'Error');
+    }
+  }
+
+  async checkTestUserStatus() {
+    const btn = document.getElementById('test-user-btn');
+    const btnText = document.getElementById('test-user-btn-text');
+    
+    if (!btn || !btnText) {
+      return;
+    }
+    
+    try {
+      // Check if test-admin user exists by trying to list users
+      const response = await fetch('/api/users');
+      
+      if (!response.ok) {
+        // If we can't check, just show a generic message
+        btnText.textContent = 'Toggle Test User';
+        btn.style.background = '#3b82f6';
+        return;
+      }
+
+      const data = await response.json();
+      const testUser = data.users?.find(u => u.email === 'test-admin@localhost');
+      
+      if (testUser) {
+        btnText.textContent = 'Remove Test User';
+        btn.style.background = '#ef4444';
+      } else {
+        btnText.textContent = 'Create Test User';
+        btn.style.background = '#3b82f6';
+      }
+    } catch (error) {
+      console.error('Error checking test user status:', error);
+      // Default to generic message if check fails
+      btnText.textContent = 'Toggle Test User';
+      btn.style.background = '#3b82f6';
+    }
+  }
+
+  async toggleTestUser() {
+    console.log('toggleTestUser called');
+    const btn = document.getElementById('test-user-btn');
+    const btnText = document.getElementById('test-user-btn-text');
+    const statusDiv = document.getElementById('test-user-status');
+    
+    if (!btn || !btnText || !statusDiv) {
+      console.error('Required elements not found');
+      return;
+    }
+    
+    // Disable button during operation
+    btn.disabled = true;
+    const originalText = btnText.textContent;
+    btnText.textContent = 'Processing...';
+    
+    try {
+      console.log('Sending request to /api/admin/test-user');
+      const response = await fetch('/api/admin/test-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('Response status:', response.status);
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (data.success) {
+        // Update button based on action
+        if (data.action === 'created') {
+          btnText.textContent = 'Remove Test User';
+          btn.style.background = '#ef4444';
+          statusDiv.style.display = 'block';
+          statusDiv.style.background = '#d1fae5';
+          statusDiv.style.color = '#065f46';
+          statusDiv.innerHTML = `
+            <strong>✓ Test user created successfully</strong><br>
+            You can now log in with:<br>
+            Email: test-admin@localhost<br>
+            Password: TestAdmin123!
+          `;
+        } else {
+          btnText.textContent = 'Create Test User';
+          btn.style.background = '#3b82f6';
+          statusDiv.style.display = 'block';
+          statusDiv.style.background = '#fee2e2';
+          statusDiv.style.color = '#991b1b';
+          statusDiv.innerHTML = '<strong>✓ Test user removed successfully</strong>';
+        }
+        
+        // Hide status message after 5 seconds
+        setTimeout(() => {
+          statusDiv.style.display = 'none';
+        }, 5000);
+      } else {
+        // Show error
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = '#fee2e2';
+        statusDiv.style.color = '#991b1b';
+        statusDiv.textContent = `Error: ${data.message}`;
+        btnText.textContent = originalText;
+      }
+    } catch (error) {
+      console.error('Error toggling test user:', error);
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = '#fee2e2';
+      statusDiv.style.color = '#991b1b';
+      statusDiv.textContent = `Error: ${error.message}`;
+      btnText.textContent = originalText;
+    } finally {
+      btn.disabled = false;
     }
   }
 }

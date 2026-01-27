@@ -1,16 +1,15 @@
 """Tests for health and statistics API endpoints."""
 
 import pytest
-import requests
 
 
 @pytest.mark.api
 class TestHealthEndpoints:
     """Tests for /api/test, /api/stats, and /api/scheduler/health endpoints."""
 
-    def test_database_connection(self, api_client):
+    def test_database_connection(self, api_client, authenticated_session):
         """Test database connection endpoint."""
-        response = requests.get(f"{api_client}/api/test")
+        response = authenticated_session.get(f"{api_client}/api/test")
         assert response.status_code == 200
         
         data = response.json()
@@ -20,9 +19,9 @@ class TestHealthEndpoints:
         assert isinstance(data["boards_count"], int)
         assert data["boards_count"] >= 0
 
-    def test_database_stats_empty(self, api_client, isolated_test):
+    def test_database_stats_empty(self, api_client, authenticated_session, isolated_test):
         """Test stats endpoint with empty database."""
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         assert response.status_code == 200
         
         data = response.json()
@@ -35,11 +34,11 @@ class TestHealthEndpoints:
         assert data["checklist_items_checked"] == 0
         assert data["checklist_items_unchecked"] == 0
 
-    def test_database_stats_with_data(self, api_client, isolated_test, sample_board):
+    def test_database_stats_with_data(self, api_client, authenticated_session, isolated_test, sample_board):
         """Test stats endpoint with sample data."""
         # Create additional data
         # Add a column
-        col_response = requests.post(
+        col_response = authenticated_session.post(
             f"{api_client}/api/boards/{sample_board['id']}/columns",
             json={"name": "Test Column"}
         )
@@ -47,7 +46,7 @@ class TestHealthEndpoints:
         column = col_response.json()["column"]
         
         # Add active card
-        card1_response = requests.post(
+        card1_response = authenticated_session.post(
             f"{api_client}/api/columns/{column['id']}/cards",
             json={"title": "Active Card", "description": "Test"}
         )
@@ -55,7 +54,7 @@ class TestHealthEndpoints:
         card1 = card1_response.json()["card"]
         
         # Add archived card
-        card2_response = requests.post(
+        card2_response = authenticated_session.post(
             f"{api_client}/api/columns/{column['id']}/cards",
             json={"title": "Archived Card", "description": "Test"}
         )
@@ -63,24 +62,24 @@ class TestHealthEndpoints:
         card2 = card2_response.json()["card"]
         
         # Archive the second card
-        archive_response = requests.patch(f"{api_client}/api/cards/{card2['id']}/archive")
+        archive_response = authenticated_session.patch(f"{api_client}/api/cards/{card2['id']}/archive")
         assert archive_response.status_code == 200
         
         # Add checklist items
-        item1_response = requests.post(
+        item1_response = authenticated_session.post(
             f"{api_client}/api/cards/{card1['id']}/checklist-items",
             json={"name": "Task 1", "checked": True}
         )
         assert item1_response.status_code == 201
         
-        item2_response = requests.post(
+        item2_response = authenticated_session.post(
             f"{api_client}/api/cards/{card1['id']}/checklist-items",
             json={"name": "Task 2", "checked": False}
         )
         assert item2_response.status_code == 201
         
         # Check stats
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         assert response.status_code == 200
         
         data = response.json()
@@ -93,53 +92,53 @@ class TestHealthEndpoints:
         assert data["checklist_items_checked"] == 1
         assert data["checklist_items_unchecked"] == 1
 
-    def test_stats_updates_after_archive(self, api_client, isolated_test, sample_board):
+    def test_stats_updates_after_archive(self, api_client, authenticated_session, isolated_test, sample_board):
         """Test that stats update correctly when cards are archived/unarchived."""
         # Create column and cards
-        col_response = requests.post(
+        col_response = authenticated_session.post(
             f"{api_client}/api/boards/{sample_board['id']}/columns",
             json={"name": "Test Column"}
         )
         column = col_response.json()["column"]
         
-        card1_response = requests.post(
+        card1_response = authenticated_session.post(
             f"{api_client}/api/columns/{column['id']}/cards",
             json={"title": "Card 1", "description": "Test"}
         )
         card1 = card1_response.json()["card"]
         
-        card2_response = requests.post(
+        card2_response = authenticated_session.post(
             f"{api_client}/api/columns/{column['id']}/cards",
             json={"title": "Card 2", "description": "Test"}
         )
         card2 = card2_response.json()["card"]
         
         # Initial stats - no archived cards
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         data = response.json()
         assert data["cards_count"] == 2
         assert data["cards_archived_count"] == 0
         
         # Archive one card
-        requests.patch(f"{api_client}/api/cards/{card1['id']}/archive")
+        authenticated_session.patch(f"{api_client}/api/cards/{card1['id']}/archive")
         
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         data = response.json()
         assert data["cards_count"] == 2
         assert data["cards_archived_count"] == 1
         
         # Archive another card
-        requests.patch(f"{api_client}/api/cards/{card2['id']}/archive")
+        authenticated_session.patch(f"{api_client}/api/cards/{card2['id']}/archive")
         
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         data = response.json()
         assert data["cards_count"] == 2
         assert data["cards_archived_count"] == 2
         
         # Unarchive one card
-        requests.patch(f"{api_client}/api/cards/{card1['id']}/unarchive")
+        authenticated_session.patch(f"{api_client}/api/cards/{card1['id']}/unarchive")
         
-        response = requests.get(f"{api_client}/api/stats")
+        response = authenticated_session.get(f"{api_client}/api/stats")
         data = response.json()
         assert data["cards_count"] == 2
         assert data["cards_archived_count"] == 1
@@ -149,14 +148,14 @@ class TestHealthEndpoints:
 class TestSchedulerHealthEndpoint:
     """Tests for /api/scheduler/health endpoint."""
     
-    def test_scheduler_health_endpoint_exists(self, api_client):
+    def test_scheduler_health_endpoint_exists(self, api_client, authenticated_session):
         """Test that scheduler health endpoint is accessible."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         assert response.status_code == 200
     
-    def test_scheduler_health_structure(self, api_client):
+    def test_scheduler_health_structure(self, api_client, authenticated_session):
         """Test that scheduler health returns expected structure."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         assert response.status_code == 200
         
         data = response.json()
@@ -166,9 +165,9 @@ class TestSchedulerHealthEndpoint:
         assert "card_scheduler" in data
         assert "housekeeping_scheduler" in data
     
-    def test_backup_scheduler_health_fields(self, api_client):
+    def test_backup_scheduler_health_fields(self, api_client, authenticated_session):
         """Test backup scheduler health contains expected fields."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         data = response.json()
         
         backup = data["backup_scheduler"]
@@ -200,9 +199,9 @@ class TestSchedulerHealthEndpoint:
             if "lock_container" in backup:
                 assert isinstance(backup["lock_container"], str)
     
-    def test_card_scheduler_health_fields(self, api_client):
+    def test_card_scheduler_health_fields(self, api_client, authenticated_session):
         """Test card scheduler health contains expected fields."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         data = response.json()
         
         card = data["card_scheduler"]
@@ -228,9 +227,9 @@ class TestSchedulerHealthEndpoint:
                     # Heartbeat should be recent (less than 5 minutes)
                     assert card["lock_file_age_seconds"] < 300
     
-    def test_housekeeping_scheduler_health_fields(self, api_client):
+    def test_housekeeping_scheduler_health_fields(self, api_client, authenticated_session):
         """Test housekeeping scheduler health contains expected fields."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         data = response.json()
         
         housekeeping = data["housekeeping_scheduler"]
@@ -249,11 +248,11 @@ class TestSchedulerHealthEndpoint:
             assert isinstance(housekeeping["thread_alive"], bool)
             assert isinstance(housekeeping["lock_file_exists"], bool)
     
-    def test_scheduler_health_consistency(self, api_client):
+    def test_scheduler_health_consistency(self, api_client, authenticated_session):
         """Test that scheduler health is consistent across multiple calls."""
         # Get health twice
-        response1 = requests.get(f"{api_client}/api/scheduler/health")
-        response2 = requests.get(f"{api_client}/api/scheduler/health")
+        response1 = authenticated_session.get(f"{api_client}/api/scheduler/health")
+        response2 = authenticated_session.get(f"{api_client}/api/scheduler/health")
         
         assert response1.status_code == 200
         assert response2.status_code == 200
@@ -267,9 +266,9 @@ class TestSchedulerHealthEndpoint:
                 assert data1[scheduler_name]["running"] == data2[scheduler_name]["running"]
                 assert data1[scheduler_name]["thread_alive"] == data2[scheduler_name]["thread_alive"]
     
-    def test_scheduler_heartbeat_updates(self, api_client):
+    def test_scheduler_heartbeat_updates(self, api_client, authenticated_session):
         """Test that scheduler heartbeat ages are reasonable."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         data = response.json()
         
         # Check each scheduler's heartbeat
@@ -286,17 +285,17 @@ class TestSchedulerHealthEndpoint:
                 # Should not be negative
                 assert age >= 0, f"{scheduler_name} heartbeat age is negative: {age}s"
     
-    def test_scheduler_health_with_disabled_backup(self, api_client):
+    def test_scheduler_health_with_disabled_backup(self, api_client, authenticated_session):
         """Test scheduler health when backup is disabled."""
         # Disable backup
-        response = requests.put(
+        response = authenticated_session.put(
             f"{api_client}/api/settings/backup/config",
             json={"enabled": False}
         )
         assert response.status_code == 200
         
         # Check health - scheduler should still be running even if backups disabled
-        health_response = requests.get(f"{api_client}/api/scheduler/health")
+        health_response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         assert health_response.status_code == 200
         
         data = health_response.json()
@@ -308,14 +307,14 @@ class TestSchedulerHealthEndpoint:
             assert "thread_alive" in backup
         
         # Re-enable backup
-        requests.put(
+        authenticated_session.put(
             f"{api_client}/api/settings/backup/config",
             json={"enabled": True}
         )
     
-    def test_scheduler_health_container_id(self, api_client):
+    def test_scheduler_health_container_id(self, api_client, authenticated_session):
         """Test that scheduler health includes container ID information."""
-        response = requests.get(f"{api_client}/api/scheduler/health")
+        response = authenticated_session.get(f"{api_client}/api/scheduler/health")
         data = response.json()
         
         # At least one scheduler should have container ID (if running in Docker)
@@ -335,14 +334,14 @@ class TestSchedulerHealthEndpoint:
 class TestBroadcastStatusEndpoint:
     """Tests for /api/broadcast-status endpoint used for WebSocket debugging."""
 
-    def test_broadcast_status_endpoint_exists(self, api_client):
+    def test_broadcast_status_endpoint_exists(self, api_client, authenticated_session):
         """Test that broadcast status endpoint is accessible."""
-        response = requests.get(f"{api_client}/api/broadcast-status")
+        response = authenticated_session.get(f"{api_client}/api/broadcast-status")
         assert response.status_code == 200
 
-    def test_broadcast_status_structure(self, api_client):
+    def test_broadcast_status_structure(self, api_client, authenticated_session):
         """Test that broadcast status returns correct structure."""
-        response = requests.get(f"{api_client}/api/broadcast-status")
+        response = authenticated_session.get(f"{api_client}/api/broadcast-status")
         data = response.json()
         
         assert data["success"] is True
@@ -351,25 +350,25 @@ class TestBroadcastStatusEndpoint:
         assert isinstance(data["broadcast_failures"], dict)
         assert isinstance(data["total_failure_rooms"], int)
 
-    def test_broadcast_status_initially_empty(self, api_client):
+    def test_broadcast_status_initially_empty(self, api_client, authenticated_session):
         """Test that broadcast status is empty on startup."""
-        response = requests.get(f"{api_client}/api/broadcast-status")
+        response = authenticated_session.get(f"{api_client}/api/broadcast-status")
         data = response.json()
         
         # Should have no failures initially
         assert data["total_failure_rooms"] == 0
         assert len(data["broadcast_failures"]) == 0
 
-    def test_broadcast_status_version_endpoint(self, api_client):
+    def test_broadcast_status_version_endpoint(self, api_client, authenticated_session):
         """Test version endpoint alongside broadcast status."""
         # Test version endpoint first
-        version_response = requests.get(f"{api_client}/api/version")
+        version_response = authenticated_session.get(f"{api_client}/api/version")
         assert version_response.status_code == 200
         version_data = version_response.json()
         assert version_data["success"] is True
         
         # Broadcast status should still be clean
-        broadcast_response = requests.get(f"{api_client}/api/broadcast-status")
+        broadcast_response = authenticated_session.get(f"{api_client}/api/broadcast-status")
         broadcast_data = broadcast_response.json()
         assert broadcast_data["total_failure_rooms"] == 0
 

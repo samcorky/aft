@@ -1,6 +1,5 @@
 """Extended tests for database backup endpoints including manual backup and delete functionality."""
 import pytest
-import requests
 import time
 
 
@@ -8,9 +7,9 @@ import time
 class TestManualBackupAPI:
     """Test cases for manual backup creation endpoint."""
     
-    def test_create_manual_backup_success(self, api_client):
+    def test_create_manual_backup_success(self, api_client, authenticated_session):
         """Test creating a manual backup successfully."""
-        response = requests.post(f'{api_client}/api/database/backup/manual')
+        response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert response.status_code == 200
         data = response.json()
         
@@ -27,29 +26,29 @@ class TestManualBackupAPI:
         
         try:
             # Verify file appears in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames = [b['filename'] for b in list_data['backups']]
             assert filename in filenames
         finally:
             # Cleanup via API
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_manual_backup_appears_in_list(self, api_client):
+    def test_manual_backup_appears_in_list(self, api_client, authenticated_session):
         """Test that manual backup appears in the backups list."""
         # Create a manual backup
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         create_data = create_response.json()
         filename = create_data['filename']
         
         try:
             # List backups
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             assert list_response.status_code == 200
             list_data = list_response.json()
             
@@ -65,21 +64,21 @@ class TestManualBackupAPI:
         finally:
             # Cleanup via API
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_manual_backup_contains_version_info(self, api_client):
+    def test_manual_backup_contains_version_info(self, api_client, authenticated_session):
         """Test that manual backup file contains Alembic version info via API validation."""
-        response = requests.post(f'{api_client}/api/database/backup/manual')
+        response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert response.status_code == 200
         data = response.json()
         filename = data['filename']
         
         try:
             # Verify backup was created with valid content by checking size > 0
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             
             backup_in_list = next(
@@ -95,7 +94,7 @@ class TestManualBackupAPI:
         finally:
             # Cleanup via API
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
@@ -105,16 +104,16 @@ class TestManualBackupAPI:
 class TestDeleteBackupAPI:
     """Test cases for backup deletion endpoint."""
     
-    def test_delete_backup_success(self, api_client):
+    def test_delete_backup_success(self, api_client, authenticated_session):
         """Test deleting a backup successfully."""
         # Create a manual backup via API
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         filename = create_response.json()['filename']
         
         try:
             # Delete the backup
-            response = requests.delete(
+            response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{filename}'
             )
             assert response.status_code == 200
@@ -123,19 +122,19 @@ class TestDeleteBackupAPI:
             assert 'deleted successfully' in data['message'].lower()
             
             # Verify file was deleted by checking it's not in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames = [b['filename'] for b in list_data['backups']]
             assert filename not in filenames
         except Exception:
             # Cleanup in case test failed
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_delete_backup_invalid_filename(self, api_client):
+    def test_delete_backup_invalid_filename(self, api_client, authenticated_session):
         """Test deleting with invalid filename format."""
         invalid_filenames = [
             "invalid_backup.sql",
@@ -145,7 +144,7 @@ class TestDeleteBackupAPI:
         ]
         
         for filename in invalid_filenames:
-            response = requests.delete(
+            response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{filename}'
             )
             # Accept both 400 (invalid format) and 404 (not found after URL encoding)
@@ -155,9 +154,9 @@ class TestDeleteBackupAPI:
             assert data['success'] is False
             assert 'invalid' in data['message'].lower() or 'not found' in data['message'].lower()
     
-    def test_delete_backup_not_found(self, api_client):
+    def test_delete_backup_not_found(self, api_client, authenticated_session):
         """Test deleting a backup that doesn't exist."""
-        response = requests.delete(
+        response = authenticated_session.delete(
             f'{api_client}/api/database/backups/delete/aft_backup_99990101_000000.sql'
         )
         assert response.status_code == 404
@@ -165,15 +164,15 @@ class TestDeleteBackupAPI:
         assert data['success'] is False
         assert 'not found' in data['message'].lower()
     
-    def test_delete_manual_backup_success(self, api_client):
+    def test_delete_manual_backup_success(self, api_client, authenticated_session):
         """Test deleting a manual backup."""
         # Create a manual backup via API
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         filename = create_response.json()['filename']
         
         try:
-            response = requests.delete(
+            response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{filename}'
             )
             assert response.status_code == 200
@@ -181,47 +180,47 @@ class TestDeleteBackupAPI:
             assert data['success'] is True
             
             # Verify file was deleted via list API
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames = [b['filename'] for b in list_data['backups']]
             assert filename not in filenames
         except Exception:
             # Cleanup in case test failed
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_delete_removes_from_list(self, api_client):
+    def test_delete_removes_from_list(self, api_client, authenticated_session):
         """Test that deleted backup no longer appears in list."""
         # Create a manual backup
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         filename = create_response.json()['filename']
         
         try:
             # Verify it appears in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames_before = [b['filename'] for b in list_data['backups']]
             assert filename in filenames_before
             
             # Delete the backup
-            delete_response = requests.delete(
+            delete_response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{filename}'
             )
             assert delete_response.status_code == 200
             
             # Verify it no longer appears in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames_after = [b['filename'] for b in list_data['backups']]
             assert filename not in filenames_after
         except Exception:
             # Cleanup in case test failed
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
@@ -231,21 +230,21 @@ class TestDeleteBackupAPI:
 class TestBulkDeleteBackupAPI:
     """Test cases for bulk backup deletion endpoint."""
     
-    def test_delete_multiple_backups_success(self, api_client):
+    def test_delete_multiple_backups_success(self, api_client, authenticated_session):
         """Test deleting multiple backups successfully."""
         filenames = []
         
         try:
             # Create three manual backups
             for i in range(3):
-                response = requests.post(f'{api_client}/api/database/backup/manual')
+                response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
                 assert response.status_code == 200
                 filenames.append(response.json()['filename'])
                 if i < 2:
                     time.sleep(1.1)  # Ensure unique timestamps
             
             # Delete all three
-            response = requests.post(
+            response = authenticated_session.post(
                 f'{api_client}/api/database/backups/delete-multiple',
                 json={'filenames': filenames}
             )
@@ -256,7 +255,7 @@ class TestBulkDeleteBackupAPI:
             assert data['failed'] == 0
             
             # Verify all were deleted
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             remaining_filenames = [b['filename'] for b in list_data['backups']]
             
@@ -267,23 +266,23 @@ class TestBulkDeleteBackupAPI:
             # Cleanup any remaining backups
             for filename in filenames:
                 try:
-                    requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                    authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
                 except Exception:
                     # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
-    def test_delete_multiple_with_invalid_filenames(self, api_client):
+    def test_delete_multiple_with_invalid_filenames(self, api_client, authenticated_session):
         """Test bulk delete with mix of valid and invalid filenames."""
         valid_filename = None
         
         try:
             # Create one valid backup
-            response = requests.post(f'{api_client}/api/database/backup/manual')
+            response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
             assert response.status_code == 200
             valid_filename = response.json()['filename']
             
             # Try to delete with mix of valid and invalid
-            response = requests.post(
+            response = authenticated_session.post(
                 f'{api_client}/api/database/backups/delete-multiple',
                 json={'filenames': [
                     valid_filename,
@@ -299,7 +298,7 @@ class TestBulkDeleteBackupAPI:
             assert len(data['errors']) == 2
             
             # Verify valid backup was deleted
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames = [b['filename'] for b in list_data['backups']]
             assert valid_filename not in filenames
@@ -308,14 +307,14 @@ class TestBulkDeleteBackupAPI:
             # Cleanup
             if valid_filename:
                 try:
-                    requests.delete(f'{api_client}/api/database/backups/delete/{valid_filename}')
+                    authenticated_session.delete(f'{api_client}/api/database/backups/delete/{valid_filename}')
                 except Exception:
                     # Ignore cleanup errors - test cleanup should not fail due to cleanup issues
                     pass
     
-    def test_delete_multiple_empty_array(self, api_client):
+    def test_delete_multiple_empty_array(self, api_client, authenticated_session):
         """Test bulk delete with empty array."""
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/database/backups/delete-multiple',
             json={'filenames': []}
         )
@@ -324,9 +323,9 @@ class TestBulkDeleteBackupAPI:
         assert data['success'] is False
         assert 'empty' in data['message'].lower()
     
-    def test_delete_multiple_missing_filenames(self, api_client):
+    def test_delete_multiple_missing_filenames(self, api_client, authenticated_session):
         """Test bulk delete without filenames parameter."""
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/database/backups/delete-multiple',
             json={}
         )
@@ -335,9 +334,9 @@ class TestBulkDeleteBackupAPI:
         assert data['success'] is False
         assert 'missing' in data['message'].lower()
     
-    def test_delete_multiple_invalid_type(self, api_client):
+    def test_delete_multiple_invalid_type(self, api_client, authenticated_session):
         """Test bulk delete with non-array filenames."""
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/database/backups/delete-multiple',
             json={'filenames': 'not_an_array'}
         )
@@ -346,12 +345,12 @@ class TestBulkDeleteBackupAPI:
         assert data['success'] is False
         assert 'array' in data['message'].lower()
     
-    def test_delete_multiple_limit_exceeded(self, api_client):
+    def test_delete_multiple_limit_exceeded(self, api_client, authenticated_session):
         """Test bulk delete with too many filenames."""
         # Try to delete 101 backups (over the 100 limit)
         fake_filenames = [f'aft_backup_2024010{i % 10}_120000.sql' for i in range(101)]
         
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/database/backups/delete-multiple',
             json={'filenames': fake_filenames}
         )
@@ -360,9 +359,9 @@ class TestBulkDeleteBackupAPI:
         assert data['success'] is False
         assert '100' in data['message']
     
-    def test_delete_multiple_nonexistent_files(self, api_client):
+    def test_delete_multiple_nonexistent_files(self, api_client, authenticated_session):
         """Test bulk delete with files that don't exist."""
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/database/backups/delete-multiple',
             json={'filenames': [
                 'aft_backup_99990101_000000.sql',
@@ -381,10 +380,10 @@ class TestBulkDeleteBackupAPI:
 class TestBackupWorkflow:
     """Integration tests for complete backup workflows."""
     
-    def test_create_restore_delete_manual_backup_workflow(self, api_client):
+    def test_create_restore_delete_manual_backup_workflow(self, api_client, authenticated_session):
         """Test complete workflow: create manual backup, restore from it, then delete it."""
         # Step 1: Create a manual backup
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         create_data = create_response.json()
         assert create_data['success'] is True
@@ -393,7 +392,7 @@ class TestBackupWorkflow:
         
         try:
             # Step 2: Verify it appears in the list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             assert list_response.status_code == 200
             list_data = list_response.json()
             
@@ -406,7 +405,7 @@ class TestBackupWorkflow:
             assert backup_in_list['size'] > 0
             
             # Step 3: Restore from the backup
-            restore_response = requests.post(
+            restore_response = authenticated_session.post(
                 f'{api_client}/api/database/backups/restore/{filename}'
             )
             
@@ -420,7 +419,7 @@ class TestBackupWorkflow:
                 assert 'message' in restore_data
             
             # Step 4: Delete the backup
-            delete_response = requests.delete(
+            delete_response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{filename}'
             )
             assert delete_response.status_code == 200
@@ -428,7 +427,7 @@ class TestBackupWorkflow:
             assert delete_data['success'] is True
             
             # Step 5: Verify it no longer appears in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             filenames = [b['filename'] for b in list_data['backups']]
             assert filename not in filenames
@@ -436,19 +435,19 @@ class TestBackupWorkflow:
         except Exception:
             # Cleanup in case any step failed
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_multiple_manual_backups_independent(self, api_client):
+    def test_multiple_manual_backups_independent(self, api_client, authenticated_session):
         """Test that multiple manual backups can be created and deleted independently."""
         backup_files = []
         
         try:
             # Create multiple manual backups
             for i in range(3):
-                response = requests.post(f'{api_client}/api/database/backup/manual')
+                response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
                 assert response.status_code == 200
                 data = response.json()
                 backup_files.append(data['filename'])
@@ -457,7 +456,7 @@ class TestBackupWorkflow:
                     time.sleep(1.1)
             
             # Verify all exist in list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             all_filenames = [b['filename'] for b in list_data['backups']]
             
@@ -465,13 +464,13 @@ class TestBackupWorkflow:
                 assert filename in all_filenames
             
             # Delete the middle one
-            delete_response = requests.delete(
+            delete_response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{backup_files[1]}'
             )
             assert delete_response.status_code == 200
             
             # Verify only the middle one is deleted
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             remaining_filenames = [b['filename'] for b in list_data['backups']]
             
@@ -483,24 +482,24 @@ class TestBackupWorkflow:
             # Cleanup all backups
             for filename in backup_files:
                 try:
-                    requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                    authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
                 except Exception:
                     # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
-    def test_manual_backup_not_affected_by_auto_retention(self, api_client):
+    def test_manual_backup_not_affected_by_auto_retention(self, api_client, authenticated_session):
         """Test that manual backups are not deleted by automatic retention."""
         # This is more of a documentation test - we verify the behavior is as expected
         # The actual retention logic runs in the scheduler, not through API
         
         # Create a manual backup
-        create_response = requests.post(f'{api_client}/api/database/backup/manual')
+        create_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
         assert create_response.status_code == 200
         filename = create_response.json()['filename']
         
         try:
             # Verify it's marked as manual in the list
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             list_data = list_response.json()
             
             manual_backup = next(
@@ -518,23 +517,23 @@ class TestBackupWorkflow:
         finally:
             # Cleanup
             try:
-                requests.delete(f'{api_client}/api/database/backups/delete/{filename}')
+                authenticated_session.delete(f'{api_client}/api/database/backups/delete/{filename}')
             except Exception:
                 # Ignore cleanup errors - test cleanup should not fail the test
                 pass
     
-    def test_backup_list_mixed_auto_and_manual(self, api_client):
+    def test_backup_list_mixed_auto_and_manual(self, api_client, authenticated_session):
         """Test listing backups with both automatic and manual backups."""
         manual_filename = None
         
         try:
             # Create a manual backup
-            manual_response = requests.post(f'{api_client}/api/database/backup/manual')
+            manual_response = authenticated_session.post(f'{api_client}/api/database/backup/manual')
             assert manual_response.status_code == 200
             manual_filename = manual_response.json()['filename']
             
             # List backups
-            list_response = requests.get(f'{api_client}/api/database/backups/list')
+            list_response = authenticated_session.get(f'{api_client}/api/database/backups/list')
             assert list_response.status_code == 200
             list_data = list_response.json()
             
@@ -556,12 +555,12 @@ class TestBackupWorkflow:
             # Cleanup
             if manual_filename:
                 try:
-                    requests.delete(f'{api_client}/api/database/backups/delete/{manual_filename}')
+                    authenticated_session.delete(f'{api_client}/api/database/backups/delete/{manual_filename}')
                 except Exception:
                     # Ignore cleanup errors - test cleanup should not fail the test
                     pass
     
-    def test_cannot_delete_with_path_traversal(self, api_client):
+    def test_cannot_delete_with_path_traversal(self, api_client, authenticated_session):
         """Test that path traversal attempts in delete are blocked."""
         path_traversal_attempts = [
             "../../../etc/passwd",
@@ -570,7 +569,7 @@ class TestBackupWorkflow:
         ]
         
         for attempt in path_traversal_attempts:
-            response = requests.delete(
+            response = authenticated_session.delete(
                 f'{api_client}/api/database/backups/delete/{attempt}'
             )
             # Should be rejected with 400 or result in 404 due to URL encoding

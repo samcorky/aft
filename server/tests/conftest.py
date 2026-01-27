@@ -181,7 +181,52 @@ def cleanup_all_data(request, test_admin_session):
 
 @pytest.fixture
 def authenticated_session(test_admin_session):
-    """Provide authenticated session for individual tests (API tests only)."""
+    """Provide authenticated session for individual tests (API tests only).
+    
+    Verifies the session is still valid, and if not (e.g., after DB reset),
+    recreates the test admin user and re-authenticates.
+    """
+    # Check if session is still valid
+    check_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
+    
+    # If session is invalid (503 = no users, 401 = not authenticated)
+    if check_response.status_code in (503, 401):
+        print(f"\n[Test Setup] Session invalid (HTTP {check_response.status_code}) - recreating test admin...")
+        
+        # Clear cookies
+        test_admin_session.cookies.clear()
+        
+        # Check if we need to create admin (no users exist)
+        setup_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/setup/status")
+        if setup_response.status_code == 200:
+            setup_data = setup_response.json()
+            
+            if not setup_data.get('setup_complete', False):
+                # Create admin via setup
+                admin_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
+                    "email": "test-admin@localhost",
+                    "username": "test-admin",
+                    "password": "TestAdmin123!",
+                    "display_name": "Test Admin"
+                })
+                if admin_response.status_code not in (200, 201):
+                    raise Exception(f"Failed to recreate test admin: HTTP {admin_response.status_code}")
+                print("[Test Setup] Test admin recreated successfully")
+            else:
+                # Admin exists, just login
+                login_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
+                    "email": "test-admin@localhost",
+                    "password": "TestAdmin123!"
+                })
+                if login_response.status_code != 200:
+                    raise Exception(f"Failed to login as test admin: HTTP {login_response.status_code}")
+                print("[Test Setup] Logged in as test admin successfully")
+        
+        # Verify session is now valid
+        verify_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
+        if verify_response.status_code != 200:
+            raise Exception(f"Session still invalid after recreation: HTTP {verify_response.status_code}")
+    
     return test_admin_session
 
 
@@ -215,6 +260,10 @@ def cleanup_between_tests(request, test_admin_session):
     
     # Only cleanup for API tests
     if 'unit' not in request.keywords:
+        # Skip cleanup if test uses empty_database fixture (it handles its own cleanup)
+        if 'empty_database' in request.fixturenames:
+            return
+        
         # Cleanup after each test (important for isolation)
         time.sleep(CLEANUP_DELAY_SHORT)
         _delete_all_data(test_admin_session)

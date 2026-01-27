@@ -1,13 +1,12 @@
 """Tests for backup/restore error notifications."""
 import pytest
-import requests
 
 
 @pytest.mark.api
 class TestBackupNotifications:
     """Test that notifications are created for backup/restore errors."""
     
-    def test_backup_scheduler_creates_notification_on_overdue(self, api_client):
+    def test_backup_scheduler_creates_notification_on_overdue(self, api_client, authenticated_session):
         """Test that notification is created when automatic backup is overdue.
         
         Note: This requires the backup scheduler to be running and detect an overdue state.
@@ -18,7 +17,7 @@ class TestBackupNotifications:
         # Notification created when time_since_last > frequency + 5 minutes
         pass
     
-    def test_manual_backup_creates_notification_on_database_error(self, api_client):
+    def test_manual_backup_creates_notification_on_database_error(self, api_client, authenticated_session):
         """Test that a notification is created when manual backup fails due to database issues.
         
         Note: This test is difficult to trigger reliably without stopping the database.
@@ -33,7 +32,7 @@ class TestBackupNotifications:
 class TestNotificationCreationHelper:
     """Test the notification creation helper function through API integration."""
     
-    def test_backup_failure_creates_notification(self, api_client):
+    def test_backup_failure_creates_notification(self, api_client, authenticated_session):
         """Test that backup failure creates a notification when disk space is insufficient.
         
         Sets minimum free space requirement to 10TB (10485760 MB) which will exceed
@@ -42,7 +41,7 @@ class TestNotificationCreationHelper:
         import time
         
         # Get notifications before test
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications_before = response.json()['notifications']
         disk_space_notifications_before = [
@@ -61,7 +60,7 @@ class TestNotificationCreationHelper:
             'minimum_free_space_mb': 10485760  # 10TB
         }
         
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config
         )
@@ -74,7 +73,7 @@ class TestNotificationCreationHelper:
         
         for _ in range(max_wait):
             time.sleep(1)
-            response = requests.get(f'{api_client}/api/notifications')
+            response = authenticated_session.get(f'{api_client}/api/notifications')
             assert response.status_code == 200
             notifications = response.json()['notifications']
             
@@ -101,14 +100,14 @@ class TestNotificationCreationHelper:
         
         # Reset to reasonable settings
         config['minimum_free_space_mb'] = 100
-        requests.put(f'{api_client}/api/settings/backup/config', json=config)
+        authenticated_session.put(f'{api_client}/api/settings/backup/config', json=config)
         
         assert notification_created, "Disk space notification was not created within 90 seconds"
     
-    def test_notification_structure_for_error_notifications(self, api_client):
+    def test_notification_structure_for_error_notifications(self, api_client, authenticated_session):
         """Test that error notifications have proper structure when created."""
         # Get all notifications
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
@@ -128,10 +127,10 @@ class TestNotificationCreationHelper:
             assert len(notification['message']) > 0
             assert len(notification['message']) <= 65535
     
-    def test_backup_notifications_have_action_buttons(self, api_client):
+    def test_backup_notifications_have_action_buttons(self, api_client, authenticated_session):
         """Test that all backup-related notifications include action buttons."""
         # Get all notifications
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
@@ -173,7 +172,7 @@ class TestNotificationCreationHelper:
 class TestOverdueNotificationDeduplication:
     """Test that overdue notifications are not duplicated."""
     
-    def test_no_duplicate_overdue_notifications(self, api_client):
+    def test_no_duplicate_overdue_notifications(self, api_client, authenticated_session):
         """Test that only one unread overdue notification exists at a time.
         
         This verifies that the scheduler checks for existing unread overdue
@@ -181,7 +180,7 @@ class TestOverdueNotificationDeduplication:
         across process restarts.
         """
         # Get all notifications
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
@@ -195,14 +194,14 @@ class TestOverdueNotificationDeduplication:
         assert len(unread_overdue) <= 1, \
             f"Found {len(unread_overdue)} unread overdue notifications, expected at most 1"
     
-    def test_backup_completion_notification_after_overdue(self, api_client):
+    def test_backup_completion_notification_after_overdue(self, api_client, authenticated_session):
         """Test that a completion notification is created after overdue backup succeeds.
         
         Note: This requires manual testing or integration test with scheduler running.
         Verifies that successful backup after overdue creates a resolution notification.
         """
         # Get all notifications
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
@@ -223,10 +222,10 @@ class TestOverdueNotificationDeduplication:
             assert notification['action_title'] == 'View Backups'
             assert notification['action_url'] == '/backup-restore.html'
     
-    def test_overdue_notification_content(self, api_client):
+    def test_overdue_notification_content(self, api_client, authenticated_session):
         """Test that overdue notifications contain expected information."""
         # Get all notifications
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
@@ -254,7 +253,7 @@ class TestOverdueNotificationDeduplication:
 class TestOverdueNotificationResolution:
     """Test that overdue notifications are properly resolved after successful backup."""
     
-    def test_overdue_notification_marked_read_after_backup(self, api_client):
+    def test_overdue_notification_marked_read_after_backup(self, api_client, authenticated_session):
         """Test that an existing overdue notification is marked as read when backup succeeds.
         
         This verifies the fix for issue where multiple resolution messages were created
@@ -269,7 +268,7 @@ class TestOverdueNotificationResolution:
             'message': 'Automatic backups are overdue by 1 hour.\n\nLast backup: 2025-12-05 10:00:00\nExpected frequency: 1 minutes\n\nCheck backup scheduler status and logs for issues.'
         }
         
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/notifications',
             json=notification_data
         )
@@ -277,7 +276,7 @@ class TestOverdueNotificationResolution:
         overdue_id = response.json()['notification']['id']
         
         # Verify it's unread
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         overdue_notif = next((n for n in notifications if n['id'] == overdue_id), None)
@@ -293,7 +292,7 @@ class TestOverdueNotificationResolution:
             'retention_count': 7,
             'minimum_free_space_mb': 100
         }
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config
         )
@@ -308,7 +307,7 @@ class TestOverdueNotificationResolution:
             time.sleep(1)
             
             # Check if overdue notification was marked as read
-            response = requests.get(f'{api_client}/api/notifications')
+            response = authenticated_session.get(f'{api_client}/api/notifications')
             assert response.status_code == 200
             notifications = response.json()['notifications']
             
@@ -321,7 +320,7 @@ class TestOverdueNotificationResolution:
         assert backup_completed, "Backup did not complete within 90 seconds"
         assert overdue_marked_read, "Overdue notification was not marked as read after backup"
     
-    def test_no_duplicate_resolution_messages(self, api_client):
+    def test_no_duplicate_resolution_messages(self, api_client, authenticated_session):
         """Test that multiple backups after overdue don't create duplicate resolution messages.
         
         This is the core test for the bug fix: after an overdue notification is marked as read,
@@ -335,14 +334,14 @@ class TestOverdueNotificationResolution:
             'message': 'Automatic backups are overdue by 1 hour.\n\nLast backup: 2025-12-05 10:00:00\nExpected frequency: 1 minutes\n\nCheck backup scheduler status and logs for issues.'
         }
         
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/notifications',
             json=notification_data
         )
         assert response.status_code == 201
         
         # Count existing resolution messages
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications_before = response.json()['notifications']
         resolution_messages_before = [
@@ -360,7 +359,7 @@ class TestOverdueNotificationResolution:
             'retention_count': 7,
             'minimum_free_space_mb': 100
         }
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config
         )
@@ -373,7 +372,7 @@ class TestOverdueNotificationResolution:
         for _ in range(max_wait):
             time.sleep(1)
             
-            response = requests.get(f'{api_client}/api/notifications')
+            response = authenticated_session.get(f'{api_client}/api/notifications')
             assert response.status_code == 200
             notifications = response.json()['notifications']
             
@@ -393,7 +392,7 @@ class TestOverdueNotificationResolution:
         time.sleep(180)
         
         # Check that no additional resolution messages were created
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications_after = response.json()['notifications']
         
@@ -407,7 +406,7 @@ class TestOverdueNotificationResolution:
             f"Expected {initial_resolution_count + 1} resolution messages, found {len(resolution_messages_after)}. " \
             f"Multiple backups after overdue state created duplicate resolution messages."
     
-    def test_resolution_message_only_created_when_overdue_exists(self, api_client):
+    def test_resolution_message_only_created_when_overdue_exists(self, api_client, authenticated_session):
         """Test that resolution messages are only created when an overdue notification exists.
         
         Regular backups without an overdue state should not create resolution messages.
@@ -415,20 +414,20 @@ class TestOverdueNotificationResolution:
         import time
         
         # First, mark all existing overdue notifications as read
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications = response.json()['notifications']
         
         for notification in notifications:
             if 'Backup Overdue' in notification['subject'] and notification['unread']:
-                response = requests.patch(
+                response = authenticated_session.patch(
                     f'{api_client}/api/notifications/{notification["id"]}',
                     json={'unread': False}
                 )
                 assert response.status_code == 200
         
         # Count existing resolution messages
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications_before = response.json()['notifications']
         resolution_messages_before = [
@@ -446,7 +445,7 @@ class TestOverdueNotificationResolution:
             'retention_count': 7,
             'minimum_free_space_mb': 100
         }
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config
         )
@@ -456,7 +455,7 @@ class TestOverdueNotificationResolution:
         time.sleep(90)
         
         # Check that NO new resolution messages were created
-        response = requests.get(f'{api_client}/api/notifications')
+        response = authenticated_session.get(f'{api_client}/api/notifications')
         assert response.status_code == 200
         notifications_after = response.json()['notifications']
         

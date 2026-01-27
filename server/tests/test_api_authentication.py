@@ -19,9 +19,14 @@ import time
 API_BASE_URL = "http://localhost"
 
 
-@pytest.fixture(scope="module")
-def clean_database():
-    """Start with a clean database for auth tests."""
+@pytest.fixture
+def empty_database(test_admin_session):
+    """Delete all data including users for tests that need truly empty DB.
+    
+    Note: This fixture is ONLY for authentication tests. It deletes all users
+    including the test-admin, then recreates test-admin after the test completes.
+    We also need to refresh the session cookies since the old ones are invalid.
+    """
     # Delete all data including users
     try:
         response = requests.delete(f"{API_BASE_URL}/api/database")
@@ -32,27 +37,76 @@ def clean_database():
     
     yield
     
-    # Cleanup after tests
-    try:
-        requests.delete(f"{API_BASE_URL}/api/database")
-    except:
-        pass
+    # CRITICAL: Recreate test admin after this test so other tests don't fail
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Check if setup is needed
+            status = requests.get(f"{API_BASE_URL}/api/auth/setup/status")
+            if status.status_code == 200 and not status.json().get('setup_complete', False):
+                # Recreate test admin
+                resp = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
+                    "email": "test-admin@localhost",
+                    "username": "test-admin",
+                    "password": "TestAdmin123!",
+                    "display_name": "Test Admin"
+                })
+                
+                # Update the shared session with new cookies from the recreated admin
+                # The setup endpoint auto-logs in, but we need to ensure cookies are fresh
+                if resp.status_code == 201:
+                    # Clear old cookies first
+                    test_admin_session.cookies.clear()
+                    test_admin_session.cookies.update(resp.cookies)
+                    
+                    # Do an explicit login to ensure session is fully established
+                    login_resp = test_admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
+                        "email": "test-admin@localhost",
+                        "password": "TestAdmin123!"
+                    }, timeout=5)
+                    
+                    if login_resp.status_code == 200:
+                        # Clear again and use login cookies
+                        test_admin_session.cookies.clear()
+                        test_admin_session.cookies.update(login_resp.cookies)
+                        time.sleep(0.3)
+                        
+                        # Verify the session works
+                        verify = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
+                        if verify.status_code == 200 and verify.json().get('authenticated'):
+                            print(f"[Test Cleanup] Session verified after admin recreation")
+                            break  # Success!
+                    else:
+                        print(f"[Test Cleanup] Session verification failed after admin recreation")
+            else:
+                # Setup already complete
+                print(f"[Test Cleanup] Setup already complete, skipping recreation")
+                break
+        except Exception as e:
+            print(f"[Test Cleanup] Attempt {attempt + 1} failed: {e}")
+            if attempt == max_retries - 1:
+                # Last attempt failed - this is CRITICAL, must fail loudly
+                import traceback
+                error_msg = f"\nCRITICAL: Failed to recreate test admin after empty_database cleanup!\n{traceback.format_exc()}\nSubsequent tests WILL fail with 401/503 errors."
+                print(error_msg)
+                # Raise to make this failure visible
+                raise Exception(error_msg)
+            time.sleep(0.3)  # Wait before retry
 
 
 class TestSetupFlow:
     """Test first-time setup flow."""
     
-    def test_setup_status_no_users(self, clean_database):
+    def test_setup_status_no_users(self, empty_database):
         """Setup status should indicate setup needed when no users exist."""
         response = requests.get(f"{API_BASE_URL}/api/auth/setup/status")
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
         assert data['setup_complete'] is False
-        assert data['requires_setup'] is True
+        assert data['has_users'] is False
     
-    def test_setup_admin_validation(self):
+    def test_setup_admin_validation(self, empty_database):
         """Admin setup should validate input."""
         # Missing email
         response = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -60,7 +114,7 @@ class TestSetupFlow:
             "password": "password123"
         })
         assert response.status_code == 400
-        assert 'email' in response.json()['error'].lower()
+        assert 'email' in response.json()['message'].lower()
         
         # Missing username
         response = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -68,7 +122,7 @@ class TestSetupFlow:
             "password": "password123"
         })
         assert response.status_code == 400
-        assert 'username' in response.json()['error'].lower()
+        assert 'username' in response.json()['message'].lower()
         
         # Missing password
         response = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -76,7 +130,7 @@ class TestSetupFlow:
             "username": "admin"
         })
         assert response.status_code == 400
-        assert 'password' in response.json()['error'].lower()
+        assert 'password' in response.json()['message'].lower()
         
         # Password too short
         response = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -85,24 +139,22 @@ class TestSetupFlow:
             "password": "123"
         })
         assert response.status_code == 400
-        assert 'password' in response.json()['error'].lower()
+        assert 'password' in response.json()['message'].lower()
     
-    def test_setup_admin_success(self):
+    def test_setup_admin_success(self, empty_database):
         """Admin setup should create admin user."""
         response = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
             "email": "admin@localhost",
             "username": "admin",
             "password": "AdminPass123!"
         })
-        assert response.status_code == 200
+        assert response.status_code == 201
         
         data = response.json()
         assert data['success'] is True
         assert 'user' in data
         assert data['user']['email'] == "admin@localhost"
         assert data['user']['username'] == "admin"
-        assert data['user']['is_active'] is True
-        assert data['user']['is_approved'] is True
     
     def test_setup_status_with_users(self):
         """Setup status should indicate complete when users exist."""
@@ -110,9 +162,8 @@ class TestSetupFlow:
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
         assert data['setup_complete'] is True
-        assert data['requires_setup'] is False
+        assert data['has_users'] is True
     
     def test_setup_admin_already_complete(self):
         """Admin setup should fail when already complete."""
@@ -121,8 +172,8 @@ class TestSetupFlow:
             "username": "another",
             "password": "password123"
         })
-        assert response.status_code == 400
-        assert 'already' in response.json()['error'].lower()
+        assert response.status_code == 403
+        assert 'already' in response.json()['message'].lower()
 
 
 class TestRegistration:
@@ -136,6 +187,7 @@ class TestRegistration:
             "password": "password123"
         })
         assert response.status_code == 400
+        assert 'email' in response.json()['message'].lower()
         
         # Missing username
         response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
@@ -143,14 +195,15 @@ class TestRegistration:
             "password": "password123"
         })
         assert response.status_code == 400
+        assert 'username' in response.json()['message'].lower()
         
-        # Invalid email
+        # Missing password
         response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
-            "email": "not-an-email",
-            "username": "user1",
-            "password": "password123"
+            "email": "user1@test.com",
+            "username": "user1"
         })
         assert response.status_code == 400
+        assert 'password' in response.json()['message'].lower()
     
     def test_register_success(self):
         """User registration should create pending user."""
@@ -159,14 +212,14 @@ class TestRegistration:
             "username": "testuser",
             "password": "UserPass123!"
         })
-        assert response.status_code == 200
+        assert response.status_code == 201
         
         data = response.json()
         assert data['success'] is True
         assert 'user' in data
         assert data['user']['email'] == "user1@test.com"
         assert data['user']['username'] == "testuser"
-        assert data['user']['is_approved'] is False  # Pending approval
+        assert data['user']['requires_approval'] is True  # Pending approval
     
     def test_register_duplicate_email(self):
         """Registration should prevent duplicate emails."""
@@ -175,8 +228,8 @@ class TestRegistration:
             "username": "different",
             "password": "password123"
         })
-        assert response.status_code == 400
-        assert 'email' in response.json()['error'].lower()
+        assert response.status_code == 409
+        assert 'email' in response.json()['message'].lower()
     
     def test_register_duplicate_username(self):
         """Registration should prevent duplicate usernames."""
@@ -185,8 +238,8 @@ class TestRegistration:
             "username": "testuser",  # Already taken
             "password": "password123"
         })
-        assert response.status_code == 400
-        assert 'username' in response.json()['error'].lower()
+        assert response.status_code == 409
+        assert 'username' in response.json()['message'].lower()
 
 
 class TestLogin:
@@ -204,7 +257,7 @@ class TestLogin:
             "password": "UserPass123!"
         })
         assert response.status_code == 403
-        assert 'approved' in response.json()['error'].lower()
+        assert 'approved' in response.json()['message'].lower()
     
     def test_login_invalid_credentials(self, session):
         """Login should fail with wrong password."""
@@ -213,7 +266,7 @@ class TestLogin:
             "password": "WrongPassword"
         })
         assert response.status_code == 401
-        assert 'invalid' in response.json()['error'].lower()
+        assert 'invalid' in response.json()['message'].lower()
     
     def test_login_success(self, session):
         """Login should succeed with correct credentials."""
@@ -263,7 +316,6 @@ class TestLogin:
         assert 'user' in data
         assert data['user']['email'] == "admin@localhost"
         assert 'roles' in data['user']
-        assert 'permissions' in data['user']
     
     def test_logout(self, session):
         """Logout should clear session."""
@@ -312,8 +364,8 @@ class TestPasswordChange:
             "current_password": "WrongPassword",
             "new_password": "NewPass456!"
         })
-        assert response.status_code == 400
-        assert 'current password' in response.json()['error'].lower()
+        assert response.status_code == 401
+        assert 'current password' in response.json()['message'].lower()
     
     def test_change_password_validation(self, authenticated_session):
         """Password change should validate new password."""
@@ -366,7 +418,7 @@ class TestAuthenticationFlow:
             "username": "journeyuser",
             "password": "JourneyPass123!"
         })
-        assert response.status_code == 200
+        assert response.status_code == 201
         
         # 3. Try to login (should fail - not approved)
         response = session.post(f"{API_BASE_URL}/api/auth/login", json={

@@ -84,6 +84,7 @@ def load_user_from_session():
     Call this in app.before_request.
     """
     user_id = session.get('user_id')
+    stored_email_hash = session.get('user_email_hash')
     
     if user_id:
         db = SessionLocal()
@@ -94,6 +95,18 @@ def load_user_from_session():
             ).first()
             
             if user:
+                # Validate session is for this specific user (prevents old sessions from
+                # accessing new users with same ID after database reset)
+                current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+                if stored_email_hash != current_email_hash:
+                    # Session email hash doesn't match - clear session
+                    logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
+                    session.clear()
+                    g.user = None
+                    g.db = None
+                    db.close()
+                    return
+                
                 g.user = user
                 g.db = db  # Make db available for the request
             else:
@@ -179,6 +192,7 @@ def login():
             # Create session
             session.clear()
             session['user_id'] = user.id
+            session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
             
             # Update last login
@@ -615,6 +629,7 @@ def setup_admin():
             
             # Auto-login after setup
             session['user_id'] = user.id
+            session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             
             user_data = {
                 'id': user.id,

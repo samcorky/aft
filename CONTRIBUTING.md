@@ -6,17 +6,18 @@ Thank you for your interest in contributing to AFT. This document provides guide
 
 Before submitting any code contribution, **verify ALL items** are complete:
 
+- [ ] **Authentication Setup** - If developing/testing features requiring authentication, ensure fresh database or test admin exists (see [Authentication for Development](#authentication-for-development))
 - [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
-- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](./TESTING.md))
+- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](server/TESTING.md))
 - [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
 - [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md))
 - [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
 - [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
 - [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
-- [ ] **Documentation** - README/docs updated if behavior changed
-- [ ] **All Tests Pass** - Run `pytest -v` and verify all tests pass
+- [ ] **Documentation** - README/docs updated if behaviour changed
+- [ ] **All Tests Pass** - Run `pytest -v` with fresh database and verify all tests pass
 
-**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md) before implementing ANY feature.
+**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md, AUTHENTICATION.md) before implementing ANY feature.
 
 ## Table of Contents
 
@@ -81,6 +82,59 @@ I had copilot write all of this primarily so I can ensure it always does all the
    
    - Application: http://localhost:80
    - API: http://localhost/api/health
+
+## Authentication for Development
+
+**As of user support implementation, most API endpoints require authentication.** When developing or testing features:
+
+### Initial Setup (First Time)
+
+On a fresh database (no users exist), you can create an initial admin user:
+
+1. Navigate to http://localhost/setup.html
+2. Create your admin account
+3. Use these credentials for development and testing
+
+### Development Workflow
+
+1. **Login to UI**: Navigate to http://localhost/login.html and login with your admin credentials
+2. **API Testing**: Use browser dev tools or authenticated requests for API testing
+3. **Session Management**: The system uses session-based authentication with cookies
+
+### Running Tests
+
+**Tests require a fresh database** to automatically create the test admin user. See [TESTING.md](server/TESTING.md) for detailed instructions:
+
+```powershell
+# Windows
+docker compose down
+Remove-Item -Recurse -Force data
+docker compose up -d
+
+# Linux/macOS  
+docker compose down
+rm -rf data
+docker compose up -d
+```
+
+Then run tests:
+```powershell
+cd server
+.\venv\Scripts\Activate.ps1  # Windows
+# or
+source venv/bin/activate      # Linux/macOS
+
+pytest -v
+```
+
+### Authentication Documentation
+
+For detailed information about the authentication system:
+
+- **[AUTHENTICATION.md](server/AUTHENTICATION.md)** - Complete authentication architecture and implementation guide
+- **[AUTH_QUICK_REFERENCE.md](server/AUTH_QUICK_REFERENCE.md)** - Quick reference for using authentication in code
+- **[API_MIGRATION_GUIDE.md](server/API_MIGRATION_GUIDE.md)** - Guide for migrating existing APIs to require authentication
+- **[TESTING.md](server/TESTING.md)** - Test suite authentication requirements
 
 ## Development Workflow
 

@@ -2789,7 +2789,8 @@ def get_boards():
 
 
 @app.route("/api/boards", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('board.create')
+@track_endpoint(protected=True)
 def create_board():
     """Create a new board with input validation.
 
@@ -2895,7 +2896,8 @@ def create_board():
         # Create board
         from datetime import datetime
         now = datetime.utcnow()
-        board = Board(name=name, description=description, updated_at=now)
+        user_id = get_current_user_id()
+        board = Board(name=name, description=description, owner_id=user_id, updated_at=now)
         db.add(board)
         db.commit()
         db.refresh(board)

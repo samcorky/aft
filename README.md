@@ -45,6 +45,20 @@ sudo chown -R 1000:1000 ./backups
 sudo chmod -R 755 ./backups
 ```
 
+## Testing
+
+For developers who want to run the test suite:
+
+```powershell
+cd server
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest
+```
+
+**Note:** Tests automatically handle authentication by creating a test admin user. For detailed testing instructions including fresh database setup, see [server/TESTING.md](server/TESTING.md).
+
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.

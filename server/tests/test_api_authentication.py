@@ -14,7 +14,9 @@ Tests the following endpoints:
 import pytest
 import requests
 import time
-from conftest import API_BASE_URL
+
+# API base URL - matching conftest.py
+API_BASE_URL = "http://localhost"
 
 
 @pytest.fixture(scope="module")

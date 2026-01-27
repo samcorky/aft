@@ -15,7 +15,6 @@ from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistIt
 from sqlalchemy import text, func
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
-from api_migration_tracker import track_endpoint
 from utils import (
     validate_string_length,
     validate_integer,
@@ -33,7 +32,6 @@ from utils import (
 )
 from auth import auth_bp, load_user_from_session
 from user_management import user_mgmt_bp
-from api_migration_tracker import migration_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -8754,11 +8752,6 @@ def on_leave_theme():
     """Handle client leaving the theme room."""
     leave_room('theme')
     logger.info(f"Client {request.sid} left theme room")
-
-
-# Initialize API migration tracking registry
-from api_migration_tracker import initialize_registry_from_app
-initialize_registry_from_app()
 
 
 if __name__ == "__main__":

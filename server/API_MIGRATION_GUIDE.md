@@ -2,6 +2,22 @@
 
 This guide explains how to migrate existing API endpoints to require authentication using the tracking system.
 
+## Current Status
+
+**As of last update:**
+- ✅ Migration tracking system implemented (`api_migration_tracker.py`)
+- ✅ All 75 API endpoints marked with `@track_endpoint(protected=False, reason="Not yet migrated")`
+- ✅ Migration dashboard available at `/api/migration-status?format=html`
+- ✅ Link to dashboard added to System Info page
+- ⏳ 0/75 endpoints migrated (0% complete)
+- ⚙️ Enforcement mode: **OFF** (set to True when migration complete)
+
+**Key Files:**
+- `server/api_migration_tracker.py` - Tracking system and enforcement
+- `server/app.py` - All endpoints marked with @track_endpoint decorator
+- `server/utils.py` - Security helpers (get_user_scoped_query, require_permission, etc.)
+- `server/permissions.py` - Permission definitions and roles
+
 ## Overview
 
 The API migration tracker helps you:
@@ -271,6 +287,39 @@ def get_cards():
             return jsonify({'success': False, 'error': 'Board not found'}), 404
         
         # Get cards (user owns board, so can see cards)
+        cards = db.query(Card).filter_by(board_id=board_id).all()
+        return jsonify({'success': True, 'cards': [c.to_dict() for c in cards]})
+    finally:
+        db.close()
+```
+
+## Quick Start for Next Session
+
+To resume API migration in a new conversation:
+
+1. **Check current status**: Visit `http://localhost/api/migration-status?format=html`
+2. **Review this guide**: Read the migration patterns above
+3. **Start migrating**: Pick an endpoint category (boards, cards, settings, etc.)
+4. **Update decorators**: Change `protected=False` to `protected=True` and add permission checks
+5. **Add user scoping**: Use `get_user_scoped_query()` for data isolation
+6. **Test**: Verify with multiple users that data is properly isolated
+7. **Track progress**: Check dashboard after each migration batch
+
+**When all 75 endpoints are migrated:**
+- Set `ENFORCE_AUTH_ON_ALL_APIS = True` in [api_migration_tracker.py](api_migration_tracker.py#L19)
+- Remove this migration card from system-info.html
+- Celebrate! 🎉
+
+## Summary
+
+The migration tracker ensures:
+- ✅ **Visibility**: Know which endpoints are protected
+- ✅ **Safety**: Gradual migration without breaking functionality
+- ✅ **Enforcement**: Guarantee all endpoints require auth when ready
+- ✅ **Tracking**: Never lose track of what's done and what's remaining
+
+Visit `/api/migration-status?format=html` to see your progress!
+
         cards = db.query(Card).filter_by(board_id=board_id).all()
         return jsonify({'success': True, 'cards': [c.to_dict() for c in cards]})
     finally:

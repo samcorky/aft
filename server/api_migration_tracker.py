@@ -9,6 +9,7 @@ It provides:
 """
 
 import logging
+import re
 from functools import wraps
 from flask import request, jsonify, g
 from collections import defaultdict
@@ -30,6 +31,58 @@ MIGRATION_STATS = {
 # This will block all unauthenticated requests to /api/* endpoints
 # Use this after migration is complete to ensure no endpoints are left unprotected
 ENFORCE_AUTH_ON_ALL_APIS = False  # Set to True when migration is complete
+
+
+def initialize_registry_from_app():
+    """
+    Scan app.py to find all @track_endpoint decorators and pre-populate the registry.
+    This ensures endpoints show up in the dashboard immediately on startup.
+    """
+    try:
+        import os
+        app_path = os.path.join(os.path.dirname(__file__), 'app.py')
+        
+        with open(app_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            
+            # Look for @app.route("/api/...") lines with methods parameter
+            # Pattern handles routes with parameters like <int:id> or <filename>
+            route_match = re.search(r'@app\.route\("(/api/[^"]+)",\s*methods=\[([^\]]+)\]', line)
+            
+            # Also look for @app.route("/api/...") without methods (defaults to GET)
+            route_match_no_methods = None
+            if not route_match:
+                route_match_no_methods = re.search(r'@app\.route\("(/api/[^"]+)"\)', line)
+            
+            if route_match or route_match_no_methods:
+                if route_match:
+                    path = route_match.group(1)
+                    methods_str = route_match.group(2)
+                    methods = [m.strip().strip('"').strip("'") for m in methods_str.split(',')]
+                else:
+                    path = route_match_no_methods.group(1)
+                    methods = ['GET']  # Default method when not specified
+                
+                # Check next line for @track_endpoint
+                if i + 1 < len(lines):
+                    track_match = re.search(r'@track_endpoint\(protected=(True|False),\s*reason="([^"]+)"\)', lines[i + 1])
+                    if track_match:
+                        protected = track_match.group(1) == 'True'
+                        reason = track_match.group(2)
+                        register_api_endpoint(path, methods, protected, reason)
+                    else:
+                        # Endpoint without @track_endpoint - register as unprotected
+                        register_api_endpoint(path, methods, False, 'No tracking decorator')
+            
+            i += 1
+        
+        logger.info(f"Initialized API registry with {len(API_REGISTRY)} endpoints from app.py")
+    except Exception as e:
+        logger.error(f"Failed to initialize API registry from app.py: {e}")
 
 
 def register_api_endpoint(path, methods, protected=False, reason=None):
@@ -86,15 +139,6 @@ def track_endpoint(protected=False, reason=None):
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
-            # Register on first call
-            if request.path not in API_REGISTRY:
-                register_api_endpoint(
-                    request.path,
-                    [request.method],
-                    protected=protected,
-                    reason=reason
-                )
-            
             # If enforcement mode is on, require authentication for all /api/* endpoints
             if ENFORCE_AUTH_ON_ALL_APIS and request.path.startswith('/api/'):
                 # Skip auth endpoints and migration report

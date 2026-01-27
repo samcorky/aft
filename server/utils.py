@@ -4,12 +4,14 @@ This module provides reusable helpers for:
 - Database session management
 - Input validation and sanitization
 - Error response formatting
+- User authentication and authorization
 """
 
 import logging
+import json
 from functools import wraps
 from typing import Callable, Any, Tuple
-from flask import jsonify, request
+from flask import jsonify, request, g, abort
 from database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -233,3 +235,248 @@ def create_success_response(
         response.update(data)
 
     return jsonify(response), status_code
+
+
+# ============================================================================
+# User Authentication and Authorization Functions
+# ============================================================================
+
+def get_user_scoped_query(db, model, user_id):
+    """
+    Get a query for a model automatically scoped to user.
+    This is the PRIMARY defense against cross-user data access.
+    
+    CRITICAL: Always use this function when querying user-owned data.
+    This prevents accidental data leaks across users.
+    
+    Args:
+        db: Database session
+        model: SQLAlchemy model class
+        user_id: ID of the current user
+        
+    Returns:
+        SQLAlchemy query scoped to the user
+        
+    Raises:
+        ValueError: If model scoping is not defined (fail secure)
+    """
+    # Import here to avoid circular imports
+    from models import Board, BoardColumn, Card, ChecklistItem, Comment, Setting, Theme, Notification, ScheduledCard
+    
+    query = db.query(model)
+    
+    # Models with direct user_id column
+    if hasattr(model, 'user_id'):
+        # For settings and themes, user_id can be NULL for system/global items
+        # Include both user's items AND global items (where user_id IS NULL)
+        if model.__name__ in ['Setting', 'Theme']:
+            return query.filter((model.user_id == user_id) | (model.user_id.is_(None)))
+        # For notifications, only show user's own
+        return query.filter(model.user_id == user_id)
+    
+    # Models with owner_id (like Board)
+    if hasattr(model, 'owner_id'):
+        return query.filter(model.owner_id == user_id)
+    
+    # Models that inherit permissions through relationships
+    # Card inherits from Board through Column
+    if model.__name__ == 'Card':
+        return query.join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+    
+    if model.__name__ == 'BoardColumn':
+        return query.join(Board).filter(Board.owner_id == user_id)
+    
+    if model.__name__ == 'ChecklistItem':
+        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+    
+    if model.__name__ == 'Comment':
+        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+    
+    if model.__name__ == 'ScheduledCard':
+        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+    
+    # Fail secure: if we don't know how to scope it, raise an error
+    logger.error(f"No scoping rule defined for model {model.__name__}. This is a security issue!")
+    raise ValueError(f"Cannot scope queries for model {model.__name__}. Access denied.")
+
+
+def get_current_user_id():
+    """
+    Get the current user's ID from Flask's g object.
+    
+    Returns:
+        int: User ID or None if not authenticated
+    """
+    user = g.get('user')
+    return user.id if user else None
+
+
+def require_permission(permission):
+    """
+    Decorator to check if current user has required permission.
+    
+    Usage:
+        @require_permission('board.edit')
+        def edit_board(board_id):
+            ...
+    
+    Args:
+        permission: Permission string to require (e.g., 'board.edit')
+        
+    Returns:
+        Decorator function
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not g.get('user'):
+                abort(401, description="Authentication required")
+            
+            user_permissions = get_user_permissions(g.user.id)
+            
+            # Check if user has the required permission
+            from permissions import has_permission
+            if not has_permission(user_permissions, permission):
+                abort(403, description=f"Permission denied: {permission}")
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+def require_board_access(require_owner=False):
+    """
+    Decorator to check if user can access a board.
+    Expects board_id as a parameter to the decorated function.
+    
+    Usage:
+        @require_board_access()
+        def get_board(board_id):
+            ...
+            
+        @require_board_access(require_owner=True)
+        def delete_board(board_id):
+            ...
+    
+    Args:
+        require_owner: If True, user must be the board owner (default: False)
+        
+    Returns:
+        Decorator function
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not g.get('user'):
+                abort(401, description="Authentication required")
+            
+            # Get board_id from kwargs or args
+            board_id = kwargs.get('board_id')
+            if board_id is None and len(args) > 0:
+                board_id = args[0]
+            
+            if board_id is None:
+                abort(400, description="Board ID required")
+            
+            # Check access
+            has_access, is_owner = can_access_board(g.user.id, board_id)
+            
+            if not has_access:
+                abort(403, description="Access denied to this board")
+            
+            if require_owner and not is_owner:
+                abort(403, description="Board owner access required")
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+def get_user_permissions(user_id, board_id=None):
+    """
+    Get all permissions for a user, optionally scoped to a board.
+    
+    Args:
+        user_id: User ID
+        board_id: Optional board ID to get board-specific permissions
+        
+    Returns:
+        set: Set of permission strings
+    """
+    from models import Role, UserRole
+    
+    db = SessionLocal()
+    try:
+        query = db.query(Role.permissions).join(UserRole).filter(
+            UserRole.user_id == user_id
+        )
+        
+        if board_id:
+            # Get board-specific + global roles
+            query = query.filter(
+                (UserRole.board_id == board_id) | (UserRole.board_id.is_(None))
+            )
+        else:
+            # Global roles only
+            query = query.filter(UserRole.board_id.is_(None))
+        
+        all_perms = set()
+        for (perms_json,) in query.all():
+            perms = json.loads(perms_json)
+            all_perms.update(perms)
+        
+        return all_perms
+    finally:
+        db.close()
+
+
+def can_access_board(user_id, board_id):
+    """
+    Check if user can access a board (owns it or has a role on it).
+    
+    Args:
+        user_id: User ID
+        board_id: Board ID
+        
+    Returns:
+        tuple: (has_access: bool, is_owner: bool)
+    """
+    from models import Board, UserRole
+    
+    db = SessionLocal()
+    try:
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return False, False
+        
+        # Owner always has access
+        if board.owner_id == user_id:
+            return True, True
+        
+        # Check if user has any role on this board
+        has_role = db.query(UserRole).filter(
+            UserRole.user_id == user_id,
+            UserRole.board_id == board_id
+        ).first() is not None
+        
+        return has_role, False
+    finally:
+        db.close()
+
+
+def require_authentication(f):
+    """
+    Decorator to require authentication but not specific permissions.
+    
+    Usage:
+        @require_authentication
+        def my_endpoint():
+            # g.user is guaranteed to exist
+            ...
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not g.get('user'):
+            abort(401, description="Authentication required")
+        return f(*args, **kwargs)
+    return decorated_function

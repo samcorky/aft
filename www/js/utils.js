@@ -3,6 +3,35 @@
  */
 
 /**
+ * Global fetch wrapper to handle setup redirects and authentication
+ */
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this, args);
+    
+    // Clone response so we can read it twice if needed
+    const clonedResponse = response.clone();
+    
+    // Check if this is a JSON response indicating setup required
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        const data = await clonedResponse.json();
+        if (data.redirect === '/setup.html' && !window.location.pathname.includes('setup.html')) {
+          window.location.href = '/setup.html';
+          return response;
+        }
+      } catch (e) {
+        // Not JSON or couldn't parse, just return original response
+      }
+    }
+    
+    return response;
+  };
+})();
+
+/**
  * Apply time formatting based on user's preference.
  * Helper function used by both formatTime and formatTimeSync.
  * 

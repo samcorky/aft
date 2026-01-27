@@ -1,5 +1,5 @@
 """Database models."""
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -12,12 +12,21 @@ class Theme(Base):
     __tablename__ = "themes"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String(100), nullable=False, unique=True)
+    name = Column(String(100), nullable=False)
     settings = Column(Text, nullable=False)  # JSON string
     background_image = Column(String(255), nullable=True)
     system_theme = Column(Boolean, nullable=False, default=False)
+    
+    # NULL user_id = system theme, otherwise user's custom theme
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    
     created_at = Column(DateTime, server_default=func.current_timestamp())
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+    
+    __table_args__ = (
+        # System themes have unique names globally, user themes are unique per user
+        Index('idx_theme_user_name', 'user_id', 'name', unique=True),
+    )
     
     def to_dict(self):
         """Convert theme to dictionary."""
@@ -44,10 +53,15 @@ class Board(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    
+    # Owner has full control over the board
+    owner_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
     updated_at = Column(DateTime, nullable=True)
     
-    # Relationship to columns
+    # Relationships
+    owner = relationship("User", back_populates="owned_boards", foreign_keys=[owner_id])
     columns = relationship("BoardColumn", back_populates="board", cascade="all, delete-orphan")
     
     def __repr__(self):
@@ -90,6 +104,13 @@ class Card(Base):
     scheduled = Column(Boolean, nullable=False, default=False, index=True)
     schedule = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NULL'), nullable=True, index=True)
     done = Column(Boolean, nullable=False, default=False, index=True)
+    
+    # Track who created the card (inherits board ownership for access)
+    created_by_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    
+    # Optional: assign card to specific user
+    assigned_to_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
     updated_at = Column(DateTime, nullable=True)
     
@@ -139,8 +160,16 @@ class Setting(Base):
     __tablename__ = "settings"
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    key = Column("key", String(255), nullable=False, unique=True, index=True)  # 'key' is a MySQL reserved word
+    key = Column("key", String(255), nullable=False, index=True)  # 'key' is a MySQL reserved word
     value = Column("value", Text, nullable=True)  # Quote for consistency
+    
+    # NULL user_id = global/system setting
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    
+    __table_args__ = (
+        # Each user can have one value per setting key
+        Index('idx_user_setting_key', 'user_id', 'key', unique=True),
+    )
     
     def __repr__(self):
         return f"<Setting(id={self.id}, key='{self.key}')>"
@@ -173,6 +202,10 @@ class Notification(Base):
     subject = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     unread = Column(Boolean, nullable=False, default=True, index=True)
+    
+    # REQUIRED: notifications belong to specific users
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    
     created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
     action_title = Column(String(100), nullable=True)
     action_url = Column(String(500), nullable=True)
@@ -203,3 +236,94 @@ class ScheduledCard(Base):
     
     def __repr__(self):
         return f"<ScheduledCard(id={self.id}, card_id={self.card_id}, run_every={self.run_every}, unit='{self.unit}', enabled={self.schedule_enabled})>"
+
+
+class User(Base):
+    """User account model."""
+    
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    username = Column(String(100), nullable=True, unique=True, index=True)
+    display_name = Column(String(255), nullable=True)
+    
+    # OAuth fields (nullable for initial implementation)
+    oauth_provider = Column(String(50), nullable=True)  # 'google', 'github', etc.
+    oauth_sub = Column(String(255), nullable=True, index=True)  # Provider's user ID
+    
+    # Password hash (nullable when using OAuth)
+    password_hash = Column(String(255), nullable=True)
+    
+    # Status
+    is_active = Column(Boolean, nullable=False, default=True, index=True)
+    is_approved = Column(Boolean, nullable=False, default=False, index=True)  # Admin must approve new users
+    email_verified = Column(Boolean, nullable=False, default=False)
+    
+    # Timestamps
+    created_at = Column(DateTime, server_default=func.current_timestamp())
+    last_login_at = Column(DateTime, nullable=True)
+    
+    # Relationships
+    role_assignments = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+    owned_boards = relationship("Board", back_populates="owner", foreign_keys="Board.owner_id")
+    
+    __table_args__ = (
+        # Ensure oauth_provider + oauth_sub combination is unique
+        Index('idx_oauth_provider_sub', 'oauth_provider', 'oauth_sub', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<User(id={self.id}, email='{self.email}', username='{self.username}')>"
+
+
+class Role(Base):
+    """Role definition model."""
+    
+    __tablename__ = "roles"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True, index=True)
+    description = Column(Text, nullable=True)
+    
+    # System roles can't be deleted/modified by users
+    is_system_role = Column(Boolean, nullable=False, default=False)
+    
+    # Permissions as JSON array for flexibility
+    permissions = Column(Text, nullable=False)  # JSON array of permission strings
+    
+    created_at = Column(DateTime, server_default=func.current_timestamp())
+    
+    # Relationships
+    user_assignments = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Role(id={self.id}, name='{self.name}', is_system={self.is_system_role})>"
+
+
+class UserRole(Base):
+    """User role assignment model (many-to-many with context)."""
+    
+    __tablename__ = "user_roles"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), nullable=False, index=True)
+    
+    # Optional: scope role to specific board (NULL = global role)
+    board_id = Column(Integer, ForeignKey('boards.id', ondelete='CASCADE'), nullable=True, index=True)
+    
+    created_at = Column(DateTime, server_default=func.current_timestamp())
+    
+    # Relationships
+    user = relationship("User", back_populates="role_assignments")
+    role = relationship("Role", back_populates="user_assignments")
+    board = relationship("Board", foreign_keys=[board_id])
+    
+    __table_args__ = (
+        # A user can only have one instance of a role per board (or globally)
+        Index('idx_user_role_board', 'user_id', 'role_id', 'board_id', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<UserRole(id={self.id}, user_id={self.user_id}, role_id={self.role_id}, board_id={self.board_id})>"

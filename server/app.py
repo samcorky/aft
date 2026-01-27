@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, g
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import logging
@@ -25,6 +25,9 @@ from utils import (
     MAX_DESCRIPTION_LENGTH,
     MAX_COMMENT_LENGTH,
 )
+from auth import auth_bp, load_user_from_session
+from user_management import user_mgmt_bp
+from api_migration_tracker import migration_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -199,6 +202,13 @@ def validate_safe_url(url):
 
 
 app = Flask(__name__)
+
+# Configure session
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 7  # 7 days
 
 # Custom path converter that allows safe filenames (validation happens in the endpoint)
 class SafeFilenameConverter(BaseConverter):
@@ -396,6 +406,64 @@ API documentation for AFT application
 }
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
+
+# ============================================================================
+# Authentication Setup
+# ============================================================================
+
+# Register authentication blueprint
+app.register_blueprint(auth_bp)
+app.register_blueprint(user_mgmt_bp)
+app.register_blueprint(migration_bp)
+
+# Load user from session before each request
+@app.before_request
+def before_request():
+    """Load authenticated user into Flask g object and check setup status."""
+    # Skip setup check for setup/auth endpoints, health checks, and static files
+    if (request.path.startswith('/api/auth/setup') or
+        request.path == '/api/test' or  # Health check endpoint
+        request.path.startswith('/setup.html') or
+        request.path.startswith('/css/') or
+        request.path.startswith('/js/') or
+        request.path.startswith('/images/')):
+        load_user_from_session()
+        return
+    
+    # Check if initial setup is complete (any active user with password exists)
+    from models import User
+    db = SessionLocal()
+    try:
+        has_users = db.query(User).filter(
+            User.is_active == True,
+            User.password_hash.isnot(None)
+        ).count() > 0
+        
+        if not has_users:
+            # Redirect to setup page for HTML requests
+            if not request.path.startswith('/api/'):
+                if request.path != '/setup.html':
+                    from flask import redirect
+                    return redirect('/setup.html', code=302)
+            # For API requests, return a specific error
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Initial setup required',
+                    'redirect': '/setup.html'
+                }), 503
+    finally:
+        db.close()
+    
+    load_user_from_session()
+
+# Close database session after each request if it was opened
+@app.teardown_request
+def teardown_request(exception=None):
+    """Close database session if it was opened."""
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 # Request size limit (110MB) for non-file-upload endpoints
 MAX_REQUEST_SIZE = 110 * 1024 * 1024

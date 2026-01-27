@@ -25,6 +25,11 @@ from utils import (
     MAX_TITLE_LENGTH,
     MAX_DESCRIPTION_LENGTH,
     MAX_COMMENT_LENGTH,
+    get_user_scoped_query,
+    require_permission,
+    require_board_access,
+    require_authentication,
+    get_current_user_id,
 )
 from auth import auth_bp, load_user_from_session
 from user_management import user_mgmt_bp
@@ -2036,9 +2041,10 @@ def get_settings_schema():
 
 
 @app.route("/api/settings/<key>", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('setting.view')
 def get_setting(key):
-    """Get a setting value by key with validation.
+    """Get a setting value by key (user-specific or global) with validation.
     ---
     tags:
       - Settings
@@ -2063,6 +2069,10 @@ def get_setting(key):
             value:
               description: JSON parsed value
               example: null
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Setting not found
         schema:
@@ -2086,7 +2096,9 @@ def get_setting(key):
     """
     db = SessionLocal()
     try:
-        setting = db.query(Setting).filter(Setting.key == key).first()
+        user_id = g.user.id
+        # Use user-scoped query which gets user's settings + global settings (where user_id IS NULL)
+        setting = get_user_scoped_query(db, Setting, user_id).filter(Setting.key == key).first()
 
         if not setting:
             return (
@@ -2709,15 +2721,16 @@ def update_card_scheduler_config():
 
 
 @app.route("/api/boards", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('board.view')
 def get_boards():
-    """Get all boards.
+    """Get all boards owned by the current user.
     ---
     tags:
       - Boards
     responses:
       200:
-        description: List of all boards
+        description: List of all boards owned by the user
         schema:
           type: object
           properties:
@@ -2735,6 +2748,10 @@ def get_boards():
                   name:
                     type: string
                     example: "My Board"
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
         schema:
@@ -2748,7 +2765,8 @@ def get_boards():
     """
     db = SessionLocal()
     try:
-        boards = db.query(Board).all()
+        user_id = g.user.id
+        boards = get_user_scoped_query(db, Board, user_id).all()
         return jsonify(
             {
                 "success": True,
@@ -2900,9 +2918,10 @@ def create_board():
 
 
 @app.route("/api/boards/<int:board_id>/cards/scheduled", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires board access")
+@require_board_access()
 def get_board_scheduled_cards(board_id):
-    """Get all scheduled cards for a board with nested structure (board -> columns -> cards).
+    """Get all scheduled cards for a board with nested structure (user must have access).
     Returns only scheduled template cards (scheduled=True) organized by column.
     ---
     tags:
@@ -2916,6 +2935,10 @@ def get_board_scheduled_cards(board_id):
     responses:
       200:
         description: Board with columns and scheduled cards
+      401:
+        description: Authentication required
+      403:
+        description: Access denied to this board
       404:
         description: Board not found
       500:
@@ -2925,13 +2948,14 @@ def get_board_scheduled_cards(board_id):
     try:
         from models import BoardColumn, Card
         
-        board = db.query(Board).filter(Board.id == board_id).first()
+        user_id = g.user.id
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
         
         # Get columns for the board
         columns = (
-            db.query(BoardColumn)
+            get_user_scoped_query(db, BoardColumn, user_id)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -2943,7 +2967,7 @@ def get_board_scheduled_cards(board_id):
         for column in columns:
             # Get only scheduled template cards for this column
             cards = (
-                db.query(Card)
+                get_user_scoped_query(db, Card, user_id)
                 .filter(Card.column_id == column.id)
                 .filter(Card.scheduled.is_(True))
                 .order_by(Card.order)
@@ -3256,9 +3280,10 @@ def update_board(board_id):
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires board access")
+@require_board_access()
 def get_board_columns(board_id):
-    """Get all columns for a specific board.
+    """Get all columns for a specific board (user must have access).
     ---
     tags:
       - Columns
@@ -3294,6 +3319,10 @@ def get_board_columns(board_id):
                   order:
                     type: integer
                     example: 0
+      401:
+        description: Authentication required
+      403:
+        description: Access denied to this board
       500:
         description: Server error
         schema:
@@ -3309,8 +3338,9 @@ def get_board_columns(board_id):
     try:
         from models import BoardColumn
 
+        user_id = g.user.id
         columns = (
-            db.query(BoardColumn)
+            get_user_scoped_query(db, BoardColumn, user_id)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -3759,7 +3789,8 @@ def update_column(column_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('card.view')
 def get_column_cards(column_id):
     """Get all cards for a specific column.
     ---
@@ -3822,11 +3853,12 @@ def get_column_cards(column_id):
         db = SessionLocal()
         from models import Card
 
+        user_id = g.user.id
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
         # Always filter out scheduled template cards (scheduled=True) from task views
-        cards_query = db.query(Card).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
+        cards_query = get_user_scoped_query(db, Card, user_id).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
         
         # Apply archived filter
         if archived_param == 'true':
@@ -3879,7 +3911,8 @@ def get_column_cards(column_id):
 
 
 @app.route("/api/boards/<int:board_id>/cards", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires board access")
+@require_board_access()
 def get_board_cards(board_id):
     """Get all cards for a board with nested structure (board -> columns -> cards).
     ---
@@ -3973,18 +4006,19 @@ def get_board_cards(board_id):
         db = SessionLocal()
         from models import BoardColumn, Card
 
+        user_id = g.user.id
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
         # Get board
-        board = db.query(Board).filter(Board.id == board_id).first()
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
         if not board:
             db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
 
         # Get columns for board
         columns = (
-            db.query(BoardColumn)
+            get_user_scoped_query(db, BoardColumn, user_id)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -3996,7 +4030,7 @@ def get_board_cards(board_id):
         for column in columns:
             # Get cards for this column with archived filter
             # Always filter out scheduled template cards (scheduled=True) from task views
-            cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
+            cards_query = get_user_scoped_query(db, Card, user_id).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
             
             # Apply archived filter
             if archived_param == 'true':
@@ -4553,9 +4587,10 @@ def move_all_cards_in_column(source_column_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('card.view')
 def get_card(card_id):
-    """Get a single card with its checklist items.
+    """Get a single card with its checklist items (user must have access).
     ---
     tags:
       - Cards
@@ -4591,6 +4626,10 @@ def get_card(card_id):
                   type: array
                   items:
                     type: object
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Card not found
     """
@@ -4598,7 +4637,8 @@ def get_card(card_id):
     try:
         from models import Card
         
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
         
@@ -5162,9 +5202,10 @@ def unarchive_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/done", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('card.view')
 def get_card_done_status(card_id):
-    """Get the done status of a card.
+    """Get the done status of a card (user must have access).
     ---
     tags:
       - Cards
@@ -5189,6 +5230,10 @@ def get_card_done_status(card_id):
             done:
               type: boolean
               example: false
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Card not found
       500:
@@ -5196,7 +5241,8 @@ def get_card_done_status(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
@@ -5729,9 +5775,10 @@ def archive_cards_after_period(column_id):
 
 # Scheduled Cards API endpoints
 @app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('card.view')
 def get_scheduled_cards(column_id):
-    """Get all scheduled template cards for a specific column.
+    """Get all scheduled template cards for a specific column (user must have access).
     ---
     tags:
       - Scheduled Cards
@@ -5752,15 +5799,20 @@ def get_scheduled_cards(column_id):
               example: true
             cards:
               type: array
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
     """
     try:
         db = SessionLocal()
         
+        user_id = g.user.id
         # Get only scheduled template cards (scheduled=True)
         cards = (
-            db.query(Card)
+            get_user_scoped_query(db, Card, user_id)
             .filter(Card.column_id == column_id)
             .filter(Card.scheduled.is_(True))
             .order_by(Card.order)
@@ -6619,9 +6671,10 @@ def delete_checklist_item(item_id):
 
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('card.view')
 def get_card_comments(card_id):
-    """Get all comments for a card.
+    """Get all comments for a card (user must have access).
     ---
     tags:
       - Comments
@@ -6656,6 +6709,10 @@ def get_card_comments(card_id):
                   created_at:
                     type: string
                     format: date-time
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
     """
@@ -6663,8 +6720,9 @@ def get_card_comments(card_id):
     try:
         from models import Comment
 
+        user_id = g.user.id
         comments = (
-            db.query(Comment)
+            get_user_scoped_query(db, Comment, user_id)
             .filter(Comment.card_id == card_id)
             .order_by(Comment.order.desc())  # Newest first
             .all()
@@ -6865,15 +6923,16 @@ def delete_comment(comment_id):
 
 
 @app.route("/api/notifications", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_authentication
 def get_notifications():
-    """Get all notifications.
+    """Get all notifications for the current user.
     ---
     tags:
       - Notifications
     responses:
       200:
-        description: List of all notifications (newest first)
+        description: List of all notifications for the user (newest first)
         schema:
           type: object
           properties:
@@ -6896,6 +6955,8 @@ def get_notifications():
                   created_at:
                     type: string
                     format: date-time
+      401:
+        description: Authentication required
       500:
         description: Server error
     """
@@ -6903,8 +6964,9 @@ def get_notifications():
     try:
         from models import Notification
 
+        user_id = g.user.id
         notifications = (
-            db.query(Notification)
+            get_user_scoped_query(db, Notification, user_id)
             .order_by(Notification.created_at.desc())  # Newest first
             .all()
         )
@@ -7500,17 +7562,20 @@ else:
 # ============================================================================
 
 @app.route("/api/themes", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('theme.view')
 def get_themes():
-    """Retrieve all themes from the database.
+    """Retrieve all themes accessible to the user.
     
     Fetches and returns a list of all available themes, including both
-    system themes and user-created custom themes. Each theme includes
+    system themes (global) and user-created custom themes. Each theme includes
     its ID, name, settings, background image, and system theme flag.
     
     Returns:
         tuple: (JSON response, HTTP status code)
             - 200: Success with list of theme objects
+            - 401: Authentication required
+            - 403: Permission denied
             - 500: Server error during database query
     
     Example:
@@ -7519,7 +7584,9 @@ def get_themes():
     """
     session = SessionLocal()
     try:
-        themes = session.query(Theme).all()
+        user_id = g.user.id
+        # Use user-scoped query which gets user's themes + system themes (where user_id IS NULL)
+        themes = get_user_scoped_query(session, Theme, user_id).all()
         return jsonify([theme.to_dict() for theme in themes]), 200
     except Exception as e:
         logger.error(f"Error getting themes: {str(e)}")
@@ -7529,9 +7596,10 @@ def get_themes():
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@track_endpoint(protected=True, reason="Requires authentication")
+@require_permission('theme.view')
 def get_theme(theme_id):
-    """Retrieve a specific theme by its unique ID.
+    """Retrieve a specific theme by its unique ID (user must have access).
     
     Fetches detailed information about a single theme including its
     name, color settings, background image, and whether it's a system
@@ -7543,6 +7611,8 @@ def get_theme(theme_id):
     Returns:
         tuple: (JSON response, HTTP status code)
             - 200: Success with theme object
+            - 401: Authentication required
+            - 403: Permission denied
             - 404: Theme with specified ID not found
             - 500: Server error during database query
     
@@ -7552,7 +7622,8 @@ def get_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = get_user_scoped_query(session, Theme, user_id).filter(Theme.id == theme_id).first()
         if not theme:
             return create_error_response("Theme not found", 404)
         return jsonify(theme.to_dict()), 200

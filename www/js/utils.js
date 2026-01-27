@@ -13,6 +13,22 @@
     // Clone response so we can read it twice if needed
     const clonedResponse = response.clone();
     
+    // Handle 401 Unauthorized responses
+    if (response.status === 401) {
+      console.error('Authentication required (401 Unauthorized)');
+      // TODO: Re-enable redirect to login page when ready for production
+      // Don't redirect if already on login, register, or logout pages
+      // if (!window.location.pathname.includes('login.html') && 
+      //     !window.location.pathname.includes('register.html') &&
+      //     !window.location.pathname.includes('logout.html')) {
+      //   console.error('Authentication required, redirecting to login page');
+      //   // Store the current page to redirect back after login
+      //   sessionStorage.setItem('redirectAfterLogin', window.location.pathname + window.location.search);
+      //   window.location.href = '/login.html';
+      // }
+      return response;
+    }
+    
     // Check if this is a JSON response indicating setup required
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {

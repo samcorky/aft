@@ -135,6 +135,19 @@ class BoardsManager {
   async loadBoards() {
     try {
       const response = await fetch('/api/boards');
+      
+      // Check for authentication errors
+      if (response.status === 401) {
+        this.showError('Authentication required. Please log in to view your boards.');
+        return;
+      }
+      
+      // Check for other HTTP errors
+      if (!response.ok) {
+        this.showError(`Failed to load boards: HTTP ${response.status}`);
+        return;
+      }
+      
       const data = await response.json();
       
       if (data.success) {

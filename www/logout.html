@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logged Out - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    .logout-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 80vh;
+      padding: 2rem;
+      text-align: center;
+    }
+    
+    .logout-card {
+      background: var(--card-background, #fff);
+      border: 1px solid var(--border-color, #ddd);
+      border-radius: 8px;
+      padding: 3rem;
+      max-width: 500px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    .logout-icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 2rem;
+      background: var(--success-color, #4caf50);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .logout-icon svg {
+      width: 40px;
+      height: 40px;
+      stroke: white;
+    }
+    
+    .logout-title {
+      font-size: 2rem;
+      margin-bottom: 1rem;
+      color: var(--text-color, #333);
+    }
+    
+    .logout-message {
+      font-size: 1.1rem;
+      color: var(--text-secondary, #666);
+      margin-bottom: 2rem;
+      line-height: 1.6;
+    }
+    
+    .logout-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 1rem;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      display: inline-block;
+    }
+    
+    .btn-primary {
+      background: var(--primary-color, #667eea);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: var(--primary-hover, #5568d3);
+    }
+    
+    .btn-secondary {
+      background: var(--secondary-color, #e0e0e0);
+      color: var(--text-color, #333);
+    }
+    
+    .btn-secondary:hover {
+      background: var(--secondary-hover, #d0d0d0);
+    }
+  </style>
+</head>
+<body>
+  <div class="logout-container">
+    <div class="logout-card">
+      <div class="logout-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      
+      <h1 class="logout-title">Successfully Logged Out</h1>
+      
+      <p class="logout-message">
+        You have been successfully logged out of AFT. Your session has been cleared.
+      </p>
+      
+      <div class="logout-actions">
+        <a href="/login.html" class="btn btn-primary">Log Back In</a>
+        <a href="/" class="btn btn-secondary">Go to Home</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

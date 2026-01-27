@@ -100,6 +100,9 @@ class Header {
     // Initialize dropdown pin behavior for settings and user menus
     this.initializeDropdownPin();
     
+    // Load current user info
+    await this.loadCurrentUser();
+    
     // Load working style preference
     await this.loadWorkingStyle();
     
@@ -308,6 +311,65 @@ class Header {
     const viewsDropdown = document.getElementById('views-dropdown');
     if (viewsDropdown) {
       viewsDropdown.style.display = show ? 'block' : 'none';
+    }
+  }
+
+  // Load current user info
+  async loadCurrentUser() {
+    try {
+      const response = await fetch('/api/auth/me');
+      const userNameEl = document.getElementById('header-user-name');
+      const loginItem = document.getElementById('login-menu-item');
+      const logoutItem = document.getElementById('logout-menu-item');
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          // User is logged in
+          const displayName = data.user.display_name || data.user.username || data.user.email;
+          if (userNameEl) userNameEl.textContent = displayName;
+          if (loginItem) loginItem.style.display = 'none';
+          if (logoutItem) {
+            logoutItem.style.display = 'block';
+            // Add logout handler
+            logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          return;
+        }
+      }
+      
+      // User is not logged in or error occurred
+      if (userNameEl) userNameEl.textContent = 'Guest';
+      if (loginItem) loginItem.style.display = 'block';
+      if (logoutItem) logoutItem.style.display = 'none';
+    } catch (error) {
+      console.error('Error loading current user:', error);
+      // Show guest on error
+      const userNameEl = document.getElementById('header-user-name');
+      if (userNameEl) userNameEl.textContent = 'Guest';
+      const loginItem = document.getElementById('login-menu-item');
+      const logoutItem = document.getElementById('logout-menu-item');
+      if (loginItem) loginItem.style.display = 'block';
+      if (logoutItem) logoutItem.style.display = 'none';
+    }
+  }
+
+  // Handle logout
+  async handleLogout() {
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Redirect to logout page regardless of response
+      window.location.href = '/logout.html';
+    } catch (error) {
+      console.error('Error logging out:', error);
+      // Still redirect to logout page
+      window.location.href = '/logout.html';
     }
   }
 

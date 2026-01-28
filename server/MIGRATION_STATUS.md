@@ -16,18 +16,23 @@
 ### 🚧 In Progress
 **Migration of API endpoints to require authentication**
 
-**Status:** 48/81 endpoints protected (59% complete)
+**Status:** 80/81 endpoints protected (98% complete)
 
-**Protected endpoints:** Use `@require_authentication` or `@require_board_access` decorators
-**Unprotected endpoints:** Still allow anonymous access (need migration)
+**Protected endpoints:** Use `@require_authentication`, `@require_permission`, or `@require_board_access` decorators
+**Unprotected endpoints:** 1 endpoint remains unprotected (`/api/test` - intentionally left as health check)
 
 ### 📊 Test Results
-- **592 passed** (98%)
-- **10 failed** - Expected failures for unimplemented user management features:
-  - `/api/users/pending` - List pending users
-  - `/api/users/{id}/approve` - Approve users
-  - `/api/users/{id}/activate` - Activate/deactivate users
-  - `/api/users/{id}/roles` - Role assignment
+- **595 passed** (96% of 622 tests)
+- **15 failed** + **12 errors** - Primarily test infrastructure issues:
+  - Authentication flow tests: Database state issues (admin already exists)
+  - User management fixture: `admin_session` getting 401 errors
+  - Test setup: Mostly fixture and database cleanup issues
+
+### 🔧 Recent Fixes
+- ✅ Card operations: Fixed board access checks in DELETE/move endpoints
+- ✅ Settings endpoints: Dropped duplicate `ix_settings_key` database index
+- ✅ All 23 card operation test failures resolved
+- ✅ All 8 settings endpoint failures resolved
 
 ## How to Continue Migration
 

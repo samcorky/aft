@@ -418,7 +418,6 @@ swagger = Swagger(app, config=swagger_config, template=swagger_template)
 # Register authentication blueprint
 app.register_blueprint(auth_bp)
 app.register_blueprint(user_mgmt_bp)
-app.register_blueprint(migration_bp)
 
 # Load user from session before each request
 @app.before_request
@@ -696,7 +695,7 @@ def validate_backup_file_size(file_path, max_size_mb=100):
 
 
 @app.route("/api/version")
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_authentication
 def get_version():
     """Get application and database schema version.
     ---
@@ -746,7 +745,6 @@ def get_version():
 
 
 @app.route("/api/admin/test-user", methods=["POST"])
-@track_endpoint(protected=True)
 @require_permission("manage_users")
 def toggle_test_user():
     """Toggle test admin user (create if doesn't exist, delete if exists).
@@ -868,7 +866,7 @@ def toggle_test_user():
 
 
 @app.route("/api/broadcast-status")
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.system')
 def get_broadcast_status():
     """Get WebSocket broadcast error status for debugging.
     
@@ -909,7 +907,7 @@ def get_broadcast_status():
 
 
 @app.route("/api/scheduler/health")
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.system')
 def get_scheduler_health():
     """Get health status of all background schedulers.
     ---
@@ -1073,7 +1071,6 @@ def get_scheduler_health():
 
 
 @app.route("/api/test")
-@track_endpoint(protected=False, reason="Health check endpoint")
 def test_db():
     """Test database connection and schema.
     ---
@@ -1123,9 +1120,9 @@ def test_db():
 
 
 @app.route("/api/stats")
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('board.view')
 def get_stats():
-    """Get database statistics.
+    """Get database statistics for the current user.
     ---
     tags:
       - Health
@@ -1159,6 +1156,10 @@ def get_stats():
             checklist_items_unchecked:
               type: integer
               example: 13
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Failed to get statistics
         schema:
@@ -1173,16 +1174,17 @@ def get_stats():
     db = SessionLocal()
     try:
         from models import ChecklistItem
+        user_id = g.user.id
         
-        boards_count = db.query(Board).count()
-        columns_count = db.query(BoardColumn).count()
-        cards_count = db.query(Card).count()
-        cards_archived_count = db.query(Card).filter(Card.archived.is_(True)).count()
+        boards_count = get_user_scoped_query(db, Board, user_id).count()
+        columns_count = get_user_scoped_query(db, BoardColumn, user_id).count()
+        cards_count = get_user_scoped_query(db, Card, user_id).count()
+        cards_archived_count = get_user_scoped_query(db, Card, user_id).filter(Card.archived.is_(True)).count()
         
-        # Get checklist item counts
-        checklist_items_total = db.query(ChecklistItem).count()
-        checklist_items_checked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(True)).count()
-        checklist_items_unchecked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(False)).count()
+        # Get checklist item counts (scoped to user's cards)
+        checklist_items_total = get_user_scoped_query(db, ChecklistItem, user_id).count()
+        checklist_items_checked = get_user_scoped_query(db, ChecklistItem, user_id).filter(ChecklistItem.checked.is_(True)).count()
+        checklist_items_unchecked = get_user_scoped_query(db, ChecklistItem, user_id).filter(ChecklistItem.checked.is_(False)).count()
 
         return jsonify(
             {
@@ -1204,7 +1206,7 @@ def get_stats():
 
 
 @app.route("/api/database/backup", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def backup_database():
     """Create a database backup with version information.
     ---
@@ -1308,7 +1310,7 @@ def backup_database():
 
 
 @app.route("/api/database/backup/manual", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def create_manual_backup():
     """Create a manual backup and save to backups folder.
     ---
@@ -1406,7 +1408,7 @@ def create_manual_backup():
 
 
 @app.route("/api/database/restore", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def restore_database():
     """Restore database from backup file with version checking.
     ---
@@ -1645,7 +1647,7 @@ def restore_database():
 
 
 @app.route("/api/database/backups/list", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def list_backups():
     """List all available backup files (both automatic and manual).
     ---
@@ -1712,7 +1714,7 @@ def list_backups():
 
 
 @app.route("/api/database/backups/restore/<filename>", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def restore_backup_from_file(filename):
     """Restore from a specific backup file (automatic or manual).
     ---
@@ -1895,7 +1897,7 @@ def restore_backup_from_file(filename):
 
 
 @app.route("/api/database/backups/delete/<filename>", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def delete_backup(filename):
     """Delete a specific backup file.
     ---
@@ -1947,7 +1949,7 @@ def delete_backup(filename):
 
 
 @app.route("/api/database/backups/delete-multiple", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def delete_multiple_backups():
     """Delete multiple backup files.
     ---
@@ -2055,7 +2057,7 @@ def delete_multiple_backups():
 
 
 @app.route("/api/database", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('admin.database')
 def delete_database():
     """Delete all data from the database.
     ---
@@ -2115,7 +2117,7 @@ def delete_database():
 
 
 @app.route("/api/settings/schema", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_settings_schema():
     """Get the settings schema showing all allowed settings and their validation rules.
     ---
@@ -2161,7 +2163,6 @@ def get_settings_schema():
 
 
 @app.route("/api/settings/<key>", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('setting.view')
 def get_setting(key):
     """Get a setting value by key (user-specific or global) with validation.
@@ -2253,9 +2254,9 @@ def get_setting(key):
 
 
 @app.route("/api/settings/<key>", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def set_setting(key):
-    """Create or update a setting (upsert).
+    """Create or update a user-specific setting (upsert).
     ---
     tags:
       - Settings
@@ -2302,6 +2303,10 @@ def set_setting(key):
               example: false
             message:
               type: string
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
         schema:
@@ -2328,19 +2333,21 @@ def set_setting(key):
         if not is_valid:
             return jsonify({"success": False, "message": error_message}), 400
 
-        # Additional validation for default_board: verify board exists
+        user_id = g.user.id
+        
+        # Additional validation for default_board: verify board exists and user owns it
         if key == "default_board" and data["value"] is not None:
             db_check = SessionLocal()
             try:
                 board_exists = (
-                    db_check.query(Board).filter(Board.id == data["value"]).first()
+                    get_user_scoped_query(db_check, Board, user_id).filter(Board.id == data["value"]).first()
                 )
                 if not board_exists:
                     return (
                         jsonify(
                             {
                                 "success": False,
-                                "message": f"Board with ID {data['value']} does not exist",
+                                "message": f"Board with ID {data['value']} does not exist or you don't have access",
                             }
                         ),
                         400,
@@ -2353,15 +2360,16 @@ def set_setting(key):
 
         db = SessionLocal()
         try:
-            setting = db.query(Setting).filter(Setting.key == key).first()
+            # Query user-specific setting
+            setting = db.query(Setting).filter(Setting.key == key, Setting.user_id == user_id).first()
 
             if setting:
-                # Update existing
+                # Update existing user setting
                 setting.value = value
                 message = "Setting updated successfully"
             else:
-                # Create new
-                setting = Setting(key=key, value=value)
+                # Create new user-specific setting
+                setting = Setting(key=key, value=value, user_id=user_id)
                 db.add(setting)
                 message = "Setting created successfully"
 
@@ -2388,7 +2396,7 @@ def set_setting(key):
 
 
 @app.route("/api/settings/backup/config", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_backup_config():
     """Get all backup configuration settings.
     ---
@@ -2455,7 +2463,7 @@ def get_backup_config():
 
 
 @app.route("/api/settings/backup/config", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def update_backup_config():
     """Update backup configuration settings.
     ---
@@ -2624,7 +2632,7 @@ def update_backup_config():
 
 
 @app.route("/api/settings/backup/status", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_backup_status():
     """Get backup scheduler status.
     ---
@@ -2657,7 +2665,7 @@ def get_backup_status():
 
 
 @app.route("/api/settings/housekeeping/status", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_housekeeping_status():
     """Get housekeeping scheduler status.
     ---
@@ -2686,7 +2694,7 @@ def get_housekeeping_status():
 
 
 @app.route("/api/settings/housekeeping/config", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def update_housekeeping_config():
     """Update housekeeping scheduler configuration.
     ---
@@ -2741,7 +2749,7 @@ def update_housekeeping_config():
 
 
 @app.route("/api/settings/card-scheduler/status", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_card_scheduler_status():
     """Get card scheduler status.
     ---
@@ -2786,7 +2794,7 @@ def get_card_scheduler_status():
 
 
 @app.route("/api/settings/card-scheduler/config", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def update_card_scheduler_config():
     """Update card scheduler configuration.
     ---
@@ -2841,7 +2849,6 @@ def update_card_scheduler_config():
 
 
 @app.route("/api/boards", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('board.view')
 def get_boards():
     """Get all boards owned by the current user.
@@ -2910,7 +2917,6 @@ def get_boards():
 
 @app.route("/api/boards", methods=["POST"])
 @require_permission('board.create')
-@track_endpoint(protected=True)
 def create_board():
     """Create a new board with input validation.
 
@@ -3040,7 +3046,6 @@ def create_board():
 
 
 @app.route("/api/boards/<int:board_id>/cards/scheduled", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires board access")
 @require_board_access()
 def get_board_scheduled_cards(board_id):
     """Get all scheduled cards for a board with nested structure (user must have access).
@@ -3156,7 +3161,6 @@ def get_board_scheduled_cards(board_id):
 
 @app.route("/api/boards/<int:board_id>", methods=["DELETE"])
 @require_board_access()
-@track_endpoint(protected=True)
 def delete_board(board_id):
     """Delete a board by ID.
     ---
@@ -3240,7 +3244,6 @@ def delete_board(board_id):
 
 @app.route("/api/boards/<int:board_id>", methods=["PATCH"])
 @require_board_access()
-@track_endpoint(protected=True)
 def update_board(board_id):
     """Update a board's name and/or description with validation.
 
@@ -3406,7 +3409,6 @@ def update_board(board_id):
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires board access")
 @require_board_access()
 def get_board_columns(board_id):
     """Get all columns for a specific board (user must have access).
@@ -3495,7 +3497,6 @@ def get_board_columns(board_id):
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
 @require_board_access()
-@track_endpoint(protected=True)
 def create_column(board_id):
     """Create a new column for a board with input validation.
 
@@ -3657,7 +3658,6 @@ def create_column(board_id):
 
 @app.route("/api/columns/<int:column_id>", methods=["DELETE"])
 @require_permission('column.delete')
-@track_endpoint(protected=True)
 def delete_column(column_id):
     """Delete a column by ID.
     ---
@@ -3731,7 +3731,6 @@ def delete_column(column_id):
 
 @app.route("/api/columns/<int:column_id>", methods=["PATCH"])
 @require_permission('column.update')
-@track_endpoint(protected=True)
 def update_column(column_id):
     """Update a column's name and/or order.
     ---
@@ -3930,7 +3929,6 @@ def update_column(column_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('card.view')
 def get_column_cards(column_id):
     """Get all cards for a specific column.
@@ -4052,7 +4050,6 @@ def get_column_cards(column_id):
 
 
 @app.route("/api/boards/<int:board_id>/cards", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires board access")
 @require_board_access()
 def get_board_cards(board_id):
     """Get all cards for a board with nested structure (board -> columns -> cards).
@@ -4239,7 +4236,6 @@ def get_board_cards(board_id):
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
 @require_permission('card.create')
-@track_endpoint(protected=True)
 def create_card(column_id):
     """Create a new card in a column with input validation.
 
@@ -4469,7 +4465,7 @@ def create_card(column_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["DELETE"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.delete')
 def delete_all_cards_in_column(column_id):
     """Delete all cards in a column.
     ---
@@ -4522,10 +4518,17 @@ def delete_all_cards_in_column(column_id):
     try:
         from models import BoardColumn, Card
 
+        user_id = get_current_user_id()
+        
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
             return jsonify({"success": False, "message": "Column not found"}), 404
+        
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied"}), 403
 
         # Delete all cards in the column
         deleted_count = (
@@ -4554,7 +4557,7 @@ def delete_all_cards_in_column(column_id):
 
 
 @app.route("/api/columns/<int:source_column_id>/cards/move", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('card.edit')
 def move_all_cards_in_column(source_column_id):
     """Move all cards from one column to another in a single transaction.
     ---
@@ -4641,6 +4644,8 @@ def move_all_cards_in_column(source_column_id):
     try:
         from models import BoardColumn, Card
 
+        user_id = get_current_user_id()
+        
         data = request.get_json()
         target_column_id = data.get("target_column_id")
         position = data.get("position", "bottom")
@@ -4657,11 +4662,21 @@ def move_all_cards_in_column(source_column_id):
         source_column = db.query(BoardColumn).filter(BoardColumn.id == source_column_id).first()
         if not source_column:
             return jsonify({"success": False, "message": "Source column not found"}), 404
+        
+        # Verify user owns the board this source column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == source_column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied to source board"}), 403
 
         # Verify target column exists
         target_column = db.query(BoardColumn).filter(BoardColumn.id == target_column_id).first()
         if not target_column:
             return jsonify({"success": False, "message": "Target column not found"}), 404
+        
+        # Verify user owns the board this target column belongs to
+        target_board = get_user_scoped_query(db, Board, user_id).filter(Board.id == target_column.board_id).first()
+        if not target_board:
+            return jsonify({"success": False, "message": "Access denied to target board"}), 403
 
         # Get cards from source column, optionally filtering out archived cards
         source_query = db.query(Card).filter(Card.column_id == source_column_id)
@@ -4729,7 +4744,6 @@ def move_all_cards_in_column(source_column_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('card.view')
 def get_card(card_id):
     """Get a single card with its checklist items (user must have access).
@@ -4830,7 +4844,6 @@ def get_card(card_id):
 
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def update_card(card_id):
     """Update a card's title, description, column, and/or order.
     ---
@@ -5094,7 +5107,6 @@ def update_card(card_id):
 
 @app.route("/api/cards/<int:card_id>", methods=["DELETE"])
 @require_permission('card.delete')
-@track_endpoint(protected=True)
 def delete_card(card_id):
     """Delete a card by ID.
     ---
@@ -5178,7 +5190,6 @@ def delete_card(card_id):
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def archive_card(card_id):
     """Archive a card by ID.
     ---
@@ -5256,7 +5267,6 @@ def archive_card(card_id):
 
 @app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def unarchive_card(card_id):
     """Unarchive a card by ID.
     ---
@@ -5348,7 +5358,6 @@ def unarchive_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/done", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('card.view')
 def get_card_done_status(card_id):
     """Get the done status of a card (user must have access).
@@ -5407,7 +5416,6 @@ def get_card_done_status(card_id):
 
 @app.route("/api/cards/<int:card_id>/done", methods=["PATCH"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def update_card_done_status(card_id):
     """Update the done status of a card.
     ---
@@ -5519,7 +5527,6 @@ def update_card_done_status(card_id):
 
 @app.route("/api/cards/batch/archive", methods=["POST"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def batch_archive_cards():
     """Archive multiple cards in a single transaction.
     ---
@@ -5614,7 +5621,6 @@ def batch_archive_cards():
 
 @app.route("/api/cards/batch/unarchive", methods=["POST"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def batch_unarchive_cards():
     """Unarchive multiple cards in a single transaction.
     ---
@@ -5749,7 +5755,6 @@ def batch_unarchive_cards():
 
 @app.route("/api/columns/<int:column_id>/archive-after", methods=["POST"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def archive_cards_after_period(column_id):
     """Archive cards in a column that haven't been updated within a specified time period.
     ---
@@ -5925,7 +5930,6 @@ def archive_cards_after_period(column_id):
 
 # Scheduled Cards API endpoints
 @app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('card.view')
 def get_scheduled_cards(column_id):
     """Get all scheduled template cards for a specific column (user must have access).
@@ -6001,7 +6005,6 @@ def get_scheduled_cards(column_id):
 
 @app.route("/api/schedules", methods=["POST"])
 @require_permission('card.create')
-@track_endpoint(protected=True)
 def create_schedule():
     """Create a new schedule for a card.
     ---
@@ -6213,7 +6216,7 @@ def create_schedule():
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('schedule.view')
 def get_schedule(schedule_id):
     """Get a schedule by ID with next run times.
     ---
@@ -6274,7 +6277,6 @@ def get_schedule(schedule_id):
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def update_schedule(schedule_id):
     """Update a schedule.
     ---
@@ -6394,7 +6396,6 @@ def update_schedule(schedule_id):
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
 @require_permission('card.delete')
-@track_endpoint(protected=True)
 def delete_schedule(schedule_id):
     """Delete a schedule and update related cards.
     ---
@@ -6455,7 +6456,6 @@ def delete_schedule(schedule_id):
 # Checklist Items API endpoints
 @app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def create_checklist_item(card_id):
     """Create a new checklist item for a card.
     ---
@@ -6631,7 +6631,6 @@ def create_checklist_item(card_id):
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["PATCH"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def update_checklist_item(item_id):
     """Update a checklist item's name, checked status, and/or order.
     ---
@@ -6774,7 +6773,6 @@ def update_checklist_item(item_id):
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["DELETE"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def delete_checklist_item(item_id):
     """Delete a checklist item by ID.
     ---
@@ -6827,7 +6825,6 @@ def delete_checklist_item(item_id):
 
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('card.view')
 def get_card_comments(card_id):
     """Get all comments for a card (user must have access).
@@ -6908,7 +6905,6 @@ def get_card_comments(card_id):
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["POST"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def create_comment(card_id):
     """Create a new comment for a card.
     ---
@@ -7020,7 +7016,6 @@ def create_comment(card_id):
 
 @app.route("/api/comments/<int:comment_id>", methods=["DELETE"])
 @require_permission('card.update')
-@track_endpoint(protected=True)
 def delete_comment(comment_id):
     """Delete a comment by ID.
     
@@ -7081,7 +7076,6 @@ def delete_comment(comment_id):
 
 
 @app.route("/api/notifications", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_authentication
 def get_notifications():
     """Get all notifications for the current user.
@@ -7160,7 +7154,6 @@ from notification_utils import create_notification as create_notification_intern
 
 @app.route("/api/notifications", methods=["POST"])
 @require_authentication
-@track_endpoint(protected=True)
 def create_notification():
     """Create a new notification.
     ---
@@ -7307,7 +7300,6 @@ def create_notification():
 
 @app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
 @require_authentication
-@track_endpoint(protected=True)
 def mark_notification_read(notification_id):
     """Mark a notification as read.
     ---
@@ -7361,7 +7353,6 @@ def mark_notification_read(notification_id):
 
 @app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
 @require_authentication
-@track_endpoint(protected=True)
 def mark_notification_unread(notification_id):
     """Mark a notification as unread.
     ---
@@ -7415,7 +7406,6 @@ def mark_notification_unread(notification_id):
 
 @app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
 @require_authentication
-@track_endpoint(protected=True)
 def delete_notification(notification_id):
     """Delete a notification.
     ---
@@ -7469,7 +7459,6 @@ def delete_notification(notification_id):
 
 @app.route("/api/notifications/mark-all-read", methods=["PUT"])
 @require_authentication
-@track_endpoint(protected=True)
 def mark_all_notifications_read():
     """Mark all notifications as read.
     ---
@@ -7518,7 +7507,6 @@ def mark_all_notifications_read():
 
 @app.route("/api/notifications/delete-all", methods=["DELETE"])
 @require_authentication
-@track_endpoint(protected=True)
 def delete_all_notifications():
     """Delete all notifications.
     ---
@@ -7727,7 +7715,6 @@ else:
 # ============================================================================
 
 @app.route("/api/themes", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('theme.view')
 def get_themes():
     """Retrieve all themes accessible to the user.
@@ -7761,7 +7748,6 @@ def get_themes():
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["GET"])
-@track_endpoint(protected=True, reason="Requires authentication")
 @require_permission('theme.view')
 def get_theme(theme_id):
     """Retrieve a specific theme by its unique ID (user must have access).
@@ -7801,7 +7787,6 @@ def get_theme(theme_id):
 
 @app.route("/api/themes/<int:theme_id>", methods=["PUT"])
 @require_permission('theme.update')
-@track_endpoint(protected=True)
 def update_theme(theme_id):
     """Update an existing custom theme's properties.
     
@@ -7880,7 +7865,6 @@ def update_theme(theme_id):
 
 @app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
 @require_permission('theme.update')
-@track_endpoint(protected=True)
 def rename_theme(theme_id):
     """Change the name of an existing custom theme.
     
@@ -7942,7 +7926,6 @@ def rename_theme(theme_id):
 
 @app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
 @require_permission('theme.delete')
-@track_endpoint(protected=True)
 def delete_theme(theme_id):
     """Delete a custom theme.
     
@@ -7990,7 +7973,6 @@ def delete_theme(theme_id):
 
 @app.route("/api/themes/copy", methods=["POST"])
 @require_permission('theme.create')
-@track_endpoint(protected=True)
 def copy_theme():
     """Create a duplicate of an existing theme with a new name.
     
@@ -8057,7 +8039,6 @@ def copy_theme():
 
 @app.route("/api/themes/import", methods=["POST"])
 @require_permission('theme.create')
-@track_endpoint(protected=True)
 def import_theme():
     """Import a theme from external JSON data.
     
@@ -8127,7 +8108,7 @@ def import_theme():
 
 
 @app.route("/api/themes/<int:theme_id>/export", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.view')
 def export_theme(theme_id):
     """Export a theme configuration as JSON data.
     
@@ -8170,7 +8151,7 @@ def export_theme(theme_id):
 
 
 @app.route("/api/themes/upload-image", methods=["POST"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.edit')
 def upload_theme_image():
     """Upload a background image file for use in themes.
     
@@ -8228,7 +8209,7 @@ def upload_theme_image():
 
 
 @app.route("/api/themes/images", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.view')
 def list_theme_images():
     """List all available background images in the backgrounds directory.
     
@@ -8268,7 +8249,7 @@ def list_theme_images():
 
 
 @app.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('theme.view')
 def get_theme_image(filename):
     """Retrieve a specific background image file.
     
@@ -8332,7 +8313,7 @@ def get_theme_image(filename):
 
 
 @app.route("/api/settings/theme", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_current_theme():
     """Retrieve the currently active theme for the application.
     
@@ -8372,7 +8353,7 @@ def get_current_theme():
 
 
 @app.route("/api/settings/theme", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def update_current_theme():
     """Set the active theme for the application.
     
@@ -8440,7 +8421,7 @@ def update_current_theme():
 
 
 @app.route("/api/settings/working-style", methods=["GET"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.view')
 def get_working_style():
     """Retrieve the current working style preference.
     
@@ -8483,7 +8464,7 @@ def get_working_style():
 
 
 @app.route("/api/settings/working-style", methods=["PUT"])
-@track_endpoint(protected=False, reason="Not yet migrated")
+@require_permission('setting.edit')
 def set_working_style():
     """Set the working style preference.
     

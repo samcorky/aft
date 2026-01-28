@@ -5,6 +5,8 @@ import json
 PERMISSION_DEFINITIONS = {
     # Global admin permissions
     'system.admin': 'Full system administration',
+    'admin.system': 'System administration and monitoring',
+    'admin.database': 'Database backup and restore operations',
     'user.manage': 'Manage all users',
     'role.manage': 'Manage roles and permissions',
     
@@ -25,10 +27,13 @@ PERMISSION_DEFINITIONS = {
     
     # Schedule permissions
     'schedule.create': 'Create scheduled cards',
+    'schedule.view': 'View scheduled cards',
     'schedule.edit': 'Edit scheduled cards',
     'schedule.delete': 'Delete scheduled cards',
     
     # Settings permissions
+    'setting.view': 'View settings',
+    'setting.edit': 'Edit settings',
     'settings.view': 'View settings',
     'settings.edit': 'Edit own settings',
     'settings.global.edit': 'Edit global system settings',
@@ -40,6 +45,7 @@ PERMISSION_DEFINITIONS = {
     
     # Theme permissions
     'theme.create': 'Create custom themes',
+    'theme.view': 'View themes',
     'theme.edit': 'Edit own themes',
     'theme.delete': 'Delete own themes',
     'theme.system.edit': 'Edit system themes',
@@ -53,6 +59,8 @@ INITIAL_ROLES = {
         'permissions': [
             # All permissions
             'system.admin',
+            'admin.system',
+            'admin.database',
             'user.manage',
             'role.manage',
             'board.create',
@@ -67,8 +75,11 @@ INITIAL_ROLES = {
             'card.assign',
             'card.archive',
             'schedule.create',
+            'schedule.view',
             'schedule.edit',
             'schedule.delete',
+            'setting.view',
+            'setting.edit',
             'settings.view',
             'settings.edit',
             'settings.global.edit',
@@ -76,6 +87,7 @@ INITIAL_ROLES = {
             'backup.restore',
             'backup.delete',
             'theme.create',
+            'theme.view',
             'theme.edit',
             'theme.delete',
             'theme.system.edit',

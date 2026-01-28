@@ -133,7 +133,6 @@ For detailed information about the authentication system:
 
 - **[AUTHENTICATION.md](server/AUTHENTICATION.md)** - Complete authentication architecture and implementation guide
 - **[AUTH_QUICK_REFERENCE.md](server/AUTH_QUICK_REFERENCE.md)** - Quick reference for using authentication in code
-- **[API_MIGRATION_GUIDE.md](server/API_MIGRATION_GUIDE.md)** - Guide for migrating existing APIs to require authentication
 - **[TESTING.md](server/TESTING.md)** - Test suite authentication requirements
 
 ## Development Workflow

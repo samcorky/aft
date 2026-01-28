@@ -80,8 +80,12 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def load_user_from_session():
     """
-    Middleware to load user from session into Flask g object.
+    Middleware to load user from session or Basic Auth into Flask g object.
     Call this in app.before_request.
+    
+    Supports:
+    1. Session-based authentication (primary method)
+    2. HTTP Basic Authentication (for Swagger UI testing)
     """
     user_id = session.get('user_id')
     stored_email_hash = session.get('user_email_hash')
@@ -109,6 +113,7 @@ def load_user_from_session():
                 
                 g.user = user
                 g.db = db  # Make db available for the request
+                return  # Successfully authenticated via session
             else:
                 # User not found or inactive, clear session
                 session.clear()
@@ -117,6 +122,32 @@ def load_user_from_session():
                 db.close()
         except Exception as e:
             logger.error(f"Error loading user from session: {e}")
+            g.user = None
+            g.db = None
+            db.close()
+    
+    # If no session auth, try Basic Auth (for Swagger UI)
+    auth = request.authorization
+    if auth and auth.username and auth.password:
+        db = SessionLocal()
+        try:
+            from sqlalchemy.sql import func
+            user = db.query(User).filter(
+                func.lower(User.email) == auth.username.lower()
+            ).first()
+            
+            if user and user.is_active and user.is_approved and user.password_hash:
+                if verify_password(auth.password, user.password_hash):
+                    g.user = user
+                    g.db = db
+                    return
+            
+            # Invalid Basic Auth
+            g.user = None
+            g.db = None
+            db.close()
+        except Exception as e:
+            logger.error(f"Error loading user from Basic Auth: {e}")
             g.user = None
             g.db = None
             db.close()
@@ -238,6 +269,79 @@ def logout():
         logger.info(f"User logged out: ID {user_id}")
     
     return create_success_response(message="Logout successful")
+
+
+@auth_bp.route('/validate', methods=['POST'])
+def validate_credentials():
+    """
+    Validate credentials without creating a session.
+    Used by Swagger UI to test credentials.
+    
+    Request body:
+        {
+            "email": "user@example.com",
+            "password": "password123"
+        }
+    
+    Returns:
+        200: Credentials valid
+        401: Invalid credentials
+        400: Validation error
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return create_error_response("Request body required", 400)
+        
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return create_error_response("Email and password are required", 400)
+        
+        db = SessionLocal()
+        try:
+            user = db.query(User).filter(
+                func.lower(User.email) == email
+            ).first()
+            
+            if not user:
+                return create_error_response("Invalid email or password", 401)
+            
+            if not user.password_hash:
+                return create_error_response(
+                    "This account uses OAuth login",
+                    400
+                )
+            
+            if not verify_password(password, user.password_hash):
+                return create_error_response("Invalid email or password", 401)
+            
+            if not user.is_active:
+                return create_error_response("Account is disabled", 403)
+            
+            if not user.is_approved:
+                return create_error_response(
+                    "Account pending approval",
+                    403
+                )
+            
+            # Credentials are valid
+            return create_success_response(
+                message="Credentials valid",
+                data={
+                    'email': user.email,
+                    'username': user.username
+                }
+            )
+            
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"Credential validation error: {e}")
+        return create_error_response("Validation failed", 500)
 
 
 @auth_bp.route('/me', methods=['GET'])

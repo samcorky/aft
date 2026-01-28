@@ -401,12 +401,51 @@ swagger_template = {
         "description": """
 API documentation for AFT application
 
+**Authentication:** This API uses session-based authentication. To test authenticated endpoints in Swagger UI:
+
+### Recommended Workflow
+1. **First, validate your credentials**: Call `/api/auth/validate` (POST) with your credentials to verify they work
+2. **Then, set up authentication**: 
+   - Click the "Authorise" button (🔓) at the top right
+   - Enter your credentials in the BasicAuth section (use email as username)
+   - Click "Authorise"
+3. **Test endpoints**: Your credentials will be sent with each request
+
+⚠️ **Important**: The Authorise modal will say "Authorized" even with invalid credentials. 
+This is a Swagger limitation - credentials are only validated when you actually call an endpoint.
+Always use `/api/auth/validate` first to verify your credentials are correct.
+
+### Alternative: Session-Based Login
+1. Call `/api/auth/login` (POST) with your email and password
+2. The session cookie will be automatically set and used for all requests
+3. No need to use the Authorise button
+
+### Default Test Credentials
+- Email: `test-admin@localhost`
+- Password: `TestAdmin123!`
+
 <a href="/" style="text-decoration: none;">← Back to AFT Home</a>
         """,
         "version": "1.0.0",
     },
     "basePath": "/",
     "schemes": ["http", "https"],
+    "securityDefinitions": {
+        "SessionAuth": {
+            "type": "apiKey",
+            "name": "session",
+            "in": "cookie",
+            "description": "Session-based authentication. Login via `/api/auth/login` to obtain a session cookie."
+        },
+        "BasicAuth": {
+            "type": "basic",
+            "description": "⚠️ Basic Auth for testing. Modal accepts any input - credentials are validated when calling endpoints. Use /api/auth/validate to test credentials first."
+        }
+    },
+    "security": [
+        {"SessionAuth": []},
+        {"BasicAuth": []}
+    ]
 }
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)

@@ -70,7 +70,7 @@ grep -B2 "@app.route" server/app.py | grep -v "require_"
 3. **Test the endpoint** - ensure authentication works
 
 ### Priority Endpoints to Migrate
-Check [API_MIGRATION_GUIDE.md](API_MIGRATION_GUIDE.md) for detailed patterns, though note `api_migration_tracker.py` has been removed.
+Use the security decorators (`@require_authentication`, `@require_board_access`, `@require_permission`) from `utils.py` to protect endpoints.
 
 ## Test Credentials
 - **Email:** test-admin@localhost

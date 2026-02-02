@@ -27,3 +27,4 @@ htmlcov/
 compose.override.y*ml
 docker-compose.override.y*ml
 
+.github/instructions/snyk_rules.instructions.md

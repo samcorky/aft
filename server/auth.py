@@ -132,9 +132,15 @@ def load_user_from_session():
         db = SessionLocal()
         try:
             from sqlalchemy.sql import func
+            # Try email first, then username
             user = db.query(User).filter(
                 func.lower(User.email) == auth.username.lower()
             ).first()
+            
+            if not user:
+                user = db.query(User).filter(
+                    func.lower(User.username) == auth.username.lower()
+                ).first()
             
             if user and user.is_active and user.is_approved and user.password_hash:
                 if verify_password(auth.password, user.password_hash):
@@ -163,7 +169,7 @@ def login():
     
     Request body:
         {
-            "email": "user@example.com",
+            "email": "user@example.com",  // or username
             "password": "password123",
             "remember_me": false  // optional
         }
@@ -179,24 +185,31 @@ def login():
         if not data:
             return create_error_response("Request body required", 400)
         
-        email = data.get('email', '').strip().lower()
+        email_or_username = data.get('email', '').strip()
         password = data.get('password', '')
         remember_me = data.get('remember_me', False)
         
         # Validate inputs
-        if not email or not password:
-            return create_error_response("Email and password are required", 400)
+        if not email_or_username or not password:
+            return create_error_response("Email/username and password are required", 400)
         
-        # Find user
+        # Find user by email or username
         db = SessionLocal()
         try:
+            # Try to find user by email first (case-insensitive)
             user = db.query(User).filter(
-                func.lower(User.email) == email
+                func.lower(User.email) == email_or_username.lower()
             ).first()
+            
+            # If not found by email, try by username (case-insensitive)
+            if not user:
+                user = db.query(User).filter(
+                    func.lower(User.username) == email_or_username.lower()
+                ).first()
             
             if not user:
                 # Don't reveal whether user exists
-                return create_error_response("Invalid email or password", 401)
+                return create_error_response("Invalid email/username or password", 401)
             
             # Check if user has a password (might be OAuth only)
             if not user.password_hash:
@@ -207,7 +220,7 @@ def login():
             
             # Verify password
             if not verify_password(password, user.password_hash):
-                return create_error_response("Invalid email or password", 401)
+                return create_error_response("Invalid email/username or password", 401)
             
             # Check if account is active
             if not user.is_active:
@@ -279,7 +292,7 @@ def validate_credentials():
     
     Request body:
         {
-            "email": "user@example.com",
+            "email": "user@example.com",  // or username
             "password": "password123"
         }
     
@@ -294,20 +307,26 @@ def validate_credentials():
         if not data:
             return create_error_response("Request body required", 400)
         
-        email = data.get('email', '').strip().lower()
+        email_or_username = data.get('email', '').strip()
         password = data.get('password', '')
         
-        if not email or not password:
-            return create_error_response("Email and password are required", 400)
+        if not email_or_username or not password:
+            return create_error_response("Email/username and password are required", 400)
         
         db = SessionLocal()
         try:
+            # Try email first, then username
             user = db.query(User).filter(
-                func.lower(User.email) == email
+                func.lower(User.email) == email_or_username.lower()
             ).first()
             
             if not user:
-                return create_error_response("Invalid email or password", 401)
+                user = db.query(User).filter(
+                    func.lower(User.username) == email_or_username.lower()
+                ).first()
+            
+            if not user:
+                return create_error_response("Invalid email/username or password", 401)
             
             if not user.password_hash:
                 return create_error_response(
@@ -316,7 +335,7 @@ def validate_credentials():
                 )
             
             if not verify_password(password, user.password_hash):
-                return create_error_response("Invalid email or password", 401)
+                return create_error_response("Invalid email/username or password", 401)
             
             if not user.is_active:
                 return create_error_response("Account is disabled", 403)

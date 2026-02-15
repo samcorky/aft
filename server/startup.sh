@@ -44,4 +44,5 @@ alembic upgrade head
 echo "Starting application..."
 # Use gunicorn with sync workers and Redis message queue for Socket.IO synchronization
 # Multiple sync workers + Redis handles WebSocket broadcasts across processes
-exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 300 app:app
+# Increased timeout to 1800s (30 minutes) for long operations like large database restores
+exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 1800 app:app

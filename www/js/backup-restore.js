@@ -303,7 +303,7 @@ class BackupRestore {
       // Update modal to show progress
       titleElement.textContent = 'Restoring Database';
       titleElement.style.color = 'var(--primary-color)';
-      messageElement.textContent = 'Restoring database... This may take a minute.';
+      messageElement.textContent = 'Restoring database... This may take several minutes for large databases. Please wait.';
       confirmBtn.style.display = 'none';
       cancelBtn.style.display = 'none';
 
@@ -313,10 +313,17 @@ class BackupRestore {
         const formData = new FormData();
         formData.append('file', file);
 
+        // Set up timeout for 25 minutes (slightly less than backend 30 min timeout)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000);
+
         const response = await fetch('/api/database/restore', {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
@@ -343,8 +350,15 @@ class BackupRestore {
       } catch (error) {
         console.error('Error restoring database:', error);
         
+        let errorMessage = error.message;
+        if (error.name === 'AbortError') {
+          errorMessage = 'The restore operation timed out after 25 minutes. For very large databases, this may still be processing. Please wait a few minutes and refresh the page to check if the restore completed.';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = 'Network connection lost during restore. The restore may still be processing on the server. Please wait a few minutes and refresh the page to check the status.';
+        }
+        
         // Show error in modal
-        this.showRestoreResultInModal('Restore Failed', error.message, false);
+        this.showRestoreResultInModal('Restore Failed', errorMessage, false);
         this.restoreBtn.disabled = false;
       } finally {
         this.restoreFileInput.value = '';
@@ -778,7 +792,7 @@ class BackupRestore {
       // Update modal to show progress
       titleElement.textContent = 'Restoring Database';
       titleElement.style.color = 'var(--primary-color)';
-      messageElement.textContent = 'Restoring database... This may take a minute.';
+      messageElement.textContent = 'Restoring database... This may take several minutes for large databases. Please wait.';
       confirmBtn.style.display = 'none';
       cancelBtn.style.display = 'none';
 
@@ -787,9 +801,16 @@ class BackupRestore {
       restoreButtons.forEach(btn => btn.disabled = true);
 
       try {
+        // Set up timeout for 25 minutes (slightly less than backend 30 min timeout)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000);
+
         const response = await fetch(`/api/database/backups/restore/${filename}`, {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
@@ -816,8 +837,15 @@ class BackupRestore {
       } catch (error) {
         console.error('Error restoring from automatic backup:', error);
         
+        let errorMessage = error.message;
+        if (error.name === 'AbortError') {
+          errorMessage = 'The restore operation timed out after 25 minutes. For very large databases, this may still be processing. Please wait a few minutes and refresh the page to check if the restore completed.';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = 'Network connection lost during restore. The restore may still be processing on the server. Please wait a few minutes and refresh the page to check the status.';
+        }
+        
         // Show error in modal
-        this.showRestoreResultInModal('Restore Failed', error.message, false);
+        this.showRestoreResultInModal('Restore Failed', errorMessage, false);
         
         // Re-enable buttons on error
         restoreButtons.forEach(btn => btn.disabled = false);

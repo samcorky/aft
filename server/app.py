@@ -1655,15 +1655,18 @@ def restore_database():
             logger.info(
                 f"Migrating database from {backup_version} to {current_version}"
             )
+            # Use stdout=None, stderr=None to avoid subprocess deadlock from filled pipes
+            # Output will flow to parent process logs
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 cwd="/app",
-                capture_output=True,
+                stdout=None,
+                stderr=None,
                 text=True,
             )
 
             if upgrade_result.returncode != 0:
-                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+                raise Exception(f"Alembic upgrade failed - check server logs for details")
 
             logger.info("Database restored and upgraded successfully")
             return jsonify(
@@ -1908,15 +1911,18 @@ def restore_backup_from_file(filename):
         # Run migrations if needed
         if backup_version != current_version:
             logger.info(f"Migrating database from {backup_version} to {current_version}")
+            # Use stdout=None, stderr=None to avoid subprocess deadlock from filled pipes
+            # Output will flow to parent process logs
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 cwd="/app",
-                capture_output=True,
+                stdout=None,
+                stderr=None,
                 text=True,
             )
             
             if upgrade_result.returncode != 0:
-                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+                raise Exception(f"Alembic upgrade failed - check server logs for details")
             
             logger.info("Database restored and upgraded successfully")
             return jsonify({

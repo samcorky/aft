@@ -87,6 +87,8 @@ def load_user_from_session():
     1. Session-based authentication (primary method)
     2. HTTP Basic Authentication (for Swagger UI testing)
     """
+    from flask import request
+    
     user_id = session.get('user_id')
     stored_email_hash = session.get('user_email_hash')
     
@@ -99,17 +101,25 @@ def load_user_from_session():
             ).first()
             
             if user:
-                # Validate session is for this specific user (prevents old sessions from
-                # accessing new users with same ID after database reset)
-                current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
-                if stored_email_hash != current_email_hash:
-                    # Session email hash doesn't match - clear session
-                    logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
-                    session.clear()
-                    g.user = None
-                    g.db = None
-                    db.close()
-                    return
+                # Skip email hash validation during database restore operations
+                # (the database is being modified, so user data may be temporarily inconsistent)
+                is_restore_endpoint = (
+                    request.path.startswith('/api/database/restore') or
+                    request.path.startswith('/api/database/backups/restore/')
+                )
+                
+                if not is_restore_endpoint:
+                    # Validate session is for this specific user (prevents old sessions from
+                    # accessing new users with same ID after database reset)
+                    current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+                    if stored_email_hash != current_email_hash:
+                        # Session email hash doesn't match - clear session
+                        logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
+                        session.clear()
+                        g.user = None
+                        g.db = None
+                        db.close()
+                        return
                 
                 g.user = user
                 g.db = db  # Make db available for the request

@@ -505,7 +505,12 @@ def teardown_request(exception=None):
     """Close database session if it was opened."""
     db = g.pop('db', None)
     if db is not None:
-        db.close()
+        try:
+            db.close()
+        except Exception as e:
+            # Connection may have been killed during restore operations
+            # This is expected and can be safely ignored
+            logger.debug(f"Error closing database session in teardown (connection may have been killed): {e}")
 
 # Request size limit (110MB) for non-file-upload endpoints
 MAX_REQUEST_SIZE = 110 * 1024 * 1024
@@ -665,6 +670,9 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'notifications',
             'scheduled_cards',
             'themes',
+            'roles',
+            'users',
+            'user_roles',
             'alembic_version'
         ]
 
@@ -1498,21 +1506,29 @@ def restore_database():
     import tempfile
     import re
 
+    logger.info(f"=== Starting manual restore from uploaded file ===")
     try:
         # Check if file was uploaded
+        logger.info(f"Step 1: Validating file upload")
         if "file" not in request.files:
+            logger.error("No file uploaded in request")
             return jsonify({"success": False, "message": "No file uploaded"}), 400
 
         file = request.files["file"]
         if file.filename == "":
+            logger.error("Empty filename provided")
             return jsonify({"success": False, "message": "No file selected"}), 400
 
+        logger.info(f"Uploaded file: {file.filename}")
+        logger.info(f"Step 2: Saving uploaded file to temporary location")
         # Save uploaded file to temporary location
         temp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".sql")
         temp_path = temp_file.name
         temp_file.close()
         file.save(temp_path)
+        logger.info(f"File saved to: {temp_path}")
 
+        logger.info(f"Step 3: Validating file size and security")
         # File size validation: Check for reasonable size
         is_valid_size, size_error = validate_backup_file_size(temp_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
         if not is_valid_size:
@@ -1543,6 +1559,7 @@ def restore_database():
                 "message": f"Schema validation failed: {schema_error}"
             }), 400
 
+        logger.info(f"Step 4: Reading backup file to extract version information")
         # Read first few lines to get version info
         backup_version = None
         with open(temp_path, "r") as f:
@@ -1556,6 +1573,7 @@ def restore_database():
 
         if not backup_version:
             os.unlink(temp_path)
+            logger.error("No Alembic version found in backup file")
             return (
                 jsonify(
                     {
@@ -1566,12 +1584,15 @@ def restore_database():
                 400,
             )
 
+        logger.info(f"Backup version: {backup_version}")
+        logger.info(f"Step 5: Checking current database version")
         # Get current Alembic version (what we would create on restore)
         db = SessionLocal()
         result = db.execute(text("SELECT version_num FROM alembic_version"))
         row = result.fetchone()
         current_version = row[0] if row else "unknown"
         db.close()
+        logger.info(f"Current version: {current_version}")
 
         # Check version compatibility
         # Note: Alembic versions are revision IDs, not semantic versions
@@ -1588,25 +1609,150 @@ def restore_database():
         db_name = os.environ.get("MYSQL_DATABASE")
         db_host = "db"
 
-        # Drop all existing tables (including alembic_version)
-        db = SessionLocal()
-        from sqlalchemy import MetaData
-
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
-
-        # Explicitly drop alembic_version table if it exists
-        # (it's not in our models so metadata.reflect won't catch it)
+        logger.info(f"Step 6: Dropping all existing tables")
+        
+        # Close any existing database sessions in this request context to avoid connection issues
+        logger.info(f"Step 6.0: Closing request database sessions before killing connections")
+        from flask import g
+        request_db = g.pop('db', None)
+        if request_db:
+            try:
+                request_db.close()
+                logger.info(f"Closed request database session")
+            except Exception as e:
+                logger.warning(f"Error closing request database session: {e}")
+        
+        # Dispose of SQLAlchemy engine connection pool so it creates fresh connections
         try:
-            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
-            db.commit()
+            engine.dispose()
+            logger.info(f"Disposed SQLAlchemy engine connection pool")
         except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not drop alembic_version table: {e}")
+            logger.warning(f"Error disposing engine pool: {e}")
+        
+        # Kill all other database connections first to release locks
+        logger.info(f"Step 6.0.1: Killing all other database connections to release locks")
+        get_pids_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            "-N",
+            "-e",
+            f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+        ]
+        
+        try:
+            result = subprocess.run(get_pids_cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                pids = [pid.strip() for pid in result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+                
+                for pid in pids:
+                    logger.info(f"Killing connection: {pid}")
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                        logger.info(f"Killed connection: {pid}")
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+                
+                logger.info(f"Step 6.0.2: Waiting 2 seconds for connections to terminate")
+                import time
+                time.sleep(2)
+            else:
+                logger.info(f"No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections: {e}")
+        
+        # Use DROP DATABASE / CREATE DATABASE for a completely clean slate
+        logger.info(f"Step 6.1: Using DROP DATABASE / CREATE DATABASE for clean slate")
+        
+        # Get root credentials for database operations
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
+        
+        # Drop and recreate the database - this is the most reliable way to clear everything
+        logger.info(f"Step 6.1.1: Dropping database {db_name}")
+        drop_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"DROP DATABASE IF EXISTS `{db_name}`;"
+        ]
+        
+        try:
+            result = subprocess.run(drop_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to drop database: {result.stderr}")
+                raise Exception(f"Failed to drop database: {result.stderr}")
+            logger.info(f"Database {db_name} dropped successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while dropping database")
+            raise Exception("Timeout while dropping database")
+        
+        # Recreate the database
+        logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
+        create_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        ]
+        
+        try:
+            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to create database: {result.stderr}")
+                raise Exception(f"Failed to create database: {result.stderr}")
+            logger.info(f"Database {db_name} created successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while creating database")
+            raise Exception("Timeout while creating database")
+        
+        # Grant permissions to the application user
+        logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
+        grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+        ]
+        
+        try:
+            result = subprocess.run(grant_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"Failed to grant permissions: {result.stderr}")
+                # Don't fail here, permissions might already exist
+            else:
+                logger.info(f"Permissions granted successfully")
+        except Exception as e:
+            logger.warning(f"Error granting permissions: {e}")
+        
+        logger.info(f"Step 6.2: Database completely reset and ready for restore")
+        
+        # Give a moment for database to be ready
+        logger.info(f"Step 6.3: Waiting 2 seconds for database to be ready")
+        import time
+        time.sleep(2)
 
-        db.close()
-
+        logger.info(f"Step 7: Restoring data from backup file using mysql command")
         logger.info(f"Restoring database from backup (version {backup_version})")
 
         # Restore from SQL file
@@ -1629,8 +1775,34 @@ def restore_database():
         os.unlink(temp_path)
 
         if result.returncode != 0:
+            logger.error(f"MySQL restore failed with return code {result.returncode}: {result.stderr}")
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
+        logger.info(f"MySQL restore completed successfully")
+        
+        # Verify database connection is working after restore
+        logger.info(f"Step 7.1: Verifying database connection after restore")
+        max_retries = 10
+        retry_delay = 2
+        connected = False
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                test_db = SessionLocal()
+                test_db.execute(text("SELECT 1"))
+                test_db.close()
+                logger.info(f"Database connection verified on attempt {attempt}")
+                connected = True
+                break
+            except Exception as e:
+                logger.warning(f"Database connection attempt {attempt}/{max_retries} failed: {e}")
+                if attempt < max_retries:
+                    import time
+                    time.sleep(retry_delay)
+                else:
+                    raise Exception(f"Failed to verify database connection after {max_retries} attempts")
+        
+        logger.info(f"Step 7.5: Cleaning up scheduler lock files after restore")
         # Clean up stale scheduler lock files after successful restore
         # This forces the scheduler threads to create fresh lock files with current timestamps
         # Otherwise the system info page will show stale heartbeat ages from before the restore
@@ -1652,6 +1824,7 @@ def restore_database():
 
         # If backup version differs from current, run migrations to upgrade
         if backup_version != current_version:
+            logger.info(f"Step 8: Running Alembic migrations from {backup_version} to {current_version}")
             logger.info(
                 f"Migrating database from {backup_version} to {current_version}"
             )
@@ -1666,9 +1839,11 @@ def restore_database():
             )
 
             if upgrade_result.returncode != 0:
+                logger.error(f"Alembic upgrade failed with return code {upgrade_result.returncode}")
                 raise Exception(f"Alembic upgrade failed - check server logs for details")
 
-            logger.info("Database restored and upgraded successfully")
+            logger.info(f"Alembic migrations completed successfully")
+            logger.info(f"=== Manual restore completed successfully (with migration) ===")
             return jsonify(
                 {
                     "success": True,
@@ -1676,13 +1851,18 @@ def restore_database():
                 }
             )
         else:
+            logger.info(f"Step 8: No migration needed, versions match")
+            logger.info(f"=== Manual restore completed successfully (no migration) ===")
             logger.info("Database restored successfully")
             return jsonify(
                 {"success": True, "message": "Database restored successfully"}
             )
 
     except Exception as e:
-        logger.error(f"Error restoring database: {str(e)}")
+        import traceback
+        logger.error(f"=== Manual restore FAILED ===")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.unlink(temp_path)
         return jsonify({"success": False, "message": str(e)}), 500
@@ -1778,6 +1958,7 @@ def restore_backup_from_file(filename):
       500:
         description: Failed to restore backup
     """
+    logger.info(f"=== Starting restore from backup: {filename} ===")
     try:
         from pathlib import Path
         import re
@@ -1786,9 +1967,12 @@ def restore_backup_from_file(filename):
         
         # Validate filename to prevent path traversal
         # Allow both auto_backup and manual backup filenames (aft_backup)
+        logger.info(f"Step 1: Validating filename format")
         if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+            logger.error(f"Invalid filename format: {filename}")
             return jsonify({"success": False, "message": "Invalid backup filename"}), 400
         
+        logger.info(f"Step 2: Checking backup file exists and is not a symlink")
         backup_dir = Path("/app/backups")
         backup_path = backup_dir / filename
         
@@ -1807,8 +1991,10 @@ def restore_backup_from_file(filename):
             return jsonify({"success": False, "message": "Invalid backup file path"}), 400
         
         if not resolved_backup_path.exists():
+            logger.error(f"Backup file not found: {resolved_backup_path}")
             return jsonify({"success": False, "message": "Backup file not found"}), 404
         
+        logger.info(f"Step 3: Validating file size and security")
         # File size validation
         is_valid_size, size_error = validate_backup_file_size(resolved_backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
         if not is_valid_size:
@@ -1836,6 +2022,7 @@ def restore_backup_from_file(filename):
                 "message": f"Schema validation failed: {schema_error}"
             }), 400
 
+        logger.info(f"Step 4: Reading backup file to extract version information")
         # Read and validate the backup file
         with open(resolved_backup_path, 'r') as f:
             content = f.read(10000)  # Read first 10KB to find version
@@ -1849,13 +2036,16 @@ def restore_backup_from_file(filename):
             }), 400
             
         backup_version = version_match.group(1)
+        logger.info(f"Backup version: {backup_version}")
         
         # Get current Alembic version
+        logger.info(f"Step 5: Checking current database version")
         db = SessionLocal()
         result = db.execute(text("SELECT version_num FROM alembic_version"))
         row = result.fetchone()
         current_version = row[0] if row else "unknown"
         db.close()
+        logger.info(f"Current version: {current_version}")
         
         # Check version compatibility
         # Note: Alembic versions are revision IDs, not semantic versions
@@ -1872,24 +2062,148 @@ def restore_backup_from_file(filename):
         db_name = os.environ.get("MYSQL_DATABASE")
         db_host = "db"
         
-        # Drop all existing tables
-        db = SessionLocal()
-        from sqlalchemy import MetaData
+        logger.info(f"Step 6: Dropping all existing tables")
         
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
+        # Close any existing database sessions in this request context to avoid connection issues
+        logger.info(f"Step 6.0: Closing request database sessions before killing connections")
+        from flask import g
+        request_db = g.pop('db', None)
+        if request_db:
+            try:
+                request_db.close()
+                logger.info(f"Closed request database session")
+            except Exception as e:
+                logger.warning(f"Error closing request database session: {e}")
         
-        # Drop alembic_version table
+        # Dispose of SQLAlchemy engine connection pool so it creates fresh connections
         try:
-            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
-            db.commit()
+            engine.dispose()
+            logger.info(f"Disposed SQLAlchemy engine connection pool")
         except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not drop alembic_version table: {e}")
-        finally:
-            db.close()
+            logger.warning(f"Error disposing engine pool: {e}")
         
+        # Kill all other database connections first to release locks
+        logger.info(f"Step 6.0.1: Killing all other database connections to release locks")
+        get_pids_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            "-N",
+            "-e",
+            f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+        ]
+        
+        try:
+            result = subprocess.run(get_pids_cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                pids = [pid.strip() for pid in result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+                
+                for pid in pids:
+                    logger.info(f"Killing connection: {pid}")
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                        logger.info(f"Killed connection: {pid}")
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+                
+                logger.info(f"Step 6.0.2: Waiting 2 seconds for connections to terminate")
+                time.sleep(2)
+            else:
+                logger.info(f"No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections: {e}")
+        
+        # Use DROP DATABASE / CREATE DATABASE for a completely clean slate
+        logger.info(f"Step 6.1: Using DROP DATABASE / CREATE DATABASE for clean slate")
+        
+        # Get root credentials for database operations
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
+        
+        # Drop and recreate the database - this is the most reliable way to clear everything
+        logger.info(f"Step 6.1.1: Dropping database {db_name}")
+        drop_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"DROP DATABASE IF EXISTS `{db_name}`;"
+        ]
+        
+        try:
+            result = subprocess.run(drop_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to drop database: {result.stderr}")
+                raise Exception(f"Failed to drop database: {result.stderr}")
+            logger.info(f"Database {db_name} dropped successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while dropping database")
+            raise Exception("Timeout while dropping database")
+        
+        # Recreate the database
+        logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
+        create_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+        ]
+        
+        try:
+            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to create database: {result.stderr}")
+                raise Exception(f"Failed to create database: {result.stderr}")
+            logger.info(f"Database {db_name} created successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while creating database")
+            raise Exception("Timeout while creating database")
+        
+        # Grant permissions to the application user
+        logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
+        grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+        ]
+        
+        try:
+            result = subprocess.run(grant_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"Failed to grant permissions: {result.stderr}")
+                # Don't fail here, permissions might already exist
+            else:
+                logger.info(f"Permissions granted successfully")
+        except Exception as e:
+            logger.warning(f"Error granting permissions: {e}")
+        
+        logger.info(f"Step 6.2: Database completely reset and ready for restore")
+        
+        # Give a moment for database to be ready
+        logger.info(f"Step 6.3: Waiting 2 seconds for database to be ready")
+        time.sleep(2)
+        
+        logger.info(f"Step 7: Restoring data from backup file using mysql command")
         # Restore from backup file
         mysql_cmd = [
             "mysql",
@@ -1906,11 +2220,33 @@ def restore_backup_from_file(filename):
             )
         
         if result.returncode != 0:
+            logger.error(f"MySQL restore failed with return code {result.returncode}: {result.stderr}")
             raise Exception(f"MySQL restore failed: {result.stderr}")
+        
+        logger.info(f"MySQL restore completed successfully")
+        
+        # Clean up stale scheduler lock files after successful restore
+        # This forces the scheduler threads to create fresh lock files with current timestamps
+        logger.info(f"Step 7.5: Cleaning up scheduler lock files after restore")
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir())
+        lock_files_to_clean = [
+            temp_dir / "aft_backup_scheduler.lock",
+            temp_dir / "aft_card_scheduler.lock",
+            temp_dir / "aft_housekeeping_scheduler.lock",
+        ]
+        
+        for lock_file in lock_files_to_clean:
+            try:
+                if lock_file.exists():
+                    lock_file.unlink()
+                    logger.info(f"Cleaned up scheduler lock file: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean lock file {lock_file}: {e}")
         
         # Run migrations if needed
         if backup_version != current_version:
-            logger.info(f"Migrating database from {backup_version} to {current_version}")
+            logger.info(f"Step 8: Running Alembic migrations from {backup_version} to {current_version}")
             # Use stdout=None, stderr=None to avoid subprocess deadlock from filled pipes
             # Output will flow to parent process logs
             upgrade_result = subprocess.run(
@@ -1922,22 +2258,29 @@ def restore_backup_from_file(filename):
             )
             
             if upgrade_result.returncode != 0:
+                logger.error(f"Alembic upgrade failed with return code {upgrade_result.returncode}")
                 raise Exception(f"Alembic upgrade failed - check server logs for details")
             
-            logger.info("Database restored and upgraded successfully")
+            logger.info(f"Alembic migrations completed successfully")
+            
+            logger.info(f"=== Restore completed successfully: {filename} (with migration) ===")
             return jsonify({
                 "success": True,
                 "message": f"Database restored from {filename} and upgraded to version {current_version}"
             })
         else:
-            logger.info(f"Database restored successfully from {filename}")
+            logger.info(f"Step 8: No migration needed, versions match")
+            logger.info(f"=== Restore completed successfully: {filename} (no migration) ===")
             return jsonify({
                 "success": True,
                 "message": f"Database restored successfully from {filename}"
             })
             
     except Exception as e:
-        logger.error(f"Error restoring from automatic backup: {str(e)}")
+        import traceback
+        logger.error(f"=== Restore FAILED for {filename} ===")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 
@@ -2132,30 +2475,73 @@ def delete_database():
               type: string
     """
     try:
-        db = SessionLocal()
+        # Get database credentials
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_host = "db"
 
-        # Drop all tables including alembic_version
-        from sqlalchemy import MetaData
-
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
-        db.close()
+        # Use direct MySQL command to drop all tables to avoid SQLAlchemy transaction issues
+        get_tables_cmd = f"""mysql -h{db_host} -u{db_user} -p{db_password} --skip-ssl {db_name} -N -e "SHOW TABLES;" """
+        
+        result = subprocess.run(
+            get_tables_cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            tables = [t.strip() for t in result.stdout.strip().split('\n') if t.strip()]
+            logger.info(f"Found {len(tables)} tables to delete")
+            
+            if tables:
+                # Build DROP statement for all tables with foreign key checks disabled
+                drop_statements = "SET FOREIGN_KEY_CHECKS = 0; "
+                for table in tables:
+                    drop_statements += f"DROP TABLE IF EXISTS `{table}`; "
+                drop_statements += "SET FOREIGN_KEY_CHECKS = 1;"
+                
+                drop_cmd = [
+                    "mysql",
+                    f"-h{db_host}",
+                    f"-u{db_user}",
+                    f"-p{db_password}",
+                    "--skip-ssl",
+                    db_name,
+                    "-e",
+                    drop_statements
+                ]
+                
+                result = subprocess.run(
+                    drop_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"Failed to drop tables: {result.stderr}")
+                    raise Exception(f"Failed to drop tables: {result.stderr}")
+                
+                logger.info(f"Successfully dropped all {len(tables)} tables")
 
         # Run Alembic migrations to recreate database with proper version tracking
-        import subprocess
-
         result = subprocess.run(
-            ["alembic", "upgrade", "head"], cwd="/app", capture_output=True, text=True
+            ["alembic", "upgrade", "head"], cwd="/app", stdout=None, stderr=None
         )
 
         if result.returncode != 0:
-            raise Exception(f"Alembic migration failed: {result.stderr}")
+            raise Exception(f"Alembic migration failed")
 
         logger.info(
             "Database deleted and recreated successfully via Alembic migrations"
         )
         return jsonify({"success": True, "message": "Database deleted successfully"})
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout while deleting database")
+        return jsonify({"success": False, "message": "Timeout while deleting database"}), 500
     except Exception as e:
         logger.error(f"Error deleting database: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500

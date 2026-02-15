@@ -357,19 +357,31 @@ class BackupScheduler:
     
     def _get_settings(self):
         """Retrieve backup settings from database."""
-        db = SessionLocal()
         try:
-            settings = {
-                "backup_enabled": _get_setting_value(db, "backup_enabled", False),
-                "backup_frequency_value": _get_setting_value(db, "backup_frequency_value", 1),
-                "backup_frequency_unit": _get_setting_value(db, "backup_frequency_unit", "daily"),
-                "backup_start_time": _get_setting_value(db, "backup_start_time", "00:00"),
-                "backup_retention_count": _get_setting_value(db, "backup_retention_count", 7),
-                "backup_minimum_free_space_mb": _get_setting_value(db, "backup_minimum_free_space_mb", 100)
+            db = SessionLocal()
+            try:
+                settings = {
+                    "backup_enabled": _get_setting_value(db, "backup_enabled", False),
+                    "backup_frequency_value": _get_setting_value(db, "backup_frequency_value", 1),
+                    "backup_frequency_unit": _get_setting_value(db, "backup_frequency_unit", "daily"),
+                    "backup_start_time": _get_setting_value(db, "backup_start_time", "00:00"),
+                    "backup_retention_count": _get_setting_value(db, "backup_retention_count", 7),
+                    "backup_minimum_free_space_mb": _get_setting_value(db, "backup_minimum_free_space_mb", 100)
+                }
+                return settings
+            finally:
+                db.close()
+        except Exception as e:
+            logger.warning(f"Failed to get settings from database (database may be unavailable during restore): {e}")
+            # Return default settings if database is unavailable
+            return {
+                "backup_enabled": False,
+                "backup_frequency_value": 1,
+                "backup_frequency_unit": "daily",
+                "backup_start_time": "00:00",
+                "backup_retention_count": 7,
+                "backup_minimum_free_space_mb": 100
             }
-            return settings
-        finally:
-            db.close()
     
     def _check_disk_space(self) -> tuple[bool, Optional[str]]:
         """Check if sufficient disk space is available for backup.
@@ -900,7 +912,8 @@ class BackupScheduler:
                 time.sleep(60)
                 
             except Exception as e:
-                logger.error(f"Error in backup scheduler loop: {str(e)}")
+                import traceback
+                logger.error(f"Error in backup scheduler loop: {str(e)}\n{traceback.format_exc()}")
                 time.sleep(60)  # Sleep before retrying
                 
         self._scheduler_loop_running = False

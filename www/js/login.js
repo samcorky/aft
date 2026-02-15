@@ -31,8 +31,19 @@ form.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.success) {
-            // Redirect to main app
-            window.location.href = '/';
+            // Check if there's a redirect URL stored (from before logout)
+            const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
+            sessionStorage.removeItem('redirectAfterLogin'); // Clean up
+            
+            // Validate redirect URL to prevent open redirect attacks
+            // Only allow relative paths (no external URLs)
+            let targetUrl = '/';
+            if (redirectUrl && redirectUrl.startsWith('/') && !redirectUrl.startsWith('//')) {
+                targetUrl = redirectUrl;
+            }
+            
+            // Redirect to stored page or default to main app
+            window.location.href = targetUrl;
         } else {
             // Show error
             errorMessage.textContent = data.message || 'Login failed. Please try again.';
@@ -79,8 +90,18 @@ async function checkAuth() {
         if (response.ok) {
             const data = await response.json();
             if (data.authenticated) {
-                // Already logged in, redirect to main app
-                window.location.href = '/';
+                // Already logged in, check for redirect URL or go to main app
+                const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
+                sessionStorage.removeItem('redirectAfterLogin'); // Clean up
+                
+                // Validate redirect URL to prevent open redirect attacks
+                // Only allow relative paths (no external URLs)
+                let targetUrl = '/';
+                if (redirectUrl && redirectUrl.startsWith('/') && !redirectUrl.startsWith('//')) {
+                    targetUrl = redirectUrl;
+                }
+                
+                window.location.href = targetUrl;
             }
         }
     } catch (error) {

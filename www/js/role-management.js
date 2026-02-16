@@ -43,6 +43,14 @@ class RoleManagement {
     this.copyRoleCancelBtn = document.getElementById('copy-role-cancel-btn');
     this.copyRoleOkBtn = document.getElementById('copy-role-ok-btn');
     
+    // Permission mappings
+    this.mappingsLoading = document.getElementById('mappings-loading');
+    this.mappingsError = document.getElementById('mappings-error');
+    this.mappingsByPermission = document.getElementById('mappings-by-permission');
+    this.mappingsByEndpoint = document.getElementById('mappings-by-endpoint');
+    this.toggleMappingViewBtn = document.getElementById('toggle-mapping-view-btn');
+    this.viewToggleText = document.getElementById('view-toggle-text');
+    
     this.confirmCallback = null;
     this.currentUserId = null;
     this.currentRoleId = null;
@@ -52,6 +60,8 @@ class RoleManagement {
     this.boards = [];
     this.permissions = {};
     this.allPermissions = [];
+    this.currentMappingView = 'permission'; // 'permission' or 'endpoint'
+    this.permissionMappings = null;
   }
 
   async init() {
@@ -74,6 +84,7 @@ class RoleManagement {
       loadPromises.push(this.loadPermissions());
       loadPromises.push(this.loadRoles());
       loadPromises.push(this.loadBoards());
+      loadPromises.push(this.loadPermissionMappings());
     }
     
     if (hasUserRole) {
@@ -111,6 +122,13 @@ class RoleManagement {
     if (createRoleBtn) {
       createRoleBtn.addEventListener('click', () => {
         this.openRoleEditorModal();
+      });
+    }
+
+    // Toggle mapping view button
+    if (this.toggleMappingViewBtn) {
+      this.toggleMappingViewBtn.addEventListener('click', () => {
+        this.toggleMappingView();
       });
     }
 
@@ -863,6 +881,204 @@ class RoleManagement {
     } catch (error) {
       console.error('Error deleting role:', error);
       this.showStatus('Error: ' + error.message, 'error');
+    }
+  }
+
+  async loadPermissionMappings() {
+    try {
+      const response = await fetch('/api/roles/permission-mappings');
+      
+      if (response.status === 403) {
+        this.mappingsLoading.style.display = 'none';
+        this.mappingsError.textContent = 'You do not have permission to view permission mappings.';
+        this.mappingsError.style.display = 'block';
+        return;
+      }
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+
+      if (data.success && data.by_permission && data.by_endpoint) {
+        this.permissionMappings = data;
+        this.renderMappingsByPermission();
+        this.mappingsLoading.style.display = 'none';
+        this.mappingsByPermission.style.display = 'block';
+      } else {
+        throw new Error(data.message || data.error || 'Failed to load permission mappings');
+      }
+    } catch (error) {
+      console.error('Error loading permission mappings:', error);
+      this.mappingsLoading.style.display = 'none';
+      this.mappingsError.textContent = 'Failed to load permission mappings: ' + error.message;
+      this.mappingsError.style.display = 'block';
+    }
+  }
+
+  renderMappingsByPermission() {
+    if (!this.permissionMappings) return;
+
+    const { by_permission, permission_details, summary } = this.permissionMappings;
+    
+    let html = '';
+    
+    // Summary stats
+    html += `
+      <div class="mappings-summary">
+        <div class="summary-stat">
+          <span class="summary-label">Total Permissions:</span>
+          <span class="summary-value">${summary.total_permissions}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-label">Total Endpoints:</span>
+          <span class="summary-value">${summary.total_endpoints}</span>
+        </div>
+      </div>
+    `;
+
+    // Permissions list
+    const permissionKeys = Object.keys(by_permission).sort();
+    
+    for (const permission of permissionKeys) {
+      const endpoints = by_permission[permission];
+      const details = permission_details[permission];
+      const description = details ? details.description : 'No description';
+      
+      html += `
+        <div class="mapping-card">
+          <div class="mapping-card-header">
+            <div class="mapping-header-content">
+              <code class="permission-name">${this.escapeHtml(permission)}</code>
+              <span class="endpoint-count">${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''}</span>
+            </div>
+            <p class="permission-description">${this.escapeHtml(description)}</p>
+          </div>
+          <div class="mapping-card-body">
+            <ul class="endpoints-list">
+      `;
+      
+      for (const endpoint of endpoints) {
+        const methodsStr = endpoint.methods.join(', ');
+        const note = endpoint.note ? ` <span class="endpoint-note">(${this.escapeHtml(endpoint.note)})</span>` : '';
+        html += `
+          <li class="endpoint-item">
+            <span class="endpoint-methods">${this.escapeHtml(methodsStr)}</span>
+            <code class="endpoint-path">${this.escapeHtml(endpoint.path)}</code>
+            ${note}
+          </li>
+        `;
+      }
+      
+      html += `
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+    
+    this.mappingsByPermission.innerHTML = html;
+  }
+
+  renderMappingsByEndpoint() {
+    if (!this.permissionMappings) return;
+
+    const { by_endpoint, summary } = this.permissionMappings;
+    
+    let html = '';
+    
+    // Summary stats
+    html += `
+      <div class="mappings-summary">
+        <div class="summary-stat">
+          <span class="summary-label">Total Endpoints:</span>
+          <span class="summary-value">${summary.total_endpoints}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-label">Permission Protected:</span>
+          <span class="summary-value">${summary.permission_protected}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-label">Authentication Only:</span>
+          <span class="summary-value">${summary.authentication_only}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-label">Board Access:</span>
+          <span class="summary-value">${summary.board_access}</span>
+        </div>
+        <div class="summary-stat">
+          <span class="summary-label">Public:</span>
+          <span class="summary-value">${summary.public}</span>
+        </div>
+      </div>
+    `;
+
+    // Endpoints list
+    const endpointKeys = Object.keys(by_endpoint).sort();
+    
+    for (const endpointPath of endpointKeys) {
+      const endpoint = by_endpoint[endpointPath];
+      const methodsStr = endpoint.methods.join(', ');
+      const protectionType = endpoint.protection;
+      
+      let protectionBadge = '';
+      
+      if (protectionType === 'permission') {
+        protectionBadge = '<span class="protection-badge protection-permission">Permission Required</span>';
+      } else if (protectionType === 'authentication') {
+        protectionBadge = '<span class="protection-badge protection-auth">Authentication Only</span>';
+      } else if (protectionType === 'board_access') {
+        protectionBadge = '<span class="protection-badge protection-board">Board Access Required</span>';
+      } else if (protectionType === 'public') {
+        protectionBadge = '<span class="protection-badge protection-public">Public</span>';
+      }
+      
+      html += `
+        <div class="mapping-card">
+          <div class="mapping-card-header">
+            <div class="endpoint-header">
+              <div class="endpoint-info">
+                <span class="endpoint-methods">${this.escapeHtml(methodsStr)}</span>
+                <code class="endpoint-path">${this.escapeHtml(endpoint.path)}</code>
+              </div>
+              ${protectionBadge}
+            </div>
+          </div>
+      `;
+      
+      if (protectionType === 'permission' && endpoint.permissions && endpoint.permissions.length > 0) {
+        html += `
+          <div class="mapping-card-body">
+            <ul class="permissions-list">
+              ${endpoint.permissions.map(perm => `<li><code class="permission-name">${this.escapeHtml(perm)}</code></li>`).join('')}
+            </ul>
+          </div>
+        `;
+      }
+      
+      html += `</div>`;
+    }
+    
+    this.mappingsByEndpoint.innerHTML = html;
+  }
+
+  toggleMappingView() {
+    if (this.currentMappingView === 'permission') {
+      // Switch to endpoint view
+      this.currentMappingView = 'endpoint';
+      this.mappingsByPermission.style.display = 'none';
+      this.mappingsByEndpoint.style.display = 'block';
+      this.viewToggleText.textContent = 'View by Permission';
+      this.renderMappingsByEndpoint();
+    } else {
+      // Switch to permission view
+      this.currentMappingView = 'permission';
+      this.mappingsByEndpoint.style.display = 'none';
+      this.mappingsByPermission.style.display = 'block';
+      this.viewToggleText.textContent = 'View by Endpoint';
+      this.renderMappingsByPermission();
     }
   }
 

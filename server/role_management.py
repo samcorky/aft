@@ -850,3 +850,246 @@ def update_role(role_id):
         
     finally:
         db.close()
+
+
+@role_mgmt_bp.route('/permission-mappings', methods=['GET'])
+@require_any_permission('role.manage', 'user.role')
+def get_permission_mappings():
+    """
+    Get dynamic mapping of permissions to API endpoints and vice versa.
+    This endpoint analyzes the codebase at runtime to generate up-to-date mappings.
+    ---
+    tags:
+      - Role Management
+    responses:
+      200:
+        description: Mapping of permissions to endpoints and endpoints to permissions
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            data:
+              type: object
+              properties:
+                by_permission:
+                  type: object
+                  description: Permissions sorted alphabetically with their endpoints
+                by_endpoint:
+                  type: object
+                  description: Endpoints sorted alphabetically with their required permissions
+                summary:
+                  type: object
+                  description: Summary statistics
+      403:
+        description: Forbidden - requires role.manage or user.role permission
+    """
+    import re
+    from pathlib import Path
+    from collections import defaultdict
+    
+    def extract_routes_from_file(file_path):
+        """Extract routes and their decorators from a Python file."""
+        routes = []
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.split('\n')
+        except Exception as e:
+            logger.error(f"Error reading file {file_path}: {e}")
+            return routes
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            # Look for route decorators
+            route_match = re.search(r'@(?:app|user_mgmt_bp|role_mgmt_bp)\.route\([\'"]([^\'"]+)[\'"](?:,\s*methods=\[([^\]]+)\])?\)', line)
+            
+            if route_match:
+                route_path = route_match.group(1)
+                methods = route_match.group(2) if route_match.group(2) else '"GET"'
+                methods = [m.strip().strip('"\'') for m in methods.split(',')]
+                
+                # Look at following lines for decorators (they come AFTER the route decorator)
+                decorators = []
+                j = i + 1
+                while j < len(lines) and j < i + 10:  # Look forward up to 10 lines
+                    next_line = lines[j].strip()
+                    
+                    # Check for permission decorators
+                    perm_match = re.search(r'@require_permission\([\'"]([^\'"]+)[\'"]\)', next_line)
+                    if perm_match:
+                        decorators.append({
+                            'type': 'require_permission',
+                            'permission': perm_match.group(1)
+                        })
+                    
+                    # Check for any permission decorators
+                    any_perm_match = re.search(r'@require_any_permission\(([^)]+)\)', next_line)
+                    if any_perm_match:
+                        perms_str = any_perm_match.group(1)
+                        perms = [p.strip().strip('"\'') for p in perms_str.split(',')]
+                        decorators.append({
+                            'type': 'require_any_permission',
+                            'permissions': perms
+                        })
+                    
+                    # Check for authentication decorator
+                    if '@require_authentication' in next_line:
+                        decorators.append({
+                            'type': 'require_authentication'
+                        })
+                    
+                    # Check for board access decorator
+                    board_access_match = re.search(r'@require_board_access\(([^)]*)\)', next_line)
+                    if board_access_match:
+                        args = board_access_match.group(1)
+                        require_owner = 'require_owner=True' in args
+                        decorators.append({
+                            'type': 'require_board_access',
+                            'require_owner': require_owner
+                        })
+                    
+                    # Stop if we hit a function definition
+                    if next_line.startswith('def '):
+                        break
+                    
+                    j += 1
+                
+                # Adjust route path for blueprints
+                if '_bp.route' in line:
+                    if 'user_mgmt_bp' in line:
+                        route_path = '/api/users' + route_path
+                    elif 'role_mgmt_bp' in line:
+                        route_path = '/api/roles' + route_path
+                
+                routes.append({
+                    'path': route_path,
+                    'methods': methods,
+                    'decorators': decorators,
+                    'file': file_path.name
+                })
+            
+            i += 1
+        
+        return routes
+    
+    try:
+        # Files to analyze
+        server_dir = Path(__file__).parent
+        files_to_analyze = [
+            server_dir / 'app.py',
+            server_dir / 'user_management.py',
+            server_dir / 'role_management.py',
+        ]
+        
+        all_routes = []
+        
+        # Extract routes from each file
+        for file_path in files_to_analyze:
+            if file_path.exists():
+                routes = extract_routes_from_file(file_path)
+                all_routes.extend(routes)
+        
+        # Build permission to endpoints mapping
+        permission_to_endpoints = defaultdict(list)
+        endpoint_to_permissions = {}
+        
+        for route in all_routes:
+            endpoint_key = f"{route['path']}"
+            methods_str = ', '.join(route['methods'])
+            
+            # Categorize the route
+            has_permission = False
+            permissions_list = []
+            protection_type = 'public'
+            
+            for decorator in route['decorators']:
+                if decorator['type'] == 'require_permission':
+                    has_permission = True
+                    perm = decorator['permission']
+                    permissions_list.append(perm)
+                    permission_to_endpoints[perm].append({
+                        'path': route['path'],
+                        'methods': route['methods']
+                    })
+                    protection_type = 'permission'
+                elif decorator['type'] == 'require_any_permission':
+                    has_permission = True
+                    for perm in decorator['permissions']:
+                        permissions_list.append(perm)
+                        permission_to_endpoints[perm].append({
+                            'path': route['path'],
+                            'methods': route['methods'],
+                            'note': 'any of these permissions'
+                        })
+                    protection_type = 'permission'
+                elif decorator['type'] == 'require_authentication':
+                    if not has_permission:
+                        protection_type = 'authentication'
+                elif decorator['type'] == 'require_board_access':
+                    if not has_permission:
+                        protection_type = 'board_access'
+            
+            # Store endpoint info
+            endpoint_info = {
+                'path': route['path'],
+                'methods': route['methods'],
+                'methods_str': methods_str,
+                'protection': protection_type
+            }
+            
+            if permissions_list:
+                # Remove duplicates while preserving order
+                permissions_list = list(dict.fromkeys(permissions_list))
+                endpoint_info['permissions'] = permissions_list
+            
+            endpoint_to_permissions[endpoint_key] = endpoint_info
+        
+        # Sort everything
+        for perm in permission_to_endpoints:
+            # Remove duplicate endpoints for the same permission
+            seen = set()
+            unique_endpoints = []
+            for endpoint in permission_to_endpoints[perm]:
+                key = (endpoint['path'], tuple(endpoint['methods']))
+                if key not in seen:
+                    seen.add(key)
+                    unique_endpoints.append(endpoint)
+            permission_to_endpoints[perm] = sorted(unique_endpoints, key=lambda x: x['path'])
+        
+        sorted_permission_to_endpoints = dict(sorted(permission_to_endpoints.items()))
+        sorted_endpoint_to_permissions = dict(sorted(endpoint_to_permissions.items()))
+        
+        # Get permission descriptions
+        permission_details = {}
+        for perm in sorted_permission_to_endpoints.keys():
+            permission_details[perm] = {
+                'description': PERMISSION_DEFINITIONS.get(perm, 'No description available'),
+                'endpoint_count': len(permission_to_endpoints[perm])
+            }
+        
+        # Create summary
+        summary = {
+            'total_endpoints': len(all_routes),
+            'permission_protected': len([e for e in endpoint_to_permissions.values() if e['protection'] == 'permission']),
+            'authentication_only': len([e for e in endpoint_to_permissions.values() if e['protection'] == 'authentication']),
+            'board_access': len([e for e in endpoint_to_permissions.values() if e['protection'] == 'board_access']),
+            'public': len([e for e in endpoint_to_permissions.values() if e['protection'] == 'public']),
+            'total_permissions': len(sorted_permission_to_endpoints)
+        }
+        
+        logger.info(f"Successfully generated mappings: {summary}")
+        
+        return create_success_response(data={
+            'by_permission': sorted_permission_to_endpoints,
+            'by_endpoint': sorted_endpoint_to_permissions,
+            'permission_details': permission_details,
+            'summary': summary
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating permission mappings: {e}", exc_info=True)
+        return create_error_response(f"Error generating permission mappings: {str(e)}", 500)

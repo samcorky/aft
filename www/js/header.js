@@ -317,15 +317,49 @@ class Header {
   // Load current user info
   async loadCurrentUser() {
     try {
-      const response = await fetch('/api/auth/me');
       const userNameEl = document.getElementById('header-user-name');
       const loginItem = document.getElementById('login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
       
+      // Check sessionStorage cache first to avoid API calls on every page load
+      const cachedUser = sessionStorage.getItem('currentUser');
+      if (cachedUser) {
+        try {
+          const userData = JSON.parse(cachedUser);
+          // Use cached data
+          window.currentUser = userData;
+          
+          const displayName = userData.display_name || userData.username || userData.email;
+          if (userNameEl) userNameEl.textContent = displayName;
+          if (loginItem) loginItem.style.display = 'none';
+          if (logoutItem) {
+            logoutItem.style.display = 'block';
+            // Add logout handler
+            logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          
+          // Filter menu items based on permissions
+          this.filterMenuByPermissions();
+          
+          // Mark user data as ready
+          window.userDataReady = true;
+          return; // Use cache, skip API call
+        } catch (e) {
+          // Invalid cache, remove it and fetch fresh
+          sessionStorage.removeItem('currentUser');
+        }
+      }
+      
+      // No cache or invalid cache - fetch from API
+      const response = await fetch('/api/auth/me');
+      
       if (response.ok) {
         const data = await response.json();
         if (data.user) {
-          // User is logged in
+          // User is logged in - store globally and in cache
+          window.currentUser = data.user;
+          sessionStorage.setItem('currentUser', JSON.stringify(data.user));
+          
           const displayName = data.user.display_name || data.user.username || data.user.email;
           if (userNameEl) userNameEl.textContent = displayName;
           if (loginItem) loginItem.style.display = 'none';
@@ -334,29 +368,77 @@ class Header {
             // Add logout handler
             logoutItem.addEventListener('click', () => this.handleLogout());
           }
+          
+          // Filter menu items based on permissions
+          this.filterMenuByPermissions();
+          
+          // Mark user data as ready
+          window.userDataReady = true;
           return;
         }
       }
       
       // User is not logged in or error occurred
+      window.currentUser = null;
+      sessionStorage.removeItem('currentUser');
       if (userNameEl) userNameEl.textContent = 'Guest';
       if (loginItem) loginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      
+      // Hide permission-protected menu items
+      this.filterMenuByPermissions();
+      
+      // Mark user data as ready (even if not logged in)
+      window.userDataReady = true;
     } catch (error) {
       console.error('Error loading current user:', error);
       // Show guest on error
+      window.currentUser = null;
+      sessionStorage.removeItem('currentUser');
       const userNameEl = document.getElementById('header-user-name');
       if (userNameEl) userNameEl.textContent = 'Guest';
       const loginItem = document.getElementById('login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
       if (loginItem) loginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      
+      // Hide permission-protected menu items
+      this.filterMenuByPermissions();
+      
+      // Mark user data as ready (even on error)
+      window.userDataReady = true;
     }
+  }
+
+  // Filter menu items based on user permissions
+  filterMenuByPermissions() {
+    // Menu items and their required permissions
+    const protectedItems = [
+      { selector: 'a[href="/user-management.html"]', permission: 'user.manage' },
+      { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
+    ];
+    
+    protectedItems.forEach(({ selector, permission }) => {
+      const menuItem = document.querySelector(selector);
+      if (menuItem) {
+        // Check if user has permission (hasPermission is defined in utils.js)
+        if (typeof hasPermission === 'function' && hasPermission(permission)) {
+          menuItem.style.display = '';  // Show
+        } else {
+          menuItem.style.display = 'none';  // Hide
+        }
+      }
+    });
   }
 
   // Handle logout
   async handleLogout() {
     try {
+      // Clear cached user data
+      sessionStorage.removeItem('currentUser');
+      window.currentUser = null;
+      window.userDataReady = false;
+      
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
         headers: {

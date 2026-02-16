@@ -32,6 +32,13 @@ class RoleManagement {
   }
 
   async init() {
+    // Check permission before loading page content
+    if (typeof hasPermission === 'function' && !hasPermission('role.manage')) {
+      // User doesn't have permission - show access denied
+      showAccessDenied('You need the "role.manage" permission to access this page.');
+      return;
+    }
+    
     this.attachEventListeners();
     await Promise.all([
       this.loadRoles(),
@@ -80,6 +87,13 @@ class RoleManagement {
       this.rolesContainer.style.display = 'none';
 
       const response = await fetch('/api/roles');
+      
+      // Check for permission errors
+      if (response.status === 403) {
+        showAccessDenied('You need the "role.manage" permission to access role data.');
+        return;
+      }
+      
       const data = await response.json();
 
       if (data.success && data.roles) {
@@ -100,6 +114,13 @@ class RoleManagement {
   async loadBoards() {
     try {
       const response = await fetch('/api/roles/boards');
+      
+      // Check for permission errors
+      if (response.status === 403) {
+        console.warn('Permission denied loading boards');
+        return;
+      }
+      
       const data = await response.json();
 
       if (data.success && data.boards) {
@@ -117,6 +138,13 @@ class RoleManagement {
       this.usersContainer.style.display = 'none';
 
       const response = await fetch('/api/roles/users');
+      
+      // Check for permission errors
+      if (response.status === 403) {
+        showAccessDenied('You need the "role.manage" permission to access user role data.');
+        return;
+      }
+      
       const data = await response.json();
 
       if (data.success && data.users) {
@@ -453,6 +481,14 @@ class RoleManagement {
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
+  // Wait for header to load and user info to be available
+  // The header.js sets window.userDataReady flag when done
+  let attempts = 0;
+  while (!window.userDataReady && attempts < 50) {
+    await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+    attempts++;
+  }
+  
   const roleManagement = new RoleManagement();
   await roleManagement.init();
 });

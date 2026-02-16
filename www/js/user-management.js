@@ -23,6 +23,13 @@ class UserManagement {
   }
 
   async init() {
+    // Check permission before loading page content
+    if (typeof hasPermission === 'function' && !hasPermission('user.manage')) {
+      // User doesn't have permission - show access denied
+      showAccessDenied('You need the "user.manage" permission to access this page.');
+      return;
+    }
+    
     this.attachEventListeners();
     await this.loadPendingUsers();
     await this.loadActiveUsers();
@@ -54,6 +61,13 @@ class UserManagement {
       this.pendingUsersContainer.style.display = 'none';
 
       const response = await fetch('/api/users/pending');
+      
+      // Check for permission errors
+      if (response.status === 403) {
+        showAccessDenied('You need the "user.manage" permission to access pending user data.');
+        return;
+      }
+      
       const data = await response.json();
 
       if (data.success && data.users) {
@@ -82,6 +96,13 @@ class UserManagement {
       this.activeUsersContainer.style.display = 'none';
 
       const response = await fetch('/api/users?status=approved');
+      
+      // Check for permission errors
+      if (response.status === 403) {
+        showAccessDenied('You need the "user.manage" permission to access active user data.');
+        return;
+      }
+      
       const data = await response.json();
 
       if (data.success && data.users) {
@@ -457,7 +478,15 @@ class UserManagement {
 }
 
 // Initialize when page loads
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  // Wait for header to load and user info to be available
+  // The header.js sets window.userDataReady flag when done
+  let attempts = 0;
+  while (!window.userDataReady && attempts < 50) {
+    await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms
+    attempts++;
+  }
+  
   const userManagement = new UserManagement();
-  userManagement.init();
+  await userManagement.init();
 });

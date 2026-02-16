@@ -498,6 +498,11 @@ def get_current_user():
                         type: string
                       description:
                         type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                  description: List of permission strings the user has
       401:
         description: Not authenticated
     """
@@ -506,13 +511,18 @@ def get_current_user():
     
     user = g.user
     
-    # Get user's roles
+    # Get user's roles and permissions
     db = SessionLocal()
     try:
+        from utils import get_user_permissions
+        
         roles = db.query(Role).join(UserRole).filter(
             UserRole.user_id == user.id,
             UserRole.board_id.is_(None)  # Global roles only
         ).all()
+        
+        # Get user's global permissions
+        permissions = list(get_user_permissions(user.id))
         
         user_data = {
             'id': user.id,
@@ -521,7 +531,8 @@ def get_current_user():
             'display_name': user.display_name,
             'email_verified': user.email_verified,
             'oauth_provider': user.oauth_provider,
-            'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles]
+            'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
+            'permissions': permissions
         }
         
         return create_success_response(data={'user': user_data})

@@ -7987,6 +7987,28 @@ def delete_all_notifications():
 
 
 # Error handlers to ensure API endpoints return JSON
+@app.errorhandler(401)
+def unauthorized_error(error):
+    """Handle 401 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": str(error.description) if hasattr(error, 'description') else "Authentication required"
+        }), 401
+    return error
+
+
+@app.errorhandler(403)
+def forbidden_error(error):
+    """Handle 403 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": str(error.description) if hasattr(error, 'description') else "Access forbidden"
+        }), 403
+    return error
+
+
 @app.errorhandler(404)
 def not_found_error(error):
     """Handle 404 errors with JSON response for API endpoints."""

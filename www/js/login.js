@@ -31,6 +31,21 @@ form.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.success) {
+            // Fetch and cache user data immediately after login
+            // This populates the session cache before navigation
+            try {
+                const userResponse = await fetch('/api/auth/me');
+                if (userResponse.ok) {
+                    const userData = await userResponse.json();
+                    if (userData.user) {
+                        sessionStorage.setItem('currentUser', JSON.stringify(userData.user));
+                    }
+                }
+            } catch (err) {
+                console.error('Error caching user data:', err);
+                // Non-critical, continue with login
+            }
+            
             // Check if there's a redirect URL stored (from before logout)
             const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
             sessionStorage.removeItem('redirectAfterLogin'); // Clean up

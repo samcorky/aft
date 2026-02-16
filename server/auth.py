@@ -176,18 +176,61 @@ def load_user_from_session():
 def login():
     """
     Login endpoint.
-    
-    Request body:
-        {
-            "email": "user@example.com",  // or username
-            "password": "password123",
-            "remember_me": false  // optional
-        }
-    
-    Returns:
-        200: Login successful with user data
-        401: Invalid credentials
-        400: Validation error
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - password
+          properties:
+            email:
+              type: string
+              description: Email address or username
+              example: test-admin@localhost
+            password:
+              type: string
+              format: password
+              description: User password
+              example: TestAdmin123!
+            remember_me:
+              type: boolean
+              description: Keep user logged in
+              default: false
+    responses:
+      200:
+        description: Login successful
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                username:
+                  type: string
+                display_name:
+                  type: string
+                email_verified:
+                  type: boolean
+      400:
+        description: Validation error
+      401:
+        description: Invalid credentials
+      403:
+        description: Account disabled or pending approval
     """
     try:
         data = request.get_json()
@@ -281,9 +324,19 @@ def login():
 def logout():
     """
     Logout endpoint.
-    
-    Returns:
-        200: Logout successful
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: Logout successful
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
     """
     user_id = session.get('user_id')
     session.clear()
@@ -298,18 +351,49 @@ def logout():
 def validate_credentials():
     """
     Validate credentials without creating a session.
-    Used by Swagger UI to test credentials.
-    
-    Request body:
-        {
-            "email": "user@example.com",  // or username
-            "password": "password123"
-        }
-    
-    Returns:
-        200: Credentials valid
-        401: Invalid credentials
-        400: Validation error
+    Used by Swagger UI to test credentials before using them.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - password
+          properties:
+            email:
+              type: string
+              description: Email address or username
+              example: test-admin@localhost
+            password:
+              type: string
+              format: password
+              description: User password
+              example: TestAdmin123!
+    responses:
+      200:
+        description: Credentials are valid
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            email:
+              type: string
+            username:
+              type: string
+      400:
+        description: Validation error
+      401:
+        description: Invalid credentials
+      403:
+        description: Account disabled or pending approval
     """
     try:
         data = request.get_json()
@@ -377,10 +461,45 @@ def validate_credentials():
 def get_current_user():
     """
     Get current authenticated user information.
-    
-    Returns:
-        200: User data
-        401: Not authenticated
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: Current user data
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                username:
+                  type: string
+                display_name:
+                  type: string
+                email_verified:
+                  type: boolean
+                oauth_provider:
+                  type: string
+                roles:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      description:
+                        type: string
+      401:
+        description: Not authenticated
     """
     if not g.get('user'):
         return create_error_response("Not authenticated", 401)
@@ -415,19 +534,66 @@ def get_current_user():
 def register():
     """
     Register a new user account.
-    
-    Request body:
-        {
-            "email": "user@example.com",
-            "username": "username",
-            "password": "password123",
-            "display_name": "Display Name"  // optional
-        }
-    
-    Returns:
-        201: User created
-        400: Validation error
-        409: User already exists
+    Note: New accounts require administrator approval before login.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - username
+            - password
+          properties:
+            email:
+              type: string
+              format: email
+              description: Email address
+              example: newuser@example.com
+            username:
+              type: string
+              description: Username (unique)
+              example: newuser
+            password:
+              type: string
+              format: password
+              description: Password (minimum 8 characters)
+              example: SecurePass123!
+            display_name:
+              type: string
+              description: Display name (optional)
+              example: New User
+    responses:
+      201:
+        description: User created successfully, pending approval
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                username:
+                  type: string
+                display_name:
+                  type: string
+                requires_approval:
+                  type: boolean
+      400:
+        description: Validation error
+      409:
+        description: Email or username already exists
     """
     try:
         data = request.get_json()
@@ -534,18 +700,42 @@ def register():
 @auth_bp.route('/change-password', methods=['POST'])
 def change_password():
     """
-    Change password for current user.
-    
-    Request body:
-        {
-            "current_password": "oldpassword",
-            "new_password": "newpassword"
-        }
-    
-    Returns:
-        200: Password changed
-        401: Not authenticated or invalid current password
-        400: Validation error
+    Change password for current authenticated user.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - current_password
+            - new_password
+          properties:
+            current_password:
+              type: string
+              format: password
+              description: Current password
+            new_password:
+              type: string
+              format: password
+              description: New password (minimum 8 characters)
+    responses:
+      200:
+        description: Password changed successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Validation error
+      401:
+        description: Not authenticated or current password incorrect
     """
     if not g.get('user'):
         return create_error_response("Not authenticated", 401)
@@ -596,10 +786,35 @@ def change_password():
 def check_auth():
     """
     Check if user is authenticated.
-    
-    Returns:
-        200: User is authenticated with user data
-        401: Not authenticated
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: User is authenticated
+        schema:
+          type: object
+          properties:
+            authenticated:
+              type: boolean
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                username:
+                  type: string
+                display_name:
+                  type: string
+      401:
+        description: Not authenticated
+        schema:
+          type: object
+          properties:
+            authenticated:
+              type: boolean
     """
     if g.get('user'):
         return jsonify({
@@ -619,13 +834,21 @@ def check_auth():
 def setup_status():
     """
     Check if initial setup is complete.
-    
-    Returns:
-        200: Setup status
-            {
-                "setup_complete": true/false,
-                "has_users": true/false
-            }
+    ---
+    tags:
+      - Authentication
+    responses:
+      200:
+        description: Setup status information
+        schema:
+          type: object
+          properties:
+            setup_complete:
+              type: boolean
+              description: Whether initial setup is complete
+            has_users:
+              type: boolean
+              description: Whether any users exist in system
     """
     db = SessionLocal()
     try:
@@ -650,19 +873,63 @@ def setup_admin():
     """
     Create the first administrator account during initial setup.
     This endpoint only works if no users exist yet.
-    
-    Request body:
-        {
-            "email": "admin@example.com",
-            "username": "admin",
-            "password": "securepassword",
-            "display_name": "Administrator"
-        }
-    
-    Returns:
-        201: Admin user created successfully
-        400: Validation error
-        403: Setup already complete
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - username
+            - password
+          properties:
+            email:
+              type: string
+              format: email
+              description: Administrator email
+              example: admin@example.com
+            username:
+              type: string
+              description: Administrator username
+              example: admin
+            password:
+              type: string
+              format: password
+              description: Administrator password (minimum 8 characters)
+              example: SecureAdminPass123!
+            display_name:
+              type: string
+              description: Display name (optional)
+              example: Administrator
+    responses:
+      201:
+        description: Admin user created and logged in
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                email:
+                  type: string
+                username:
+                  type: string
+                display_name:
+                  type: string
+      400:
+        description: Validation error
+      403:
+        description: Setup already complete
     """
     try:
         db = SessionLocal()

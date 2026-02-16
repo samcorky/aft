@@ -794,7 +794,7 @@ def get_version():
 
 
 @app.route("/api/admin/test-user", methods=["POST"])
-@require_permission("manage_users")
+@require_authentication
 def toggle_test_user():
     """Toggle test admin user (create if doesn't exist, delete if exists).
     
@@ -824,10 +824,22 @@ def toggle_test_user():
             message:
               type: string
       403:
-        description: Forbidden - requires manage_users permission
+        description: Forbidden - requires user.manage and role.manage permissions
       500:
         description: Server error
     """
+    # Check for both user.manage and role.manage permissions
+    from utils import get_user_permissions
+    from permissions import has_permission
+    
+    user_permissions = get_user_permissions(g.user.id)
+    
+    if not has_permission(user_permissions, 'user.manage'):
+        abort(403, description="Permission denied: user.manage required")
+    
+    if not has_permission(user_permissions, 'role.manage'):
+        abort(403, description="Permission denied: role.manage required")
+    
     db = SessionLocal()
     try:
         # Check if test-admin user exists

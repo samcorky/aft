@@ -29,8 +29,32 @@ class SystemInfo {
     // Load data
     await this.loadSystemInfo();
     
-    // Check test user status after loading system info
-    await this.checkTestUserStatus();
+    // Check permissions and handle test user management section
+    this.handleTestUserManagementPermissions();
+  }
+
+  handleTestUserManagementPermissions() {
+    // Wait for user data to be ready (loaded by header.js)
+    if (!window.userDataReady) {
+      setTimeout(() => this.handleTestUserManagementPermissions(), 100);
+      return;
+    }
+    
+    // Check if user has both user.manage and role.manage permissions
+    const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
+    const hasRoleManage = typeof hasPermission === 'function' && hasPermission('role.manage');
+    
+    const testUserCard = document.querySelector('.warning-card.full-width');
+    
+    if (!hasUserManage || !hasRoleManage) {
+      // Hide the test user management card entirely
+      if (testUserCard) {
+        testUserCard.style.display = 'none';
+      }
+    } else {
+      // User has both permissions, load test user status
+      this.checkTestUserStatus();
+    }
   }
 
   setupEventListeners() {

@@ -968,7 +968,7 @@ def get_broadcast_status():
 
 
 @app.route("/api/scheduler/health")
-@require_permission('admin.system')
+@require_permission('setting.view')
 def get_scheduler_health():
     """Get health status of all background schedulers.
     ---

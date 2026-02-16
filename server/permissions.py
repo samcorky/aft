@@ -117,9 +117,10 @@ INITIAL_ROLES = {
         ]
     },
     'editor': {
-        'description': 'Can create and edit cards on assigned boards',
+        'description': 'Can create boards and edit cards on assigned boards',
         'is_system_role': True,
         'permissions': [
+            'board.create',
             'board.view',
             'card.create',
             'card.view',

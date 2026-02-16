@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Management - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/user-management.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <h1 class="page-title">User Management</h1>
+    <div class="settings-container">
+      
+      <!-- Pending Users Section -->
+      <div class="settings-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <polyline points="17 11 19 13 23 9"></polyline>
+          </svg>
+          Pending Approval
+        </h3>
+        <p class="setting-help">Users waiting for administrator approval to access the system.</p>
+        
+        <div id="pending-users-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading pending users...
+        </div>
+        
+        <div id="pending-users-empty" class="empty-message" style="display: none;">
+          No users are currently waiting for approval.
+        </div>
+        
+        <div id="pending-users-list" class="users-list" style="display: none;">
+          <!-- Pending users will be populated here -->
+        </div>
+      </div>
+
+      <!-- Active Users Section -->
+      <div class="settings-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          Active Users
+        </h3>
+        <p class="setting-help">All approved and active users in the system.</p>
+        
+        <div class="filter-bar">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="user-search" placeholder="Search by name or email..." class="search-input">
+          </div>
+        </div>
+        
+        <div id="active-users-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading users...
+        </div>
+        
+        <div id="active-users-empty" class="empty-message" style="display: none;">
+          No active users found.
+        </div>
+        
+        <div id="active-users-list" class="users-list" style="display: none;">
+          <!-- Active users will be populated here -->
+        </div>
+      </div>
+
+      <!-- Status Message -->
+      <div class="settings-actions">
+        <div id="status-message" class="settings-status"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Confirmation Modal -->
+  <div class="modal" id="confirm-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div class="modal-content">
+      <h2 id="confirm-modal-title">Confirm Action</h2>
+      <p id="confirm-modal-message"></p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="confirm-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="confirm-ok-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+  <script src="/js/user-management.js"></script>
+</body>
+</html>

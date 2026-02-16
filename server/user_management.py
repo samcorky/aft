@@ -29,12 +29,57 @@ user_mgmt_bp = Blueprint('user_mgmt', __name__, url_prefix='/api/users')
 def list_users():
     """
     List all users in the system.
-    
-    Query params:
-        status: 'pending', 'approved', 'all' (default: 'all')
-        
-    Returns:
-        200: List of users
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: status
+        in: query
+        type: string
+        enum: [pending, approved, all]
+        default: all
+        description: Filter users by status
+    responses:
+      200:
+        description: List of users
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            users:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  email:
+                    type: string
+                  username:
+                    type: string
+                  display_name:
+                    type: string
+                  is_active:
+                    type: boolean
+                  is_approved:
+                    type: boolean
+                  email_verified:
+                    type: boolean
+                  oauth_provider:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+                  last_login_at:
+                    type: string
+                    format: date-time
+                  roles:
+                    type: array
+                    items:
+                      type: object
+      403:
+        description: Forbidden - requires user.manage permission
     """
     status_filter = request.args.get('status', 'all')
     
@@ -82,9 +127,25 @@ def list_users():
 def list_pending_users():
     """
     List all pending (unapproved) users.
-    
-    Returns:
-        200: List of pending users
+    ---
+    tags:
+      - User Management
+    responses:
+      200:
+        description: List of pending users
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            users:
+              type: array
+              items:
+                type: object
+            count:
+              type: integer
+      403:
+        description: Forbidden - requires user.manage permission
     """
     db = SessionLocal()
     try:
@@ -115,13 +176,31 @@ def list_pending_users():
 def approve_user(user_id):
     """
     Approve a pending user account.
-    
-    Args:
-        user_id: ID of user to approve
-        
-    Returns:
-        200: User approved
-        404: User not found
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user to approve
+    responses:
+      200:
+        description: User approved successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: User is already approved
+      403:
+        description: Forbidden - requires user.manage permission
+      404:
+        description: User not found
     """
     db = SessionLocal()
     try:
@@ -153,13 +232,31 @@ def approve_user(user_id):
 def reject_user(user_id):
     """
     Reject and delete a pending user account.
-    
-    Args:
-        user_id: ID of user to reject
-        
-    Returns:
-        200: User rejected and deleted
-        404: User not found
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user to reject
+    responses:
+      200:
+        description: User rejected and deleted
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Cannot reject an approved user
+      403:
+        description: Forbidden - requires user.manage permission
+      404:
+        description: User not found
     """
     db = SessionLocal()
     try:
@@ -195,13 +292,31 @@ def reject_user(user_id):
 def deactivate_user(user_id):
     """
     Deactivate a user account (prevents login).
-    
-    Args:
-        user_id: ID of user to deactivate
-        
-    Returns:
-        200: User deactivated
-        404: User not found
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user to deactivate
+    responses:
+      200:
+        description: User deactivated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Cannot deactivate your own account
+      403:
+        description: Forbidden - requires user.manage permission
+      404:
+        description: User not found
     """
     db = SessionLocal()
     try:
@@ -231,13 +346,29 @@ def deactivate_user(user_id):
 def activate_user(user_id):
     """
     Reactivate a deactivated user account.
-    
-    Args:
-        user_id: ID of user to activate
-        
-    Returns:
-        200: User activated
-        404: User not found
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user to activate
+    responses:
+      200:
+        description: User activated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      403:
+        description: Forbidden - requires user.manage permission
+      404:
+        description: User not found
     """
     db = SessionLocal()
     try:
@@ -264,17 +395,47 @@ def activate_user(user_id):
 def assign_role(user_id):
     """
     Assign a role to a user.
-    
-    Request body:
-        {
-            "role_name": "administrator",
-            "board_id": null  // optional, for board-specific roles
-        }
-    
-    Returns:
-        200: Role assigned
-        404: User or role not found
-        409: Role already assigned
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - role_name
+          properties:
+            role_name:
+              type: string
+              description: Name of the role to assign
+            board_id:
+              type: integer
+              description: Optional board ID for board-specific roles
+    responses:
+      200:
+        description: Role assigned successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Invalid request
+      403:
+        description: Forbidden - requires role.manage permission
+      404:
+        description: User or role not found
+      409:
+        description: Role already assigned
     """
     data = request.get_json()
     
@@ -332,13 +493,38 @@ def assign_role(user_id):
 def remove_role(user_id, role_id):
     """
     Remove a role from a user.
-    
-    Query params:
-        board_id: optional, for board-specific roles
-    
-    Returns:
-        200: Role removed
-        404: Assignment not found
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user
+      - name: role_id
+        in: path
+        type: integer
+        required: true
+        description: ID of role to remove
+      - name: board_id
+        in: query
+        type: integer
+        description: Optional board ID for board-specific roles
+    responses:
+      200:
+        description: Role removed successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      403:
+        description: Forbidden - requires role.manage permission
+      404:
+        description: Role assignment not found
     """
     board_id = request.args.get('board_id', type=int)
     

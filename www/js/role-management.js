@@ -1,0 +1,458 @@
+// Role Management functionality
+class RoleManagement {
+  constructor() {
+    this.rolesContainer = document.getElementById('roles-list');
+    this.rolesLoading = document.getElementById('roles-loading');
+    
+    this.usersContainer = document.getElementById('users-list');
+    this.usersLoading = document.getElementById('users-loading');
+    this.usersEmpty = document.getElementById('users-empty');
+    
+    this.searchInput = document.getElementById('user-search');
+    this.statusMessage = document.getElementById('status-message');
+    
+    this.addRoleModal = document.getElementById('add-role-modal');
+    this.addRoleUserName = document.getElementById('add-role-user-name');
+    this.roleSelect = document.getElementById('role-select');
+    this.boardSelect = document.getElementById('board-select');
+    this.addRoleCancelBtn = document.getElementById('add-role-cancel-btn');
+    this.addRoleOkBtn = document.getElementById('add-role-ok-btn');
+    
+    this.confirmModal = document.getElementById('confirm-modal');
+    this.confirmModalTitle = document.getElementById('confirm-modal-title');
+    this.confirmModalMessage = document.getElementById('confirm-modal-message');
+    this.confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    this.confirmOkBtn = document.getElementById('confirm-ok-btn');
+    
+    this.confirmCallback = null;
+    this.currentUserId = null;
+    this.allUsers = [];
+    this.roles = [];
+    this.boards = [];
+  }
+
+  async init() {
+    this.attachEventListeners();
+    await Promise.all([
+      this.loadRoles(),
+      this.loadUsers(),
+      this.loadBoards()
+    ]);
+  }
+
+  attachEventListeners() {
+    // Search functionality
+    this.searchInput.addEventListener('input', () => {
+      this.filterUsers(this.searchInput.value);
+    });
+
+    // Add role modal handlers
+    this.addRoleCancelBtn.addEventListener('click', () => {
+      this.closeAddRoleModal();
+    });
+
+    this.addRoleOkBtn.addEventListener('click', () => {
+      this.handleAddRole();
+    });
+
+    // Confirmation modal handlers
+    this.confirmCancelBtn.addEventListener('click', () => {
+      this.closeConfirmModal();
+    });
+
+    // Click outside modal to close
+    this.addRoleModal.addEventListener('click', (e) => {
+      if (e.target === this.addRoleModal) {
+        this.closeAddRoleModal();
+      }
+    });
+
+    this.confirmModal.addEventListener('click', (e) => {
+      if (e.target === this.confirmModal) {
+        this.closeConfirmModal();
+      }
+    });
+  }
+
+  async loadRoles() {
+    try {
+      this.rolesLoading.style.display = 'block';
+      this.rolesContainer.style.display = 'none';
+
+      const response = await fetch('/api/roles');
+      const data = await response.json();
+
+      if (data.success && data.roles) {
+        this.roles = data.roles;
+        this.renderRoles(data.roles);
+        this.rolesLoading.style.display = 'none';
+        this.rolesContainer.style.display = 'block';
+      } else {
+        throw new Error(data.message || 'Failed to load roles');
+      }
+    } catch (error) {
+      console.error('Error loading roles:', error);
+      this.showStatus('Error loading roles: ' + error.message, 'error');
+      this.rolesLoading.style.display = 'none';
+    }
+  }
+
+  async loadBoards() {
+    try {
+      const response = await fetch('/api/roles/boards');
+      const data = await response.json();
+
+      if (data.success && data.boards) {
+        this.boards = data.boards;
+      }
+    } catch (error) {
+      console.error('Error loading boards:', error);
+    }
+  }
+
+  async loadUsers() {
+    try {
+      this.usersLoading.style.display = 'block';
+      this.usersEmpty.style.display = 'none';
+      this.usersContainer.style.display = 'none';
+
+      const response = await fetch('/api/roles/users');
+      const data = await response.json();
+
+      if (data.success && data.users) {
+        this.allUsers = data.users;
+        
+        if (this.allUsers.length === 0) {
+          this.usersLoading.style.display = 'none';
+          this.usersEmpty.style.display = 'block';
+        } else {
+          this.renderUsers(this.allUsers);
+          this.usersLoading.style.display = 'none';
+          this.usersContainer.style.display = 'block';
+        }
+      } else {
+        throw new Error(data.message || 'Failed to load users');
+      }
+    } catch (error) {
+      console.error('Error loading users:', error);
+      this.showStatus('Error loading users: ' + error.message, 'error');
+      this.usersLoading.style.display = 'none';
+    }
+  }
+
+  renderRoles(roles) {
+    this.rolesContainer.innerHTML = '';
+
+    roles.forEach(role => {
+      const roleCard = this.createRoleCard(role);
+      this.rolesContainer.appendChild(roleCard);
+    });
+  }
+
+  createRoleCard(role) {
+    const card = document.createElement('div');
+    card.className = 'role-card';
+    card.dataset.roleId = role.id;
+
+    const permissionsPreview = role.permissions.slice(0, 5);
+    const hasMore = role.permissions.length > 5;
+    const permissionsHtml = permissionsPreview.map(p => 
+      `<span class="permission-tag">${this.escapeHtml(p)}</span>`
+    ).join('');
+
+    card.innerHTML = `
+      <div class="role-header">
+        <div class="role-name">${this.escapeHtml(role.name)}</div>
+        ${role.is_system_role ? '<span class="role-badge">System</span>' : ''}
+      </div>
+      ${role.description ? `<div class="role-description">${this.escapeHtml(role.description)}</div>` : ''}
+      <div>
+        <strong>Permissions (${role.permissions.length}):</strong>
+        <div class="role-permissions" data-role-id="${role.id}">
+          ${permissionsHtml}
+          ${hasMore ? `<span class="permission-tag">+${role.permissions.length - 5} more</span>` : ''}
+        </div>
+        ${hasMore ? `<a href="javascript:void(0)" class="permission-toggle" data-role-id="${role.id}">Show all permissions</a>` : ''}
+      </div>
+    `;
+
+    // Add click handler for showing all permissions
+    const toggleLink = card.querySelector('.permission-toggle');
+    if (toggleLink) {
+      toggleLink.addEventListener('click', () => {
+        this.togglePermissions(role.id, role.permissions);
+      });
+    }
+
+    return card;
+  }
+
+  togglePermissions(roleId, allPermissions) {
+    const permissionsDiv = document.querySelector(`.role-permissions[data-role-id="${roleId}"]`);
+    const toggleLink = document.querySelector(`.permission-toggle[data-role-id="${roleId}"]`);
+    
+    if (!permissionsDiv || !toggleLink) return;
+
+    const isExpanded = permissionsDiv.dataset.expanded === 'true';
+
+    if (isExpanded) {
+      // Collapse - show only first 5
+      const permissionsPreview = allPermissions.slice(0, 5);
+      const permissionsHtml = permissionsPreview.map(p => 
+        `<span class="permission-tag">${this.escapeHtml(p)}</span>`
+      ).join('') + `<span class="permission-tag">+${allPermissions.length - 5} more</span>`;
+      
+      permissionsDiv.innerHTML = permissionsHtml;
+      permissionsDiv.dataset.expanded = 'false';
+      toggleLink.textContent = 'Show all permissions';
+    } else {
+      // Expand - show all
+      const permissionsHtml = allPermissions.map(p => 
+        `<span class="permission-tag">${this.escapeHtml(p)}</span>`
+      ).join('');
+      
+      permissionsDiv.innerHTML = permissionsHtml;
+      permissionsDiv.dataset.expanded = 'true';
+      toggleLink.textContent = 'Show less';
+    }
+  }
+
+  renderUsers(users) {
+    this.usersContainer.innerHTML = '';
+
+    users.forEach(user => {
+      const userCard = this.createUserCard(user);
+      this.usersContainer.appendChild(userCard);
+    });
+  }
+
+  createUserCard(user) {
+    const card = document.createElement('div');
+    card.className = 'user-card';
+    card.dataset.userId = user.id;
+
+    const rolesHtml = user.roles.length > 0
+      ? user.roles.map(role => `
+          <div class="user-role-item">
+            <div class="role-info">
+              <span class="role-name-badge">${this.escapeHtml(role.role_name)}</span>
+              <span class="role-scope">${role.board_name ? `(Board: ${this.escapeHtml(role.board_name)})` : '(Global)'}</span>
+            </div>
+            <button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
+              Remove
+            </button>
+          </div>
+        `).join('')
+      : '<div class="no-roles-message">No roles assigned</div>';
+
+    card.innerHTML = `
+      <div class="user-header">
+        <div class="user-info">
+          <div class="user-name">${this.escapeHtml(user.username)}</div>
+          <div class="user-email">${this.escapeHtml(user.email)}</div>
+        </div>
+        <div class="user-actions">
+          <button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="user-roles">
+        ${rolesHtml}
+      </div>
+    `;
+
+    // Attach event listeners
+    const addRoleBtn = card.querySelector('[data-action="add-role"]');
+    if (addRoleBtn) {
+      addRoleBtn.addEventListener('click', (e) => {
+        const userId = parseInt(e.currentTarget.dataset.userId);
+        const username = e.currentTarget.dataset.username;
+        this.openAddRoleModal(userId, username);
+      });
+    }
+
+    const removeRoleBtns = card.querySelectorAll('.remove-role-btn');
+    removeRoleBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const userId = parseInt(e.currentTarget.dataset.userId);
+        const roleId = parseInt(e.currentTarget.dataset.roleId);
+        const boardId = e.currentTarget.dataset.boardId ? parseInt(e.currentTarget.dataset.boardId) : null;
+        const user = this.allUsers.find(u => u.id === userId);
+        const role = user?.roles.find(r => r.role_id === roleId && (r.board_id || null) === boardId);
+        
+        if (user && role) {
+          const scope = role.board_name ? ` on board "${role.board_name}"` : ' (global)';
+          this.confirmRemoveRole(userId, roleId, boardId, `${user.username}: ${role.role_name}${scope}`);
+        }
+      });
+    });
+
+    return card;
+  }
+
+  filterUsers(searchTerm) {
+    const term = searchTerm.toLowerCase().trim();
+    
+    if (!term) {
+      this.renderUsers(this.allUsers);
+      return;
+    }
+
+    const filtered = this.allUsers.filter(user => 
+      user.username.toLowerCase().includes(term) ||
+      user.email.toLowerCase().includes(term)
+    );
+
+    if (filtered.length === 0) {
+      this.usersContainer.innerHTML = '<div class="empty-message">No users match your search.</div>';
+      this.usersContainer.style.display = 'block';
+    } else {
+      this.renderUsers(filtered);
+    }
+  }
+
+  openAddRoleModal(userId, username) {
+    this.currentUserId = userId;
+    this.addRoleUserName.textContent = `Assign role to: ${username}`;
+    
+    // Populate roles dropdown
+    this.roleSelect.innerHTML = '<option value="">Select a role...</option>';
+    this.roles.forEach(role => {
+      const option = document.createElement('option');
+      option.value = role.id;
+      option.textContent = role.name;
+      this.roleSelect.appendChild(option);
+    });
+
+    // Populate boards dropdown
+    this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
+    this.boards.forEach(board => {
+      const option = document.createElement('option');
+      option.value = board.id;
+      option.textContent = board.name;
+      this.boardSelect.appendChild(option);
+    });
+
+    this.addRoleModal.style.display = 'flex';
+  }
+
+  closeAddRoleModal() {
+    this.addRoleModal.style.display = 'none';
+    this.currentUserId = null;
+    this.roleSelect.value = '';
+    this.boardSelect.value = '';
+  }
+
+  async handleAddRole() {
+    const roleId = parseInt(this.roleSelect.value);
+    const boardId = this.boardSelect.value ? parseInt(this.boardSelect.value) : null;
+
+    if (!roleId) {
+      this.showStatus('Please select a role', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/roles/assign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: this.currentUserId,
+          role_id: roleId,
+          board_id: boardId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.showStatus(data.message || 'Role assigned successfully', 'success');
+        this.closeAddRoleModal();
+        await this.loadUsers();
+      } else {
+        throw new Error(data.message || 'Failed to assign role');
+      }
+    } catch (error) {
+      console.error('Error assigning role:', error);
+      this.showStatus('Error: ' + error.message, 'error');
+    }
+  }
+
+  confirmRemoveRole(userId, roleId, boardId, roleDescription) {
+    this.confirmModalTitle.textContent = 'Confirm Role Removal';
+    this.confirmModalMessage.textContent = `Are you sure you want to remove the role: ${roleDescription}?`;
+    
+    this.confirmOkBtn.onclick = async () => {
+      await this.removeRole(userId, roleId, boardId);
+      this.closeConfirmModal();
+    };
+    
+    this.confirmModal.style.display = 'flex';
+  }
+
+  async removeRole(userId, roleId, boardId) {
+    try {
+      const response = await fetch('/api/roles/remove', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          role_id: roleId,
+          board_id: boardId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.showStatus(data.message || 'Role removed successfully', 'success');
+        await this.loadUsers();
+      } else {
+        throw new Error(data.message || 'Failed to remove role');
+      }
+    } catch (error) {
+      console.error('Error removing role:', error);
+      this.showStatus('Error: ' + error.message, 'error');
+    }
+  }
+
+  closeConfirmModal() {
+    this.confirmModal.style.display = 'none';
+    this.confirmOkBtn.onclick = null;
+  }
+
+  showStatus(message, type = 'info') {
+    this.statusMessage.textContent = message;
+    this.statusMessage.className = 'settings-status ' + type;
+    this.statusMessage.style.display = 'block';
+
+    setTimeout(() => {
+      this.statusMessage.style.display = 'none';
+    }, 5000);
+  }
+
+  escapeHtml(unsafe) {
+    if (unsafe === null || unsafe === undefined) return '';
+    return unsafe
+      .toString()
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', async () => {
+  const roleManagement = new RoleManagement();
+  await roleManagement.init();
+});

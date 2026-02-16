@@ -1,0 +1,363 @@
+/* Role Management Page Styles */
+
+/* Loading and Empty States */
+.loading-message {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.loading-message .spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--border-color);
+  border-radius: 50%;
+  border-top-color: var(--primary-color);
+  animation: spin 1s linear infinite;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-message {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  background: var(--background-light);
+  border-radius: 8px;
+  border: 2px dashed var(--border-color);
+}
+
+/* Section Icon */
+.section-icon {
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+/* Filter Bar */
+.filter-bar {
+  margin-bottom: 20px;
+}
+
+.search-box {
+  position: relative;
+  max-width: 400px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 12px 10px 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  font-size: 14px;
+  background-color: var(--page-panel-background);
+  color: var(--text-color);
+  transition: all 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+/* Roles List */
+.roles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Role Card */
+.role-card {
+  padding: 20px;
+  background: var(--background-light);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.role-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.role-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.role-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  text-transform: capitalize;
+}
+
+.role-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  text-transform: uppercase;
+}
+
+.role-description {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+.role-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.permission-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--page-panel-background);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+}
+
+.permission-toggle {
+  cursor: pointer;
+  color: var(--primary-color);
+  font-size: 13px;
+  text-decoration: underline;
+  margin-top: 10px;
+  display: inline-block;
+}
+
+.permission-toggle:hover {
+  color: var(--primary-color-hover);
+}
+
+/* Users List */
+.users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* User Card */
+.user-card {
+  padding: 20px;
+  background: var(--background-light);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.user-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.user-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 15px;
+}
+
+.user-info {
+  flex: 1;
+}
+
+.user-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+
+.user-email {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.user-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-icon {
+  padding: 8px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.btn-icon:hover {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+}
+
+.btn-icon:hover svg {
+  stroke: white;
+}
+
+.user-roles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-role-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: var(--page-panel-background);
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+}
+
+.role-info {
+  flex: 1;
+}
+
+.role-name-badge {
+  font-weight: 600;
+  color: var(--text-color);
+  text-transform: capitalize;
+  margin-right: 8px;
+}
+
+.role-scope {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.remove-role-btn {
+  padding: 5px 12px;
+  background: none;
+  border: 1px solid var(--danger-color);
+  color: var(--danger-color);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.remove-role-btn:hover {
+  background: var(--danger-color);
+  color: white;
+}
+
+.no-roles-message {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* Modal Styles */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--page-panel-background);
+  border-radius: 8px;
+  padding: 30px;
+  min-width: 400px;
+  max-width: 600px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: var(--text-color);
+}
+
+.modal-body {
+  margin-bottom: 20px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .user-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .user-actions {
+    margin-top: 10px;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .modal-content {
+    min-width: 90%;
+    padding: 20px;
+  }
+}

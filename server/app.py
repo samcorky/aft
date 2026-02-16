@@ -32,6 +32,7 @@ from utils import (
 )
 from auth import auth_bp, load_user_from_session
 from user_management import user_mgmt_bp
+from role_management import role_mgmt_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -457,6 +458,7 @@ swagger = Swagger(app, config=swagger_config, template=swagger_template)
 # Register authentication blueprint
 app.register_blueprint(auth_bp)
 app.register_blueprint(user_mgmt_bp)
+app.register_blueprint(role_mgmt_bp)
 
 # Load user from session before each request
 @app.before_request

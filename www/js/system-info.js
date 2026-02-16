@@ -55,6 +55,23 @@ class SystemInfo {
       // User has both permissions, load test user status
       this.checkTestUserStatus();
     }
+    
+    // Check if user has admin.database permission for danger zone
+    this.handleDangerZonePermissions();
+  }
+
+  handleDangerZonePermissions() {
+    // Check if user has admin.database permission
+    const hasAdminDatabase = typeof hasPermission === 'function' && hasPermission('admin.database');
+    
+    const dangerZoneCard = document.getElementById('danger-zone-card');
+    
+    if (!hasAdminDatabase) {
+      // Hide the danger zone card entirely
+      if (dangerZoneCard) {
+        dangerZoneCard.style.display = 'none';
+      }
+    }
   }
 
   setupEventListeners() {

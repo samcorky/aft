@@ -35,8 +35,6 @@ PERMISSION_DEFINITIONS = {
     # Settings permissions
     'setting.view': 'View settings',
     'setting.edit': 'Edit settings',
-    'settings.view': 'View settings',
-    'settings.edit': 'Edit own settings',
     'settings.global.edit': 'Edit global system settings',
     
     # Backup permissions
@@ -82,8 +80,6 @@ INITIAL_ROLES = {
             'schedule.delete',
             'setting.view',
             'setting.edit',
-            'settings.view',
-            'settings.edit',
             'settings.global.edit',
             'backup.create',
             'backup.restore',
@@ -113,8 +109,8 @@ INITIAL_ROLES = {
             'schedule.create',
             'schedule.edit',
             'schedule.delete',
-            'settings.view',
-            'settings.edit',
+            'setting.view',
+            'setting.edit',
             'theme.create',
             'theme.edit',
             'theme.delete',
@@ -131,8 +127,8 @@ INITIAL_ROLES = {
             'card.archive',
             'schedule.create',
             'schedule.edit',
-            'settings.view',
-            'settings.edit',
+            'setting.view',
+            'setting.edit',
             'theme.create',
             'theme.edit',
             'theme.delete',
@@ -144,7 +140,7 @@ INITIAL_ROLES = {
         'permissions': [
             'board.view',
             'card.view',
-            'settings.view',
+            'setting.view',
         ]
     }
 }

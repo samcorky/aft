@@ -48,7 +48,7 @@ Permissions are granular strings in the format `resource.action`:
 - **Boards**: `board.create`, `board.view`, `board.edit`, `board.delete`, `board.share`
 - **Cards**: `card.create`, `card.view`, `card.edit`, `card.delete`, `card.assign`, `card.archive`
 - **Schedules**: `schedule.create`, `schedule.edit`, `schedule.delete`
-- **Settings**: `settings.view`, `settings.edit`, `settings.global.edit`
+- **Settings**: `setting.view`, `setting.edit`, `settings.global.edit`
 - **Backups**: `backup.create`, `backup.restore`, `backup.delete`
 - **Themes**: `theme.create`, `theme.edit`, `theme.delete`, `theme.system.edit`
 

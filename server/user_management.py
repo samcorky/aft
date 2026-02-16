@@ -391,7 +391,7 @@ def activate_user(user_id):
 
 
 @user_mgmt_bp.route('/<int:user_id>/roles', methods=['POST'])
-@require_permission('role.manage')
+@require_permission('user.role')
 def assign_role(user_id):
     """
     Assign a role to a user.
@@ -431,7 +431,7 @@ def assign_role(user_id):
       400:
         description: Invalid request
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires user.role permission
       404:
         description: User or role not found
       409:
@@ -489,7 +489,7 @@ def assign_role(user_id):
 
 
 @user_mgmt_bp.route('/<int:user_id>/roles/<int:role_id>', methods=['DELETE'])
-@require_permission('role.manage')
+@require_permission('user.role')
 def remove_role(user_id, role_id):
     """
     Remove a role from a user.
@@ -522,7 +522,7 @@ def remove_role(user_id, role_id):
             message:
               type: string
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires user.role permission
       404:
         description: Role assignment not found
     """

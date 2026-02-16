@@ -17,7 +17,8 @@ from models import User, Role, UserRole, Board
 from utils import (
     create_error_response,
     create_success_response,
-    require_permission
+    require_permission,
+    require_any_permission
 )
 from permissions import PERMISSION_DEFINITIONS
 
@@ -28,7 +29,7 @@ role_mgmt_bp = Blueprint('role_management', __name__, url_prefix='/api/roles')
 
 
 @role_mgmt_bp.route('', methods=['GET'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def get_all_roles():
     """
     Get all available roles with their descriptions and permissions.
@@ -63,7 +64,7 @@ def get_all_roles():
                   created_at:
                     type: string
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
     """
     db = SessionLocal()
     try:
@@ -88,7 +89,7 @@ def get_all_roles():
 
 
 @role_mgmt_bp.route('/permissions', methods=['GET'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def get_all_permissions():
     """
     Get all available permissions with their descriptions.
@@ -107,13 +108,13 @@ def get_all_permissions():
               type: object
               description: Object mapping permission names to descriptions
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
     """
     return create_success_response(data={'permissions': PERMISSION_DEFINITIONS})
 
 
 @role_mgmt_bp.route('/users', methods=['GET'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def get_user_roles():
     """
     Get all active users with their role assignments.
@@ -159,7 +160,7 @@ def get_user_roles():
                         assigned_at:
                           type: string
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
     """
     db = SessionLocal()
     try:
@@ -202,7 +203,7 @@ def get_user_roles():
 
 
 @role_mgmt_bp.route('/assign', methods=['POST'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def assign_role_to_user():
     """
     Assign a role to a user.
@@ -241,7 +242,7 @@ def assign_role_to_user():
       400:
         description: Invalid request
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
       404:
         description: User or role not found
       409:
@@ -309,7 +310,7 @@ def assign_role_to_user():
 
 
 @role_mgmt_bp.route('/remove', methods=['POST'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def remove_role_from_user():
     """
     Remove a role from a user.
@@ -348,7 +349,7 @@ def remove_role_from_user():
       400:
         description: Invalid request
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
       404:
         description: User, role, or role assignment not found
     """
@@ -403,7 +404,7 @@ def remove_role_from_user():
 
 
 @role_mgmt_bp.route('/boards', methods=['GET'])
-@require_permission('role.manage')
+@require_any_permission('role.manage', 'user.role')
 def get_boards_for_roles():
     """
     Get all boards for board-specific role assignments.
@@ -428,7 +429,7 @@ def get_boards_for_roles():
                   name:
                     type: string
       403:
-        description: Forbidden - requires role.manage permission
+        description: Forbidden - requires role.manage or user.role permission
     """
     db = SessionLocal()
     try:
@@ -442,6 +443,410 @@ def get_boards_for_roles():
             })
         
         return create_success_response(data={'boards': board_list})
+        
+    finally:
+        db.close()
+
+
+@role_mgmt_bp.route('', methods=['POST'])
+@require_permission('role.manage')
+def create_role():
+    """
+    Create a new role with permissions.
+    ---
+    tags:
+      - Role Management
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+            - permissions
+          properties:
+            name:
+              type: string
+              description: Name of the role (max 50 characters)
+            description:
+              type: string
+              description: Optional description of the role
+            permissions:
+              type: array
+              description: Array of permission strings
+              items:
+                type: string
+    responses:
+      201:
+        description: Role created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            role:
+              type: object
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                description:
+                  type: string
+                permissions:
+                  type: array
+                  items:
+                    type: string
+      400:
+        description: Invalid request
+      403:
+        description: Forbidden - requires role.manage permission
+      409:
+        description: Role name already exists
+    """
+    data = request.get_json()
+    
+    if not data or 'name' not in data or 'permissions' not in data:
+        return create_error_response("name and permissions are required", 400)
+    
+    name = data['name'].strip()
+    description = data.get('description', '').strip()
+    permissions = data['permissions']
+    
+    # Validation
+    if not name or len(name) > 50:
+        return create_error_response("Role name must be between 1 and 50 characters", 400)
+    
+    if not isinstance(permissions, list):
+        return create_error_response("Permissions must be an array", 400)
+    
+    # Validate permissions against known permissions
+    for perm in permissions:
+        if perm not in PERMISSION_DEFINITIONS:
+            return create_error_response(f"Unknown permission: {perm}", 400)
+    
+    db = SessionLocal()
+    try:
+        # Check if role name already exists
+        existing = db.query(Role).filter(Role.name == name).first()
+        if existing:
+            return create_error_response(f"Role '{name}' already exists", 409)
+        
+        # Create new role
+        new_role = Role(
+            name=name,
+            description=description if description else None,
+            is_system_role=False,  # User-created roles are never system roles
+            permissions=json.dumps(permissions)
+        )
+        db.add(new_role)
+        db.commit()
+        db.refresh(new_role)
+        
+        logger.info(f"Role '{name}' created by admin {g.user.id}")
+        
+        return create_success_response(
+            message=f"Role '{name}' created successfully",
+            data={
+                'role': {
+                    'id': new_role.id,
+                    'name': new_role.name,
+                    'description': new_role.description,
+                    'permissions': json.loads(new_role.permissions)
+                }
+            },
+            status_code=201
+        )
+        
+    finally:
+        db.close()
+
+
+@role_mgmt_bp.route('/<int:role_id>/copy', methods=['POST'])
+@require_permission('role.manage')
+def copy_role(role_id):
+    """
+    Create a copy of an existing role with a new name.
+    ---
+    tags:
+      - Role Management
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        type: integer
+        description: ID of the role to copy
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+              description: Name for the copied role
+    responses:
+      201:
+        description: Role copied successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            role:
+              type: object
+      400:
+        description: Invalid request
+      403:
+        description: Forbidden - requires role.manage permission
+      404:
+        description: Role not found
+      409:
+        description: Role name already exists
+    """
+    data = request.get_json()
+    
+    if not data or 'name' not in data:
+        return create_error_response("name is required", 400)
+    
+    new_name = data['name'].strip()
+    
+    if not new_name or len(new_name) > 50:
+        return create_error_response("Role name must be between 1 and 50 characters", 400)
+    
+    db = SessionLocal()
+    try:
+        # Get the source role
+        source_role = db.query(Role).filter(Role.id == role_id).first()
+        if not source_role:
+            return create_error_response("Source role not found", 404)
+        
+        # Check if new name already exists
+        existing = db.query(Role).filter(Role.name == new_name).first()
+        if existing:
+            return create_error_response(f"Role '{new_name}' already exists", 409)
+        
+        # Create copy of the role
+        new_role = Role(
+            name=new_name,
+            description=source_role.description,
+            is_system_role=False,  # Copied roles are never system roles
+            permissions=source_role.permissions  # Copy permissions as-is (JSON string)
+        )
+        db.add(new_role)
+        db.commit()
+        db.refresh(new_role)
+        
+        logger.info(f"Role '{source_role.name}' copied to '{new_name}' by admin {g.user.id}")
+        
+        permissions = json.loads(new_role.permissions) if isinstance(new_role.permissions, str) else new_role.permissions
+        
+        return create_success_response(
+            message=f"Role '{new_name}' created as a copy of '{source_role.name}'",
+            data={
+                'role': {
+                    'id': new_role.id,
+                    'name': new_role.name,
+                    'description': new_role.description,
+                    'permissions': permissions
+                }
+            },
+            status_code=201
+        )
+        
+    finally:
+        db.close()
+
+
+@role_mgmt_bp.route('/<int:role_id>', methods=['DELETE'])
+@require_permission('role.manage')
+def delete_role(role_id):
+    """
+    Delete a role (cannot delete system roles).
+    ---
+    tags:
+      - Role Management
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        type: integer
+        description: ID of the role to delete
+    responses:
+      200:
+        description: Role deleted successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+      400:
+        description: Cannot delete system role
+      403:
+        description: Forbidden - requires role.manage permission
+      404:
+        description: Role not found
+    """
+    db = SessionLocal()
+    try:
+        # Get the role
+        role = db.query(Role).filter(Role.id == role_id).first()
+        if not role:
+            return create_error_response("Role not found", 404)
+        
+        # Check if it's a system role
+        if role.is_system_role:
+            return create_error_response(
+                "Cannot delete system role. System roles are protected.",
+                400
+            )
+        
+        role_name = role.name
+        
+        # Delete the role (cascade will handle UserRole assignments)
+        db.delete(role)
+        db.commit()
+        
+        logger.info(f"Role '{role_name}' (ID: {role_id}) deleted by admin {g.user.id}")
+        
+        return create_success_response(
+            message=f"Role '{role_name}' deleted successfully"
+        )
+        
+    finally:
+        db.close()
+
+
+@role_mgmt_bp.route('/<int:role_id>', methods=['PATCH'])
+@require_permission('role.manage')
+def update_role(role_id):
+    """
+    Update a role's details (name, description, or permissions).
+    System roles cannot be modified.
+    ---
+    tags:
+      - Role Management
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        type: integer
+        description: ID of the role to update
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              description: New name for the role
+            description:
+              type: string
+              description: New description for the role
+            permissions:
+              type: array
+              description: New array of permission strings
+              items:
+                type: string
+    responses:
+      200:
+        description: Role updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            role:
+              type: object
+      400:
+        description: Invalid request or cannot modify system role
+      403:
+        description: Forbidden - requires role.manage permission
+      404:
+        description: Role not found
+      409:
+        description: Role name already exists
+    """
+    data = request.get_json()
+    
+    if not data:
+        return create_error_response("Request body is required", 400)
+    
+    db = SessionLocal()
+    try:
+        # Get the role
+        role = db.query(Role).filter(Role.id == role_id).first()
+        if not role:
+            return create_error_response("Role not found", 404)
+        
+        # Check if it's a system role
+        if role.is_system_role:
+            return create_error_response(
+                "Cannot modify system role. System roles are protected.",
+                400
+            )
+        
+        # Update name if provided
+        if 'name' in data:
+            new_name = data['name'].strip()
+            if not new_name or len(new_name) > 50:
+                return create_error_response("Role name must be between 1 and 50 characters", 400)
+            
+            # Check if new name conflicts with another role
+            if new_name != role.name:
+                existing = db.query(Role).filter(Role.name == new_name).first()
+                if existing:
+                    return create_error_response(f"Role '{new_name}' already exists", 409)
+                role.name = new_name
+        
+        # Update description if provided
+        if 'description' in data:
+            role.description = data['description'].strip() if data['description'] else None
+        
+        # Update permissions if provided
+        if 'permissions' in data:
+            permissions = data['permissions']
+            if not isinstance(permissions, list):
+                return create_error_response("Permissions must be an array", 400)
+            
+            # Validate permissions
+            for perm in permissions:
+                if perm not in PERMISSION_DEFINITIONS:
+                    return create_error_response(f"Unknown permission: {perm}", 400)
+            
+            role.permissions = json.dumps(permissions)
+        
+        db.commit()
+        db.refresh(role)
+        
+        logger.info(f"Role '{role.name}' (ID: {role_id}) updated by admin {g.user.id}")
+        
+        permissions = json.loads(role.permissions) if isinstance(role.permissions, str) else role.permissions
+        
+        return create_success_response(
+            message=f"Role '{role.name}' updated successfully",
+            data={
+                'role': {
+                    'id': role.id,
+                    'name': role.name,
+                    'description': role.description,
+                    'permissions': permissions,
+                    'is_system_role': role.is_system_role
+                }
+            }
+        )
         
     finally:
         db.close()

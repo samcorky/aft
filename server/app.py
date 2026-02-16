@@ -824,11 +824,11 @@ def toggle_test_user():
             message:
               type: string
       403:
-        description: Forbidden - requires user.manage and role.manage permissions
+        description: Forbidden - requires user.manage and user.role permissions
       500:
         description: Server error
     """
-    # Check for both user.manage and role.manage permissions
+    # Check for both user.manage and user.role permissions
     from utils import get_user_permissions
     from permissions import has_permission
     
@@ -837,8 +837,8 @@ def toggle_test_user():
     if not has_permission(user_permissions, 'user.manage'):
         abort(403, description="Permission denied: user.manage required")
     
-    if not has_permission(user_permissions, 'role.manage'):
-        abort(403, description="Permission denied: role.manage required")
+    if not has_permission(user_permissions, 'user.role'):
+        abort(403, description="Permission denied: user.role required")
     
     db = SessionLocal()
     try:

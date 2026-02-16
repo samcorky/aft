@@ -415,14 +415,26 @@ class Header {
     // Menu items and their required permissions
     const protectedItems = [
       { selector: 'a[href="/user-management.html"]', permission: 'user.manage' },
-      { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
+      { selector: 'a[href="/role-management.html"]', permissions: ['role.manage', 'user.role'], requireAny: true }
     ];
     
-    protectedItems.forEach(({ selector, permission }) => {
-      const menuItem = document.querySelector(selector);
+    protectedItems.forEach(item => {
+      const menuItem = document.querySelector(item.selector);
       if (menuItem) {
+        let hasAccess = false;
+        
         // Check if user has permission (hasPermission is defined in utils.js)
-        if (typeof hasPermission === 'function' && hasPermission(permission)) {
+        if (item.permissions && item.requireAny) {
+          // User needs ANY of the listed permissions
+          hasAccess = item.permissions.some(perm => 
+            typeof hasPermission === 'function' && hasPermission(perm)
+          );
+        } else if (item.permission) {
+          // User needs the single permission
+          hasAccess = typeof hasPermission === 'function' && hasPermission(item.permission);
+        }
+        
+        if (hasAccess) {
           menuItem.style.display = '';  // Show
         } else {
           menuItem.style.display = 'none';  // Hide

@@ -344,6 +344,42 @@ def require_permission(permission):
     return decorator
 
 
+def require_any_permission(*permissions):
+    """
+    Decorator to check if current user has ANY of the required permissions.
+    
+    Usage:
+        @require_any_permission('role.manage', 'user.role')
+        def get_roles():
+            ...
+    
+    Args:
+        permissions: Variable number of permission strings
+        
+    Returns:
+        Decorator function
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not g.get('user'):
+                abort(401, description="Authentication required")
+            
+            user_permissions = get_user_permissions(g.user.id)
+            
+            # Check if user has any of the required permissions
+            from permissions import has_permission
+            has_any = any(has_permission(user_permissions, perm) for perm in permissions)
+            
+            if not has_any:
+                perms_str = ' or '.join(permissions)
+                abort(403, description=f"Permission denied: requires {perms_str}")
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
 def require_board_access(require_owner=False):
     """
     Decorator to check if user can access a board.

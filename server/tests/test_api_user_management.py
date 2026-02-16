@@ -318,6 +318,126 @@ class TestRoleManagement:
             response = admin_session.post(f"{API_BASE_URL}/api/users/{user_id}/roles/99999", json={})
             assert response.status_code == 404
 
+    def test_create_custom_role(self, admin_session):
+        """Admin should be able to create a custom role."""
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": "test_custom_role",
+                "description": "A test custom role",
+                "permissions": ["board.view", "board.create"]
+            }
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['role']['name'] == 'test_custom_role'
+        assert len(data['role']['permissions']) == 2
+
+    def test_create_role_duplicate_name(self, admin_session):
+        """Creating a role with duplicate name should fail."""
+        # Try to create a role with the same name as a system role
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": "administrator",
+                "description": "Duplicate role",
+                "permissions": ["board.view"]
+            }
+        )
+        assert response.status_code == 409
+
+    def test_copy_role(self, admin_session):
+        """Admin should be able to copy a role."""
+        # First get list of roles
+        response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        roles = response.json()['roles']
+        
+        if len(roles) > 0:
+            source_role_id = roles[0]['id']
+            
+            response = admin_session.post(
+                f"{API_BASE_URL}/api/roles/{source_role_id}/copy",
+                json={"name": "copied_test_role"}
+            )
+            assert response.status_code == 201
+            data = response.json()
+            assert data['success'] is True
+            assert data['role']['name'] == 'copied_test_role'
+
+    def test_update_role_permissions(self, admin_session):
+        """Admin should be able to update a custom role's permissions."""
+        # First create a role
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": "test_update_role",
+                "description": "Test role for updating",
+                "permissions": ["board.view"]
+            }
+        )
+        assert response.status_code == 201
+        role_id = response.json()['role']['id']
+        
+        # Now update it
+        response = admin_session.patch(
+            f"{API_BASE_URL}/api/roles/{role_id}",
+            json={
+                "name": "test_update_role_renamed",
+                "permissions": ["board.view", "board.create", "board.edit"]
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['role']['name'] == 'test_update_role_renamed'
+        assert len(data['role']['permissions']) == 3
+
+    def test_update_system_role_fails(self, admin_session):
+        """Updating a system role should fail."""
+        # Get list of roles and find a system role
+        response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        roles = response.json()['roles']
+        
+        system_role = next((r for r in roles if r['is_system_role']), None)
+        if system_role:
+            response = admin_session.patch(
+                f"{API_BASE_URL}/api/roles/{system_role['id']}",
+                json={"permissions": ["board.view"]}
+            )
+            assert response.status_code == 400
+
+    def test_delete_custom_role(self, admin_session):
+        """Admin should be able to delete a custom role."""
+        # First create a role
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": "test_delete_role",
+                "description": "Test role for deletion",
+                "permissions": ["board.view"]
+            }
+        )
+        assert response.status_code == 201
+        role_id = response.json()['role']['id']
+        
+        # Now delete it
+        response = admin_session.delete(f"{API_BASE_URL}/api/roles/{role_id}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+
+    def test_delete_system_role_fails(self, admin_session):
+        """Deleting a system role should fail."""
+        # Get list of roles and find a system role
+        response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        roles = response.json()['roles']
+        
+        system_role = next((r for r in roles if r['is_system_role']), None)
+        if system_role:
+            response = admin_session.delete(f"{API_BASE_URL}/api/roles/{system_role['id']}")
+            assert response.status_code == 400
+
 
 class TestAdminPermissions:
     """Test that only admins can access user management."""

@@ -8,6 +8,7 @@ PERMISSION_DEFINITIONS = {
     'admin.system': 'System administration and monitoring',
     'admin.database': 'Database backup and restore operations',
     'user.manage': 'Manage all users',
+    'user.role': 'Assign roles to users',
     'role.manage': 'Manage roles and permissions',
     
     # Board permissions
@@ -62,6 +63,7 @@ INITIAL_ROLES = {
             'admin.system',
             'admin.database',
             'user.manage',
+            'user.role',
             'role.manage',
             'board.create',
             'board.view',
@@ -97,6 +99,7 @@ INITIAL_ROLES = {
         'description': 'Full access to assigned boards',
         'is_system_role': True,
         'permissions': [
+            'user.role',
             'board.view',
             'board.edit',
             'board.delete',

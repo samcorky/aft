@@ -40,13 +40,13 @@ class SystemInfo {
       return;
     }
     
-    // Check if user has both user.manage and role.manage permissions
+    // Check if user has both user.manage and user.role permissions
     const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
-    const hasRoleManage = typeof hasPermission === 'function' && hasPermission('role.manage');
+    const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
     
     const testUserCard = document.querySelector('.warning-card.full-width');
     
-    if (!hasUserManage || !hasRoleManage) {
+    if (!hasUserManage || !hasUserRole) {
       // Hide the test user management card entirely
       if (testUserCard) {
         testUserCard.style.display = 'none';

@@ -236,6 +236,18 @@
   background: #c0392b;
 }
 
+/* Disabled button state */
+.btn-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--text-secondary) !important;
+}
+
+.btn-sm:disabled:hover {
+  background: var(--text-secondary) !important;
+  transform: none;
+}
+
 /* Confirmation Modal */
 .modal {
   display: none;

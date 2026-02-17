@@ -246,7 +246,7 @@ class UserManagement {
       </div>
       <div class="user-actions">
         ${user.is_active
-          ? `<button class="btn btn-secondary btn-sm" data-action="deactivate" data-user-id="${user.id}">Deactivate</button>`
+          ? `<button class="btn btn-secondary btn-sm" data-action="deactivate" data-user-id="${user.id}" ${window.currentUser && user.id === window.currentUser.id ? 'disabled title="You cannot deactivate your own account"' : ''}>Deactivate</button>`
           : `<button class="btn btn-primary btn-sm" data-action="activate" data-user-id="${user.id}">Activate</button>`
         }
       </div>
@@ -255,7 +255,10 @@ class UserManagement {
     // Attach event listeners to buttons
     if (user.is_active) {
       const deactivateBtn = card.querySelector('[data-action="deactivate"]');
-      deactivateBtn.addEventListener('click', () => this.handleDeactivate(user));
+      // Only add event listener if it's not the current user's own account
+      if (!window.currentUser || user.id !== window.currentUser.id) {
+        deactivateBtn.addEventListener('click', () => this.handleDeactivate(user));
+      }
     } else {
       const activateBtn = card.querySelector('[data-action="activate"]');
       activateBtn.addEventListener('click', () => this.handleActivate(user));

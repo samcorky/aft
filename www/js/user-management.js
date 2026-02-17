@@ -17,9 +17,11 @@ class UserManagement {
     this.confirmModalMessage = document.getElementById('confirm-modal-message');
     this.confirmCancelBtn = document.getElementById('confirm-cancel-btn');
     this.confirmOkBtn = document.getElementById('confirm-ok-btn');
+    this.showActiveOnlyToggle = document.getElementById('show-active-only');
     
     this.pendingCallback = null;
     this.allUsers = [];
+    this.showActiveOnly = true;
   }
 
   async init() {
@@ -40,6 +42,14 @@ class UserManagement {
     this.searchInput.addEventListener('input', () => {
       this.filterUsers(this.searchInput.value);
     });
+
+    // Active only toggle
+    if (this.showActiveOnlyToggle) {
+      this.showActiveOnlyToggle.addEventListener('change', (e) => {
+        this.showActiveOnly = e.target.checked;
+        this.filterUsers(this.searchInput.value);
+      });
+    }
 
     // Modal close handlers
     this.confirmCancelBtn.addEventListener('click', () => {
@@ -112,7 +122,8 @@ class UserManagement {
           this.activeUsersLoading.style.display = 'none';
           this.activeUsersEmpty.style.display = 'block';
         } else {
-          this.renderActiveUsers(this.allUsers);
+          // Use filterUsers to respect the toggle state on initial load
+          this.filterUsers('');
           this.activeUsersLoading.style.display = 'none';
           this.activeUsersContainer.style.display = 'block';
         }
@@ -270,18 +281,23 @@ class UserManagement {
   filterUsers(searchTerm) {
     const term = searchTerm.toLowerCase().trim();
     
-    if (term === '') {
-      this.renderActiveUsers(this.allUsers);
-      return;
+    let filtered = this.allUsers;
+    
+    // Filter by active status if toggle is on
+    if (this.showActiveOnly) {
+      filtered = filtered.filter(user => user.is_active);
     }
-
-    const filtered = this.allUsers.filter(user => {
-      const displayName = (user.display_name || '').toLowerCase();
-      const username = (user.username || '').toLowerCase();
-      const email = (user.email || '').toLowerCase();
-      
-      return displayName.includes(term) || username.includes(term) || email.includes(term);
-    });
+    
+    // Filter by search term
+    if (term !== '') {
+      filtered = filtered.filter(user => {
+        const displayName = (user.display_name || '').toLowerCase();
+        const username = (user.username || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        
+        return displayName.includes(term) || username.includes(term) || email.includes(term);
+      });
+    }
 
     this.renderActiveUsers(filtered);
   }

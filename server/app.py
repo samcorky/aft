@@ -926,6 +926,58 @@ def toggle_test_user():
         db.close()
 
 
+@app.route("/api/debug/permissions")
+@require_authentication
+def debug_user_permissions():
+    """Debug endpoint to check user permissions for a board.
+    
+    Query Parameters:
+        board_id (optional): Board ID to check board-specific permissions
+    """
+    board_id = request.args.get('board_id', type=int)
+    
+    db = SessionLocal()
+    try:
+        from utils import get_user_permissions
+        
+        # Get global permissions
+        global_perms = get_user_permissions(g.user.id, board_id=None)
+        
+        # Get board-specific permissions if board_id provided
+        board_perms = None
+        if board_id:
+            board_perms = get_user_permissions(g.user.id, board_id=board_id)
+        
+        # Get all user's role assignments
+        role_assignments = db.query(UserRole, Role).join(
+            Role, UserRole.role_id == Role.id
+        ).filter(
+            UserRole.user_id == g.user.id
+        ).all()
+        
+        roles_data = []
+        for user_role, role in role_assignments:
+            roles_data.append({
+                'role_name': role.name,
+                'role_id': role.id,
+                'board_id': user_role.board_id,
+                'permissions': json.loads(role.permissions) if isinstance(role.permissions, str) else role.permissions
+            })
+        
+        return jsonify({
+            'success': True,
+            'user_id': g.user.id,
+            'username': g.user.username,
+            'checked_board_id': board_id,
+            'global_permissions': sorted(list(global_perms)),
+            'board_specific_permissions': sorted(list(board_perms)) if board_perms else None,
+            'all_role_assignments': roles_data
+        })
+        
+    finally:
+        db.close()
+
+
 @app.route("/api/broadcast-status")
 @require_permission('admin.system')
 def get_broadcast_status():
@@ -3613,6 +3665,7 @@ def get_board_scheduled_cards(board_id):
 
 @app.route("/api/boards/<int:board_id>", methods=["DELETE"])
 @require_board_access()
+@require_permission('board.delete')
 def delete_board(board_id):
     """Delete a board by ID.
     ---
@@ -3696,6 +3749,7 @@ def delete_board(board_id):
 
 @app.route("/api/boards/<int:board_id>", methods=["PATCH"])
 @require_board_access()
+@require_permission('board.edit')
 def update_board(board_id):
     """Update a board's name and/or description with validation.
 
@@ -3949,6 +4003,7 @@ def get_board_columns(board_id):
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
 @require_board_access()
+@require_permission('column.create')
 def create_column(board_id):
     """Create a new column for a board with input validation.
 

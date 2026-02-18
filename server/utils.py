@@ -339,17 +339,40 @@ def get_current_user_id():
     return user.id if user else None
 
 
-def require_permission(permission):
+def require_permission(permission, require_board_context=None):
     """
     Decorator to check if current user has required permission.
+    
+    This decorator checks both global and board-specific permissions.
+    If the decorated function has a board_id, column_id, card_id, schedule_id, or item_id parameter,
+    board-specific permissions are also checked by looking up the associated board.
+    Also checks request body for these IDs if not found in URL parameters.
+    
+    Security: For operations that should always have board context (cards, columns, schedules, checklists),
+    if board_id cannot be determined, access is DENIED by default for safety.
     
     Usage:
         @require_permission('board.edit')
         def edit_board(board_id):
             ...
+        
+        @require_permission('column.update')  # Auto-requires board context
+        def update_column(column_id):
+            ...
+        
+        @require_permission('card.create')  # Auto-requires board context
+        def create_schedule():  # card_id in request body
+            ...
+        
+        @require_permission('setting.edit')  # Doesn't require board context
+        def update_setting():
+            ...
     
     Args:
         permission: Permission string to require (e.g., 'board.edit')
+        require_board_context: If True, denies access if board_id can't be determined.
+                              If None (default), auto-detects based on permission type.
+                              If False, allows global permission check without board context.
         
     Returns:
         Decorator function
@@ -360,7 +383,138 @@ def require_permission(permission):
             if not g.get('user'):
                 abort(401, description="Authentication required")
             
-            user_permissions = get_user_permissions(g.user.id)
+            # Try to get board_id for board-specific permissions
+            board_id = kwargs.get('board_id')
+            column_id = kwargs.get('column_id')
+            card_id = kwargs.get('card_id')
+            schedule_id = kwargs.get('schedule_id')
+            item_id = kwargs.get('item_id')  # checklist item
+            
+            # If not in URL params, try request body
+            if board_id is None and column_id is None and card_id is None and schedule_id is None and item_id is None:
+                try:
+                    data = request.get_json(silent=True)
+                    if data:
+                        board_id = data.get('board_id')
+                        column_id = data.get('column_id')
+                        card_id = data.get('card_id')
+                        schedule_id = data.get('schedule_id')
+                        item_id = data.get('item_id')
+                except Exception:
+                    pass
+            
+            # If no board_id, try to derive it from item_id (checklist item)
+            if board_id is None and item_id:
+                from models import ChecklistItem, Card
+                db = SessionLocal()
+                try:
+                    item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+                    if item and item.card:
+                        card_id = item.card.id
+                        if item.card.column:
+                            board_id = item.card.column.board_id
+                finally:
+                    db.close()
+            
+            # If no board_id, try to derive it from schedule_id
+            if board_id is None and schedule_id:
+                from models import ScheduledCard, Card
+                db = SessionLocal()
+                try:
+                    schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+                    if schedule and schedule.card:
+                        card_id = schedule.card.id
+                        if schedule.card.column:
+                            board_id = schedule.card.column.board_id
+                finally:
+                    db.close()
+            
+            # If no board_id, try to derive it from column_id
+            if board_id is None and column_id:
+                from models import BoardColumn
+                db = SessionLocal()
+                try:
+                    column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+                    if column:
+                        board_id = column.board_id
+                finally:
+                    db.close()
+            
+            # If no board_id, try to derive it from card_id
+            if board_id is None and card_id:
+                from models import Card
+                db = SessionLocal()
+                try:
+                    card = db.query(Card).filter(Card.id == card_id).first()
+                    if card and card.column:
+                        board_id = card.column.board_id
+                finally:
+                    db.close()
+            
+            # Fallback: check if first arg is an integer (might be an ID)
+            if board_id is None and len(args) > 0 and isinstance(args[0], int):
+                # Try to determine if it's a board_id, column_id, card_id, schedule_id, or item_id based on function name
+                func_name = f.__name__.lower()
+                if 'board' in func_name:
+                    board_id = args[0]
+                elif 'checklist' in func_name or 'item' in func_name:
+                    item_id = args[0]
+                    from models import ChecklistItem, Card
+                    db = SessionLocal()
+                    try:
+                        item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
+                        if item and item.card and item.card.column:
+                            board_id = item.card.column.board_id
+                    finally:
+                        db.close()
+                elif 'schedule' in func_name:
+                    schedule_id = args[0]
+                    from models import ScheduledCard, Card
+                    db = SessionLocal()
+                    try:
+                        schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
+                        if schedule and schedule.card and schedule.card.column:
+                            board_id = schedule.card.column.board_id
+                    finally:
+                        db.close()
+                elif 'column' in func_name:
+                    column_id = args[0]
+                    from models import BoardColumn
+                    db = SessionLocal()
+                    try:
+                        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+                        if column:
+                            board_id = column.board_id
+                    finally:
+                        db.close()
+                elif 'card' in func_name:
+                    card_id = args[0]
+                    from models import Card
+                    db = SessionLocal()
+                    try:
+                        card = db.query(Card).filter(Card.id == card_id).first()
+                        if card and card.column:
+                            board_id = card.column.board_id
+                    finally:
+                        db.close()
+            
+            # Get permissions (global and board-specific if board_id is available)
+            user_permissions = get_user_permissions(g.user.id, board_id)
+            
+            # Auto-detect if board context should be required based on permission type
+            needs_board_context = require_board_context
+            if needs_board_context is None:
+                # Permissions that MUST have board context for security
+                board_related_perms = [
+                    'card.', 'column.', 'schedule.',
+                    'board.edit', 'board.delete', 'board.share'
+                ]
+                needs_board_context = any(permission.startswith(prefix) or permission == prefix.rstrip('.') 
+                                         for prefix in board_related_perms)
+            
+            # If board context is required but couldn't be determined, DENY access for security
+            if needs_board_context and board_id is None:
+                abort(403, description=f"Permission denied: {permission} (board context required but not found)")
             
             # Check if user has the required permission
             from permissions import has_permission
@@ -460,6 +614,11 @@ def get_user_permissions(user_id, board_id=None):
     """
     Get all permissions for a user, optionally scoped to a board.
     
+    When board_id is provided:
+      - If the user has board-specific roles for that board, ONLY those are used
+      - If no board-specific roles exist, falls back to global roles
+      - This allows board-specific roles to restrict access even if user has powerful global roles
+    
     Args:
         user_id: User ID
         board_id: Optional board ID to get board-specific permissions
@@ -471,18 +630,32 @@ def get_user_permissions(user_id, board_id=None):
     
     db = SessionLocal()
     try:
-        query = db.query(Role.permissions).join(UserRole).filter(
-            UserRole.user_id == user_id
-        )
-        
         if board_id:
-            # Get board-specific + global roles
-            query = query.filter(
-                (UserRole.board_id == board_id) | (UserRole.board_id.is_(None))
+            # First check if user has any board-specific roles for this board
+            board_specific_query = db.query(Role.permissions).join(UserRole).filter(
+                UserRole.user_id == user_id,
+                UserRole.board_id == board_id
             )
-        else:
-            # Global roles only
-            query = query.filter(UserRole.board_id.is_(None))
+            
+            board_specific_perms = set()
+            has_board_specific_roles = False
+            
+            for (perms_json,) in board_specific_query.all():
+                has_board_specific_roles = True
+                perms = json.loads(perms_json)
+                board_specific_perms.update(perms)
+            
+            # If board-specific roles exist, use ONLY those (they override global)
+            if has_board_specific_roles:
+                return board_specific_perms
+            
+            # No board-specific roles, fall through to get global roles
+        
+        # Get global roles only
+        query = db.query(Role.permissions).join(UserRole).filter(
+            UserRole.user_id == user_id,
+            UserRole.board_id.is_(None)
+        )
         
         all_perms = set()
         for (perms_json,) in query.all():

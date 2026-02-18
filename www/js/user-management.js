@@ -19,22 +19,71 @@ class UserManagement {
     this.confirmOkBtn = document.getElementById('confirm-ok-btn');
     this.showActiveOnlyToggle = document.getElementById('show-active-only');
     
+    // Role assignment elements
+    this.roleUsersContainer = document.getElementById('role-users-list');
+    this.roleUsersLoading = document.getElementById('role-users-loading');
+    this.roleUsersEmpty = document.getElementById('role-users-empty');
+    this.roleUserSearchInput = document.getElementById('role-user-search');
+    
+    this.addRoleModal = document.getElementById('add-role-modal');
+    this.addRoleUserName = document.getElementById('add-role-user-name');
+    this.roleSelect = document.getElementById('role-select');
+    this.boardSelect = document.getElementById('board-select');
+    this.addRoleCancelBtn = document.getElementById('add-role-cancel-btn');
+    this.addRoleOkBtn = document.getElementById('add-role-ok-btn');
+    
     this.pendingCallback = null;
     this.allUsers = [];
     this.showActiveOnly = true;
+    this.currentUserId = null;
+    this.roleUsers = [];
+    this.roles = [];
+    this.boards = [];
   }
 
   async init() {
     // Check permission before loading page content
-    if (typeof hasPermission === 'function' && !hasPermission('user.manage')) {
-      // User doesn't have permission - show access denied
-      showAccessDenied('You need the "user.manage" permission to access this page.');
+    const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
+    const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
+    
+    if (!hasUserManage && !hasUserRole) {
+      // User doesn't have either permission - show access denied
+      showAccessDenied('You need either "user.manage" or "user.role" permission to access this page.');
       return;
     }
     
     this.attachEventListeners();
-    await this.loadPendingUsers();
-    await this.loadActiveUsers();
+    
+    // Load data based on permissions
+    const loadPromises = [];
+    
+    if (hasUserManage) {
+      loadPromises.push(this.loadPendingUsers());
+      loadPromises.push(this.loadActiveUsers());
+    }
+    
+    if (hasUserRole) {
+      loadPromises.push(this.loadRoles());
+      loadPromises.push(this.loadBoards());
+      loadPromises.push(this.loadRoleUsers());
+    }
+    
+    await Promise.all(loadPromises);
+    
+    // Hide sections based on permissions
+    if (!hasUserManage) {
+      // Hide pending and active user sections if user can't manage users
+      const pendingSection = document.querySelector('.settings-section:nth-child(1)');
+      const activeSection = document.querySelector('.settings-section:nth-child(2)');
+      if (pendingSection) pendingSection.style.display = 'none';
+      if (activeSection) activeSection.style.display = 'none';
+    }
+    
+    if (!hasUserRole) {
+      // Hide role assignment section if user can't assign roles
+      const roleSection = document.querySelector('.settings-section:nth-child(3)');
+      if (roleSection) roleSection.style.display = 'none';
+    }
   }
 
   attachEventListeners() {
@@ -42,6 +91,13 @@ class UserManagement {
     this.searchInput.addEventListener('input', () => {
       this.filterUsers(this.searchInput.value);
     });
+
+    // Role user search functionality
+    if (this.roleUserSearchInput) {
+      this.roleUserSearchInput.addEventListener('input', () => {
+        this.filterRoleUsers(this.roleUserSearchInput.value);
+      });
+    }
 
     // Active only toggle
     if (this.showActiveOnlyToggle) {
@@ -56,12 +112,33 @@ class UserManagement {
       this.closeConfirmModal();
     });
 
+    // Add role modal handlers
+    if (this.addRoleCancelBtn) {
+      this.addRoleCancelBtn.addEventListener('click', () => {
+        this.closeAddRoleModal();
+      });
+    }
+
+    if (this.addRoleOkBtn) {
+      this.addRoleOkBtn.addEventListener('click', () => {
+        this.handleAddRole();
+      });
+    }
+
     // Click outside modal to close
     this.confirmModal.addEventListener('click', (e) => {
       if (e.target === this.confirmModal) {
         this.closeConfirmModal();
       }
     });
+
+    if (this.addRoleModal) {
+      this.addRoleModal.addEventListener('click', (e) => {
+        if (e.target === this.addRoleModal) {
+          this.closeAddRoleModal();
+        }
+      });
+    }
   }
 
   async loadPendingUsers() {
@@ -493,6 +570,313 @@ class UserManagement {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // Role assignment methods
+  async loadRoles() {
+    try {
+      const response = await fetch('/api/roles');
+      
+      if (response.status === 403) {
+        console.warn('Permission denied loading roles');
+        return;
+      }
+      
+      const data = await response.json();
+
+      if (data.success && data.roles) {
+        this.roles = data.roles;
+      }
+    } catch (error) {
+      console.error('Error loading roles:', error);
+    }
+  }
+
+  async loadBoards() {
+    try {
+      const response = await fetch('/api/roles/boards');
+      
+      if (response.status === 403) {
+        console.warn('Permission denied loading boards');
+        return;
+      }
+      
+      const data = await response.json();
+
+      if (data.success && data.boards) {
+        this.boards = data.boards;
+      }
+    } catch (error) {
+      console.error('Error loading boards:', error);
+    }
+  }
+
+  async loadRoleUsers() {
+    if (!this.roleUsersContainer) {
+      return; // Elements don't exist, skip loading
+    }
+
+    try {
+      this.roleUsersLoading.style.display = 'block';
+      this.roleUsersEmpty.style.display = 'none';
+      this.roleUsersContainer.style.display = 'none';
+
+      const response = await fetch('/api/roles/users');
+      
+      if (response.status === 403) {
+        console.warn('Permission denied loading role users');
+        this.roleUsersLoading.style.display = 'none';
+        return;
+      }
+      
+      const data = await response.json();
+
+      if (data.success && data.users) {
+        this.roleUsers = data.users;
+        
+        if (this.roleUsers.length === 0) {
+          this.roleUsersLoading.style.display = 'none';
+          this.roleUsersEmpty.style.display = 'block';
+        } else {
+          this.renderRoleUsers(this.roleUsers);
+          this.roleUsersLoading.style.display = 'none';
+          this.roleUsersContainer.style.display = 'block';
+        }
+      } else {
+        throw new Error(data.message || 'Failed to load users for role assignment');
+      }
+    } catch (error) {
+      console.error('Error loading role users:', error);
+      this.showStatus('Error loading users for role assignment: ' + error.message, 'error');
+      this.roleUsersLoading.style.display = 'none';
+    }
+  }
+
+  renderRoleUsers(users) {
+    this.roleUsersContainer.innerHTML = '';
+
+    users.forEach(user => {
+      const userCard = this.createRoleUserCard(user);
+      this.roleUsersContainer.appendChild(userCard);
+    });
+  }
+
+  createRoleUserCard(user) {
+    const card = document.createElement('div');
+    card.className = 'user-card';
+    card.dataset.userId = user.id;
+
+    const rolesHtml = user.roles.length > 0
+      ? user.roles.map(role => `
+          <div class="user-role-item">
+            <div class="role-info">
+              <span class="role-name-badge">${this.escapeHtml(role.role_name)}</span>
+              <span class="role-scope">${role.board_name ? `(Board: ${this.escapeHtml(role.board_name)})` : '(Global)'}</span>
+            </div>
+            <button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
+              Remove
+            </button>
+          </div>
+        `).join('')
+      : '<div class="no-roles-message">No roles assigned</div>';
+
+    card.innerHTML = `
+      <div class="user-header">
+        <div class="user-info">
+          <div class="user-name">${this.escapeHtml(user.username)}</div>
+          <div class="user-email">${this.escapeHtml(user.email)}</div>
+        </div>
+        <div class="user-actions">
+          <button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="user-roles">
+        ${rolesHtml}
+      </div>
+    `;
+
+    // Attach event listeners
+    const addRoleBtn = card.querySelector('[data-action="add-role"]');
+    if (addRoleBtn) {
+      addRoleBtn.addEventListener('click', (e) => {
+        const userId = parseInt(e.currentTarget.dataset.userId);
+        const username = e.currentTarget.dataset.username;
+        this.openAddRoleModal(userId, username);
+      });
+    }
+
+    const removeRoleBtns = card.querySelectorAll('.remove-role-btn');
+    removeRoleBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const userId = parseInt(e.currentTarget.dataset.userId);
+        const roleId = parseInt(e.currentTarget.dataset.roleId);
+        const boardId = e.currentTarget.dataset.boardId ? parseInt(e.currentTarget.dataset.boardId) : null;
+        const user = this.roleUsers.find(u => u.id === userId);
+        const role = user?.roles.find(r => r.role_id === roleId && (r.board_id || null) === boardId);
+        
+        if (user && role) {
+          const scope = role.board_name ? ` on board "${role.board_name}"` : ' (global)';
+          this.confirmRemoveRole(userId, roleId, boardId, `${user.username}: ${role.role_name}${scope}`);
+        }
+      });
+    });
+
+    return card;
+  }
+
+  filterRoleUsers(searchTerm) {
+    const term = searchTerm.toLowerCase().trim();
+    
+    if (!term) {
+      this.renderRoleUsers(this.roleUsers);
+      return;
+    }
+
+    const filtered = this.roleUsers.filter(user => 
+      user.username.toLowerCase().includes(term) ||
+      user.email.toLowerCase().includes(term)
+    );
+
+    if (filtered.length === 0) {
+      this.roleUsersContainer.innerHTML = '<div class="empty-message">No users match your search.</div>';
+      this.roleUsersContainer.style.display = 'block';
+    } else {
+      this.renderRoleUsers(filtered);
+    }
+  }
+
+  openAddRoleModal(userId, username) {
+    this.currentUserId = userId;
+    this.addRoleUserName.textContent = `Assign role to: ${username}`;
+    
+    // Populate roles dropdown
+    this.roleSelect.innerHTML = '<option value="">Select a role...</option>';
+    this.roles.forEach(role => {
+      const option = document.createElement('option');
+      option.value = role.id;
+      option.textContent = role.name;
+      this.roleSelect.appendChild(option);
+    });
+
+    // Populate boards dropdown
+    this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
+    this.boards.forEach(board => {
+      const option = document.createElement('option');
+      option.value = board.id;
+      option.textContent = board.name;
+      this.boardSelect.appendChild(option);
+    });
+
+    this.addRoleModal.style.display = 'flex';
+  }
+
+  closeAddRoleModal() {
+    this.addRoleModal.style.display = 'none';
+    this.currentUserId = null;
+    this.roleSelect.value = '';
+    this.boardSelect.value = '';
+  }
+
+  async handleAddRole() {
+    const roleId = parseInt(this.roleSelect.value);
+    const boardId = this.boardSelect.value ? parseInt(this.boardSelect.value) : null;
+
+    if (!roleId) {
+      this.showStatus('Please select a role', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/roles/assign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: this.currentUserId,
+          role_id: roleId,
+          board_id: boardId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.showStatus(data.message || 'Role assigned successfully', 'success');
+        this.closeAddRoleModal();
+        await this.loadRoleUsers();
+      } else {
+        throw new Error(data.message || 'Failed to assign role');
+      }
+    } catch (error) {
+      console.error('Error assigning role:', error);
+      this.showStatus('Error: ' + error.message, 'error');
+    }
+  }
+
+  confirmRemoveRole(userId, roleId, boardId, roleDescription) {
+    this.confirmModalTitle.textContent = 'Confirm Role Removal';
+    this.confirmModalMessage.textContent = `Are you sure you want to remove the role: ${roleDescription}?`;
+    
+    // Store callback locally before setting up OK button
+    const callback = async () => {
+      await this.removeRole(userId, roleId, boardId);
+    };
+    
+    this.pendingCallback = callback;
+
+    // Remove old listener and add new one
+    const newOkBtn = this.confirmOkBtn.cloneNode(true);
+    this.confirmOkBtn.parentNode.replaceChild(newOkBtn, this.confirmOkBtn);
+    this.confirmOkBtn = newOkBtn;
+    
+    this.confirmOkBtn.addEventListener('click', async () => {
+      const cb = this.pendingCallback;
+      this.closeConfirmModal();
+      if (cb) {
+        try {
+          await cb();
+        } catch (error) {
+          console.error('Error in confirm callback:', error);
+          this.showStatus('Error: ' + error.message, 'error');
+        }
+      }
+    });
+    
+    this.confirmModal.style.display = 'flex';
+  }
+
+  async removeRole(userId, roleId, boardId) {
+    try {
+      const response = await fetch('/api/roles/remove', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          role_id: roleId,
+          board_id: boardId
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        this.showStatus(data.message || 'Role removed successfully', 'success');
+        await this.loadRoleUsers();
+      } else {
+        throw new Error(data.message || 'Failed to remove role');
+      }
+    } catch (error) {
+      console.error('Error removing role:', error);
+      this.showStatus('Error: ' + error.message, 'error');
+    }
   }
 }
 

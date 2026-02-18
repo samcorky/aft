@@ -18,43 +18,6 @@
     <h1 class="page-title">Role Management</h1>
     <div class="settings-container">
       
-      <!-- User Role Assignment Section -->
-      <div class="settings-section">
-        <h3>
-          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-            <circle cx="8.5" cy="7" r="4"></circle>
-            <path d="M20 8v6"></path>
-            <path d="M23 11h-6"></path>
-          </svg>
-          Manage User Roles
-        </h3>
-        <p class="setting-help">Assign or remove roles from active users. Roles can be global or board-specific.</p>
-        
-        <div class="filter-bar">
-          <div class="search-box">
-            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <path d="m21 21-4.35-4.35"></path>
-            </svg>
-            <input type="text" id="user-search" placeholder="Search by name or email..." class="search-input">
-          </div>
-        </div>
-        
-        <div id="users-loading" class="loading-message">
-          <span class="spinner"></span>
-          Loading users...
-        </div>
-        
-        <div id="users-empty" class="empty-message" style="display: none;">
-          No active users found.
-        </div>
-        
-        <div id="users-list" class="users-list" style="display: none;">
-          <!-- Users will be populated here -->
-        </div>
-      </div>
-
       <!-- Available Roles Section -->
       <div class="settings-section">
         <div class="section-header-row">
@@ -137,35 +100,6 @@
       </div>
     </div>
   </main>
-
-  <!-- Add Role Modal -->
-  <div class="modal" id="add-role-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="add-role-modal-title">
-    <div class="modal-content">
-      <h2 id="add-role-modal-title">Assign Role</h2>
-      <div class="modal-body">
-        <p id="add-role-user-name"></p>
-        
-        <div class="form-group">
-          <label for="role-select">Role</label>
-          <select id="role-select" class="setting-select">
-            <option value="">Select a role...</option>
-          </select>
-        </div>
-        
-        <div class="form-group">
-          <label for="board-select">Board (Optional)</label>
-          <select id="board-select" class="setting-select">
-            <option value="">Global (All Boards)</option>
-          </select>
-          <p class="setting-help">Leave as "Global" to apply the role to all boards, or select a specific board.</p>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="add-role-cancel-btn">Cancel</button>
-        <button class="btn btn-primary" id="add-role-ok-btn">Assign Role</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Create/Edit Role Modal -->
   <div class="modal" id="role-editor-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="role-editor-modal-title">

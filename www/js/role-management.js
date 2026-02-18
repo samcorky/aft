@@ -4,19 +4,7 @@ class RoleManagement {
     this.rolesContainer = document.getElementById('roles-list');
     this.rolesLoading = document.getElementById('roles-loading');
     
-    this.usersContainer = document.getElementById('users-list');
-    this.usersLoading = document.getElementById('users-loading');
-    this.usersEmpty = document.getElementById('users-empty');
-    
-    this.searchInput = document.getElementById('user-search');
     this.statusMessage = document.getElementById('status-message');
-    
-    this.addRoleModal = document.getElementById('add-role-modal');
-    this.addRoleUserName = document.getElementById('add-role-user-name');
-    this.roleSelect = document.getElementById('role-select');
-    this.boardSelect = document.getElementById('board-select');
-    this.addRoleCancelBtn = document.getElementById('add-role-cancel-btn');
-    this.addRoleOkBtn = document.getElementById('add-role-ok-btn');
     
     this.confirmModal = document.getElementById('confirm-modal');
     this.confirmModalTitle = document.getElementById('confirm-modal-title');
@@ -52,12 +40,9 @@ class RoleManagement {
     this.viewToggleText = document.getElementById('view-toggle-text');
     
     this.confirmCallback = null;
-    this.currentUserId = null;
     this.currentRoleId = null;
     this.editMode = false;
-    this.allUsers = [];
     this.roles = [];
-    this.boards = [];
     this.permissions = {};
     this.allPermissions = [];
     this.currentMappingView = 'permission'; // 'permission' or 'endpoint'
@@ -66,57 +51,23 @@ class RoleManagement {
 
   async init() {
     // Check permissions before loading page content
-    const hasRoleManage = typeof hasPermission === 'function' && hasPermission('role.manage');
-    const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
-    
-    if (!hasRoleManage && !hasUserRole) {
-      // User doesn't have either permission - show access denied
-      showAccessDenied('You need either "role.manage" or "user.role" permission to access this page.');
+    if (typeof hasPermission === 'function' && !hasPermission('role.manage')) {
+      // User doesn't have permission - show access denied
+      showAccessDenied('You need the "role.manage" permission to access this page.');
       return;
     }
     
     this.attachEventListeners();
     
-    // Load data based on permissions
-    const loadPromises = [];
-    
-    if (hasRoleManage || hasUserRole) {
-      loadPromises.push(this.loadPermissions());
-      loadPromises.push(this.loadRoles());
-      loadPromises.push(this.loadBoards());
-      loadPromises.push(this.loadPermissionMappings());
-    }
-    
-    if (hasUserRole) {
-      loadPromises.push(this.loadUsers());
-    }
-    
-    await Promise.all(loadPromises);
-    
-    // Hide sections based on permissions
-    if (!hasRoleManage) {
-      // Hide create role button if user can't manage roles
-      const createRoleBtn = document.getElementById('create-role-btn');
-      if (createRoleBtn) {
-        createRoleBtn.style.display = 'none';
-      }
-    }
-    
-    if (!hasUserRole) {
-      // Hide user role assignment section if user can't assign roles
-      const userSection = document.querySelector('.settings-section:nth-child(2)');
-      if (userSection) {
-        userSection.style.display = 'none';
-      }
-    }
+    // Load data
+    await Promise.all([
+      this.loadPermissions(),
+      this.loadRoles(),
+      this.loadPermissionMappings()
+    ]);
   }
 
   attachEventListeners() {
-    // Search functionality
-    this.searchInput.addEventListener('input', () => {
-      this.filterUsers(this.searchInput.value);
-    });
-
     // Create role button
     const createRoleBtn = document.getElementById('create-role-btn');
     if (createRoleBtn) {
@@ -131,15 +82,6 @@ class RoleManagement {
         this.toggleMappingView();
       });
     }
-
-    // Add role modal handlers
-    this.addRoleCancelBtn.addEventListener('click', () => {
-      this.closeAddRoleModal();
-    });
-
-    this.addRoleOkBtn.addEventListener('click', () => {
-      this.handleAddRole();
-    });
 
     // Role editor modal handlers
     this.roleEditorCancelBtn.addEventListener('click', () => {
@@ -170,12 +112,6 @@ class RoleManagement {
     });
 
     // Click outside modal to close
-    this.addRoleModal.addEventListener('click', (e) => {
-      if (e.target === this.addRoleModal) {
-        this.closeAddRoleModal();
-      }
-    });
-
     this.confirmModal.addEventListener('click', (e) => {
       if (e.target === this.confirmModal) {
         this.closeConfirmModal();
@@ -242,64 +178,6 @@ class RoleManagement {
       console.error('Error loading roles:', error);
       this.showStatus('Error loading roles: ' + error.message, 'error');
       this.rolesLoading.style.display = 'none';
-    }
-  }
-
-  async loadBoards() {
-    try {
-      const response = await fetch('/api/roles/boards');
-      
-      // Check for permission errors
-      if (response.status === 403) {
-        console.warn('Permission denied loading boards');
-        return;
-      }
-      
-      const data = await response.json();
-
-      if (data.success && data.boards) {
-        this.boards = data.boards;
-      }
-    } catch (error) {
-      console.error('Error loading boards:', error);
-    }
-  }
-
-  async loadUsers() {
-    try {
-      this.usersLoading.style.display = 'block';
-      this.usersEmpty.style.display = 'none';
-      this.usersContainer.style.display = 'none';
-
-      const response = await fetch('/api/roles/users');
-      
-      // Check for permission errors
-      if (response.status === 403) {
-        console.warn('Permission denied loading users');
-        this.usersLoading.style.display = 'none';
-        return;
-      }
-      
-      const data = await response.json();
-
-      if (data.success && data.users) {
-        this.allUsers = data.users;
-        
-        if (this.allUsers.length === 0) {
-          this.usersLoading.style.display = 'none';
-          this.usersEmpty.style.display = 'block';
-        } else {
-          this.renderUsers(this.allUsers);
-          this.usersLoading.style.display = 'none';
-          this.usersContainer.style.display = 'block';
-        }
-      } else {
-        throw new Error(data.message || 'Failed to load users');
-      }
-    } catch (error) {
-      console.error('Error loading users:', error);
-      this.showStatus('Error loading users: ' + error.message, 'error');
-      this.usersLoading.style.display = 'none';
     }
   }
 
@@ -437,213 +315,6 @@ class RoleManagement {
       permissionsDiv.innerHTML = permissionsHtml;
       permissionsDiv.dataset.expanded = 'true';
       toggleLink.textContent = 'Show less';
-    }
-  }
-
-  renderUsers(users) {
-    this.usersContainer.innerHTML = '';
-
-    users.forEach(user => {
-      const userCard = this.createUserCard(user);
-      this.usersContainer.appendChild(userCard);
-    });
-  }
-
-  createUserCard(user) {
-    const card = document.createElement('div');
-    card.className = 'user-card';
-    card.dataset.userId = user.id;
-
-    const rolesHtml = user.roles.length > 0
-      ? user.roles.map(role => `
-          <div class="user-role-item">
-            <div class="role-info">
-              <span class="role-name-badge">${this.escapeHtml(role.role_name)}</span>
-              <span class="role-scope">${role.board_name ? `(Board: ${this.escapeHtml(role.board_name)})` : '(Global)'}</span>
-            </div>
-            <button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
-              Remove
-            </button>
-          </div>
-        `).join('')
-      : '<div class="no-roles-message">No roles assigned</div>';
-
-    card.innerHTML = `
-      <div class="user-header">
-        <div class="user-info">
-          <div class="user-name">${this.escapeHtml(user.username)}</div>
-          <div class="user-email">${this.escapeHtml(user.email)}</div>
-        </div>
-        <div class="user-actions">
-          <button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <div class="user-roles">
-        ${rolesHtml}
-      </div>
-    `;
-
-    // Attach event listeners
-    const addRoleBtn = card.querySelector('[data-action="add-role"]');
-    if (addRoleBtn) {
-      addRoleBtn.addEventListener('click', (e) => {
-        const userId = parseInt(e.currentTarget.dataset.userId);
-        const username = e.currentTarget.dataset.username;
-        this.openAddRoleModal(userId, username);
-      });
-    }
-
-    const removeRoleBtns = card.querySelectorAll('.remove-role-btn');
-    removeRoleBtns.forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const userId = parseInt(e.currentTarget.dataset.userId);
-        const roleId = parseInt(e.currentTarget.dataset.roleId);
-        const boardId = e.currentTarget.dataset.boardId ? parseInt(e.currentTarget.dataset.boardId) : null;
-        const user = this.allUsers.find(u => u.id === userId);
-        const role = user?.roles.find(r => r.role_id === roleId && (r.board_id || null) === boardId);
-        
-        if (user && role) {
-          const scope = role.board_name ? ` on board "${role.board_name}"` : ' (global)';
-          this.confirmRemoveRole(userId, roleId, boardId, `${user.username}: ${role.role_name}${scope}`);
-        }
-      });
-    });
-
-    return card;
-  }
-
-  filterUsers(searchTerm) {
-    const term = searchTerm.toLowerCase().trim();
-    
-    if (!term) {
-      this.renderUsers(this.allUsers);
-      return;
-    }
-
-    const filtered = this.allUsers.filter(user => 
-      user.username.toLowerCase().includes(term) ||
-      user.email.toLowerCase().includes(term)
-    );
-
-    if (filtered.length === 0) {
-      this.usersContainer.innerHTML = '<div class="empty-message">No users match your search.</div>';
-      this.usersContainer.style.display = 'block';
-    } else {
-      this.renderUsers(filtered);
-    }
-  }
-
-  openAddRoleModal(userId, username) {
-    this.currentUserId = userId;
-    this.addRoleUserName.textContent = `Assign role to: ${username}`;
-    
-    // Populate roles dropdown
-    this.roleSelect.innerHTML = '<option value="">Select a role...</option>';
-    this.roles.forEach(role => {
-      const option = document.createElement('option');
-      option.value = role.id;
-      option.textContent = role.name;
-      this.roleSelect.appendChild(option);
-    });
-
-    // Populate boards dropdown
-    this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
-    this.boards.forEach(board => {
-      const option = document.createElement('option');
-      option.value = board.id;
-      option.textContent = board.name;
-      this.boardSelect.appendChild(option);
-    });
-
-    this.addRoleModal.style.display = 'flex';
-  }
-
-  closeAddRoleModal() {
-    this.addRoleModal.style.display = 'none';
-    this.currentUserId = null;
-    this.roleSelect.value = '';
-    this.boardSelect.value = '';
-  }
-
-  async handleAddRole() {
-    const roleId = parseInt(this.roleSelect.value);
-    const boardId = this.boardSelect.value ? parseInt(this.boardSelect.value) : null;
-
-    if (!roleId) {
-      this.showStatus('Please select a role', 'error');
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/roles/assign', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          user_id: this.currentUserId,
-          role_id: roleId,
-          board_id: boardId
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        this.showStatus(data.message || 'Role assigned successfully', 'success');
-        this.closeAddRoleModal();
-        await this.loadUsers();
-      } else {
-        throw new Error(data.message || 'Failed to assign role');
-      }
-    } catch (error) {
-      console.error('Error assigning role:', error);
-      this.showStatus('Error: ' + error.message, 'error');
-    }
-  }
-
-  confirmRemoveRole(userId, roleId, boardId, roleDescription) {
-    this.confirmModalTitle.textContent = 'Confirm Role Removal';
-    this.confirmModalMessage.textContent = `Are you sure you want to remove the role: ${roleDescription}?`;
-    
-    this.confirmOkBtn.onclick = async () => {
-      await this.removeRole(userId, roleId, boardId);
-      this.closeConfirmModal();
-    };
-    
-    this.confirmModal.style.display = 'flex';
-  }
-
-  async removeRole(userId, roleId, boardId) {
-    try {
-      const response = await fetch('/api/roles/remove', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          role_id: roleId,
-          board_id: boardId
-        })
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        this.showStatus(data.message || 'Role removed successfully', 'success');
-        await this.loadUsers();
-      } else {
-        throw new Error(data.message || 'Failed to remove role');
-      }
-    } catch (error) {
-      console.error('Error removing role:', error);
-      this.showStatus('Error: ' + error.message, 'error');
     }
   }
 

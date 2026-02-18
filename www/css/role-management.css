@@ -248,10 +248,12 @@
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 15px;
+  gap: 15px;
 }
 
 .user-info {
   flex: 1;
+  min-width: 0;
 }
 
 .user-name {
@@ -269,6 +271,7 @@
 .user-actions {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .btn-icon {
@@ -281,6 +284,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .btn-icon svg {
@@ -315,14 +319,25 @@
 }
 
 .role-info {
-  flex: 1;
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .role-name-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  background: var(--primary-color);
+  color: white;
   font-weight: 600;
-  color: var(--text-color);
   text-transform: capitalize;
-  margin-right: 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  white-space: nowrap;
+  max-width: fit-content;
+  width: auto;
 }
 
 .role-scope {

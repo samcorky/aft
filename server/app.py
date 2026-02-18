@@ -25,6 +25,7 @@ from utils import (
     MAX_DESCRIPTION_LENGTH,
     MAX_COMMENT_LENGTH,
     get_user_scoped_query,
+    get_user_permissions,
     require_permission,
     require_board_access,
     require_authentication,
@@ -3654,6 +3655,12 @@ def get_board_scheduled_cards(board_id):
             }
             result["columns"].append(column_data)
 
+        # Check if user has edit permissions for this board
+        user_permissions = get_user_permissions(g.user.id, board_id)
+        edit_permissions = ['card.create', 'card.edit', 'card.update', 'card.delete', 'card.archive', 'board.edit']
+        can_edit = any(perm in user_permissions for perm in edit_permissions)
+        result["can_edit"] = can_edit
+
         return jsonify({"success": True, "board": result})
         
     except Exception as e:
@@ -4734,6 +4741,12 @@ def get_board_cards(board_id):
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
+
+        # Check if user has edit permissions for this board
+        user_permissions = get_user_permissions(g.user.id, board_id)
+        edit_permissions = ['card.create', 'card.edit', 'card.update', 'card.delete', 'card.archive', 'board.edit']
+        can_edit = any(perm in user_permissions for perm in edit_permissions)
+        result["can_edit"] = can_edit
 
         db.close()
         return jsonify({"success": True, "board": result})

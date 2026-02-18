@@ -1450,3 +1450,57 @@
   margin: 0;
   padding: 0;
 }
+/* Read-only board styles */
+.board-readonly-indicator {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  background-color: var(--secondary-color);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.board-readonly-indicator::before {
+  content: '🔒';
+  font-size: 16px;
+}
+
+/* Disabled/read-only buttons and controls */
+button.readonly-disabled,
+.readonly-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Hide certain elements in read-only mode */
+.readonly-hidden {
+  display: none !important;
+}
+
+/* Grey out cards in read-only mode but keep them clickable for viewing */
+.board-readonly .card {
+  opacity: 0.95;
+}
+
+.board-readonly .card-action-buttons {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Prevent drag and drop in read-only mode */
+.board-readonly .card[draggable="true"] {
+  cursor: default;
+}
+
+.board-readonly .column[draggable="true"] {
+  cursor: default;
+}

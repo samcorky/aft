@@ -27,6 +27,11 @@ PERMISSION_DEFINITIONS = {
     'card.assign': 'Assign cards to users',
     'card.archive': 'Archive/unarchive cards',
     
+    # Column permissions
+    'column.create': 'Create board columns',
+    'column.update': 'Update column properties',
+    'column.delete': 'Delete board columns',
+    
     # Schedule permissions
     'schedule.create': 'Create scheduled cards',
     'schedule.view': 'View scheduled cards',
@@ -76,6 +81,9 @@ INITIAL_ROLES = {
             'card.delete',
             'card.assign',
             'card.archive',
+            'column.create',
+            'column.update',
+            'column.delete',
             'schedule.create',
             'schedule.view',
             'schedule.edit',
@@ -109,6 +117,9 @@ INITIAL_ROLES = {
             'card.delete',
             'card.assign',
             'card.archive',
+            'column.create',
+            'column.update',
+            'column.delete',
             'schedule.create',
             'schedule.edit',
             'schedule.delete',
@@ -130,6 +141,9 @@ INITIAL_ROLES = {
             'card.edit',
             'card.update',
             'card.archive',
+            'column.create',
+            'column.update',
+            'column.delete',
             'schedule.create',
             'schedule.edit',
             'setting.view',

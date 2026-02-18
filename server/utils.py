@@ -261,7 +261,7 @@ def get_user_scoped_query(db, model, user_id):
         ValueError: If model scoping is not defined (fail secure)
     """
     # Import here to avoid circular imports
-    from models import Board, BoardColumn, Card, ChecklistItem, Comment, Setting, Theme, Notification, ScheduledCard
+    from models import Board, BoardColumn, Card, ChecklistItem, Comment, Setting, Theme, Notification, ScheduledCard, UserRole
     
     query = db.query(model)
     
@@ -274,26 +274,54 @@ def get_user_scoped_query(db, model, user_id):
         # For notifications, only show user's own
         return query.filter(model.user_id == user_id)
     
-    # Models with owner_id (like Board)
+    # Models with owner_id (like Board) - include owned boards AND boards where user has a role
     if hasattr(model, 'owner_id'):
-        return query.filter(model.owner_id == user_id)
+        # Board can be accessed if user owns it OR has a role on it
+        owned = query.filter(model.owner_id == user_id)
+        role_based = query.join(UserRole).filter(UserRole.user_id == user_id)
+        return owned.union(role_based)
     
     # Models that inherit permissions through relationships
-    # Card inherits from Board through Column
+    # Card inherits from Board through Column - include owned boards AND role-assigned boards
     if model.__name__ == 'Card':
-        return query.join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+        return query.join(BoardColumn).join(Board).filter(
+            (Board.owner_id == user_id) | 
+            (Board.id.in_(
+                db.query(UserRole.board_id).filter(UserRole.user_id == user_id)
+            ))
+        )
     
     if model.__name__ == 'BoardColumn':
-        return query.join(Board).filter(Board.owner_id == user_id)
+        return query.join(Board).filter(
+            (Board.owner_id == user_id) | 
+            (Board.id.in_(
+                db.query(UserRole.board_id).filter(UserRole.user_id == user_id)
+            ))
+        )
     
     if model.__name__ == 'ChecklistItem':
-        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+        return query.join(Card).join(BoardColumn).join(Board).filter(
+            (Board.owner_id == user_id) | 
+            (Board.id.in_(
+                db.query(UserRole.board_id).filter(UserRole.user_id == user_id)
+            ))
+        )
     
     if model.__name__ == 'Comment':
-        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+        return query.join(Card).join(BoardColumn).join(Board).filter(
+            (Board.owner_id == user_id) | 
+            (Board.id.in_(
+                db.query(UserRole.board_id).filter(UserRole.user_id == user_id)
+            ))
+        )
     
     if model.__name__ == 'ScheduledCard':
-        return query.join(Card).join(BoardColumn).join(Board).filter(Board.owner_id == user_id)
+        return query.join(Card).join(BoardColumn).join(Board).filter(
+            (Board.owner_id == user_id) | 
+            (Board.id.in_(
+                db.query(UserRole.board_id).filter(UserRole.user_id == user_id)
+            ))
+        )
     
     # Fail secure: if we don't know how to scope it, raise an error
     logger.error(f"No scoping rule defined for model {model.__name__}. This is a security issue!")

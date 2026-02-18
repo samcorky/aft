@@ -3296,13 +3296,13 @@ def update_card_scheduler_config():
 @app.route("/api/boards", methods=["GET"])
 @require_permission('board.view')
 def get_boards():
-    """Get all boards owned by the current user.
+    """Get all boards accessible by the current user (owned or shared via roles).
     ---
     tags:
       - Boards
     responses:
       200:
-        description: List of all boards owned by the user
+        description: List of all boards accessible by the user
         schema:
           type: object
           properties:
@@ -3338,7 +3338,14 @@ def get_boards():
     db = SessionLocal()
     try:
         user_id = g.user.id
-        boards = get_user_scoped_query(db, Board, user_id).all()
+        
+        # Get boards owned by user OR where user has a role assignment
+        owned_boards = db.query(Board).filter(Board.owner_id == user_id)
+        role_boards = db.query(Board).join(UserRole).filter(UserRole.user_id == user_id)
+        
+        # Combine both queries and remove duplicates
+        boards = owned_boards.union(role_boards).all()
+        
         return jsonify(
             {
                 "success": True,
@@ -3520,14 +3527,14 @@ def get_board_scheduled_cards(board_id):
     try:
         from models import BoardColumn, Card
         
-        user_id = g.user.id
-        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
+        # Access already validated by @require_board_access decorator
+        board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
         
         # Get columns for the board
         columns = (
-            get_user_scoped_query(db, BoardColumn, user_id)
+            db.query(BoardColumn)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -3539,7 +3546,7 @@ def get_board_scheduled_cards(board_id):
         for column in columns:
             # Get only scheduled template cards for this column
             cards = (
-                get_user_scoped_query(db, Card, user_id)
+                db.query(Card)
                 .filter(Card.column_id == column.id)
                 .filter(Card.scheduled.is_(True))
                 .order_by(Card.order)
@@ -3653,8 +3660,8 @@ def delete_board(board_id):
     """
     db = SessionLocal()
     try:
-        user_id = get_current_user_id()
-        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
+        # Access already validated by @require_board_access decorator
+        board = db.query(Board).filter(Board.id == board_id).first()
 
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
@@ -3790,8 +3797,8 @@ def update_board(board_id):
                 "At least one field (name or description) is required", 400
             )
 
-        user_id = get_current_user_id()
-        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
+        # Access already validated by @require_board_access decorator
+        board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
             return create_error_response("Board not found", 404)
 
@@ -3911,9 +3918,9 @@ def get_board_columns(board_id):
     try:
         from models import BoardColumn
 
-        user_id = g.user.id
+        # Access already validated by @require_board_access decorator
         columns = (
-            get_user_scoped_query(db, BoardColumn, user_id)
+            db.query(BoardColumn)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -4589,19 +4596,19 @@ def get_board_cards(board_id):
         db = SessionLocal()
         from models import BoardColumn, Card
 
-        user_id = g.user.id
+        # Access already validated by @require_board_access decorator
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
         # Get board
-        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == board_id).first()
+        board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
             db.close()
             return jsonify({"success": False, "message": "Board not found"}), 404
 
         # Get columns for board
         columns = (
-            get_user_scoped_query(db, BoardColumn, user_id)
+            db.query(BoardColumn)
             .filter(BoardColumn.board_id == board_id)
             .order_by(BoardColumn.order)
             .all()
@@ -4613,7 +4620,7 @@ def get_board_cards(board_id):
         for column in columns:
             # Get cards for this column with archived filter
             # Always filter out scheduled template cards (scheduled=True) from task views
-            cards_query = get_user_scoped_query(db, Card, user_id).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
+            cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
             
             # Apply archived filter
             if archived_param == 'true':
@@ -4796,10 +4803,12 @@ def create_card(column_id):
 
         from models import BoardColumn, Card
 
-        # Verify column exists
-        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+        user_id = g.user.id
+        
+        # Verify column exists and user has access to its board
+        column = get_user_scoped_query(db, BoardColumn, user_id).filter(BoardColumn.id == column_id).first()
         if not column:
-            return create_error_response("Column not found", 404)
+            return create_error_response("Column not found or access denied", 404)
 
         # Validate and sanitize title
         title = data.get("title")
@@ -5384,10 +5393,13 @@ def update_card(card_id):
 
         from models import Card, BoardColumn
 
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return create_error_response("Card not found", 404)
+            return create_error_response("Card not found or access denied", 404)
 
         old_column_id = card.column_id
         old_order = card.order
@@ -5601,11 +5613,14 @@ def delete_card(card_id):
         db = SessionLocal()
         from models import Card, BoardColumn
 
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
             db.close()
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         # Get board_id for WebSocket broadcast before deleting
         column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
@@ -5665,10 +5680,13 @@ def archive_card(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         board_id = card.column.board_id if card.column else None
         card.archived = True
@@ -5742,10 +5760,13 @@ def unarchive_card(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         # Get the card's current order and column
         card_order = card.order
@@ -5920,10 +5941,13 @@ def update_card_done_status(card_id):
         if not isinstance(done_status, bool):
             return jsonify({"success": False, "message": "done must be a boolean"}), 400
         
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
         
         board_id = card.column.board_id if card.column else None
         card.done = done_status

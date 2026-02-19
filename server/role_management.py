@@ -259,6 +259,13 @@ def assign_role_to_user():
     
     db = SessionLocal()
     try:
+        # Check if user has role.manage permission (full access) or only user.role (restricted)
+        from utils import get_user_permissions, get_user_role_ids
+        from permissions import has_permission
+        
+        current_user_permissions = get_user_permissions(g.user.id)
+        has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
         # Verify user exists and is active
         user = db.query(User).filter(User.id == user_id, User.is_active).first()
         if not user:
@@ -268,6 +275,15 @@ def assign_role_to_user():
         role = db.query(Role).filter(Role.id == role_id).first()
         if not role:
             return create_error_response("Role not found", 404)
+        
+        # If user has only user.role permission (not role.manage), they can only assign roles they have
+        if not has_role_manage:
+            current_user_role_ids = get_user_role_ids(g.user.id, board_id)
+            if role_id not in current_user_role_ids:
+                return create_error_response(
+                    f"You can only assign roles that you have been granted. You do not have the '{role.name}' role.",
+                    403
+                )
         
         # Verify board exists if board_id provided
         if board_id:
@@ -364,6 +380,13 @@ def remove_role_from_user():
     
     db = SessionLocal()
     try:
+        # Check if user has role.manage permission (full access) or only user.role (restricted)
+        from utils import get_user_permissions, get_user_role_ids
+        from permissions import has_permission
+        
+        current_user_permissions = get_user_permissions(g.user.id)
+        has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
         # Verify user exists
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -373,6 +396,15 @@ def remove_role_from_user():
         role = db.query(Role).filter(Role.id == role_id).first()
         if not role:
             return create_error_response("Role not found", 404)
+        
+        # If user has only user.role permission (not role.manage), they can only remove roles they have
+        if not has_role_manage:
+            current_user_role_ids = get_user_role_ids(g.user.id, board_id)
+            if role_id not in current_user_role_ids:
+                return create_error_response(
+                    f"You can only remove roles that you have been granted. You do not have the '{role.name}' role.",
+                    403
+                )
         
         # Find the role assignment
         user_role = db.query(UserRole).filter(
@@ -443,6 +475,105 @@ def get_boards_for_roles():
             })
         
         return create_success_response(data={'boards': board_list})
+        
+    finally:
+        db.close()
+
+
+@role_mgmt_bp.route('/my-roles', methods=['GET'])
+@require_any_permission('role.manage', 'user.role')
+def get_my_roles():
+    """
+    Get the current user's roles for filtering assignable roles.
+    Returns all roles if user has role.manage, otherwise returns only their own roles.
+    ---
+    tags:
+      - Role Management
+    parameters:
+      - name: board_id
+        in: query
+        type: integer
+        description: Optional board ID to get board-specific roles
+    responses:
+      200:
+        description: List of roles the current user can assign
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            roles:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  name:
+                    type: string
+                  description:
+                    type: string
+            can_assign_all:
+              type: boolean
+              description: Whether user has role.manage (can assign any role)
+      403:
+        description: Forbidden - requires role.manage or user.role permission
+    """
+    from utils import get_user_permissions, get_user_role_ids
+    from permissions import has_permission
+    
+    board_id = request.args.get('board_id', type=int)
+    
+    db = SessionLocal()
+    try:
+        current_user_permissions = get_user_permissions(g.user.id)
+        has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
+        if has_role_manage:
+            # User has role.manage - can assign any role
+            roles = db.query(Role).order_by(Role.name).all()
+            role_list = []
+            for role in roles:
+                role_list.append({
+                    'id': role.id,
+                    'name': role.name,
+                    'description': role.description
+                })
+            
+            return create_success_response(data={
+                'roles': role_list,
+                'can_assign_all': True
+            })
+        else:
+            # User has only user.role - can only assign roles they have
+            # Get ALL roles the user has (global + any board-specific)
+            if board_id is not None:
+                # When assigning for a specific board, only show roles they have on that board
+                current_user_role_ids = get_user_role_ids(g.user.id, board_id)
+            else:
+                # When viewing generally, show all global roles they have
+                # (board-specific roles can only be used on those specific boards)
+                current_user_role_ids = get_user_role_ids(g.user.id, None)
+            
+            if not current_user_role_ids:
+                return create_success_response(data={
+                    'roles': [],
+                    'can_assign_all': False
+                })
+            
+            roles = db.query(Role).filter(Role.id.in_(current_user_role_ids)).order_by(Role.name).all()
+            role_list = []
+            for role in roles:
+                role_list.append({
+                    'id': role.id,
+                    'name': role.name,
+                    'description': role.description
+                })
+            
+            return create_success_response(data={
+                'roles': role_list,
+                'can_assign_all': False
+            })
         
     finally:
         db.close()

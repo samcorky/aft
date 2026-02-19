@@ -39,6 +39,7 @@ class UserManagement {
     this.roleUsers = [];
     this.roles = [];
     this.boards = [];
+    this.canAssignAllRoles = false; // Whether user has role.manage permission
   }
 
   async init() {
@@ -69,6 +70,15 @@ class UserManagement {
     }
     
     await Promise.all(loadPromises);
+    
+    // Show role restriction note if user doesn't have role.manage permission
+    const hasRoleManage = typeof hasPermission === 'function' && hasPermission('role.manage');
+    if (hasUserRole && !hasRoleManage) {
+      const roleRestrictionNote = document.getElementById('role-restriction-note');
+      if (roleRestrictionNote) {
+        roleRestrictionNote.style.display = 'block';
+      }
+    }
     
     // Hide sections based on permissions
     if (!hasUserManage) {
@@ -575,7 +585,8 @@ class UserManagement {
   // Role assignment methods
   async loadRoles() {
     try {
-      const response = await fetch('/api/roles');
+      // Use /my-roles endpoint which filters based on user's permissions
+      const response = await fetch('/api/roles/my-roles');
       
       if (response.status === 403) {
         console.warn('Permission denied loading roles');
@@ -586,6 +597,7 @@ class UserManagement {
 
       if (data.success && data.roles) {
         this.roles = data.roles;
+        this.canAssignAllRoles = data.can_assign_all || false;
       }
     } catch (error) {
       console.error('Error loading roles:', error);
@@ -771,6 +783,12 @@ class UserManagement {
       option.textContent = board.name;
       this.boardSelect.appendChild(option);
     });
+    
+    // Show/hide restriction note based on whether user can assign all roles
+    const modalRestrictionNote = document.getElementById('modal-role-restriction-note');
+    if (modalRestrictionNote) {
+      modalRestrictionNote.style.display = this.canAssignAllRoles ? 'none' : 'block';
+    }
 
     this.addRoleModal.style.display = 'flex';
   }

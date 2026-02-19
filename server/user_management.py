@@ -447,6 +447,13 @@ def assign_role(user_id):
     
     db = SessionLocal()
     try:
+        # Check if user has role.manage permission (full access) or only user.role (restricted)
+        from utils import get_user_permissions, get_user_role_ids
+        from permissions import has_permission
+        
+        current_user_permissions = get_user_permissions(g.user.id)
+        has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return create_error_response("User not found", 404)
@@ -454,6 +461,15 @@ def assign_role(user_id):
         role = db.query(Role).filter(Role.name == role_name).first()
         if not role:
             return create_error_response(f"Role '{role_name}' not found", 404)
+        
+        # If user has only user.role permission (not role.manage), they can only assign roles they have
+        if not has_role_manage:
+            current_user_role_ids = get_user_role_ids(g.user.id, board_id)
+            if role.id not in current_user_role_ids:
+                return create_error_response(
+                    f"You can only assign roles that you have been granted. You do not have the '{role_name}' role.",
+                    403
+                )
         
         # Check if role already assigned
         existing = db.query(UserRole).filter(
@@ -530,6 +546,25 @@ def remove_role(user_id, role_id):
     
     db = SessionLocal()
     try:
+        # Check if user has role.manage permission (full access) or only user.role (restricted)
+        from utils import get_user_permissions, get_user_role_ids
+        from permissions import has_permission
+        
+        current_user_permissions = get_user_permissions(g.user.id)
+        has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
+        # If user has only user.role permission (not role.manage), they can only remove roles they have
+        if not has_role_manage:
+            current_user_role_ids = get_user_role_ids(g.user.id, board_id)
+            if role_id not in current_user_role_ids:
+                # Get role name for error message
+                role = db.query(Role).filter(Role.id == role_id).first()
+                role_name = role.name if role else "this role"
+                return create_error_response(
+                    f"You can only remove roles that you have been granted. You do not have the '{role_name}' role.",
+                    403
+                )
+        
         assignment = db.query(UserRole).filter(
             UserRole.user_id == user_id,
             UserRole.role_id == role_id,

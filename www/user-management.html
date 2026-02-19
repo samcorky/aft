@@ -100,6 +100,7 @@
           Manage User Roles
         </h3>
         <p class="setting-help">Assign or remove roles from active users. Roles can be global or board-specific.</p>
+        <p class="setting-help" id="role-restriction-note" style="display: none; font-style: italic; color: var(--text-secondary);">Note: You can only assign or remove roles that you have been granted.</p>
         
         <div class="filter-bar">
           <div class="search-box">
@@ -144,6 +145,7 @@
           <select id="role-select" class="setting-select">
             <option value="">Select a role...</option>
           </select>
+          <p class="setting-help" id="modal-role-restriction-note" style="display: none; font-style: italic;">Note: Only roles you have been granted are available.</p>
         </div>
         
         <div class="form-group">

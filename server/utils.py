@@ -701,6 +701,36 @@ def can_access_board(user_id, board_id):
         db.close()
 
 
+def get_user_role_ids(user_id, board_id=None):
+    """
+    Get all role IDs assigned to a user.
+    
+    Args:
+        user_id: User ID
+        board_id: Optional board ID to get board-specific roles only
+        
+    Returns:
+        set: Set of role IDs the user has
+    """
+    from models import UserRole
+    
+    db = SessionLocal()
+    try:
+        query = db.query(UserRole.role_id).filter(UserRole.user_id == user_id)
+        
+        if board_id is not None:
+            # Get roles for this specific board
+            query = query.filter(UserRole.board_id == board_id)
+        else:
+            # Get global roles (board_id is NULL)
+            query = query.filter(UserRole.board_id.is_(None))
+        
+        role_ids = {role_id for (role_id,) in query.all()}
+        return role_ids
+    finally:
+        db.close()
+
+
 def require_authentication(f):
     """
     Decorator to require authentication but not specific permissions.

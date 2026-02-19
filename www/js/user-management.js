@@ -678,6 +678,9 @@ class UserManagement {
     card.className = 'user-card';
     card.dataset.userId = user.id;
 
+    // Check if this is the current user
+    const isCurrentUser = window.currentUser && user.id === window.currentUser.id;
+
     const rolesHtml = user.roles.length > 0
       ? user.roles.map(role => `
           <div class="user-role-item">
@@ -685,9 +688,9 @@ class UserManagement {
               <span class="role-name-badge">${this.escapeHtml(role.role_name)}</span>
               <span class="role-scope">${role.board_name ? `(Board: ${this.escapeHtml(role.board_name)})` : '(Global)'}</span>
             </div>
-            <button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
+            ${!isCurrentUser ? `<button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
               Remove
-            </button>
+            </button>` : ''}
           </div>
         `).join('')
       : '<div class="no-roles-message">No roles assigned</div>';
@@ -695,16 +698,16 @@ class UserManagement {
     card.innerHTML = `
       <div class="user-header">
         <div class="user-info">
-          <div class="user-name">${this.escapeHtml(user.username)}</div>
+          <div class="user-name">${this.escapeHtml(user.username)}${isCurrentUser ? ' <span class="badge" style="background-color: var(--primary-color); color: white; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">You</span>' : ''}</div>
           <div class="user-email">${this.escapeHtml(user.email)}</div>
         </div>
         <div class="user-actions">
-          <button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
+          ${!isCurrentUser ? `<button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-          </button>
+          </button>` : `<span class="text-muted" style="font-size: 0.875rem; font-style: italic;">Cannot modify own roles</span>`}
         </div>
       </div>
       <div class="user-roles">
@@ -809,6 +812,13 @@ class UserManagement {
       return;
     }
 
+    // Additional safety check - prevent modifying own roles
+    if (window.currentUser && this.currentUserId === window.currentUser.id) {
+      this.showStatus('You cannot modify your own roles', 'error');
+      this.closeAddRoleModal();
+      return;
+    }
+
     try {
       const response = await fetch('/api/roles/assign', {
         method: 'POST',
@@ -870,6 +880,12 @@ class UserManagement {
   }
 
   async removeRole(userId, roleId, boardId) {
+    // Additional safety check - prevent modifying own roles
+    if (window.currentUser && userId === window.currentUser.id) {
+      this.showStatus('You cannot modify your own roles', 'error');
+      return;
+    }
+
     try {
       const response = await fetch('/api/roles/remove', {
         method: 'POST',

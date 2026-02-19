@@ -266,6 +266,13 @@ def assign_role_to_user():
         current_user_permissions = get_user_permissions(g.user.id)
         has_role_manage = has_permission(current_user_permissions, 'role.manage')
         
+        # Prevent users from modifying their own roles
+        if user_id == g.user.id:
+            return create_error_response(
+                "You cannot modify your own roles. Please ask another administrator for assistance.",
+                403
+            )
+        
         # Verify user exists and is active
         user = db.query(User).filter(User.id == user_id, User.is_active).first()
         if not user:
@@ -386,6 +393,13 @@ def remove_role_from_user():
         
         current_user_permissions = get_user_permissions(g.user.id)
         has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
+        # Prevent users from modifying their own roles
+        if user_id == g.user.id:
+            return create_error_response(
+                "You cannot modify your own roles. Please ask another administrator for assistance.",
+                403
+            )
         
         # Verify user exists
         user = db.query(User).filter(User.id == user_id).first()

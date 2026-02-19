@@ -584,3 +584,116 @@ class TestCompleteUserManagementFlow:
             "password": "LifecyclePass123!"
         })
         assert response.status_code == 200
+
+
+class TestSelfRoleModificationPrevention:
+    """Test that users cannot modify their own roles."""
+    
+    def test_cannot_assign_role_to_self_via_roles_endpoint(self, admin_session):
+        """Admin should not be able to assign roles to themselves via /api/roles/assign."""
+        # Get current user info
+        response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert response.status_code == 200
+        current_user_id = response.json()['user']['id']
+        
+        # Try to assign a role to self - should fail
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/roles/assign",
+            json={
+                "user_id": current_user_id,
+                "role_id": 3  # editor role
+            }
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert data['success'] is False
+        assert "cannot modify your own roles" in data['message'].lower()
+    
+    def test_cannot_remove_role_from_self_via_roles_endpoint(self, admin_session):
+        """Admin should not be able to remove roles from themselves via /api/roles/remove."""
+        # Get current user info
+        response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert response.status_code == 200
+        current_user = response.json()['user']
+        current_user_id = current_user['id']
+        
+        # Get one of the admin's roles
+        if len(current_user['roles']) > 0:
+            role_id = current_user['roles'][0]['id']
+            
+            # Try to remove role from self - should fail
+            response = admin_session.post(
+                f"{API_BASE_URL}/api/roles/remove",
+                json={
+                    "user_id": current_user_id,
+                    "role_id": role_id
+                }
+            )
+            assert response.status_code == 403
+            data = response.json()
+            assert data['success'] is False
+            assert "cannot modify your own roles" in data['message'].lower()
+    
+    def test_cannot_assign_role_to_self_via_users_endpoint(self, admin_session):
+        """Admin should not be able to assign roles to themselves via /api/users/:id/roles."""
+        # Get current user info
+        response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert response.status_code == 200
+        current_user_id = response.json()['user']['id']
+        
+        # Try to assign a role to self - should fail
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/users/{current_user_id}/roles",
+            json={"role_name": "editor"}
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert data['success'] is False
+        assert "cannot modify your own roles" in data['message'].lower()
+    
+    def test_cannot_remove_role_from_self_via_users_endpoint(self, admin_session):
+        """Admin should not be able to remove roles from themselves via /api/users/:id/roles/:role_id."""
+        # Get current user info
+        response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert response.status_code == 200
+        current_user = response.json()['user']
+        current_user_id = current_user['id']
+        
+        # Get one of the admin's roles
+        if len(current_user['roles']) > 0:
+            role_id = current_user['roles'][0]['id']
+            
+            # Try to remove role from self - should fail
+            response = admin_session.delete(
+                f"{API_BASE_URL}/api/users/{current_user_id}/roles/{role_id}"
+            )
+            assert response.status_code == 403
+            data = response.json()
+            assert data['success'] is False
+            assert "cannot modify your own roles" in data['message'].lower()
+    
+    def test_can_assign_role_to_other_user(self, admin_session, setup_test_environment):
+        """Admin should still be able to assign roles to other users."""
+        # Get a different user
+        response = admin_session.get(f"{API_BASE_URL}/api/users")
+        users = response.json()['users']
+        
+        # Get current user ID
+        me_response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
+        current_user_id = me_response.json()['user']['id']
+        
+        # Find a different user
+        other_user = next((u for u in users if u['id'] != current_user_id), None)
+        
+        if other_user:
+            # Should succeed in assigning role to other user
+            response = admin_session.post(
+                f"{API_BASE_URL}/api/roles/assign",
+                json={
+                    "user_id": other_user['id'],
+                    "role_id": 3  # editor role
+                }
+            )
+            # Should either succeed (200) or indicate role already exists (409)
+            assert response.status_code in [200, 409]
+

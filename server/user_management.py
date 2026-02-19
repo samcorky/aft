@@ -454,6 +454,13 @@ def assign_role(user_id):
         current_user_permissions = get_user_permissions(g.user.id)
         has_role_manage = has_permission(current_user_permissions, 'role.manage')
         
+        # Prevent users from modifying their own roles
+        if user_id == g.user.id:
+            return create_error_response(
+                "You cannot modify your own roles. Please ask another administrator for assistance.",
+                403
+            )
+        
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return create_error_response("User not found", 404)
@@ -552,6 +559,13 @@ def remove_role(user_id, role_id):
         
         current_user_permissions = get_user_permissions(g.user.id)
         has_role_manage = has_permission(current_user_permissions, 'role.manage')
+        
+        # Prevent users from modifying their own roles
+        if user_id == g.user.id:
+            return create_error_response(
+                "You cannot modify your own roles. Please ask another administrator for assistance.",
+                403
+            )
         
         # If user has only user.role permission (not role.manage), they can only remove roles they have
         if not has_role_manage:

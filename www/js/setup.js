@@ -97,6 +97,12 @@ form.addEventListener('submit', async (e) => {
         const data = await response.json();
 
         if (response.ok && data.success) {
+            // Cache user data immediately from setup response
+            // The setup response now includes permissions
+            if (data.user) {
+                sessionStorage.setItem('currentUser', JSON.stringify(data.user));
+            }
+            
             // Redirect to main app
             setupButton.innerHTML = '✓ Setup Complete! Redirecting...';
             setTimeout(() => {

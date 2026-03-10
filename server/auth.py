@@ -296,13 +296,26 @@ def login():
             user.last_login_at = func.now()
             db.commit()
             
+            # Get user's roles and permissions
+            from utils import get_user_permissions
+            
+            roles = db.query(Role).join(UserRole).filter(
+                UserRole.user_id == user.id,
+                UserRole.board_id.is_(None)  # Global roles only
+            ).all()
+            
+            # Get user's global permissions
+            permissions = list(get_user_permissions(user.id))
+            
             # Return user data (without sensitive fields)
             user_data = {
                 'id': user.id,
                 'email': user.email,
                 'username': user.username,
                 'display_name': user.display_name,
-                'email_verified': user.email_verified
+                'email_verified': user.email_verified,
+                'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
+                'permissions': permissions
             }
             
             logger.info(f"User logged in: {user.email} (ID: {user.id})")
@@ -1042,11 +1055,24 @@ def setup_admin():
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             
+            # Get user's roles and permissions
+            from utils import get_user_permissions
+            
+            roles = db.query(Role).join(UserRole).filter(
+                UserRole.user_id == user.id,
+                UserRole.board_id.is_(None)  # Global roles only
+            ).all()
+            
+            # Get user's global permissions
+            permissions = list(get_user_permissions(user.id))
+            
             user_data = {
                 'id': user.id,
                 'email': user.email,
                 'username': user.username,
-                'display_name': user.display_name
+                'display_name': user.display_name,
+                'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
+                'permissions': permissions
             }
             
             return create_success_response(

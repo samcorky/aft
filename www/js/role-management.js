@@ -50,6 +50,12 @@ class RoleManagement {
   }
 
   async init() {
+    // Wait for user data to be ready (loaded by header.js)
+    if (!window.userDataReady) {
+      setTimeout(() => this.init(), 100);
+      return;
+    }
+    
     // Check permissions before loading page content
     if (typeof hasPermission === 'function' && !hasPermission('role.manage')) {
       // User doesn't have permission - show access denied

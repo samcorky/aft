@@ -47,6 +47,12 @@ class UserManagement {
   }
 
   async init() {
+    // Wait for user data to be ready (loaded by header.js)
+    if (!window.userDataReady) {
+      setTimeout(() => this.init(), 100);
+      return;
+    }
+    
     // Check permission before loading page content
     const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
     const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');

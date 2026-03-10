@@ -74,6 +74,12 @@ class BackupRestore {
   }
 
   async init() {
+    // Wait for user data to be ready (loaded by header.js)
+    if (!window.userDataReady) {
+      setTimeout(() => this.init(), 100);
+      return;
+    }
+    
     // Check permission before loading page content
     const hasAdminDatabase = typeof hasPermission === 'function' && hasPermission('admin.database');
     

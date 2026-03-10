@@ -414,6 +414,7 @@ class Header {
   filterMenuByPermissions() {
     // Menu items and their required permissions
     const protectedItems = [
+      { selector: 'a[href="/backup-restore.html"]', permission: 'admin.database' },
       { selector: 'a[href="/user-management.html"]', permissions: ['user.manage', 'user.role'], requireAny: true },
       { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
     ];

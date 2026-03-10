@@ -74,6 +74,15 @@ class BackupRestore {
   }
 
   async init() {
+    // Check permission before loading page content
+    const hasAdminDatabase = typeof hasPermission === 'function' && hasPermission('admin.database');
+    
+    if (!hasAdminDatabase) {
+      // User doesn't have permission - show access denied
+      showAccessDenied('You need the "admin.database" permission to access this page.');
+      return;
+    }
+    
     await this.loadBackupConfig();
     await this.loadBackupStatus();
     await this.loadAvailableBackups();

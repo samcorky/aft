@@ -181,10 +181,11 @@ class BoardsManager {
       document.getElementById('empty-state-new-board-btn').addEventListener('click', () => this.openModal());
     } else {
       listContainer.className = 'boards-grid';
+      
       listContainer.innerHTML = this.boards.map(board => `
         <div class="board-card" data-board-id="${board.id}">
-          <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
-          <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
+          ${board.can_edit ? `<button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>` : ''}
+          ${board.can_delete ? `<button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>` : ''}
           <h4>${this.escapeHtml(board.name)}</h4>
           ${board.description ? `<p class="board-description">${this.escapeHtml(board.description)}</p>` : ''}
         </div>

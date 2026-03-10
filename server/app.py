@@ -3412,19 +3412,28 @@ def get_boards():
             # Combine both queries and remove duplicates
             boards = owned_boards.union(role_boards).all()
         
+        # Build board list with per-board permissions
+        boards_data = []
+        for b in boards:
+            # Get board-specific permissions for this user
+            board_permissions = get_user_permissions(user_id, board_id=b.id)
+            can_delete = 'board.delete' in board_permissions
+            can_edit = 'board.edit' in board_permissions
+            
+            boards_data.append({
+                "id": b.id, 
+                "name": b.name, 
+                "description": b.description,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+                "can_delete": can_delete,
+                "can_edit": can_edit
+            })
+        
         return jsonify(
             {
                 "success": True,
-                "boards": [
-                    {
-                        "id": b.id, 
-                        "name": b.name, 
-                        "description": b.description,
-                        "created_at": b.created_at.isoformat() if b.created_at else None,
-                        "updated_at": b.updated_at.isoformat() if b.updated_at else None
-                    }
-                    for b in boards
-                ],
+                "boards": boards_data,
             }
         )
     except Exception as e:

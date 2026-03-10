@@ -670,12 +670,12 @@ def register():
             db.add(user)
             db.flush()  # Get user ID
             
-            # Assign default 'editor' role
-            editor_role = db.query(Role).filter(Role.name == 'editor').first()
-            if editor_role:
+            # Assign default 'board_creator' role so they can create boards
+            board_creator_role = db.query(Role).filter(Role.name == 'board_creator').first()
+            if board_creator_role:
                 user_role = UserRole(
                     user_id=user.id,
-                    role_id=editor_role.id,
+                    role_id=board_creator_role.id,
                     board_id=None  # Global role
                 )
                 db.add(user_role)

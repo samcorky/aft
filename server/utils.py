@@ -249,6 +249,12 @@ def get_user_scoped_query(db, model, user_id):
     CRITICAL: Always use this function when querying user-owned data.
     This prevents accidental data leaks across users.
     
+    BOARD ACCESS MODEL:
+    - Boards are included if user OWNS them (owner_id) OR has explicit role assignment (UserRole with board_id)
+    - Having global permissions does NOT automatically grant access to all boards
+    - Only 'system.admin' permission grants universal access (checked separately in endpoints)
+    - Cards, Columns, Comments inherit board access through their relationships
+    
     Args:
         db: Database session
         model: SQLAlchemy model class
@@ -614,10 +620,15 @@ def get_user_permissions(user_id, board_id=None):
     """
     Get all permissions for a user, optionally scoped to a board.
     
+    BOARD OWNER LOGIC:
+      - If checking permissions for a board the user OWNS, they automatically get ALL board-related permissions
+      - Board owners have full control regardless of assigned roles
+    
     When board_id is provided:
-      - If the user has board-specific roles for that board, ONLY those are used
+      - First checks if user is the board owner (if so, returns all board permissions)
+      - If user has board-specific roles for that board, ONLY those are used
       - If no board-specific roles exist, falls back to global roles
-      - This allows board-specific roles to restrict access even if user has powerful global roles
+      - Board-specific roles can restrict access even if user has powerful global roles
     
     Args:
         user_id: User ID
@@ -626,12 +637,34 @@ def get_user_permissions(user_id, board_id=None):
     Returns:
         set: Set of permission strings
     """
-    from models import Role, UserRole
+    from models import Role, UserRole, Board
     
     db = SessionLocal()
     try:
         if board_id:
-            # First check if user has any board-specific roles for this board
+            # Check if user is the board owner - owners have ALL permissions on their boards
+            board = db.query(Board).filter(Board.id == board_id).first()
+            if board and board.owner_id == user_id:
+                # Board owner gets all board-related permissions automatically
+                owner_perms = {
+                    'board.view', 'board.edit', 'board.delete', 'board.share',
+                    'card.create', 'card.view', 'card.edit', 'card.update', 
+                    'card.delete', 'card.assign', 'card.archive',
+                    'column.create', 'column.update', 'column.delete',
+                    'schedule.create', 'schedule.view', 'schedule.edit', 'schedule.delete',
+                    'setting.view', 'setting.edit',
+                }
+                # Also include any global permissions they have (for user.role, theme permissions, etc)
+                global_query = db.query(Role.permissions).join(UserRole).filter(
+                    UserRole.user_id == user_id,
+                    UserRole.board_id.is_(None)
+                )
+                for (perms_json,) in global_query.all():
+                    perms = json.loads(perms_json)
+                    owner_perms.update(perms)
+                return owner_perms
+            
+            # Not the owner - check for board-specific roles
             board_specific_query = db.query(Role.permissions).join(UserRole).filter(
                 UserRole.user_id == user_id,
                 UserRole.board_id == board_id
@@ -670,6 +703,13 @@ def get_user_permissions(user_id, board_id=None):
 def can_access_board(user_id, board_id):
     """
     Check if user can access a board (owns it or has a role on it).
+    
+    BOARD ACCESS is granted through TWO mechanisms:
+    1. Ownership: User created the board (board.owner_id == user_id)
+    2. Explicit role assignment: Admin granted user a board-specific role (UserRole with board_id)
+    
+    Note: This function does NOT check for system.admin permission.
+    Endpoints should check system.admin separately if they want to grant universal access.
     
     Args:
         user_id: User ID

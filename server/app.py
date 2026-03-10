@@ -27,6 +27,7 @@ from utils import (
     get_user_scoped_query,
     get_user_permissions,
     require_permission,
+    require_any_permission,
     require_board_access,
     require_authentication,
     get_current_user_id,
@@ -3347,9 +3348,12 @@ def update_card_scheduler_config():
 
 
 @app.route("/api/boards", methods=["GET"])
-@require_permission('board.view')
+@require_any_permission('board.view', 'board.create')
 def get_boards():
     """Get all boards accessible by the current user (owned or shared via roles).
+    
+    Accessible by users with board.view OR board.create permission.
+    Users with board.create can see empty boards list and create new boards.
     ---
     tags:
       - Boards
@@ -3392,12 +3396,21 @@ def get_boards():
     try:
         user_id = g.user.id
         
-        # Get boards owned by user OR where user has a role assignment
-        owned_boards = db.query(Board).filter(Board.owner_id == user_id)
-        role_boards = db.query(Board).join(UserRole).filter(UserRole.user_id == user_id)
+        # Check if user is a system administrator - they can see ALL boards
+        from utils import get_user_permissions
+        from permissions import has_permission
+        user_perms = get_user_permissions(user_id)
         
-        # Combine both queries and remove duplicates
-        boards = owned_boards.union(role_boards).all()
+        if has_permission(user_perms, 'system.admin'):
+            # Admins see all boards in the system
+            boards = db.query(Board).order_by(Board.name).all()
+        else:
+            # Regular users: Get boards owned by user OR where user has a role assignment
+            owned_boards = db.query(Board).filter(Board.owner_id == user_id)
+            role_boards = db.query(Board).join(UserRole).filter(UserRole.user_id == user_id)
+            
+            # Combine both queries and remove duplicates
+            boards = owned_boards.union(role_boards).all()
         
         return jsonify(
             {

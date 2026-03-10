@@ -40,6 +40,10 @@ class UserManagement {
     this.roles = [];
     this.boards = [];
     this.canAssignAllRoles = false; // Whether user has role.manage permission
+    
+    // Permission model elements
+    this.permissionModelLoading = document.getElementById('permission-model-loading');
+    this.permissionModelContent = document.getElementById('permission-model-content');
   }
 
   async init() {
@@ -68,6 +72,9 @@ class UserManagement {
       loadPromises.push(this.loadBoards());
       loadPromises.push(this.loadRoleUsers());
     }
+    
+    // Load permission model for everyone (it's public documentation)
+    loadPromises.push(this.loadPermissionModel());
     
     await Promise.all(loadPromises);
     
@@ -132,6 +139,13 @@ class UserManagement {
     if (this.addRoleOkBtn) {
       this.addRoleOkBtn.addEventListener('click', () => {
         this.handleAddRole();
+      });
+    }
+    
+    // Role select change handler - show/hide board options based on role type
+    if (this.roleSelect) {
+      this.roleSelect.addEventListener('change', () => {
+        this.handleRoleSelectChange();
       });
     }
 
@@ -623,6 +637,138 @@ class UserManagement {
     }
   }
 
+  async loadPermissionModel() {
+    if (!this.permissionModelLoading || !this.permissionModelContent) {
+      return; // Elements don't exist
+    }
+
+    try {
+      this.permissionModelLoading.style.display = 'block';
+      this.permissionModelContent.style.display = 'none';
+
+      const response = await fetch('/api/roles/permission-model');
+      const data = await response.json();
+
+      if (data.success && data.model) {
+        this.renderPermissionModel(data.model);
+        this.permissionModelLoading.style.display = 'none';
+        this.permissionModelContent.style.display = 'block';
+      }
+    } catch (error) {
+      console.error('Error loading permission model:', error);
+      this.permissionModelLoading.innerHTML = '<div class="empty-message">Failed to load permission model.</div>';
+    }
+  }
+
+  renderPermissionModel(model) {
+    const container = this.permissionModelContent;
+    
+    let html = '';
+    
+    // Overview
+    if (model.overview) {
+      html += `<div class="permission-section">`;
+      html += `<h4>${this.escapeHtml(model.overview.title)}</h4>`;
+      html += `<p>${this.escapeHtml(model.overview.description)}</p>`;
+      html += `</div>`;
+    }
+    
+    // Concepts
+    if (model.concepts && model.concepts.length > 0) {
+      html += `<div class="permission-section">`;
+      html += `<h4>Key Concepts</h4>`;
+      model.concepts.forEach(concept => {
+        html += `<div class="permission-concept">`;
+        html += `<h5>${this.escapeHtml(concept.title)}</h5>`;
+        html += `<ul>`;
+        concept.points.forEach(point => {
+          html += `<li>${this.escapeHtml(point)}</li>`;
+        });
+        html += `</ul>`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+    }
+    
+    // Roles
+    if (model.roles) {
+      html += `<div class="permission-section">`;
+      html += `<h4>Available Roles</h4>`;
+      
+      if (model.roles.global && model.roles.global.length > 0) {
+        html += `<h5>Global Roles (Assigned System-Wide)</h5>`;
+        html += `<div class="roles-grid">`;
+        model.roles.global.forEach(role => {
+          html += `<div class="role-card">`;
+          html += `<div class="role-name">${this.escapeHtml(role.name)}</div>`;
+          html += `<div class="role-description">${this.escapeHtml(role.description)}</div>`;
+          html += `<div class="role-use-case"><strong>Use Case:</strong> ${this.escapeHtml(role.use_case)}</div>`;
+          html += `</div>`;
+        });
+        html += `</div>`;
+      }
+      
+      if (model.roles.board_specific && model.roles.board_specific.length > 0) {
+        html += `<h5>Board-Specific Roles (Assigned Per Board)</h5>`;
+        html += `<div class="roles-grid">`;
+        model.roles.board_specific.forEach(role => {
+          html += `<div class="role-card">`;
+          html += `<div class="role-name">${this.escapeHtml(role.name)}</div>`;
+          html += `<div class="role-description">${this.escapeHtml(role.description)}</div>`;
+          html += `<div class="role-use-case"><strong>Use Case:</strong> ${this.escapeHtml(role.use_case)}</div>`;
+          html += `</div>`;
+        });
+        html += `</div>`;
+      }
+      
+      html += `</div>`;
+    }
+    
+    // Examples
+    if (model.examples && model.examples.length > 0) {
+      html += `<div class="permission-section">`;
+      html += `<h4>Examples</h4>`;
+      model.examples.forEach((example, index) => {
+        html += `<div class="permission-example">`;
+        html += `<h5>${index + 1}. ${this.escapeHtml(example.title)}</h5>`;
+        html += `<p><em>${this.escapeHtml(example.scenario)}</em></p>`;
+        html += `<ul>`;
+        example.details.forEach(detail => {
+          html += `<li>${this.escapeHtml(detail)}</li>`;
+        });
+        html += `</ul>`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+    }
+    
+    // Assignment Rules
+    if (model.assignment_rules && model.assignment_rules.length > 0) {
+      html += `<div class="permission-section">`;
+      html += `<h4>Role Assignment Rules</h4>`;
+      html += `<ul class="rules-list">`;
+      model.assignment_rules.forEach(rule => {
+        html += `<li>${this.escapeHtml(rule)}</li>`;
+      });
+      html += `</ul>`;
+      html += `</div>`;
+    }
+    
+    // Summary
+    if (model.summary && model.summary.length > 0) {
+      html += `<div class="permission-section summary-section">`;
+      html += `<h4>Summary</h4>`;
+      html += `<ul class="summary-list">`;
+      model.summary.forEach(point => {
+        html += `<li>${this.escapeHtml(point)}</li>`;
+      });
+      html += `</ul>`;
+      html += `</div>`;
+    }
+    
+    container.innerHTML = html;
+  }
+
   async loadRoleUsers() {
     if (!this.roleUsersContainer) {
       return; // Elements don't exist, skip loading
@@ -775,10 +921,13 @@ class UserManagement {
       const option = document.createElement('option');
       option.value = role.id;
       option.textContent = role.name;
+      // Store role metadata
+      option.dataset.boardSpecificOnly = role.board_specific_only || false;
+      option.dataset.globalOnly = role.global_only || false;
       this.roleSelect.appendChild(option);
     });
 
-    // Populate boards dropdown
+    // Populate boards dropdown (initially with global option)
     this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
     this.boards.forEach(board => {
       const option = document.createElement('option');
@@ -794,6 +943,44 @@ class UserManagement {
     }
 
     this.addRoleModal.style.display = 'flex';
+  }
+  
+  handleRoleSelectChange() {
+    const selectedOption = this.roleSelect.options[this.roleSelect.selectedIndex];
+    if (!selectedOption || !selectedOption.value) return;
+    
+    const isBoardSpecificOnly = selectedOption.dataset.boardSpecificOnly === 'true';
+    const isGlobalOnly = selectedOption.dataset.globalOnly === 'true';
+    
+    // Clear and rebuild board select based on role type
+    if (isBoardSpecificOnly) {
+      // Board-specific role: Remove "Global" option, force board selection
+      this.boardSelect.innerHTML = '<option value="">Select a board...</option>';
+      this.boards.forEach(board => {
+        const option = document.createElement('option');
+        option.value = board.id;
+        option.textContent = board.name;
+        this.boardSelect.appendChild(option);
+      });
+      this.boardSelect.disabled = false;
+      this.boardSelect.required = true;
+    } else if (isGlobalOnly) {
+      // Global-only role: Show only "Global" option and disable select
+      this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
+      this.boardSelect.disabled = true;
+      this.boardSelect.value = '';
+    } else {
+      // Other roles: Allow both global and board-specific
+      this.boardSelect.innerHTML = '<option value="">Global (All Boards)</option>';
+      this.boards.forEach(board => {
+        const option = document.createElement('option');
+        option.value = board.id;
+        option.textContent = board.name;
+        this.boardSelect.appendChild(option);
+      });
+      this.boardSelect.disabled = false;
+      this.boardSelect.required = false;
+    }
   }
 
   closeAddRoleModal() {

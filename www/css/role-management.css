@@ -771,3 +771,163 @@
     align-items: flex-start;
   }
 }
+
+/* Permission Model Documentation Styles */
+.permission-section {
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.permission-section:last-child {
+  border-bottom: none;
+}
+
+.permission-section h4 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: var(--text-color);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.permission-section h5 {
+  margin-top: 20px;
+  margin-bottom: 10px;
+  color: var(--text-color);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.permission-concept {
+  margin-bottom: 20px;
+}
+
+.permission-concept ul {
+  margin-top: 8px;
+  margin-bottom: 0;
+  padding-left: 25px;
+}
+
+.permission-concept li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.roles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+  margin-top: 15px;
+  margin-bottom: 20px;
+}
+
+.role-card {
+  padding: 15px;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.role-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.role-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--primary-color);
+  margin-bottom: 8px;
+  font-family: 'Courier New', monospace;
+}
+
+.role-description {
+  font-size: 14px;
+  color: var(--text-color);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.role-use-case {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.permission-example {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: var(--background-light);
+  border-left: 4px solid var(--primary-color);
+  border-radius: 4px;
+}
+
+.permission-example h5 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  color: var(--text-color);
+}
+
+.permission-example p {
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+}
+
+.permission-example ul {
+  margin: 0;
+  padding-left: 25px;
+}
+
+.permission-example li {
+  margin-bottom: 6px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.rules-list {
+  margin: 10px 0;
+  padding-left: 25px;
+}
+
+.rules-list li {
+  margin-bottom: 8px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.summary-section {
+  background: var(--background-light);
+  padding: 20px;
+  border-radius: 8px;
+  border: 2px solid var(--primary-color);
+}
+
+.summary-list {
+  margin: 10px 0 0 0;
+  padding-left: 25px;
+  list-style-type: none;
+}
+
+.summary-list li {
+  margin-bottom: 8px;
+  line-height: 1.6;
+  color: var(--text-color);
+  font-weight: 500;
+  position: relative;
+  padding-left: 10px;
+}
+
+.summary-list li::before {
+  content: "✅";
+  position: absolute;
+  left: -20px;
+}
+
+@media (max-width: 768px) {
+  .roles-grid {
+    grid-template-columns: 1fr;
+  }
+}

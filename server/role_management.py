@@ -73,14 +73,20 @@ def get_all_roles():
         role_list = []
         for role in roles:
             permissions = json.loads(role.permissions) if isinstance(role.permissions, str) else role.permissions
-            role_list.append({
+            
+            # Add metadata about role scope requirements
+            from permissions import BOARD_SPECIFIC_ONLY_ROLES, GLOBAL_ONLY_ROLES
+            role_data = {
                 'id': role.id,
                 'name': role.name,
                 'description': role.description,
                 'is_system_role': role.is_system_role,
                 'permissions': permissions,
-                'created_at': role.created_at.isoformat() if hasattr(role.created_at, 'isoformat') else None
-            })
+                'created_at': role.created_at.isoformat() if hasattr(role.created_at, 'isoformat') else None,
+                'board_specific_only': role.name in BOARD_SPECIFIC_ONLY_ROLES,
+                'global_only': role.name in GLOBAL_ONLY_ROLES
+            }
+            role_list.append(role_data)
         
         return create_success_response(data={'roles': role_list})
         
@@ -111,6 +117,75 @@ def get_all_permissions():
         description: Forbidden - requires role.manage or user.role permission
     """
     return create_success_response(data={'permissions': PERMISSION_DEFINITIONS})
+
+
+@role_mgmt_bp.route('/permission-model', methods=['GET'])
+def get_permission_model():
+    """
+    Get comprehensive information about the permission model.
+    Returns documentation, role definitions, and examples for client-side display.
+    No authentication required - this is public documentation.
+    ---
+    tags:
+      - Role Management
+    responses:
+      200:
+        description: Permission model information
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            model:
+              type: object
+              description: Complete permission model documentation
+              properties:
+                overview:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    description:
+                      type: string
+                concepts:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      title:
+                        type: string
+                      points:
+                        type: array
+                        items:
+                          type: string
+                roles:
+                  type: object
+                  properties:
+                    global:
+                      type: array
+                      items:
+                        type: object
+                    board_specific:
+                      type: array
+                      items:
+                        type: object
+                examples:
+                  type: array
+                  items:
+                    type: object
+                assignment_rules:
+                  type: array
+                  items:
+                    type: string
+                summary:
+                  type: array
+                  items:
+                    type: string
+    """
+    from permissions import get_permission_model_info
+    
+    model_info = get_permission_model_info()
+    return create_success_response(data={'model': model_info})
 
 
 @role_mgmt_bp.route('/users', methods=['GET'])
@@ -282,6 +357,21 @@ def assign_role_to_user():
         role = db.query(Role).filter(Role.id == role_id).first()
         if not role:
             return create_error_response("Role not found", 404)
+        
+        # Validate role assignment scope (global vs board-specific)
+        from permissions import BOARD_SPECIFIC_ONLY_ROLES, GLOBAL_ONLY_ROLES
+        
+        if role.name in BOARD_SPECIFIC_ONLY_ROLES and board_id is None:
+            return create_error_response(
+                f"Role '{role.name}' can only be assigned to specific boards. Please select a board.",
+                400
+            )
+        
+        if role.name in GLOBAL_ONLY_ROLES and board_id is not None:
+            return create_error_response(
+                f"Role '{role.name}' can only be assigned globally. Do not select a board.",
+                400
+            )
         
         # If user has only user.role permission (not role.manage), they can only assign roles they have
         if not has_role_manage:
@@ -547,11 +637,14 @@ def get_my_roles():
             # User has role.manage - can assign any role
             roles = db.query(Role).order_by(Role.name).all()
             role_list = []
+            from permissions import BOARD_SPECIFIC_ONLY_ROLES, GLOBAL_ONLY_ROLES
             for role in roles:
                 role_list.append({
                     'id': role.id,
                     'name': role.name,
-                    'description': role.description
+                    'description': role.description,
+                    'board_specific_only': role.name in BOARD_SPECIFIC_ONLY_ROLES,
+                    'global_only': role.name in GLOBAL_ONLY_ROLES
                 })
             
             return create_success_response(data={
@@ -577,11 +670,14 @@ def get_my_roles():
             
             roles = db.query(Role).filter(Role.id.in_(current_user_role_ids)).order_by(Role.name).all()
             role_list = []
+            from permissions import BOARD_SPECIFIC_ONLY_ROLES, GLOBAL_ONLY_ROLES
             for role in roles:
                 role_list.append({
                     'id': role.id,
                     'name': role.name,
-                    'description': role.description
+                    'description': role.description,
+                    'board_specific_only': role.name in BOARD_SPECIFIC_ONLY_ROLES,
+                    'global_only': role.name in GLOBAL_ONLY_ROLES
                 })
             
             return create_success_response(data={

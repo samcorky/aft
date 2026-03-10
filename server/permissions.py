@@ -5,7 +5,7 @@ import json
 PERMISSION_DEFINITIONS = {
     # Global admin permissions
     'system.admin': 'Full system administration',
-    'admin.system': 'System administration and monitoring',
+    'monitoring.system': 'System monitoring and status checking',
     'admin.database': 'Database backup and restore operations',
     'user.manage': 'Manage all users',
     'user.role': 'Assign roles to users',
@@ -64,7 +64,7 @@ INITIAL_ROLES = {
         'permissions': [
             # All permissions
             'system.admin',
-            'admin.system',
+            'monitoring.system',
             'admin.database',
             'user.manage',
             'user.role',

@@ -980,7 +980,7 @@ def debug_user_permissions():
 
 
 @app.route("/api/broadcast-status")
-@require_permission('admin.system')
+@require_permission('monitoring.system')
 def get_broadcast_status():
     """Get WebSocket broadcast error status for debugging.
     

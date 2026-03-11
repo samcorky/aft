@@ -117,6 +117,7 @@ INITIAL_ROLES = {
         'permissions': [
             'board.create',
             'theme.create',
+            'theme.view',
             'theme.edit',
             'theme.delete',
             'setting.view',
@@ -151,6 +152,7 @@ INITIAL_ROLES = {
             'setting.view',
             'setting.edit',
             'theme.create',
+            'theme.view',
             'theme.edit',
             'theme.delete',
         ]

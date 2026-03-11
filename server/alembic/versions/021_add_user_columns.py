@@ -62,7 +62,15 @@ def upgrade():
         UPDATE cards SET created_by_id = @admin_user_id WHERE created_by_id IS NULL;
     """)
     
-    # Leave settings.user_id as NULL (they are global settings)
+    # Backfill user-specific settings (from settings.html page) with admin user
+    # Backup, housekeeping, and card scheduler settings remain global (user_id = NULL)
+    op.execute("""
+        UPDATE settings 
+        SET user_id = @admin_user_id 
+        WHERE user_id IS NULL
+        AND `key` IN ('default_board', 'time_format', 'working_style', 'selected_theme');
+    """)
+    
     # Leave themes.user_id as NULL (they are system themes)
     
     # Backfill notifications with admin user
@@ -112,6 +120,29 @@ def upgrade():
     # Each user can have their own value for each setting key
     op.drop_index('key', 'settings')  # Drop the old UNIQUE constraint
     op.create_index('idx_user_setting_key', 'settings', ['user_id', 'key'], unique=True)
+    
+    # ========================================================================
+    # Phase 5: Create default settings for all non-admin users
+    # ========================================================================
+    
+    # Copy only user-specific settings (from settings.html page) to other users
+    # Backup, housekeeping, and card scheduler settings remain global (user_id = NULL)
+    op.execute("""
+        INSERT INTO settings (`key`, `value`, user_id)
+        SELECT s.`key`, s.`value`, u.id
+        FROM users u
+        CROSS JOIN (
+            SELECT DISTINCT `key`, `value` 
+            FROM settings 
+            WHERE user_id = @admin_user_id
+            AND `key` IN ('default_board', 'time_format', 'working_style', 'selected_theme')
+        ) s
+        WHERE u.username != 'admin'
+        AND NOT EXISTS (
+            SELECT 1 FROM settings s2 
+            WHERE s2.user_id = u.id AND s2.`key` = s.`key`
+        )
+    """)
 
 
 def downgrade():

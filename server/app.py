@@ -897,6 +897,10 @@ def toggle_test_user():
             db.add(test_user)
             db.flush()  # Get user ID
             
+            # Create default settings for the test user
+            from auth_helpers import create_default_user_settings
+            create_default_user_settings(test_user.id, db)
+            
             # Assign administrator role
             admin_role = db.query(Role).filter(Role.name == 'administrator').first()
             if admin_role:
@@ -3089,8 +3093,9 @@ def get_backup_config():
         ]
         
         config = {}
+        # Backup settings are global (user_id = NULL)
         for key in keys:
-            setting = db.query(Setting).filter(Setting.key == key).first()
+            setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
             if setting:
                 # Try to parse JSON, otherwise use raw value
                 try:
@@ -3201,7 +3206,8 @@ def update_backup_config():
             freq_value = data.get("frequency_value")
             # If frequency_value not in request, check the existing database value
             if freq_value is None:
-                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value").first()
+                # Backup settings are global (user_id = NULL)
+                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value", Setting.user_id.is_(None)).first()
                 if setting:
                     try:
                         freq_value = json.loads(setting.value)
@@ -3221,7 +3227,8 @@ def update_backup_config():
             current_settings = {}
             for field, key in mapping.items():
                 if field not in data:
-                    setting = db.query(Setting).filter(Setting.key == key).first()
+                    # Backup settings are global (user_id = NULL)
+                    setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
                     if setting:
                         try:
                             current_settings[field] = json.loads(setting.value)
@@ -3255,16 +3262,17 @@ def update_backup_config():
                     "message": "Cannot enable backups with invalid settings: " + "; ".join(required_errors)
                 }), 400
         
-        # Update settings
+        # Update global backup settings (user_id = NULL)
         for field, key in mapping.items():
             if field in data:
                 value = json.dumps(data[field])
-                setting = db.query(Setting).filter(Setting.key == key).first()
+                setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
                 
                 if setting:
                     setting.value = value
                 else:
-                    setting = Setting(key=key, value=value)
+                    # Create as global setting (user_id = NULL)
+                    setting = Setting(key=key, value=value, user_id=None)
                     db.add(setting)
         
         db.commit()
@@ -3374,14 +3382,15 @@ def update_housekeeping_config():
         if not isinstance(enabled, bool):
             return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
         
-        # Update setting
-        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled").first()
+        # Update global housekeeping setting (user_id = NULL)
+        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled", Setting.user_id.is_(None)).first()
         value = json.dumps(enabled)
         
         if setting:
             setting.value = value
         else:
-            setting = Setting(key="housekeeping_enabled", value=value)
+            # Create as global setting (user_id = NULL)
+            setting = Setting(key="housekeeping_enabled", value=value, user_id=None)
             db.add(setting)
         
         db.commit()
@@ -3418,10 +3427,10 @@ def get_card_scheduler_status():
         from card_scheduler import get_scheduler as get_card_scheduler
         scheduler = get_card_scheduler()
         
-        # Get enabled setting
+        # Get global card scheduler enabled setting (user_id = NULL)
         db = SessionLocal()
         try:
-            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled", Setting.user_id.is_(None)).first()
             if setting is not None and setting.value is not None:
                 enabled = json.loads(str(setting.value))
             else:
@@ -3474,14 +3483,15 @@ def update_card_scheduler_config():
         if not isinstance(enabled, bool):
             return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
         
-        # Update setting
-        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+        # Update global card scheduler setting (user_id = NULL)
+        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled", Setting.user_id.is_(None)).first()
         value = json.dumps(enabled)
         
         if setting:
             setting.value = value
         else:
-            setting = Setting(key="card_scheduler_enabled", value=value)
+            # Create as global setting (user_id = NULL)
+            setting = Setting(key="card_scheduler_enabled", value=value, user_id=None)
             db.add(setting)
         
         db.commit()
@@ -3896,9 +3906,11 @@ def delete_board(board_id):
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
 
-        # Check if this board is set as default_board
+        # Check if this board is set as default_board for the current user
+        user_id = g.user.id
+        from utils import get_user_scoped_query
         default_board_setting = (
-            db.query(Setting).filter(Setting.key == "default_board").first()
+            get_user_scoped_query(db, Setting, user_id).filter(Setting.key == "default_board").first()
         )
         if default_board_setting:
             try:
@@ -3907,7 +3919,7 @@ def delete_board(board_id):
                     # Reset to null since we're deleting the default board
                     default_board_setting.value = "null"
                     logger.info(
-                        f"Reset default_board setting because board {board_id} was deleted"
+                        f"Reset default_board setting for user {user_id} because board {board_id} was deleted"
                     )
             except (json.JSONDecodeError, ValueError):
                 # Ignore if setting value is malformed - we're deleting the board anyway
@@ -9044,11 +9056,12 @@ def get_theme_image(filename):
 @app.route("/api/settings/theme", methods=["GET"])
 @require_permission('setting.view')
 def get_current_theme():
-    """Retrieve the currently active theme for the application.
+    """Retrieve the currently active theme for the current user.
     
     Looks up the 'selected_theme' setting to determine which theme is
-    currently active, then returns the complete theme object. This is
-    used by the frontend to apply the active theme on page load.
+    currently active for the logged-in user, then returns the complete 
+    theme object. This is used by the frontend to apply the active theme 
+    on page load.
     
     Returns:
         tuple: (JSON response, HTTP status code)
@@ -9062,8 +9075,11 @@ def get_current_theme():
     """
     session = SessionLocal()
     try:
-        # Get selected_theme setting
-        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        user_id = g.user.id
+        
+        # Get user's selected_theme setting using user-scoped query
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'selected_theme').first()
         if not setting:
             return create_error_response("No theme selected", 404)
         
@@ -9084,12 +9100,12 @@ def get_current_theme():
 @app.route("/api/settings/theme", methods=["PUT"])
 @require_permission('setting.edit')
 def update_current_theme():
-    """Set the active theme for the application.
+    """Set the active theme for the current user.
     
     Updates the 'selected_theme' setting to change which theme is currently
-    active. Validates that the specified theme exists before updating.
-    Creates the setting if it doesn't exist. This change affects all users
-    of the application.
+    active for the logged-in user. Validates that the specified theme exists 
+    before updating. Creates the setting if it doesn't exist. This change 
+    affects only the current user.
     
     Request Body:
         theme_id (int, required): ID of the theme to activate
@@ -9111,6 +9127,7 @@ def update_current_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         theme_id = data.get('theme_id')
         
@@ -9122,14 +9139,17 @@ def update_current_theme():
         if not theme:
             return create_error_response("Theme not found", 404)
         
-        # Update or create selected_theme setting
-        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        # Update or create user's selected_theme setting
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'selected_theme').first()
         if setting:
             setting.value = str(theme_id)
         else:
-            setting = Setting()
-            setting.key = 'selected_theme'
-            setting.value = str(theme_id)
+            setting = Setting(
+                key='selected_theme',
+                value=str(theme_id),
+                user_id=user_id
+            )
             session.add(setting)
         
         session.commit()
@@ -9152,11 +9172,11 @@ def update_current_theme():
 @app.route("/api/settings/working-style", methods=["GET"])
 @require_permission('setting.view')
 def get_working_style():
-    """Retrieve the current working style preference.
+    """Retrieve the current working style preference for the logged-in user.
     
     Looks up the 'working_style' setting to determine which working style
-    is currently active ('kanban' or 'board_task_category'). Returns the
-    working style value with validation.
+    is currently active for this user ('kanban' or 'board_task_category'). 
+    Returns the working style value with validation.
     
     Returns:
         tuple: (JSON response, HTTP status code)
@@ -9170,7 +9190,11 @@ def get_working_style():
     """
     session = SessionLocal()
     try:
-        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        user_id = g.user.id
+        
+        # Get user's working_style setting using user-scoped query
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
         
         if not setting:
             return create_error_response("Working style setting not found", 404)
@@ -9195,11 +9219,12 @@ def get_working_style():
 @app.route("/api/settings/working-style", methods=["PUT"])
 @require_permission('setting.edit')
 def set_working_style():
-    """Set the working style preference.
+    """Set the working style preference for the logged-in user.
     
-    Updates the 'working_style' setting to change the working style preference.
-    Valid values are 'kanban' (traditional kanban board) or 'board_task_category'
-    (board as task category with done status). Creates the setting if it doesn't exist.
+    Updates the 'working_style' setting to change the working style preference
+    for the current user. Valid values are 'kanban' (traditional kanban board) 
+    or 'board_task_category' (board as task category with done status). 
+    Creates the setting if it doesn't exist.
     
     Request Body:
         value (str, required): 'kanban' or 'board_task_category'
@@ -9217,6 +9242,7 @@ def set_working_style():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         
         if not data or "value" not in data:
@@ -9231,15 +9257,18 @@ def set_working_style():
                 400
             )
         
-        # Update or create working_style setting
-        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        # Update or create user's working_style setting
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
         
         if setting:
             setting.value = f'"{working_style}"'  # JSON-encode the value
         else:
-            setting = Setting()
-            setting.key = 'working_style'
-            setting.value = f'"{working_style}"'  # JSON-encode the value
+            setting = Setting(
+                key='working_style',
+                value=f'"{working_style}"',
+                user_id=user_id
+            )
             session.add(setting)
         
         session.commit()

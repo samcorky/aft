@@ -9,10 +9,64 @@ This file provides examples and helper functions for:
 """
 
 from database import SessionLocal
-from models import User, Role, UserRole, Board, Card
+from models import User, Role, UserRole, Board, Card, Setting
 from utils import get_user_scoped_query, get_user_permissions, can_access_board
 from permissions import INITIAL_ROLES, has_permission
 import json
+
+
+# Default settings to be created for each new user
+# Only includes settings from the User Settings page (settings.html)
+DEFAULT_USER_SETTINGS = {
+    "default_board": "null",  # JSON-encoded null
+    "time_format": '"24"',  # JSON-encoded string
+    "working_style": '"kanban"',  # JSON-encoded string
+    "selected_theme": "1",  # Default theme ID
+}
+
+
+def create_default_user_settings(user_id, db_session=None):
+    """
+    Create default settings for a new user.
+    
+    Args:
+        user_id: User ID
+        db_session: Optional database session to use (will create new one if not provided)
+        
+    Returns:
+        Number of settings created
+    """
+    should_close = False
+    if db_session is None:
+        db_session = SessionLocal()
+        should_close = True
+    
+    try:
+        settings_created = 0
+        for key, value in DEFAULT_USER_SETTINGS.items():
+            # Check if setting already exists for this user
+            existing = db_session.query(Setting).filter(
+                Setting.user_id == user_id,
+                Setting.key == key
+            ).first()
+            
+            if not existing:
+                setting = Setting(
+                    key=key,
+                    value=value,
+                    user_id=user_id
+                )
+                db_session.add(setting)
+                settings_created += 1
+        
+        if should_close:
+            db_session.commit()
+        
+        print(f"Created {settings_created} default settings for user {user_id}")
+        return settings_created
+    finally:
+        if should_close:
+            db_session.close()
 
 
 def create_user(email, username=None, display_name=None, password_hash=None):
@@ -39,6 +93,11 @@ def create_user(email, username=None, display_name=None, password_hash=None):
             email_verified=False  # Set to True after email verification
         )
         db.add(user)
+        db.flush()  # Get user ID
+        
+        # Create default settings for the new user
+        create_default_user_settings(user.id, db)
+        
         db.commit()
         db.refresh(user)
         print(f"Created user: {user.email} (ID: {user.id})")

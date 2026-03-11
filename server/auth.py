@@ -683,6 +683,10 @@ def register():
             db.add(user)
             db.flush()  # Get user ID
             
+            # Create default settings for the new user
+            from auth_helpers import create_default_user_settings
+            create_default_user_settings(user.id, db)
+            
             # Assign default 'board_creator' role so they can create boards
             board_creator_role = db.query(Role).filter(Role.name == 'board_creator').first()
             if board_creator_role:
@@ -1018,6 +1022,10 @@ def setup_admin():
                 existing_admin.email_verified = True
                 existing_admin.is_approved = True  # Admin is auto-approved
                 
+                # Create default settings for the admin user if they don't exist
+                from auth_helpers import create_default_user_settings
+                create_default_user_settings(existing_admin.id, db)
+                
                 db.commit()
                 
                 user = existing_admin
@@ -1036,6 +1044,10 @@ def setup_admin():
                 
                 db.add(user)
                 db.flush()  # Get user ID
+                
+                # Create default settings for the new admin user
+                from auth_helpers import create_default_user_settings
+                create_default_user_settings(user.id, db)
                 
                 # Assign administrator role
                 admin_role = db.query(Role).filter(Role.name == 'administrator').first()

@@ -554,6 +554,148 @@ def get_current_user():
         db.close()
 
 
+@auth_bp.route('/profile', methods=['PATCH'])
+def update_profile():
+    """
+    Update current user's profile information.
+    ---
+    tags:
+      - Authentication
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            display_name:
+              type: string
+              description: User's display name
+            username:
+              type: string
+              description: User's username
+            email:
+              type: string
+              description: User's email address
+    responses:
+      200:
+        description: Profile updated successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            user:
+              type: object
+      400:
+        description: Validation error
+      401:
+        description: Not authenticated
+      409:
+        description: Username or email already exists
+    """
+    if not g.get('user'):
+        return create_error_response("Not authenticated", 401)
+    
+    user = g.user
+    data = request.get_json()
+    
+    if not data:
+        return create_error_response("No data provided", 400)
+    
+    db = SessionLocal()
+    try:
+        # Get current user from database
+        db_user = db.query(User).filter(User.id == user.id).first()
+        if not db_user:
+            return create_error_response("User not found", 404)
+        
+        # OAuth users cannot change email
+        if db_user.oauth_provider and 'email' in data and data['email'] != db_user.email:
+            return create_error_response("Cannot change email for OAuth accounts", 400)
+        
+        # Validate and update username
+        if 'username' in data:
+            new_username = data['username'].strip()
+            if not new_username:
+                return create_error_response("Username cannot be empty", 400)
+            
+            if len(new_username) > 100:
+                return create_error_response("Username too long (max 100 characters)", 400)
+            
+            # Check if username is already taken by another user
+            if new_username != db_user.username:
+                existing_user = db.query(User).filter(
+                    User.username == new_username,
+                    User.id != user.id
+                ).first()
+                if existing_user:
+                    return create_error_response("Username already taken", 409)
+                
+                db_user.username = new_username
+        
+        # Validate and update email
+        if 'email' in data:
+            new_email = data['email'].strip().lower()
+            if not new_email:
+                return create_error_response("Email cannot be empty", 400)
+            
+            # Basic email validation
+            import re
+            email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
+            if not re.match(email_regex, new_email):
+                return create_error_response("Invalid email format", 400)
+            
+            if len(new_email) > 255:
+                return create_error_response("Email too long (max 255 characters)", 400)
+            
+            # Check if email is already taken by another user
+            if new_email != db_user.email:
+                existing_user = db.query(User).filter(
+                    User.email == new_email,
+                    User.id != user.id
+                ).first()
+                if existing_user:
+                    return create_error_response("Email already taken", 409)
+                
+                db_user.email = new_email
+                # Mark email as unverified if changed
+                db_user.email_verified = False
+        
+        # Update display name (can be empty)
+        if 'display_name' in data:
+            display_name = data['display_name'].strip() if data['display_name'] else None
+            if display_name and len(display_name) > 255:
+                return create_error_response("Display name too long (max 255 characters)", 400)
+            db_user.display_name = display_name
+        
+        db.commit()
+        
+        # Return updated user data
+        user_data = {
+            'id': db_user.id,
+            'email': db_user.email,
+            'username': db_user.username,
+            'display_name': db_user.display_name,
+            'email_verified': db_user.email_verified,
+            'oauth_provider': db_user.oauth_provider
+        }
+        
+        return create_success_response(
+            message="Profile updated successfully",
+            data={'user': user_data}
+        )
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating profile: {e}")
+        return create_error_response("Failed to update profile", 500)
+    finally:
+        db.close()
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """

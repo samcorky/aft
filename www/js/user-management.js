@@ -260,6 +260,7 @@ class UserManagement {
 
     const displayName = user.display_name || user.username || user.email;
     const createdDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown';
+    const safeUserId = this.escapeHtml(String(user.id));
 
     card.innerHTML = `
       <div class="user-info">
@@ -277,13 +278,13 @@ class UserManagement {
         </div>
       </div>
       <div class="user-actions">
-        <button class="btn btn-primary btn-sm" data-action="approve" data-user-id="${user.id}">
+        <button class="btn btn-primary btn-sm" data-action="approve" data-user-id="${safeUserId}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"></polyline>
           </svg>
           Approve
         </button>
-        <button class="btn btn-danger btn-sm" data-action="reject" data-user-id="${user.id}">
+        <button class="btn btn-danger btn-sm" data-action="reject" data-user-id="${safeUserId}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -332,6 +333,7 @@ class UserManagement {
     const displayName = user.display_name || user.username || user.email;
     const createdDate = user.created_at ? new Date(user.created_at).toLocaleDateString() : 'Unknown';
     const lastLogin = user.last_login_at ? new Date(user.last_login_at).toLocaleDateString() : 'Never';
+    const safeUserId = this.escapeHtml(String(user.id));
     
     const roles = user.roles && user.roles.length > 0
       ? user.roles.map(r => `<span class="role-badge">${this.escapeHtml(r.name)}</span>`).join('')
@@ -364,8 +366,8 @@ class UserManagement {
       </div>
       <div class="user-actions">
         ${user.is_active
-          ? `<button class="btn btn-secondary btn-sm" data-action="deactivate" data-user-id="${user.id}" ${window.currentUser && user.id === window.currentUser.id ? 'disabled title="You cannot deactivate your own account"' : ''}>Deactivate</button>`
-          : `<button class="btn btn-primary btn-sm" data-action="activate" data-user-id="${user.id}">Activate</button>`
+          ? `<button class="btn btn-secondary btn-sm" data-action="deactivate" data-user-id="${safeUserId}" ${window.currentUser && user.id === window.currentUser.id ? 'disabled title="You cannot deactivate your own account"' : ''}>Deactivate</button>`
+          : `<button class="btn btn-primary btn-sm" data-action="activate" data-user-id="${safeUserId}">Activate</button>`
         }
       </div>
     `;
@@ -832,19 +834,24 @@ class UserManagement {
 
     // Check if this is the current user
     const isCurrentUser = window.currentUser && user.id === window.currentUser.id;
+    const safeUserId = this.escapeHtml(String(user.id));
 
     const rolesHtml = user.roles.length > 0
-      ? user.roles.map(role => `
+      ? user.roles.map(role => {
+          const safeRoleId = this.escapeHtml(String(role.role_id));
+          const safeBoardId = role.board_id ? this.escapeHtml(String(role.board_id)) : '';
+          return `
           <div class="user-role-item">
             <div class="role-info">
               <span class="role-name-badge">${this.escapeHtml(role.role_name)}</span>
               <span class="role-scope">${role.board_name ? `(Board: ${this.escapeHtml(role.board_name)})` : '(Global)'}</span>
             </div>
-            ${!isCurrentUser ? `<button class="remove-role-btn" data-user-id="${user.id}" data-role-id="${role.role_id}" data-board-id="${role.board_id || ''}">
+            ${!isCurrentUser ? `<button class="remove-role-btn" data-user-id="${safeUserId}" data-role-id="${safeRoleId}" data-board-id="${safeBoardId}">
               Remove
             </button>` : ''}
           </div>
-        `).join('')
+        `;
+        }).join('')
       : '<div class="no-roles-message">No roles assigned</div>';
 
     card.innerHTML = `
@@ -854,7 +861,7 @@ class UserManagement {
           <div class="user-email">${this.escapeHtml(user.email)}</div>
         </div>
         <div class="user-actions">
-          ${!isCurrentUser ? `<button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${user.id}" data-username="${this.escapeHtml(user.username)}">
+          ${!isCurrentUser ? `<button class="btn-icon" title="Add Role" data-action="add-role" data-user-id="${safeUserId}" data-username="${this.escapeHtml(user.username)}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>

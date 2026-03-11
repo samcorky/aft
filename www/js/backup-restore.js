@@ -205,7 +205,8 @@ class BackupRestore {
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
         if (filenameMatch) {
-          filename = filenameMatch[1];
+          // Sanitize filename from header to prevent XSS
+          filename = this.escapeHtml(filenameMatch[1]);
         }
       }
 
@@ -623,26 +624,24 @@ class BackupRestore {
         formattedSize = `${(size / (1024 * 1024)).toFixed(2)} MB`;
       }
       
-      // Create filename with badge if manual
-      let filenameHtml = this.escapeHtml(backup.filename);
-      if (backup.is_manual) {
-        filenameHtml += ' <span class="backup-manual-badge">Manual</span>';
-      }
+      // Create filename with escaped content to prevent XSS
+      const escapedFilename = this.escapeHtml(backup.filename);
+      const manualBadge = backup.is_manual ? '<span class="backup-manual-badge">Manual</span>' : '';
       
       backupItem.innerHTML = `
         <div class="backup-checkbox">
-          <input type="checkbox" class="backup-select-checkbox" data-filename="${this.escapeHtml(backup.filename)}" aria-label="Select ${this.escapeHtml(backup.filename)}">
+          <input type="checkbox" class="backup-select-checkbox" data-filename="${escapedFilename}" aria-label="Select ${escapedFilename}">
         </div>
         <div class="backup-info">
-          <div class="backup-filename">${filenameHtml}</div>
+          <div class="backup-filename">${escapedFilename} ${manualBadge}</div>
           <div class="backup-date">${formattedDate}</div>
         </div>
         <div class="backup-size">${formattedSize}</div>
         <div class="backup-actions">
-          <button class="backup-restore-btn" data-filename="${this.escapeHtml(backup.filename)}">
+          <button class="backup-restore-btn" data-filename="${escapedFilename}">
             Restore
           </button>
-          <button class="backup-delete-btn" data-filename="${this.escapeHtml(backup.filename)}">
+          <button class="backup-delete-btn" data-filename="${escapedFilename}">
             Delete
           </button>
         </div>

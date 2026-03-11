@@ -252,12 +252,12 @@ class RoleManagement {
       </div>
       ${role.description ? `<div class="role-description">${this.escapeHtml(role.description)}</div>` : ''}
       <div>
-        <strong>Permissions (${role.permissions.length}):</strong>
-        <div class="role-permissions" data-role-id="${role.id}">
+        <strong>Permissions (${parseInt(role.permissions.length) || 0}):</strong>
+        <div class="role-permissions" data-role-id="${this.escapeHtml(String(role.id))}">
           ${permissionsHtml}
-          ${hasMore ? `<span class="permission-tag">+${role.permissions.length - 5} more</span>` : ''}
+          ${hasMore ? `<span class="permission-tag">+${parseInt(role.permissions.length) - 5 || 0} more</span>` : ''}
         </div>
-        ${hasMore ? `<a href="javascript:void(0)" class="permission-toggle" data-role-id="${role.id}">Show all permissions</a>` : ''}
+        ${hasMore ? `<a href="javascript:void(0)" class="permission-toggle" data-role-id="${this.escapeHtml(String(role.id))}">Show all permissions</a>` : ''}
       </div>
     `;
 
@@ -370,9 +370,12 @@ class RoleManagement {
       item.className = 'permission-checkbox-item';
       item.dataset.permission = permKey;
       
+      // Sanitize permKey for use in id/for attributes to prevent XSS
+      const safePermKey = this.escapeHtml(permKey).replace(/[^a-zA-Z0-9_-]/g, '_');
+      
       item.innerHTML = `
-        <input type="checkbox" id="perm-${permKey}" ${isChecked ? 'checked' : ''} />
-        <label for="perm-${permKey}" class="permission-checkbox-label">
+        <input type="checkbox" id="perm-${safePermKey}" ${isChecked ? 'checked' : ''} />
+        <label for="perm-${safePermKey}" class="permission-checkbox-label">
           <div class="permission-checkbox-name">${this.escapeHtml(permKey)}</div>
           <div class="permission-checkbox-desc">${this.escapeHtml(permDesc)}</div>
         </label>
@@ -629,7 +632,7 @@ class RoleManagement {
           <div class="mapping-card-header">
             <div class="mapping-header-content">
               <code class="permission-name">${this.escapeHtml(permission)}</code>
-              <span class="endpoint-count">${endpoints.length} endpoint${endpoints.length !== 1 ? 's' : ''}</span>
+              <span class="endpoint-count">${parseInt(endpoints.length) || 0} endpoint${endpoints.length !== 1 ? 's' : ''}</span>
             </div>
             <p class="permission-description">${this.escapeHtml(description)}</p>
           </div>

@@ -224,13 +224,15 @@ class Notifications {
       let actionButtonHtml = '';
       if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
         const escapedTitle = this.escapeHtml(notification.action_title);
+        const safeNotificationId = this.escapeHtml(String(notification.id));
+        const safeUnread = notification.unread ? 'true' : 'false';
         // URL is already validated by isSafeUrl(), no need to escape
         actionButtonHtml = `
           <a href="${notification.action_url}" 
              class="notification-action-link" 
              data-tooltip="${escapedTitle}"
-             data-notification-id="${notification.id}"
-             data-is-unread="${notification.unread}"
+             data-notification-id="${safeNotificationId}"
+             data-is-unread="${safeUnread}"
              aria-label="${escapedTitle}"
              tabindex="0">
             ${escapedTitle}
@@ -238,10 +240,13 @@ class Notifications {
         `;
       }
       
+      const safeId = this.escapeHtml(String(notification.id));
+      const safeUnread = notification.unread ? 'true' : 'false';
+      
       return `
         <div class="notification-item ${notification.unread ? 'unread' : ''}" 
-             data-id="${notification.id}"
-             data-unread="${notification.unread}"
+             data-id="${safeId}"
+             data-unread="${safeUnread}"
              role="listitem"
              tabindex="0">
           <div class="notification-content">
@@ -253,15 +258,15 @@ class Notifications {
           <div class="notification-actions">
             <button class="notification-action-btn read-btn" 
                     data-action="toggle-read"
-                    data-id="${notification.id}"
-                    data-unread="${notification.unread}"
+                    data-id="${safeId}"
+                    data-unread="${safeUnread}"
                     aria-label="${notification.unread ? 'Mark as read' : 'Mark as unread'}"
                     title="${notification.unread ? 'Mark as read' : 'Mark as unread'}">
               ${notification.unread ? '✓' : '○'}
             </button>
             <button class="notification-action-btn delete-btn" 
                     data-action="delete"
-                    data-id="${notification.id}"
+                    data-id="${safeId}"
                     aria-label="Delete notification"
                     title="Delete">
               ✕

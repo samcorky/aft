@@ -162,10 +162,10 @@ class BoardsManager {
         this.boards = data.boards;
         this.renderBoardsList();
       } else {
-        this.showError('Failed to load boards: ' + data.message);
+        this.showError('Failed to load boards: ' + this.escapeHtml(data.message || 'Unknown error'));
       }
     } catch (err) {
-      this.showError('Error loading boards: ' + err.message);
+      this.showError('Error loading boards: ' + this.escapeHtml(err.message || 'Unknown error'));
     }
   }
 
@@ -192,7 +192,7 @@ class BoardsManager {
       
       // Render board cards (always include edit/delete buttons, will filter by permissions after)
       listContainer.innerHTML = this.boards.map(board => `
-        <div class="board-card" data-board-id="${board.id}" data-can-edit="${board.can_edit}" data-can-delete="${board.can_delete}">
+        <div class="board-card" data-board-id="${this.escapeHtml(String(board.id))}" data-can-edit="${this.escapeHtml(String(board.can_edit))}" data-can-delete="${this.escapeHtml(String(board.can_delete))}">
           <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
           <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
           <h4>${this.escapeHtml(board.name)}</h4>
@@ -442,11 +442,14 @@ class BoardsManager {
 
   showError(message) {
     const listContainer = document.getElementById('boards-list');
+    // Message should already be escaped before calling this function,
+    // but we double-escape for defense in depth
+    const safeMessage = typeof message === 'string' ? message : String(message);
     listContainer.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚠️</div>
         <h3>Error</h3>
-        <p>${this.escapeHtml(message)}</p>
+        <p>${safeMessage}</p>
       </div>
     `;
   }

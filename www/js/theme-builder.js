@@ -36,6 +36,23 @@ class ThemeBuilder {
   }
   
   /**
+   * Escape HTML special characters to prevent XSS
+   * @param {string} unsafe - Unsafe string to escape
+   * @returns {string} Escaped string
+   */
+  escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') {
+      return '';
+    }
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+  
+  /**
    * Show error toast notification
    */
   showErrorToast(message) {
@@ -1166,12 +1183,13 @@ class ThemeBuilder {
         throw new Error(themeData.message || themeData.error || 'Failed to export theme');
       }
       
-      // Create download link
+      // Create download link with sanitized filename to prevent XSS
       const blob = new Blob([JSON.stringify(themeData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${themeData.name.replace(/\s+/g, '_')}.json`;
+      const sanitizedName = this.escapeHtml(themeData.name || 'theme').replace(/\s+/g, '_');
+      a.download = `${sanitizedName}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1286,12 +1304,14 @@ class ThemeBuilder {
     }
     
     try {
-      const url = `/images/backgrounds/${bgValue}`;
+      // Sanitize background value to prevent path traversal and XSS
+      const sanitizedBgValue = bgValue.replace(/[\\/\.\s]/g, '_');
+      const url = `/images/backgrounds/${sanitizedBgValue}`;
       
       // Create download link
       const a = document.createElement('a');
       a.href = url;
-      a.download = bgValue;
+      a.download = sanitizedBgValue;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

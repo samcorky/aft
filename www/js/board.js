@@ -846,10 +846,13 @@ class BoardManager {
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
-    this.boardId = urlParams.get('id');
+    const boardIdParam = urlParams.get('id');
     
-    if (!this.boardId) {
-      this.showError('No board ID specified');
+    // Parse and validate board ID to prevent XSS
+    this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
+    
+    if (!this.boardId || isNaN(this.boardId)) {
+      this.showError('Invalid or missing board ID');
       return;
     }
 
@@ -1210,7 +1213,7 @@ class BoardManager {
         ${!this.canEdit ? '<div class="board-readonly-indicator">Read Only</div>' : ''}
         <div class="columns-container">
           ${this.columns.map((column, index) => `
-            <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
+            <div class="column" data-column-id="${column.id}" data-board-id="${this.escapeHtml(String(this.boardId))}" data-order="${column.order}">
               <div class="column-header">
                 <div class="column-title-group">
                   <h4>${this.escapeHtml(column.name)} <span class="card-count">(${this.getColumnCardCount(column, index)})</span></h4>
@@ -3338,6 +3341,7 @@ class BoardManager {
             const updatedDate = new Date(card.updated_at || card.created_at);
             const now = new Date();
             const daysDiff = Math.floor((now - updatedDate) / (1000 * 60 * 60 * 24));
+            const affectedCount = parseInt(data.affected_count) || 0;
             
             previewContent.innerHTML = `
               <div style="padding: 10px; background: var(--bg-primary, white); border-radius: 3px; border-left: 3px solid var(--accent-primary, #007bff);">
@@ -3346,7 +3350,7 @@ class BoardManager {
                   Last updated: ${updatedDate.toLocaleString()} (${daysDiff} days ago)
                 </div>
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color, #ddd); font-size: 0.85em;">
-                  <strong>${data.affected_count}</strong> card(s) would be archived
+                  <strong>${affectedCount}</strong> card(s) would be archived
                 </div>
               </div>
             `;

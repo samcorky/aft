@@ -704,12 +704,10 @@ def can_access_board(user_id, board_id):
     """
     Check if user can access a board (owns it or has a role on it).
     
-    BOARD ACCESS is granted through TWO mechanisms:
+    BOARD ACCESS is granted through THREE mechanisms:
     1. Ownership: User created the board (board.owner_id == user_id)
     2. Explicit role assignment: Admin granted user a board-specific role (UserRole with board_id)
-    
-    Note: This function does NOT check for system.admin permission.
-    Endpoints should check system.admin separately if they want to grant universal access.
+    3. Global admin access: User has system.admin permission (grants access to ALL boards)
     
     Args:
         user_id: User ID
@@ -719,6 +717,7 @@ def can_access_board(user_id, board_id):
         tuple: (has_access: bool, is_owner: bool)
     """
     from models import Board, UserRole
+    from permissions import has_permission
     
     db = SessionLocal()
     try:
@@ -729,6 +728,11 @@ def can_access_board(user_id, board_id):
         # Owner always has access
         if board.owner_id == user_id:
             return True, True
+        
+        # Check if user has system.admin permission (grants access to all boards)
+        user_permissions = get_user_permissions(user_id)
+        if has_permission(user_permissions, 'system.admin'):
+            return True, False
         
         # Check if user has any role on this board
         has_role = db.query(UserRole).filter(

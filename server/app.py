@@ -980,6 +980,154 @@ def debug_user_permissions():
         db.close()
 
 
+@app.route("/api/permissions/mapping")
+@require_authentication
+def get_permissions_mapping():
+    """Get mapping of API endpoints to required permissions and user's current permissions.
+    
+    This endpoint returns:
+    1. A mapping of all API endpoints to their required permissions
+    2. The current user's permissions (global and board-specific if board_id provided)
+    
+    This enables the frontend to implement permission-based UI rendering,
+    showing/hiding elements based on what the user can actually do.
+    
+    Query Parameters:
+        board_id (optional): Board ID to include board-specific permissions
+    ---
+    tags:
+      - Permissions
+    responses:
+      200:
+        description: Permission mapping and user permissions
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            endpoint_permissions:
+              type: object
+              description: Map of API endpoint patterns to required permissions
+            user_permissions:
+              type: array
+              items:
+                type: string
+              description: Current user's permissions
+    """
+    board_id = request.args.get('board_id', type=int)
+    
+    try:
+        from utils import get_user_permissions
+        
+        # Get user's permissions (board-specific if board_id provided)
+        user_perms = get_user_permissions(g.user.id, board_id=board_id)
+        
+        # Comprehensive mapping of API endpoints to required permissions
+        # Format: endpoint_method: {permission, description}
+        endpoint_mapping = {
+            # Board management
+            'GET /api/boards': {'permission': 'board.view', 'description': 'View boards list'},
+            'POST /api/boards': {'permission': 'board.create', 'description': 'Create new board'},
+            'DELETE /api/boards/:id': {'permission': 'board.delete', 'description': 'Delete board'},
+            'PATCH /api/boards/:id': {'permission': 'board.edit', 'description': 'Edit board'},
+            'GET /api/boards/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards'},
+            'GET /api/boards/:id/cards': {'permission': 'card.view', 'description': 'View board cards'},
+            
+            # Column management
+            'GET /api/boards/:id/columns': {'permission': 'board.view', 'description': 'View board columns'},
+            'POST /api/boards/:id/columns': {'permission': 'column.create', 'description': 'Create column'},
+            'DELETE /api/columns/:id': {'permission': 'column.delete', 'description': 'Delete column'},
+            'PATCH /api/columns/:id': {'permission': 'column.update', 'description': 'Update column'},
+            'GET /api/columns/:id/cards': {'permission': 'card.view', 'description': 'View column cards'},
+            'GET /api/columns/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards in column'},
+            'POST /api/columns/:id/archive-after': {'permission': 'card.archive', 'description': 'Archive cards after position'},
+            
+            # Card management
+            'POST /api/columns/:id/cards': {'permission': 'card.create', 'description': 'Create card'},
+            'DELETE /api/columns/:id/cards': {'permission': 'card.delete', 'description': 'Delete all cards in column'},
+            'POST /api/columns/:source_id/cards/move': {'permission': 'card.update', 'description': 'Move card between columns'},
+            'GET /api/cards/:id': {'permission': 'card.view', 'description': 'View card details'},
+            'PATCH /api/cards/:id': {'permission': 'card.update', 'description': 'Update card'},
+            'DELETE /api/cards/:id': {'permission': 'card.delete', 'description': 'Delete card'},
+            'PATCH /api/cards/:id/archive': {'permission': 'card.archive', 'description': 'Archive card'},
+            'PATCH /api/cards/:id/unarchive': {'permission': 'card.archive', 'description': 'Unarchive card'},
+            'GET /api/cards/:id/done': {'permission': 'card.view', 'description': 'Get card done status'},
+            'PATCH /api/cards/:id/done': {'permission': 'card.update', 'description': 'Update card done status'},
+            'POST /api/cards/batch/archive': {'permission': 'card.archive', 'description': 'Batch archive cards'},
+            'POST /api/cards/batch/unarchive': {'permission': 'card.archive', 'description': 'Batch unarchive cards'},
+            
+            # Schedule management
+            'POST /api/schedules': {'permission': 'schedule.create', 'description': 'Create scheduled card'},
+            'PATCH /api/schedules/:id': {'permission': 'schedule.edit', 'description': 'Update schedule'},
+            'DELETE /api/schedules/:id': {'permission': 'schedule.delete', 'description': 'Delete schedule'},
+            
+            # Settings
+            'GET /api/settings/schema': {'permission': 'setting.view', 'description': 'View settings schema'},
+            'GET /api/settings/:key': {'permission': 'setting.view', 'description': 'View setting'},
+            'PUT /api/settings/:key': {'permission': 'setting.edit', 'description': 'Update setting'},
+            'GET /api/settings/backup/config': {'permission': 'setting.view', 'description': 'View backup config'},
+            'PUT /api/settings/backup/config': {'permission': 'setting.edit', 'description': 'Update backup config'},
+            'GET /api/settings/backup/status': {'permission': 'setting.view', 'description': 'View backup status'},
+            'GET /api/settings/housekeeping/status': {'permission': 'setting.view', 'description': 'View housekeeping status'},
+            'PUT /api/settings/housekeeping/config': {'permission': 'setting.edit', 'description': 'Update housekeeping config'},
+            'GET /api/settings/card-scheduler/status': {'permission': 'setting.view', 'description': 'View scheduler status'},
+            'PUT /api/settings/card-scheduler/config': {'permission': 'setting.edit', 'description': 'Update scheduler config'},
+            
+            # Database backups
+            'GET /api/database/backup': {'permission': 'admin.database', 'description': 'Download database backup'},
+            'POST /api/database/backup/manual': {'permission': 'admin.database', 'description': 'Create manual backup'},
+            'POST /api/database/restore': {'permission': 'admin.database', 'description': 'Restore database'},
+            'GET /api/database/backups/list': {'permission': 'admin.database', 'description': 'List all backups'},
+            'POST /api/database/backups/restore/:filename': {'permission': 'admin.database', 'description': 'Restore specific backup'},
+            'DELETE /api/database/backups/delete/:filename': {'permission': 'admin.database', 'description': 'Delete backup'},
+            'POST /api/database/backups/delete-multiple': {'permission': 'admin.database', 'description': 'Delete multiple backups'},
+            'DELETE /api/database': {'permission': 'admin.database', 'description': 'Reset database'},
+            
+            # User management (from user_management.py blueprint)
+            'GET /api/users': {'permission': 'user.manage', 'description': 'List all users'},
+            'GET /api/users/:id': {'permission': 'user.manage', 'description': 'Get user details'},
+            'PATCH /api/users/:id': {'permission': 'user.manage', 'description': 'Update user'},
+            'DELETE /api/users/:id': {'permission': 'user.manage', 'description': 'Delete user'},
+            'PATCH /api/users/:id/active': {'permission': 'user.manage', 'description': 'Toggle user active status'},
+            'POST /api/users/:id/roles': {'permission': 'user.role', 'description': 'Assign user role'},
+            'DELETE /api/users/:id/roles/:role_id': {'permission': 'user.role', 'description': 'Remove user role'},
+            
+            # Role management (from role_management.py blueprint)
+            'GET /api/roles': {'permission': 'role.manage', 'description': 'List all roles'},
+            'POST /api/roles': {'permission': 'role.manage', 'description': 'Create role'},
+            'GET /api/roles/:id': {'permission': 'role.manage', 'description': 'Get role details'},
+            'PATCH /api/roles/:id': {'permission': 'role.manage', 'description': 'Update role'},
+            'DELETE /api/roles/:id': {'permission': 'role.manage', 'description': 'Delete role'},
+            'GET /api/roles/permission-model': {'permission': None, 'description': 'Get permission model (public)'},
+            
+            # Theme management
+            'GET /api/themes': {'permission': None, 'description': 'List themes (public)'},
+            'POST /api/themes': {'permission': 'theme.create', 'description': 'Create theme'},
+            'GET /api/themes/:id': {'permission': None, 'description': 'Get theme (public)'},
+            'PATCH /api/themes/:id': {'permission': 'theme.edit', 'description': 'Update theme'},
+            'DELETE /api/themes/:id': {'permission': 'theme.delete', 'description': 'Delete theme'},
+            
+            # System/Monitoring
+            'GET /api/stats': {'permission': 'board.view', 'description': 'View statistics'},
+            'GET /api/scheduler/health': {'permission': 'setting.view', 'description': 'View scheduler health'},
+            'GET /api/broadcast-status': {'permission': 'monitoring.system', 'description': 'View broadcast status'},
+        }
+        
+        return jsonify({
+            'success': True,
+            'endpoint_permissions': endpoint_mapping,
+            'user_permissions': sorted(list(user_perms)),
+            'board_id': board_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting permissions mapping: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to get permissions mapping: {str(e)}'
+        }), 500
+
+
 @app.route("/api/broadcast-status")
 @require_permission('monitoring.system')
 def get_broadcast_status():

@@ -853,6 +853,15 @@ class BoardManager {
       return;
     }
 
+    // Initialize Permission Manager with board context
+    console.log('Initializing PermissionManager for board:', this.boardId);
+    const permissionInitSuccess = await PermissionManager.init(this.boardId);
+    
+    if (!permissionInitSuccess) {
+      console.warn('Failed to initialize PermissionManager - some features may not be available');
+      // Continue anyway - the user is logged in if we're here
+    }
+
     this.render();
     
     // Initialize WebSocket for real-time updates
@@ -1661,7 +1670,97 @@ class BoardManager {
       if (this.canEdit) {
         this.setupDragAndDrop();
       }
+      
+      // Apply permission-based rendering (if PermissionManager is initialized)
+      this.applyPermissionBasedRendering();
     }
+  }
+
+  /**
+   * Apply permission-based rendering to UI elements
+   * This method checks user permissions and removes/hides elements the user cannot access
+   * Provides a centralized, extensible approach to permission-based UI
+   */
+  applyPermissionBasedRendering() {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      console.log('PermissionManager not available - skipping permission-based rendering');
+      return;
+    }
+    
+    console.log('Applying permission-based rendering...');
+    
+    // Remove "Add Column" buttons if user doesn't have column.create permission
+    if (!PermissionManager.hasPermission('column.create')) {
+      document.querySelectorAll('#add-column-empty-btn, #add-column-inline-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove "Add Card" buttons if user doesn't have card.create permission
+    if (!PermissionManager.hasPermission('card.create')) {
+      document.querySelectorAll('.column-add-card-btn, .add-card-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column edit buttons if user doesn't have column.update permission
+    if (!PermissionManager.hasPermission('column.update')) {
+      document.querySelectorAll('.column-edit-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column move buttons if user doesn't have column.update permission
+    if (!PermissionManager.hasPermission('column.update')) {
+      document.querySelectorAll('.column-move-left-btn, .column-move-right-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column menu and its items based on permissions
+    document.querySelectorAll('.column-menu-wrapper').forEach(menuWrapper => {
+      const columnMenuBtn = menuWrapper.querySelector('.column-menu-btn');
+      const dropdown = menuWrapper.querySelector('.column-menu-dropdown');
+      
+      if (!dropdown) return;
+      
+      // Check each menu item and remove if no permission
+      const moveAllBtn = dropdown.querySelector('.column-move-all-cards-btn');
+      const archiveAllBtn = dropdown.querySelector('.column-archive-all-cards-btn');
+      const unarchiveAllBtn = dropdown.querySelector('.column-unarchive-all-cards-btn');
+      const archiveAfterBtn = dropdown.querySelector('.column-archive-after-btn');
+      const deleteAllCardsBtn = dropdown.querySelector('.column-delete-cards-btn');
+      const deleteColumnBtn = dropdown.querySelector('.column-delete-btn');
+      
+      if (moveAllBtn && !PermissionManager.hasPermission('card.update')) {
+        moveAllBtn.remove();
+      }
+      if (archiveAllBtn && !PermissionManager.hasPermission('card.archive')) {
+        archiveAllBtn.remove();
+      }
+      if (unarchiveAllBtn && !PermissionManager.hasPermission('card.archive')) {
+        unarchiveAllBtn.remove();
+      }
+      if (archiveAfterBtn && !PermissionManager.hasPermission('card.archive')) {
+        archiveAfterBtn.remove();
+      }
+      if (deleteAllCardsBtn && !PermissionManager.hasPermission('card.delete')) {
+        deleteAllCardsBtn.remove();
+      }
+      if (deleteColumnBtn && !PermissionManager.hasPermission('column.delete')) {
+        deleteColumnBtn.remove();
+      }
+      
+      // If all menu items are removed, remove the menu button too
+      const remainingItems = dropdown.querySelectorAll('.column-menu-item');
+      if (remainingItems.length === 0) {
+        menuWrapper.remove();
+      }
+    });
+    
+    // Remove card delete buttons if user doesn't have card.delete permission
+    if (!PermissionManager.hasPermission('card.delete')) {
+      document.querySelectorAll('.card-delete-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove card archive buttons if user doesn't have card.archive permission
+    if (!PermissionManager.hasPermission('card.archive')) {
+      document.querySelectorAll('.card-archive-btn, .card-unarchive-btn').forEach(btn => btn.remove());
+    }
+    
+    console.log('Permission-based rendering complete');
   }
 
   async moveColumn(columnId, newOrder) {

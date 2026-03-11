@@ -17,25 +17,13 @@ import time
 
 # API base URL - matching conftest.py
 API_BASE_URL = "http://localhost"
+ADMIN_EMAIL = "test-admin@localhost"
+ADMIN_PASSWORD = "TestAdmin123!"
 
 
-@pytest.fixture(scope="module")
-def setup_test_environment():
+@pytest.fixture
+def setup_test_environment(clean_database, authenticated_session):
     """Setup test environment with admin and test users."""
-    # Clean database
-    try:
-        requests.delete(f"{API_BASE_URL}/api/database")
-        time.sleep(0.5)
-    except:
-        pass
-    
-    # Create admin user
-    requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
-        "email": "admin@localhost",
-        "username": "admin",
-        "password": "AdminPass123!"
-    })
-    
     # Create some pending users
     for i in range(3):
         requests.post(f"{API_BASE_URL}/api/auth/register", json={
@@ -45,25 +33,13 @@ def setup_test_environment():
         })
     
     time.sleep(0.2)
-    yield
-    
-    # Cleanup
-    try:
-        requests.delete(f"{API_BASE_URL}/api/database")
-    except:
-        pass
+    return authenticated_session
 
 
 @pytest.fixture
-def admin_session():
+def admin_session(setup_test_environment):
     """Create an authenticated admin session."""
-    session = requests.Session()
-    response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-        "email": "admin@localhost",
-        "password": "AdminPass123!"
-    })
-    assert response.status_code == 200
-    return session
+    return setup_test_environment
 
 
 @pytest.fixture
@@ -265,47 +241,54 @@ class TestRoleManagement:
         regular_user = [u for u in users if 'administrator' not in [r['name'] for r in u['roles']]]
         if len(regular_user) > 0:
             user_id = regular_user[0]['id']
-            
-            # Get available roles (we need the role ID)
-            # For now, we'll use known role IDs from initial setup
-            # Role IDs: 1=administrator, 2=board_admin, 3=editor, 4=read_only
-            
-            # Assign editor role
+
             response = admin_session.post(
-                f"{API_BASE_URL}/api/users/{user_id}/roles/3",  # editor role
-                json={}
+                f"{API_BASE_URL}/api/users/{user_id}/roles",
+                json={"role_name": "board_creator"}
             )
             assert response.status_code == 200
-            
-            data = response.json()
-            assert data['success'] is True
-            assert 'editor' in [r['name'] for r in data['user']['roles']]
+
+            response = admin_session.get(f"{API_BASE_URL}/api/users")
+            assert response.status_code == 200
+            updated_user = next(u for u in response.json()['users'] if u['id'] == user_id)
+            assert 'board_creator' in [r['name'] for r in updated_user['roles']]
     
     def test_remove_role_from_user(self, admin_session, setup_test_environment):
         """Admin should be able to remove roles from users."""
-        # Get a user with roles
+        roles_response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        assert roles_response.status_code == 200
+        board_creator_role = next(r for r in roles_response.json()['roles'] if r['name'] == 'board_creator')
+
+        # Get a user and assign a removable role first
         response = admin_session.get(f"{API_BASE_URL}/api/users")
         users = response.json()['users']
         
-        # Find user with editor role
+        # Find non-admin user
         for user in users:
-            if 'editor' in [r['name'] for r in user['roles']]:
+            if 'administrator' not in [r['name'] for r in user['roles']]:
                 user_id = user['id']
-                
-                # Remove editor role
+                admin_session.post(
+                    f"{API_BASE_URL}/api/users/{user_id}/roles",
+                    json={"role_name": "board_creator"}
+                )
+
                 response = admin_session.delete(
-                    f"{API_BASE_URL}/api/users/{user_id}/roles/3"  # editor role
+                    f"{API_BASE_URL}/api/users/{user_id}/roles/{board_creator_role['id']}"
                 )
                 assert response.status_code == 200
-                
-                data = response.json()
-                assert data['success'] is True
-                assert 'editor' not in [r['name'] for r in data['user']['roles']]
+
+                response = admin_session.get(f"{API_BASE_URL}/api/users")
+                assert response.status_code == 200
+                updated_user = next(u for u in response.json()['users'] if u['id'] == user_id)
+                assert 'board_creator' not in [r['name'] for r in updated_user['roles']]
                 break
     
     def test_assign_role_invalid_user(self, admin_session):
         """Assigning role to nonexistent user should fail."""
-        response = admin_session.post(f"{API_BASE_URL}/api/users/99999/roles/3", json={})
+        response = admin_session.post(
+            f"{API_BASE_URL}/api/users/99999/roles",
+            json={"role_name": "board_creator"}
+        )
         assert response.status_code == 404
     
     def test_assign_invalid_role(self, admin_session, setup_test_environment):
@@ -315,7 +298,10 @@ class TestRoleManagement:
         
         if len(users) > 0:
             user_id = users[0]['id']
-            response = admin_session.post(f"{API_BASE_URL}/api/users/{user_id}/roles/99999", json={})
+            response = admin_session.post(
+                f"{API_BASE_URL}/api/users/{user_id}/roles",
+                json={"role_name": "not_a_real_role"}
+            )
             assert response.status_code == 404
 
     def test_create_custom_role(self, admin_session):
@@ -447,8 +433,8 @@ class TestAdminPermissions:
         # First approve a user
         admin_session = requests.Session()
         admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         
         response = admin_session.get(f"{API_BASE_URL}/api/users/pending")
@@ -460,9 +446,12 @@ class TestAdminPermissions:
             user_num = user_email.split('@')[0].replace('user', '')
             password = f"UserPass{user_num}123!"
             
-            # Approve and assign read_only role (not admin)
+            # Approve and assign a non-admin global role
             admin_session.post(f"{API_BASE_URL}/api/users/{user_id}/approve")
-            admin_session.post(f"{API_BASE_URL}/api/users/{user_id}/roles/4", json={})  # read_only
+            admin_session.post(
+                f"{API_BASE_URL}/api/users/{user_id}/roles",
+                json={"role_name": "board_creator"}
+            )
             
             # Login as regular user
             user_session = requests.Session()
@@ -480,8 +469,8 @@ class TestAdminPermissions:
         # Setup admin and regular user (reuse previous test pattern)
         admin_session = requests.Session()
         admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         
         response = admin_session.get(f"{API_BASE_URL}/api/users/pending")
@@ -515,8 +504,8 @@ class TestCompleteUserManagementFlow:
         """Test complete lifecycle of user management."""
         admin = requests.Session()
         admin.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
         
         # 1. Check pending users
@@ -545,7 +534,10 @@ class TestCompleteUserManagementFlow:
         assert response.status_code == 200
         
         # 6. Assign role
-        response = admin.post(f"{API_BASE_URL}/api/users/{user_id}/roles/3", json={})  # editor
+        response = admin.post(
+            f"{API_BASE_URL}/api/users/{user_id}/roles",
+            json={"role_name": "board_creator"}
+        )
         assert response.status_code == 200
         
         # 7. Verify user can login
@@ -559,7 +551,7 @@ class TestCompleteUserManagementFlow:
         # 8. Check user has editor role
         response = user_session.get(f"{API_BASE_URL}/api/auth/me")
         roles = [r['name'] for r in response.json()['user']['roles']]
-        assert 'editor' in roles
+        assert 'board_creator' in roles
         
         # 9. Deactivate user
         response = admin.post(f"{API_BASE_URL}/api/users/{user_id}/deactivate")
@@ -591,6 +583,10 @@ class TestSelfRoleModificationPrevention:
     
     def test_cannot_assign_role_to_self_via_roles_endpoint(self, admin_session):
         """Admin should not be able to assign roles to themselves via /api/roles/assign."""
+        roles_response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        assert roles_response.status_code == 200
+        board_creator_role = next(r for r in roles_response.json()['roles'] if r['name'] == 'board_creator')
+
         # Get current user info
         response = admin_session.get(f"{API_BASE_URL}/api/auth/me")
         assert response.status_code == 200
@@ -601,7 +597,7 @@ class TestSelfRoleModificationPrevention:
             f"{API_BASE_URL}/api/roles/assign",
             json={
                 "user_id": current_user_id,
-                "role_id": 3  # editor role
+                "role_id": board_creator_role['id']
             }
         )
         assert response.status_code == 403
@@ -644,7 +640,7 @@ class TestSelfRoleModificationPrevention:
         # Try to assign a role to self - should fail
         response = admin_session.post(
             f"{API_BASE_URL}/api/users/{current_user_id}/roles",
-            json={"role_name": "editor"}
+            json={"role_name": "board_creator"}
         )
         assert response.status_code == 403
         data = response.json()
@@ -674,6 +670,10 @@ class TestSelfRoleModificationPrevention:
     
     def test_can_assign_role_to_other_user(self, admin_session, setup_test_environment):
         """Admin should still be able to assign roles to other users."""
+        roles_response = admin_session.get(f"{API_BASE_URL}/api/roles")
+        assert roles_response.status_code == 200
+        board_creator_role = next(r for r in roles_response.json()['roles'] if r['name'] == 'board_creator')
+
         # Get a different user
         response = admin_session.get(f"{API_BASE_URL}/api/users")
         users = response.json()['users']
@@ -691,7 +691,7 @@ class TestSelfRoleModificationPrevention:
                 f"{API_BASE_URL}/api/roles/assign",
                 json={
                     "user_id": other_user['id'],
-                    "role_id": 3  # editor role
+                    "role_id": board_creator_role['id']
                 }
             )
             # Should either succeed (200) or indicate role already exists (409)

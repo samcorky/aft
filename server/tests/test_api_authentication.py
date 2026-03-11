@@ -20,20 +20,20 @@ API_BASE_URL = "http://localhost"
 
 
 @pytest.fixture
-def empty_database(test_admin_session):
+def empty_database(authenticated_session, test_admin_session):
     """Delete all data including users for tests that need truly empty DB.
     
     Note: This fixture is ONLY for authentication tests. It deletes all users
     including the test-admin, then recreates test-admin after the test completes.
     We also need to refresh the session cookies since the old ones are invalid.
     """
-    # Delete all data including users
-    try:
-        response = requests.delete(f"{API_BASE_URL}/api/database")
-        if response.status_code == 200:
-            time.sleep(0.5)  # Wait for cleanup
-    except:
-        pass
+    # Delete all data including users using the authenticated admin session.
+    response = authenticated_session.delete(f"{API_BASE_URL}/api/database")
+    if response.status_code != 200:
+        raise AssertionError(
+            f"Failed to reset database for auth test: {response.status_code} - {response.text}"
+        )
+    time.sleep(0.6)
     
     yield
     
@@ -42,7 +42,7 @@ def empty_database(test_admin_session):
     for attempt in range(max_retries):
         try:
             # Check if setup is needed
-            status = requests.get(f"{API_BASE_URL}/api/auth/setup/status")
+            status = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
             if status.status_code == 200 and not status.json().get('setup_complete', False):
                 # Recreate test admin
                 resp = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -50,7 +50,7 @@ def empty_database(test_admin_session):
                     "username": "test-admin",
                     "password": "TestAdmin123!",
                     "display_name": "Test Admin"
-                })
+                }, timeout=5)
                 
                 # Update the shared session with new cookies from the recreated admin
                 # The setup endpoint auto-logs in, but we need to ensure cookies are fresh

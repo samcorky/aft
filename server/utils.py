@@ -395,6 +395,7 @@ def require_permission(permission, require_board_context=None):
             card_id = kwargs.get('card_id')
             schedule_id = kwargs.get('schedule_id')
             item_id = kwargs.get('item_id')  # checklist item
+            missing_resource_message = None
             
             # If not in URL params, try request body
             if board_id is None and column_id is None and card_id is None and schedule_id is None and item_id is None:
@@ -415,10 +416,16 @@ def require_permission(permission, require_board_context=None):
                 db = SessionLocal()
                 try:
                     item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
-                    if item and item.card:
+                    if not item:
+                        missing_resource_message = "Checklist item not found"
+                    elif item.card:
                         card_id = item.card.id
                         if item.card.column:
                             board_id = item.card.column.board_id
+                        else:
+                            missing_resource_message = "Card not found"
+                    else:
+                        missing_resource_message = "Card not found"
                 finally:
                     db.close()
             
@@ -428,10 +435,16 @@ def require_permission(permission, require_board_context=None):
                 db = SessionLocal()
                 try:
                     schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
-                    if schedule and schedule.card:
+                    if not schedule:
+                        missing_resource_message = "Schedule not found"
+                    elif schedule.card:
                         card_id = schedule.card.id
                         if schedule.card.column:
                             board_id = schedule.card.column.board_id
+                        else:
+                            missing_resource_message = "Card not found"
+                    else:
+                        missing_resource_message = "Card not found"
                 finally:
                     db.close()
             
@@ -443,6 +456,8 @@ def require_permission(permission, require_board_context=None):
                     column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
                     if column:
                         board_id = column.board_id
+                    else:
+                        missing_resource_message = "Column not found"
                 finally:
                     db.close()
             
@@ -452,8 +467,12 @@ def require_permission(permission, require_board_context=None):
                 db = SessionLocal()
                 try:
                     card = db.query(Card).filter(Card.id == card_id).first()
-                    if card and card.column:
+                    if not card:
+                        missing_resource_message = "Card not found"
+                    elif card.column:
                         board_id = card.column.board_id
+                    else:
+                        missing_resource_message = "Column not found"
                 finally:
                     db.close()
             
@@ -469,8 +488,14 @@ def require_permission(permission, require_board_context=None):
                     db = SessionLocal()
                     try:
                         item = db.query(ChecklistItem).filter(ChecklistItem.id == item_id).first()
-                        if item and item.card and item.card.column:
+                        if not item:
+                            missing_resource_message = "Checklist item not found"
+                        elif item.card and item.card.column:
                             board_id = item.card.column.board_id
+                        elif not item.card:
+                            missing_resource_message = "Card not found"
+                        else:
+                            missing_resource_message = "Column not found"
                     finally:
                         db.close()
                 elif 'schedule' in func_name:
@@ -479,8 +504,14 @@ def require_permission(permission, require_board_context=None):
                     db = SessionLocal()
                     try:
                         schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
-                        if schedule and schedule.card and schedule.card.column:
+                        if not schedule:
+                            missing_resource_message = "Schedule not found"
+                        elif schedule.card and schedule.card.column:
                             board_id = schedule.card.column.board_id
+                        elif not schedule.card:
+                            missing_resource_message = "Card not found"
+                        else:
+                            missing_resource_message = "Column not found"
                     finally:
                         db.close()
                 elif 'column' in func_name:
@@ -491,6 +522,8 @@ def require_permission(permission, require_board_context=None):
                         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
                         if column:
                             board_id = column.board_id
+                        else:
+                            missing_resource_message = "Column not found"
                     finally:
                         db.close()
                 elif 'card' in func_name:
@@ -499,10 +532,17 @@ def require_permission(permission, require_board_context=None):
                     db = SessionLocal()
                     try:
                         card = db.query(Card).filter(Card.id == card_id).first()
-                        if card and card.column:
+                        if not card:
+                            missing_resource_message = "Card not found"
+                        elif card and card.column:
                             board_id = card.column.board_id
+                        else:
+                            missing_resource_message = "Column not found"
                     finally:
                         db.close()
+
+            if board_id is None and missing_resource_message:
+                abort(404, description=missing_resource_message)
             
             # Get permissions (global and board-specific if board_id is available)
             user_permissions = get_user_permissions(g.user.id, board_id)
@@ -601,6 +641,16 @@ def require_board_access(require_owner=False):
             
             if board_id is None:
                 abort(400, description="Board ID required")
+
+            from models import Board
+            db = SessionLocal()
+            try:
+                board_exists = db.query(Board.id).filter(Board.id == board_id).first()
+            finally:
+                db.close()
+
+            if not board_exists:
+                abort(404, description="Board not found")
             
             # Check access
             has_access, is_owner = can_access_board(g.user.id, board_id)

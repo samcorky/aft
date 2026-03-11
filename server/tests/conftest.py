@@ -162,7 +162,7 @@ def test_admin_session(request, wait_for_api):
         )
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='session', autouse=True)
 def cleanup_all_data(request, test_admin_session):
     """Clean up all test data before and after entire test session (API tests only)."""
     # Only run for API tests

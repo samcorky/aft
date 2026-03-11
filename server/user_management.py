@@ -220,7 +220,17 @@ def approve_user(user_id):
         # TODO: Send approval notification email to user
         
         return create_success_response(
-            message=f"User {user.username} has been approved"
+          message=f"User {user.username} has been approved",
+          data={
+            'user': {
+              'id': user.id,
+              'email': user.email,
+              'username': user.username,
+              'display_name': user.display_name,
+              'is_active': user.is_active,
+              'is_approved': user.is_approved,
+            }
+          }
         )
         
     finally:
@@ -334,7 +344,17 @@ def deactivate_user(user_id):
         logger.info(f"User deactivated: {user.email} (ID: {user.id}) by admin {g.user.id}")
         
         return create_success_response(
-            message=f"User {user.username} has been deactivated"
+          message=f"User {user.username} has been deactivated",
+          data={
+            'user': {
+              'id': user.id,
+              'email': user.email,
+              'username': user.username,
+              'display_name': user.display_name,
+              'is_active': user.is_active,
+              'is_approved': user.is_approved,
+            }
+          }
         )
         
     finally:
@@ -383,7 +403,17 @@ def activate_user(user_id):
         logger.info(f"User activated: {user.email} (ID: {user.id}) by admin {g.user.id}")
         
         return create_success_response(
-            message=f"User {user.username} has been activated"
+          message=f"User {user.username} has been activated",
+          data={
+            'user': {
+              'id': user.id,
+              'email': user.email,
+              'username': user.username,
+              'display_name': user.display_name,
+              'is_active': user.is_active,
+              'is_approved': user.is_approved,
+            }
+          }
         )
         
     finally:

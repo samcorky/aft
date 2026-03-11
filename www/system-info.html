@@ -55,7 +55,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="backup-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="backup-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -63,7 +63,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="backup-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="backupToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="backupToggle" class="backup-toggle-input" role="switch" aria-label="Enable automatic backups">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -101,7 +101,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="housekeeping-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="housekeeping-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -109,7 +109,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="housekeeping-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input" role="switch" aria-label="Enable housekeeping module">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -142,7 +142,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="card-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="card-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -150,7 +150,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="card-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="cardSchedulerToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="cardSchedulerToggle" class="backup-toggle-input" role="switch" aria-label="Enable card scheduler module">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -298,11 +298,13 @@
       <p class="modal-instruction">
         To confirm, please type: <strong>"Yes I am sure I want to delete all of my data!"</strong>
       </p>
+      <label for="delete-confirmation-input" class="sr-only">Confirmation text</label>
       <input 
         type="text" 
         id="delete-confirmation-input" 
         placeholder="Type confirmation text here..."
         autocomplete="off"
+        aria-describedby="delete-modal-warning"
       >
       <div class="error-message" id="delete-error"></div>
       <div class="modal-actions">

@@ -324,7 +324,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || null;
     
     if (!boardName) {
-      await showAlert('Please enter a board name', 'Invalid Input');
+      this.showErrorToast('Please enter a board name');
       return;
     }
 
@@ -349,10 +349,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to create board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to create board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error creating board: ' + err.message, 'Error');
+      this.showErrorToast('Error creating board: ' + err.message);
     }
   }
 
@@ -377,10 +377,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to delete board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to delete board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error deleting board: ' + err.message, 'Error');
+      this.showErrorToast('Error deleting board: ' + err.message);
     }
   }
 
@@ -408,7 +408,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || '';
     
     if (!boardName) {
-      await showAlert('Please enter a board name', 'Invalid Input');
+      this.showErrorToast('Please enter a board name');
       return;
     }
 
@@ -433,10 +433,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to update board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to update board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error updating board: ' + err.message, 'Error');
+      this.showErrorToast('Error updating board: ' + err.message);
     }
   }
 
@@ -449,6 +449,41 @@ class BoardsManager {
         <p>${this.escapeHtml(message)}</p>
       </div>
     `;
+  }
+
+  /**
+   * Show a non-blocking error toast notification.
+   * @param {string} message - Error message to display
+   * @param {number} duration - How long to show the toast in milliseconds (default 3000)
+   */
+  showErrorToast(message, duration = 3000) {
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #e74c3c;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
   }
 
   escapeHtml(text) {

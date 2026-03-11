@@ -11,9 +11,15 @@ const passwordStrengthBar = document.getElementById('passwordStrengthBar');
 // Check if setup is needed
 async function checkSetupStatus() {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
         const response = await fetch('/api/auth/setup/status', {
-            credentials: 'include'
+            credentials: 'include',
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (response.ok) {
             const data = await response.json();
@@ -80,6 +86,9 @@ form.addEventListener('submit', async (e) => {
     errorMessage.classList.remove('show');
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
         const response = await fetch('/api/auth/setup/admin', {
             method: 'POST',
             headers: {
@@ -91,8 +100,11 @@ form.addEventListener('submit', async (e) => {
                 username, 
                 password,
                 display_name: displayName
-            })
+            }),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -119,7 +131,12 @@ form.addEventListener('submit', async (e) => {
         }
     } catch (error) {
         console.error('Setup error:', error);
-        errorMessage.textContent = 'An error occurred. Please try again.';
+        
+        if (error.name === 'AbortError') {
+            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+        } else {
+            errorMessage.textContent = 'An error occurred. Please try again.';
+        }
         errorMessage.classList.add('show');
         
         // Re-enable form

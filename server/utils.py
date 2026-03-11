@@ -396,7 +396,7 @@ def require_permission(permission, require_board_context=None):
             
             # Try to get board_id for board-specific permissions
             board_id = kwargs.get('board_id')
-            column_id = kwargs.get('column_id')
+            column_id = kwargs.get('column_id') or kwargs.get('source_column_id') or kwargs.get('target_column_id')
             card_id = kwargs.get('card_id')
             comment_id = kwargs.get('comment_id')
             schedule_id = kwargs.get('schedule_id')
@@ -409,11 +409,17 @@ def require_permission(permission, require_board_context=None):
                     data = request.get_json(silent=True)
                     if data:
                         board_id = data.get('board_id')
-                        column_id = data.get('column_id')
+                        column_id = data.get('column_id') or data.get('target_column_id')
                         card_id = data.get('card_id')
                         comment_id = data.get('comment_id')
                         schedule_id = data.get('schedule_id')
                         item_id = data.get('item_id')
+                        
+                        # For batch operations, try to get first card_id from card_ids array
+                        if card_id is None and 'card_ids' in data:
+                            card_ids = data.get('card_ids')
+                            if isinstance(card_ids, list) and len(card_ids) > 0:
+                                card_id = card_ids[0]
                 except Exception:
                     pass
 
@@ -691,8 +697,11 @@ def require_board_access(require_owner=False):
             finally:
                 db.close()
 
+            # Return 403 (not 404) to avoid leaking information about board existence
+            # From a security perspective, "board doesn't exist" and "you can't access this board"
+            # should look the same to the user
             if not board_exists:
-                abort(404, description="Board not found")
+                abort(403, description="Access denied to this board")
             
             # Check access
             has_access, is_owner = can_access_board(g.user.id, board_id)

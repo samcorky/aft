@@ -8299,7 +8299,9 @@ def forbidden_error(error):
 def not_found_error(error):
     """Handle 404 errors with JSON response for API endpoints."""
     if request.path.startswith('/api/'):
-        return jsonify({"success": False, "message": "Endpoint not found"}), 404
+        # Check if error has a custom description (e.g., "Column not found")
+        message = str(error.description) if hasattr(error, 'description') and error.description else "Endpoint not found"
+        return jsonify({"success": False, "message": message}), 404
     # For non-API routes, return default Flask 404
     return error
 

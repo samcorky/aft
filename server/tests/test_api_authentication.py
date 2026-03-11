@@ -289,7 +289,7 @@ class TestLogin:
     def test_login_invalid_credentials(self, session):
         """Login should fail with wrong password."""
         response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
+            "email": "test-admin@localhost",
             "password": "WrongPassword"
         })
         assert response.status_code == 401
@@ -298,15 +298,15 @@ class TestLogin:
     def test_login_success(self, session):
         """Login should succeed with correct credentials."""
         response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         assert response.status_code == 200
         
         data = response.json()
         assert data['success'] is True
         assert 'user' in data
-        assert data['user']['email'] == "admin@localhost"
+        assert data['user']['email'] == "test-admin@localhost"
         
         # Check session cookie was set
         assert 'session' in session.cookies
@@ -315,8 +315,8 @@ class TestLogin:
         """Auth check should return True when logged in."""
         # Login first
         session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         
         # Check auth status
@@ -330,8 +330,8 @@ class TestLogin:
         """Me endpoint should return current user info."""
         # Login first
         session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         
         # Get user info
@@ -341,15 +341,15 @@ class TestLogin:
         data = response.json()
         assert data['success'] is True
         assert 'user' in data
-        assert data['user']['email'] == "admin@localhost"
+        assert data['user']['email'] == "test-admin@localhost"
         assert 'roles' in data['user']
     
     def test_logout(self, session):
         """Logout should clear session."""
         # Login first
         session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         
         # Logout
@@ -371,8 +371,8 @@ class TestPasswordChange:
         """Create an authenticated session."""
         session = requests.Session()
         session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         return session
     
@@ -380,7 +380,7 @@ class TestPasswordChange:
         """Password change should require authentication."""
         session = requests.Session()
         response = session.post(f"{API_BASE_URL}/api/auth/change-password", json={
-            "current_password": "AdminPass123!",
+            "current_password": "TestAdmin123!",
             "new_password": "NewPass456!"
         })
         assert response.status_code == 401
@@ -398,7 +398,7 @@ class TestPasswordChange:
         """Password change should validate new password."""
         # Too short
         response = authenticated_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
-            "current_password": "AdminPass123!",
+            "current_password": "TestAdmin123!",
             "new_password": "123"
         })
         assert response.status_code == 400
@@ -406,7 +406,7 @@ class TestPasswordChange:
     def test_change_password_success(self, authenticated_session):
         """Password change should work with valid input."""
         response = authenticated_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
-            "current_password": "AdminPass123!",
+            "current_password": "TestAdmin123!",
             "new_password": "NewAdminPass456!"
         })
         assert response.status_code == 200
@@ -415,14 +415,14 @@ class TestPasswordChange:
         # Verify old password no longer works
         new_session = requests.Session()
         response = new_session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
-            "password": "AdminPass123!"
+            "email": "test-admin@localhost",
+            "password": "TestAdmin123!"
         })
         assert response.status_code == 401
         
         # Verify new password works
         response = new_session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
+            "email": "test-admin@localhost",
             "password": "NewAdminPass456!"
         })
         assert response.status_code == 200
@@ -460,7 +460,7 @@ class TestAuthenticationFlow:
         # 5. Login with admin to test their flow
         admin_session = requests.Session()
         response = admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": "admin@localhost",
+            "email": "test-admin@localhost",
             "password": "NewAdminPass456!"
         })
         assert response.status_code == 200

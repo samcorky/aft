@@ -471,6 +471,90 @@ def create_column(board_id):
 
 ## Examples
 
+### Board Detail Page Integration
+
+See [board.js](www/js/board.js) for the complete implementation on the board detail page.
+
+### Boards List Page Integration
+
+The boards list page demonstrates a hybrid approach where:
+- Backend calculates board-specific permissions (ownership + board-specific roles)
+- Frontend uses PermissionManager for consistent rendering pattern
+- Falls back gracefully if PermissionManager is unavailable
+
+**Key Implementation** ([boards.js](www/js/boards.js)):
+
+```javascript
+class BoardsManager {
+  async init() {
+    // Initialize PermissionManager without board context (global permissions)
+    await PermissionManager.init();
+    
+    // Load and render boards
+    await this.loadBoards();
+  }
+  
+  renderBoardsList() {
+    // Always render edit/delete buttons in HTML
+    // Mark cards with backend permission flags as data attributes
+    listContainer.innerHTML = this.boards.map(board => `
+      <div class="board-card" 
+           data-board-id="${board.id}"
+           data-can-edit="${board.can_edit}"
+           data-can-delete="${board.can_delete}">
+        <button class="board-edit-btn">✎</button>
+        <button class="board-delete-btn">×</button>
+        <h4>${board.name}</h4>
+      </div>
+    `).join('');
+    
+    // Apply permission-based rendering after DOM is ready
+    this.applyPermissionBasedRendering();
+  }
+  
+  applyPermissionBasedRendering() {
+    // For each board card, check backend permission flags
+    document.querySelectorAll('.board-card').forEach(card => {
+      const canEdit = card.getAttribute('data-can-edit') === 'true';
+      const canDelete = card.getAttribute('data-can-delete') === 'true';
+      
+      // Remove buttons if no permission
+      if (!canEdit) {
+        card.querySelector('.board-edit-btn')?.remove();
+      }
+      if (!canDelete) {
+        card.querySelector('.board-delete-btn')?.remove();
+      }
+    });
+    
+    // Check global permission for creating boards
+    if (!PermissionManager.hasPermission('board.create')) {
+      document.getElementById('add-board-btn')?.remove();
+    }
+  }
+}
+```
+
+**Why This Approach?**
+
+Board permissions are complex because they depend on:
+- Board ownership (board owners have full control)
+- Board-specific role assignments
+- Global role permissions
+
+The backend already calculates these per-board in the `/api/boards` endpoint:
+
+```python
+# Backend calculates board-specific permissions
+for board in boards:
+    board_permissions = get_user_permissions(user_id, board_id=board.id)
+    can_delete = 'board.delete' in board_permissions
+    can_edit = 'board.edit' in board_permissions
+    # Return flags to frontend
+```
+
+The frontend then uses a consistent pattern (via PermissionManager) to apply these permissions, while also checking global permissions for actions like "Create New Board".
+
 ### Complete Page Integration Example
 
 ```javascript

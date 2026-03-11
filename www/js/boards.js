@@ -6,6 +6,14 @@ class BoardsManager {
   }
 
   async init() {
+    // Initialize Permission Manager (no board context for boards list)
+    console.log('Initializing PermissionManager for boards page');
+    const permissionInitSuccess = await PermissionManager.init();
+    
+    if (!permissionInitSuccess) {
+      console.warn('Failed to initialize PermissionManager - some features may not be available');
+    }
+    
     // Check for default board setting and redirect if set
     const shouldRedirect = await this.checkDefaultBoard();
     if (shouldRedirect) {
@@ -182,10 +190,11 @@ class BoardsManager {
     } else {
       listContainer.className = 'boards-grid';
       
+      // Render board cards (always include edit/delete buttons, will filter by permissions after)
       listContainer.innerHTML = this.boards.map(board => `
-        <div class="board-card" data-board-id="${board.id}">
-          ${board.can_edit ? `<button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>` : ''}
-          ${board.can_delete ? `<button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>` : ''}
+        <div class="board-card" data-board-id="${board.id}" data-can-edit="${board.can_edit}" data-can-delete="${board.can_delete}">
+          <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
+          <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
           <h4>${this.escapeHtml(board.name)}</h4>
           ${board.description ? `<p class="board-description">${this.escapeHtml(board.description)}</p>` : ''}
         </div>
@@ -194,6 +203,9 @@ class BoardsManager {
           <button class="btn btn-primary" id="add-board-inline-btn">+ New Board</button>
         </div>
       `;
+      
+      // Apply permission-based rendering to board action buttons
+      this.applyPermissionBasedRendering();
       
       // Add event listener for inline add board button
       document.getElementById('add-board-inline-btn').addEventListener('click', () => this.openModal());
@@ -225,6 +237,71 @@ class BoardsManager {
         });
       });
     }
+  }
+
+  /**
+   * Apply permission-based rendering to board action buttons
+   * Removes edit/delete buttons based on backend permission flags and user permissions
+   */
+  applyPermissionBasedRendering() {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      console.log('PermissionManager not available - using backend permission flags only');
+      // Fallback: just use backend flags
+      this.applyBackendPermissionFlags();
+      return;
+    }
+    
+    console.log('Applying permission-based rendering to board cards...');
+    
+    // For each board card, check permissions
+    document.querySelectorAll('.board-card').forEach(card => {
+      const canEdit = card.getAttribute('data-can-edit') === 'true';
+      const canDelete = card.getAttribute('data-can-delete') === 'true';
+      
+      const editBtn = card.querySelector('.board-edit-btn');
+      const deleteBtn = card.querySelector('.board-delete-btn');
+      
+      // Remove edit button if user doesn't have permission
+      // Backend has already calculated board-specific permissions (ownership + roles)
+      if (!canEdit) {
+        editBtn?.remove();
+      }
+      
+      // Remove delete button if user doesn't have permission
+      if (!canDelete) {
+        deleteBtn?.remove();
+      }
+    });
+    
+    // Check if user can create boards - if not, remove "New Board" button
+    if (!PermissionManager.hasPermission('board.create')) {
+      document.getElementById('add-board-inline-btn')?.remove();
+      document.getElementById('empty-state-new-board-btn')?.remove();
+    }
+    
+    console.log('Permission-based rendering complete');
+  }
+
+  /**
+   * Fallback method when PermissionManager is not available
+   * Uses backend permission flags only
+   */
+  applyBackendPermissionFlags() {
+    document.querySelectorAll('.board-card').forEach(card => {
+      const canEdit = card.getAttribute('data-can-edit') === 'true';
+      const canDelete = card.getAttribute('data-can-delete') === 'true';
+      
+      const editBtn = card.querySelector('.board-edit-btn');
+      const deleteBtn = card.querySelector('.board-delete-btn');
+      
+      if (!canEdit) {
+        editBtn?.remove();
+      }
+      
+      if (!canDelete) {
+        deleteBtn?.remove();
+      }
+    });
   }
 
   openModal() {

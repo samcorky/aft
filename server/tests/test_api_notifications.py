@@ -398,11 +398,13 @@ class TestNotificationsEdgeCases:
         
         # Make multiple simultaneous requests
         import concurrent.futures
+        auth_cookies = authenticated_session.cookies.get_dict()
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = [
                 executor.submit(
                     requests.put,
-                    f'{api_client}/api/notifications/{notification_id}/read'
+                    f'{api_client}/api/notifications/{notification_id}/read',
+                    cookies=auth_cookies
                 )
                 for _ in range(3)
             ]

@@ -22,8 +22,21 @@ ADMIN_PASSWORD = "TestAdmin123!"
 
 
 @pytest.fixture
-def setup_test_environment(clean_database, authenticated_session):
+def setup_test_environment(authenticated_session):
     """Setup test environment with admin and test users."""
+    reset_response = authenticated_session.delete(f"{API_BASE_URL}/api/database")
+    assert reset_response.status_code == 200, reset_response.text
+    time.sleep(0.6)
+
+    admin_session = requests.Session()
+    setup_response = admin_session.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
+        "email": ADMIN_EMAIL,
+        "username": "test-admin",
+        "password": ADMIN_PASSWORD,
+        "display_name": "Test Admin"
+    })
+    assert setup_response.status_code == 201, setup_response.text
+
     # Create some pending users
     for i in range(3):
         requests.post(f"{API_BASE_URL}/api/auth/register", json={
@@ -33,7 +46,7 @@ def setup_test_environment(clean_database, authenticated_session):
         })
     
     time.sleep(0.2)
-    return authenticated_session
+    return admin_session
 
 
 @pytest.fixture
@@ -548,7 +561,7 @@ class TestCompleteUserManagementFlow:
         })
         assert response.status_code == 200
         
-        # 8. Check user has editor role
+        # 8. Check user has the assigned board_creator role
         response = user_session.get(f"{API_BASE_URL}/api/auth/me")
         roles = [r['name'] for r in response.json()['user']['roles']]
         assert 'board_creator' in roles

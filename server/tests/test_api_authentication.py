@@ -41,8 +41,37 @@ def empty_database(authenticated_session, test_admin_session):
     max_retries = 3
     for attempt in range(max_retries):
         try:
+            reset_session = requests.Session()
+
             # Check if setup is needed
             status = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
+            if status.status_code == 200 and status.json().get('setup_complete', False):
+                # A test may have created a different first admin (e.g. admin@localhost).
+                # Reset back to an empty database so the shared test-admin can be recreated reliably.
+                login_candidates = [
+                    ("test-admin@localhost", "TestAdmin123!"),
+                    ("admin@localhost", "AdminPass123!"),
+                ]
+
+                reset_ok = False
+                for email, password in login_candidates:
+                    login_resp = reset_session.post(
+                        f"{API_BASE_URL}/api/auth/login",
+                        json={"email": email, "password": password},
+                        timeout=5
+                    )
+                    if login_resp.status_code == 200:
+                        delete_resp = reset_session.delete(f"{API_BASE_URL}/api/database", timeout=30)
+                        if delete_resp.status_code == 200:
+                            time.sleep(0.6)
+                            reset_ok = True
+                            break
+
+                if not reset_ok:
+                    raise Exception("Failed to authenticate as an existing admin to restore empty auth state")
+
+                status = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
+
             if status.status_code == 200 and not status.json().get('setup_complete', False):
                 # Recreate test admin
                 resp = requests.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
@@ -79,9 +108,7 @@ def empty_database(authenticated_session, test_admin_session):
                     else:
                         print(f"[Test Cleanup] Session verification failed after admin recreation")
             else:
-                # Setup already complete
-                print(f"[Test Cleanup] Setup already complete, skipping recreation")
-                break
+                raise Exception("Setup remained complete when attempting to recreate test-admin")
         except Exception as e:
             print(f"[Test Cleanup] Attempt {attempt + 1} failed: {e}")
             if attempt == max_retries - 1:

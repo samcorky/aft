@@ -270,6 +270,11 @@ def get_user_scoped_query(db, model, user_id):
     from models import Board, BoardColumn, Card, ChecklistItem, Comment, Setting, Theme, Notification, ScheduledCard, UserRole
     
     query = db.query(model)
+
+    from permissions import has_permission
+
+    if has_permission(get_user_permissions(user_id), 'system.admin'):
+        return query
     
     # Models with direct user_id column
     if hasattr(model, 'user_id'):
@@ -393,22 +398,43 @@ def require_permission(permission, require_board_context=None):
             board_id = kwargs.get('board_id')
             column_id = kwargs.get('column_id')
             card_id = kwargs.get('card_id')
+            comment_id = kwargs.get('comment_id')
             schedule_id = kwargs.get('schedule_id')
             item_id = kwargs.get('item_id')  # checklist item
             missing_resource_message = None
             
             # If not in URL params, try request body
-            if board_id is None and column_id is None and card_id is None and schedule_id is None and item_id is None:
+            if board_id is None and column_id is None and card_id is None and comment_id is None and schedule_id is None and item_id is None:
                 try:
                     data = request.get_json(silent=True)
                     if data:
                         board_id = data.get('board_id')
                         column_id = data.get('column_id')
                         card_id = data.get('card_id')
+                        comment_id = data.get('comment_id')
                         schedule_id = data.get('schedule_id')
                         item_id = data.get('item_id')
                 except Exception:
                     pass
+
+            # If no board_id, try to derive it from comment_id
+            if board_id is None and comment_id:
+                from models import Comment
+                db = SessionLocal()
+                try:
+                    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+                    if not comment:
+                        missing_resource_message = "Comment not found"
+                    elif comment.card:
+                        card_id = comment.card.id
+                        if comment.card.column:
+                            board_id = comment.card.column.board_id
+                        else:
+                            missing_resource_message = "Column not found"
+                    else:
+                        missing_resource_message = "Card not found"
+                finally:
+                    db.close()
             
             # If no board_id, try to derive it from item_id (checklist item)
             if board_id is None and item_id:
@@ -437,10 +463,10 @@ def require_permission(permission, require_board_context=None):
                     schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
                     if not schedule:
                         missing_resource_message = "Schedule not found"
-                    elif schedule.card:
-                        card_id = schedule.card.id
-                        if schedule.card.column:
-                            board_id = schedule.card.column.board_id
+                    elif schedule.template_card:
+                        card_id = schedule.template_card.id
+                        if schedule.template_card.column:
+                            board_id = schedule.template_card.column.board_id
                         else:
                             missing_resource_message = "Card not found"
                     else:
@@ -506,9 +532,9 @@ def require_permission(permission, require_board_context=None):
                         schedule = db.query(ScheduledCard).filter(ScheduledCard.id == schedule_id).first()
                         if not schedule:
                             missing_resource_message = "Schedule not found"
-                        elif schedule.card and schedule.card.column:
-                            board_id = schedule.card.column.board_id
-                        elif not schedule.card:
+                        elif schedule.template_card and schedule.template_card.column:
+                            board_id = schedule.template_card.column.board_id
+                        elif not schedule.template_card:
                             missing_resource_message = "Card not found"
                         else:
                             missing_resource_message = "Column not found"
@@ -536,6 +562,22 @@ def require_permission(permission, require_board_context=None):
                             missing_resource_message = "Card not found"
                         elif card and card.column:
                             board_id = card.column.board_id
+                        else:
+                            missing_resource_message = "Column not found"
+                    finally:
+                        db.close()
+                elif 'comment' in func_name:
+                    comment_id = args[0]
+                    from models import Comment
+                    db = SessionLocal()
+                    try:
+                        comment = db.query(Comment).filter(Comment.id == comment_id).first()
+                        if not comment:
+                            missing_resource_message = "Comment not found"
+                        elif comment.card and comment.card.column:
+                            board_id = comment.card.column.board_id
+                        elif not comment.card:
+                            missing_resource_message = "Card not found"
                         else:
                             missing_resource_message = "Column not found"
                     finally:

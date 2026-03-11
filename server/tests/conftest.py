@@ -291,32 +291,68 @@ def _delete_all_data(session=None):
         response = http.get(f"{API_BASE_URL}/api/boards", timeout=5)
         if response.status_code == 200:
             boards = response.json().get('boards', [])
+            failed_deletes = []
+            
             for board in boards:
                 delete_response = http.delete(f"{API_BASE_URL}/api/boards/{board['id']}", timeout=5)
-                # Wait for delete to complete
                 if delete_response.status_code != 200:
-                    print(f"Warning: Failed to delete board {board['id']}: {delete_response.status_code}")
+                    failed_deletes.append({
+                        'id': board['id'],
+                        'name': board['name'],
+                        'status': delete_response.status_code,
+                        'error': delete_response.json().get('message', 'Unknown error')
+                    })
+            
+            # If any deletes failed due to permissions, we have orphaned data
+            if failed_deletes:
+                error_msg = (
+                    f"\n{'='*70}\n"
+                    f"TEST CLEANUP FAILED - PERMISSION DENIED\n"
+                    f"{'='*70}\n"
+                    f"Failed to delete {len(failed_deletes)} board(s):\n"
+                )
+                for fail in failed_deletes:
+                    error_msg += f"  - Board {fail['id']} ({fail['name']}): {fail['status']} - {fail['error']}\n"
+                error_msg += (
+                    f"\nThis usually means boards were created by a different user.\n"
+                    f"Tests require a clean database with no pre-existing data.\n\n"
+                )
+                
+                error_msg += (
+                    f"\nREQUIRED ACTION: Manually reset the database:\n"
+                    f"  docker compose down\n"
+                    f"  Remove-Item -Recurse -Force data  # Windows\n"
+                    f"  # rm -rf data  # Linux/macOS\n"
+                    f"  docker compose up -d\n"
+                    f"{'='*70}\n"
+                )
+                raise Exception(error_msg)
         
         # Verify boards are actually deleted before proceeding
         verify_response = http.get(f"{API_BASE_URL}/api/boards", timeout=5)
         if verify_response.status_code == 200:
             remaining = verify_response.json().get('boards', [])
             if remaining:
-                print(f"Warning: {len(remaining)} boards still exist after cleanup")
+                raise Exception(
+                    f"Cleanup verification failed: {len(remaining)} board(s) still exist after cleanup. "
+                    f"Database may be in an inconsistent state."
+                )
         
         # Delete all notifications
         delete_notif_response = http.delete(f"{API_BASE_URL}/api/notifications/delete-all", timeout=5)
-        if delete_notif_response.status_code != 200:
-            print(f"Warning: Failed to delete notifications: {delete_notif_response.status_code}")
+        if delete_notif_response.status_code not in (200, 404):  # 404 is OK if no notifications
+            raise Exception(f"Failed to delete notifications: {delete_notif_response.status_code}")
         
         # Reset settings to defaults
-        http.put(f"{API_BASE_URL}/api/settings/default_board", 
+        settings_response = http.put(f"{API_BASE_URL}/api/settings/default_board", 
                     json={'value': None}, 
                     timeout=5)
+        if settings_response.status_code not in (200, 404):
+            # Settings failures are less critical, just warn
+            print(f"Warning: Failed to reset default_board setting: {settings_response.status_code}")
         
         # Reset backup settings to migration defaults
-        # This ensures tests start with known state matching fresh install
-        http.put(f"{API_BASE_URL}/api/settings/backup/config",
+        backup_response = http.put(f"{API_BASE_URL}/api/settings/backup/config",
                     json={
                         'enabled': False,
                         'frequency_value': 1,
@@ -326,9 +362,14 @@ def _delete_all_data(session=None):
                         'minimum_free_space_mb': 100
                     },
                     timeout=5)
+        if backup_response.status_code not in (200, 404):
+            print(f"Warning: Failed to reset backup settings: {backup_response.status_code}")
+            
     except requests.exceptions.RequestException as e:
-        # If cleanup fails, tests will handle it
-        print(f"Warning: Cleanup failed with error: {e}")
+        raise Exception(
+            f"Cleanup failed with network error: {e}\n"
+            f"Make sure the API server is running: docker compose up -d"
+        )
 
 
 @pytest.fixture

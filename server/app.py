@@ -6245,7 +6245,7 @@ def update_card_done_status(card_id):
 
 
 @app.route("/api/cards/batch/archive", methods=["POST"])
-@require_permission('card.update')
+@require_permission('card.update', require_board_context=False)
 def batch_archive_cards():
     """Archive multiple cards in a single transaction.
     ---
@@ -6339,7 +6339,7 @@ def batch_archive_cards():
 
 
 @app.route("/api/cards/batch/unarchive", methods=["POST"])
-@require_permission('card.update')
+@require_permission('card.update', require_board_context=False)
 def batch_unarchive_cards():
     """Unarchive multiple cards in a single transaction.
     ---

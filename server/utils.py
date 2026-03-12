@@ -396,7 +396,9 @@ def require_permission(permission, require_board_context=None):
             
             # Try to get board_id for board-specific permissions
             board_id = kwargs.get('board_id')
-            column_id = kwargs.get('column_id') or kwargs.get('source_column_id') or kwargs.get('target_column_id')
+            source_column_id = kwargs.get('source_column_id')
+            target_column_id = kwargs.get('target_column_id')
+            column_id = kwargs.get('column_id') or source_column_id or target_column_id
             card_id = kwargs.get('card_id')
             comment_id = kwargs.get('comment_id')
             schedule_id = kwargs.get('schedule_id')
@@ -489,7 +491,13 @@ def require_permission(permission, require_board_context=None):
                     if column:
                         board_id = column.board_id
                     else:
-                        missing_resource_message = "Column not found"
+                        # Be specific about which column wasn't found
+                        if source_column_id and column_id == source_column_id:
+                            missing_resource_message = "Source column not found"
+                        elif target_column_id and column_id == target_column_id:
+                            missing_resource_message = "Target column not found"
+                        else:
+                            missing_resource_message = "Column not found"
                 finally:
                     db.close()
             
@@ -589,12 +597,6 @@ def require_permission(permission, require_board_context=None):
                     finally:
                         db.close()
 
-            if board_id is None and missing_resource_message:
-                abort(404, description=missing_resource_message)
-            
-            # Get permissions (global and board-specific if board_id is available)
-            user_permissions = get_user_permissions(g.user.id, board_id)
-            
             # Auto-detect if board context should be required based on permission type
             needs_board_context = require_board_context
             if needs_board_context is None:
@@ -606,9 +608,16 @@ def require_permission(permission, require_board_context=None):
                 needs_board_context = any(permission.startswith(prefix) or permission == prefix.rstrip('.') 
                                          for prefix in board_related_perms)
             
+            # Only abort for missing resources if board context is required
+            if needs_board_context and board_id is None and missing_resource_message:
+                abort(404, description=missing_resource_message)
+            
             # If board context is required but couldn't be determined, DENY access for security
             if needs_board_context and board_id is None:
                 abort(403, description=f"Permission denied: {permission} (board context required but not found)")
+            
+            # Get permissions (global and board-specific if board_id is available)
+            user_permissions = get_user_permissions(g.user.id, board_id)
             
             # Check if user has the required permission
             from permissions import has_permission

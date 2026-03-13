@@ -17,12 +17,19 @@ depends_on = None
 
 def upgrade():
     """Add is_approved column to users table."""
+    bind = op.get_bind()
+
+    inspector = sa.inspect(bind)
+    user_columns = {col.get('name') for col in inspector.get_columns('users')}
+    user_indexes = {idx.get('name') for idx in inspector.get_indexes('users')}
     
     # Add is_approved column (nullable initially)
-    op.add_column('users', sa.Column('is_approved', sa.Boolean(), nullable=True, server_default='0'))
+    if 'is_approved' not in user_columns:
+        op.add_column('users', sa.Column('is_approved', sa.Boolean(), nullable=True, server_default='0'))
     
     # Create index on is_approved for fast filtering of pending users
-    op.create_index('ix_users_is_approved', 'users', ['is_approved'])
+    if 'ix_users_is_approved' not in user_indexes:
+        op.create_index('ix_users_is_approved', 'users', ['is_approved'])
     
     # Set existing users (admin from setup) to approved
     op.execute("""

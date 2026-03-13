@@ -20,7 +20,11 @@ def upgrade():
     """Remove the old ix_settings_key unique index that conflicts with user-specific settings."""
     # Drop the old unique index on key column only
     # The correct index idx_user_setting_key (on user_id, key) already exists
-    op.drop_index('ix_settings_key', table_name='settings')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    index_names = {idx.get('name') for idx in inspector.get_indexes('settings')}
+    if 'ix_settings_key' in index_names:
+        op.drop_index('ix_settings_key', table_name='settings')
 
 
 def downgrade():

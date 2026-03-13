@@ -159,7 +159,9 @@ def list_pending_users():
             'email': user.email,
             'username': user.username,
             'display_name': user.display_name,
-            'created_at': user.created_at.isoformat() if user.created_at else None,
+          'is_active': user.is_active,
+          'is_approved': user.is_approved,
+          'created_at': user.created_at.isoformat() if user.created_at else None,
         } for user in users]
         
         return create_success_response(data={
@@ -213,10 +215,11 @@ def approve_user(user_id):
             return create_error_response("User is already approved", 400)
         
         user.is_approved = True
+
         db.commit()
-        
+
         logger.info(f"User approved: {user.email} (ID: {user.id}) by admin {g.user.id}")
-        
+
         # TODO: Send approval notification email to user
         
         return create_success_response(

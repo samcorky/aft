@@ -829,16 +829,6 @@ def register():
             from auth_helpers import create_default_user_settings
             create_default_user_settings(user.id, db)
             
-            # Assign default 'board_creator' role so they can create boards
-            board_creator_role = db.query(Role).filter(Role.name == 'board_creator').first()
-            if board_creator_role:
-                user_role = UserRole(
-                    user_id=user.id,
-                    role_id=board_creator_role.id,
-                    board_id=None  # Global role
-                )
-                db.add(user_role)
-            
             db.commit()
             
             logger.info(f"New user registered: {user.email} (ID: {user.id})")
@@ -1154,6 +1144,22 @@ def setup_admin():
                 User.username == 'admin',
                 User.email == 'admin@localhost'
             ).first()
+
+            def ensure_administrator_role(target_user):
+              """Ensure the target user has the global administrator role."""
+              admin_role = db.query(Role).filter(Role.name == 'administrator').first()
+              if not admin_role:
+                logger.warning("Administrator role not found during setup; role assignment skipped")
+                return
+
+              existing_assignment = db.query(UserRole).filter(
+                UserRole.user_id == target_user.id,
+                UserRole.role_id == admin_role.id,
+                UserRole.board_id.is_(None)
+              ).first()
+
+              if not existing_assignment:
+                db.add(UserRole(user_id=target_user.id, role_id=admin_role.id, board_id=None))
             
             if existing_admin and not existing_admin.password_hash:
                 # Update the existing admin user from migration
@@ -1167,6 +1173,9 @@ def setup_admin():
                 # Create default settings for the admin user if they don't exist
                 from auth_helpers import create_default_user_settings
                 create_default_user_settings(existing_admin.id, db)
+
+                # Ensure administrator role exists for updated seed admin user
+                ensure_administrator_role(existing_admin)
                 
                 db.commit()
                 
@@ -1192,14 +1201,7 @@ def setup_admin():
                 create_default_user_settings(user.id, db)
                 
                 # Assign administrator role
-                admin_role = db.query(Role).filter(Role.name == 'administrator').first()
-                if admin_role:
-                    user_role = UserRole(
-                        user_id=user.id,
-                        role_id=admin_role.id,
-                        board_id=None  # Global role
-                    )
-                    db.add(user_role)
+                ensure_administrator_role(user)
                 
                 db.commit()
                 

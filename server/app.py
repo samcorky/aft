@@ -6,6 +6,7 @@ import json
 import os
 import time
 import tempfile
+import subprocess
 import uuid
 import threading
 from pathlib import Path
@@ -2699,65 +2700,248 @@ def delete_database():
         db_user = os.environ.get("MYSQL_USER")
         db_password = os.environ.get("MYSQL_PASSWORD")
         db_name = os.environ.get("MYSQL_DATABASE")
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
         db_host = "db"
 
-        # Use direct MySQL command to drop all tables to avoid SQLAlchemy transaction issues
-        get_tables_cmd = f"""mysql -h{db_host} -u{db_user} -p{db_password} --skip-ssl {db_name} -N -e "SHOW TABLES;" """
-        
-        result = subprocess.run(
-            get_tables_cmd,
-            shell=True,
+        if not db_user or not db_password or not db_name:
+            raise Exception("Missing required database environment variables")
+
+        lock_path = "/tmp/aft_db_reset.lock"
+        lock_fd = None
+
+        def acquire_reset_lock(timeout_seconds=60):
+          start = time.time()
+          while True:
+            try:
+              return os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+              # Recover from stale lock files left by terminated processes.
+              try:
+                if time.time() - os.path.getmtime(lock_path) > 600:
+                  os.remove(lock_path)
+                  continue
+              except FileNotFoundError:
+                continue
+
+              if time.time() - start > timeout_seconds:
+                return None
+              time.sleep(0.2)
+
+        def wait_for_schema_ready(timeout_seconds=120):
+          """Wait for critical tables to appear when another reset is running."""
+          start = time.time()
+          while time.time() - start <= timeout_seconds:
+            check_cmd = [
+              "mysql",
+              f"-h{db_host}",
+              f"-u{db_user}",
+              f"-p{db_password}",
+              "--skip-ssl",
+              db_name,
+              "-N",
+              "-e",
+              "SHOW TABLES LIKE 'users'; SHOW TABLES LIKE 'settings';"
+            ]
+
+            check_result = subprocess.run(
+              check_cmd,
+              capture_output=True,
+              text=True,
+              timeout=10
+            )
+
+            if check_result.returncode == 0:
+              table_lines = {line.strip() for line in check_result.stdout.splitlines() if line.strip()}
+              if "users" in table_lines and "settings" in table_lines:
+                return
+
+            time.sleep(1)
+
+          raise Exception("Timed out waiting for in-progress database reset to complete")
+
+        def release_reset_lock(fd):
+          try:
+            if fd is not None:
+              os.close(fd)
+          finally:
+            try:
+              os.remove(lock_path)
+            except FileNotFoundError:
+              pass
+
+        def ensure_database_exists_with_root():
+          if not db_root_password:
+            return
+
+          create_if_missing_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          ]
+
+          create_result = subprocess.run(
+            create_if_missing_cmd,
             capture_output=True,
             text=True,
             timeout=30
-        )
-        
-        if result.returncode == 0:
-            tables = [t.strip() for t in result.stdout.strip().split('\n') if t.strip()]
-            logger.info(f"Found {len(tables)} tables to delete")
-            
-            if tables:
-                # Build DROP statement for all tables with foreign key checks disabled
-                drop_statements = "SET FOREIGN_KEY_CHECKS = 0; "
-                for table in tables:
-                    drop_statements += f"DROP TABLE IF EXISTS `{table}`; "
-                drop_statements += "SET FOREIGN_KEY_CHECKS = 1;"
-                
-                drop_cmd = [
-                    "mysql",
-                    f"-h{db_host}",
-                    f"-u{db_user}",
-                    f"-p{db_password}",
-                    "--skip-ssl",
-                    db_name,
-                    "-e",
-                    drop_statements
-                ]
-                
-                result = subprocess.run(
-                    drop_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=60
-                )
-                
-                if result.returncode != 0:
-                    logger.error(f"Failed to drop tables: {result.stderr}")
-                    raise Exception(f"Failed to drop tables: {result.stderr}")
-                
-                logger.info(f"Successfully dropped all {len(tables)} tables")
+          )
+          if create_result.returncode != 0:
+            raise Exception(f"Failed to ensure database exists: {create_result.stderr}")
+
+          grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+          ]
+
+          grant_result = subprocess.run(
+            grant_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+          )
+          if grant_result.returncode != 0:
+            logger.warning(f"Failed to grant permissions during reset: {grant_result.stderr}")
+
+        def drop_all_tables_with_app_user():
+          """Drop all tables in the target schema using the app DB user."""
+          get_tables_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            db_name,
+            "-N",
+            "-e",
+            "SHOW TABLES;"
+          ]
+
+          tables_result = subprocess.run(
+            get_tables_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+          )
+
+          if tables_result.returncode != 0:
+            raise Exception(f"Failed to list tables: {tables_result.stderr}")
+
+          tables = [t.strip() for t in tables_result.stdout.strip().split('\n') if t.strip()]
+          logger.info(f"Found {len(tables)} tables to delete")
+
+          if tables:
+            drop_statements = "SET FOREIGN_KEY_CHECKS = 0; "
+            for table in tables:
+              drop_statements += f"DROP TABLE IF EXISTS `{table}`; "
+            drop_statements += "SET FOREIGN_KEY_CHECKS = 1;"
+
+            drop_cmd = [
+              "mysql",
+              f"-h{db_host}",
+              f"-u{db_user}",
+              f"-p{db_password}",
+              "--skip-ssl",
+              db_name,
+              "-e",
+              drop_statements
+            ]
+
+            drop_result = subprocess.run(
+              drop_cmd,
+              capture_output=True,
+              text=True,
+              timeout=120
+            )
+
+            if drop_result.returncode != 0:
+              raise Exception(f"Failed to drop tables: {drop_result.stderr}")
+
+        lock_fd = acquire_reset_lock()
+        if lock_fd is None:
+          logger.info("Database reset already in progress; waiting for completion")
+          wait_for_schema_ready()
+          return jsonify({"success": True, "message": "Database reset completed by another request"})
+
+        os.write(lock_fd, str(os.getpid()).encode("utf-8"))
+
+        # Reset connection pools before destructive DB operations.
+        try:
+            engine.dispose()
+            logger.info("Disposed SQLAlchemy engine connection pool")
+        except Exception as e:
+            logger.warning(f"Error disposing engine pool: {e}")
+
+        # Kill active database connections to prevent metadata lock timeouts.
+        try:
+            get_pids_cmd = [
+                "mysql",
+                f"-h{db_host}",
+                f"-u{db_user}",
+                f"-p{db_password}",
+                "--skip-ssl",
+                "-N",
+                "-e",
+                f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+            ]
+
+            pids_result = subprocess.run(
+                get_pids_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if pids_result.returncode == 0 and pids_result.stdout.strip():
+                pids = [pid.strip() for pid in pids_result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+
+                for pid in pids:
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+
+                time.sleep(1)
+            else:
+                logger.info("No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections before reset: {e}")
+
+        # Keep schema in place and reset at table-level to avoid drop/create races.
+        ensure_database_exists_with_root()
+        drop_all_tables_with_app_user()
 
         # Run Alembic migrations to recreate database with proper version tracking
         result = subprocess.run(
-            ["alembic", "upgrade", "head"], cwd="/app", stdout=None, stderr=None
+            ["alembic", "upgrade", "head"],
+            cwd="/app",
+            capture_output=True,
+            text=True,
+          timeout=300
         )
 
         if result.returncode != 0:
-            raise Exception(f"Alembic migration failed")
+            raise Exception(f"Alembic migration failed: {result.stderr}")
 
-        logger.info(
-            "Database deleted and recreated successfully via Alembic migrations"
-        )
+        logger.info("Database deleted and recreated successfully via Alembic migrations")
         return jsonify({"success": True, "message": "Database deleted successfully"})
     except subprocess.TimeoutExpired:
         logger.error(f"Timeout while deleting database")
@@ -2765,6 +2949,9 @@ def delete_database():
     except Exception as e:
         logger.error(f"Error deleting database: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if lock_fd is not None:
+            release_reset_lock(lock_fd)
 
 
 @app.route("/api/settings/schema", methods=["GET"])

@@ -603,7 +603,7 @@ def require_permission(permission, require_board_context=None):
                 # Permissions that MUST have board context for security
                 board_related_perms = [
                     'card.', 'column.', 'schedule.',
-                    'board.edit', 'board.delete', 'board.share'
+                    'board.edit', 'board.delete'
                 ]
                 needs_board_context = any(permission.startswith(prefix) or permission == prefix.rstrip('.') 
                                          for prefix in board_related_perms)
@@ -757,9 +757,9 @@ def get_user_permissions(user_id, board_id=None):
             if board and board.owner_id == user_id:
                 # Board owner gets all board-related permissions automatically
                 owner_perms = {
-                    'board.view', 'board.edit', 'board.delete', 'board.share',
+                    'board.view', 'board.edit', 'board.delete',
                     'card.create', 'card.view', 'card.edit', 'card.update', 
-                    'card.delete', 'card.assign', 'card.archive',
+                    'card.delete', 'card.archive',
                     'column.create', 'column.update', 'column.delete',
                     'schedule.create', 'schedule.view', 'schedule.edit', 'schedule.delete',
                     'setting.view', 'setting.edit',

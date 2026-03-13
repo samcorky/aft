@@ -113,8 +113,6 @@ def get_current_user():
   setting = Setting(key=key, value=value, user_id=g.user.id)
   ```
   
-- [ ] Global settings endpoints - Add `@require_permission('settings.global.edit')`
-
 ### Priority 4: Theme Endpoints (Important)
 
 **app.py - Theme operations**
@@ -149,10 +147,7 @@ def get_current_user():
 - [ ] Add `@require_permission('schedule.create')` etc.
 
 **Backup/Restore**
-- [ ] `POST /api/backup` - Add `@require_permission('backup.create')`
-- [ ] `POST /api/restore` - Add `@require_permission('backup.restore')`
 - [ ] `GET /api/backups` - Add `@require_permission('backup.view')`
-- [ ] `DELETE /api/backups/<file>` - Add `@require_permission('backup.delete')`
 
 **System Info**
 - [ ] Consider if system info should require admin permission

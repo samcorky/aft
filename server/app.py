@@ -3693,7 +3693,7 @@ def update_card_scheduler_config():
 
 
 @app.route("/api/boards", methods=["GET"])
-@require_any_permission('board.view', 'board.create')
+@require_authentication
 def get_boards():
     """Get all boards accessible by the current user (owned or shared via roles).
     
@@ -3745,6 +3745,20 @@ def get_boards():
         from utils import get_user_permissions
         from permissions import has_permission
         user_perms = get_user_permissions(user_id)
+
+        # Allow board list access when user has global board permissions OR
+        # any board-specific assignment (e.g., board_viewer/board_editor).
+        has_global_board_perm = (
+          has_permission(user_perms, 'board.view')
+          or has_permission(user_perms, 'board.create')
+        )
+        has_board_assignment = db.query(UserRole.id).filter(
+          UserRole.user_id == user_id,
+          UserRole.board_id.isnot(None)
+        ).first() is not None
+
+        if not has_global_board_perm and not has_board_assignment:
+          abort(403, description="Permission denied: requires board.view or board.create")
         
         if has_permission(user_perms, 'system.admin'):
             # Admins see all boards in the system
@@ -6086,7 +6100,7 @@ def delete_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
-@require_permission('card.update')
+@require_permission('card.archive')
 def archive_card(card_id):
     """Archive a card by ID.
     ---
@@ -6166,7 +6180,7 @@ def archive_card(card_id):
         db.close()
 
 @app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
-@require_permission('card.update')
+@require_permission('card.archive')
 def unarchive_card(card_id):
     """Unarchive a card by ID.
     ---
@@ -6432,7 +6446,7 @@ def update_card_done_status(card_id):
 
 
 @app.route("/api/cards/batch/archive", methods=["POST"])
-@require_permission('card.update', require_board_context=False)
+@require_permission('card.archive', require_board_context=False)
 def batch_archive_cards():
     """Archive multiple cards in a single transaction.
     ---
@@ -6526,7 +6540,7 @@ def batch_archive_cards():
 
 
 @app.route("/api/cards/batch/unarchive", methods=["POST"])
-@require_permission('card.update', require_board_context=False)
+@require_permission('card.archive', require_board_context=False)
 def batch_unarchive_cards():
     """Unarchive multiple cards in a single transaction.
     ---
@@ -6660,7 +6674,7 @@ def batch_unarchive_cards():
 
 
 @app.route("/api/columns/<int:column_id>/archive-after", methods=["POST"])
-@require_permission('card.update')
+@require_permission('card.archive')
 def archive_cards_after_period(column_id):
     """Archive cards in a column that haven't been updated within a specified time period.
     ---
@@ -6910,7 +6924,7 @@ def get_scheduled_cards(column_id):
 
 
 @app.route("/api/schedules", methods=["POST"])
-@require_permission('card.create')
+@require_permission('schedule.create')
 def create_schedule():
     """Create a new schedule for a card.
     ---
@@ -7182,7 +7196,7 @@ def get_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
-@require_permission('card.update')
+@require_permission('schedule.edit')
 def update_schedule(schedule_id):
     """Update a schedule.
     ---
@@ -7301,7 +7315,7 @@ def update_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
-@require_permission('card.delete')
+@require_permission('schedule.delete')
 def delete_schedule(schedule_id):
     """Delete a schedule and update related cards.
     ---
@@ -8716,7 +8730,7 @@ def get_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["PUT"])
-@require_permission('theme.update')
+@require_permission('theme.edit')
 def update_theme(theme_id):
     """Update an existing custom theme's properties.
     
@@ -8794,7 +8808,7 @@ def update_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
-@require_permission('theme.update')
+@require_permission('theme.edit')
 def rename_theme(theme_id):
     """Change the name of an existing custom theme.
     

@@ -25,7 +25,6 @@ PERMISSION_DEFINITIONS = {
     'board.view': 'View boards',
     'board.edit': 'Edit board details',
     'board.delete': 'Delete boards',
-    'board.share': 'Share boards with others',
     
     # Card permissions
     'card.create': 'Create cards',
@@ -33,7 +32,6 @@ PERMISSION_DEFINITIONS = {
     'card.edit': 'Edit cards',
     'card.update': 'Update card properties (title, description, status, etc.)',
     'card.delete': 'Delete cards',
-    'card.assign': 'Assign cards to users',
     'card.archive': 'Archive/unarchive cards',
     
     # Column permissions
@@ -50,19 +48,12 @@ PERMISSION_DEFINITIONS = {
     # Settings permissions
     'setting.view': 'View settings',
     'setting.edit': 'Edit settings',
-    'settings.global.edit': 'Edit global system settings',
-    
-    # Backup permissions
-    'backup.create': 'Create backups',
-    'backup.restore': 'Restore from backups',
-    'backup.delete': 'Delete backups',
     
     # Theme permissions
     'theme.create': 'Create custom themes',
     'theme.view': 'View themes',
     'theme.edit': 'Edit own themes',
     'theme.delete': 'Delete own themes',
-    'theme.system.edit': 'Edit system themes',
 }
 
 # Initial system roles with their permissions
@@ -83,13 +74,11 @@ INITIAL_ROLES = {
             'board.view',
             'board.edit',
             'board.delete',
-            'board.share',
             'card.create',
             'card.view',
             'card.edit',
             'card.update',
             'card.delete',
-            'card.assign',
             'card.archive',
             'column.create',
             'column.update',
@@ -100,15 +89,10 @@ INITIAL_ROLES = {
             'schedule.delete',
             'setting.view',
             'setting.edit',
-            'settings.global.edit',
-            'backup.create',
-            'backup.restore',
-            'backup.delete',
             'theme.create',
             'theme.view',
             'theme.edit',
             'theme.delete',
-            'theme.system.edit',
         ]
     },
     'board_creator': {
@@ -134,13 +118,11 @@ INITIAL_ROLES = {
             'board.view',
             'board.edit',
             'board.delete',
-            'board.share',
             'card.create',
             'card.view',
             'card.edit',
             'card.update',
             'card.delete',
-            'card.assign',
             'card.archive',
             'column.create',
             'column.update',

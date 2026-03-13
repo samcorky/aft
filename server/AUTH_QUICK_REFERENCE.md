@@ -162,14 +162,12 @@ After migration:
 - `board.view` - View boards
 - `board.edit` - Edit board details
 - `board.delete` - Delete boards
-- `board.share` - Share boards
 
 ### Cards
 - `card.create` - Create cards
 - `card.view` - View cards
 - `card.edit` - Edit cards
 - `card.delete` - Delete cards
-- `card.assign` - Assign cards
 - `card.archive` - Archive cards
 
 ### Other

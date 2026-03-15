@@ -204,7 +204,10 @@ class BoardsManager {
       `;
       
       // Add event listener for the empty state button
-      document.getElementById('empty-state-new-board-btn').addEventListener('click', () => this.openModal());
+      const emptyStateNewBoardBtn = document.getElementById('empty-state-new-board-btn');
+      if (emptyStateNewBoardBtn) {
+        emptyStateNewBoardBtn.addEventListener('click', () => this.openModal());
+      }
     } else {
       listContainer.className = 'boards-grid';
       
@@ -226,7 +229,10 @@ class BoardsManager {
       this.applyPermissionBasedRendering();
       
       // Add event listener for inline add board button
-      document.getElementById('add-board-inline-btn').addEventListener('click', () => this.openModal());
+      const addBoardInlineBtn = document.getElementById('add-board-inline-btn');
+      if (addBoardInlineBtn) {
+        addBoardInlineBtn.addEventListener('click', () => this.openModal());
+      }
       
       // Add event listeners for edit buttons
       listContainer.querySelectorAll('.board-edit-btn').forEach(btn => {

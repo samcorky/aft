@@ -32,8 +32,9 @@ from utils import (
     require_board_access,
     require_authentication,
     get_current_user_id,
+    can_access_board,
 )
-from auth import auth_bp, load_user_from_session
+from auth import auth_bp, load_user_from_session, get_authenticated_socket_user
 from user_management import user_mgmt_bp
 from role_management import role_mgmt_bp
 
@@ -9562,8 +9563,48 @@ def set_working_style():
 # WebSocket Event Handlers for Real-Time Board Updates
 # ============================================================================
 
+def _reject_client_originated_mutation(event_name):
+    """Reject client-originated mutation events.
+
+    Mutations must flow through authenticated/authorized API endpoints so the
+    server remains the single source of truth for realtime broadcasts.
+    """
+    user = get_authenticated_socket_user()
+    user_id = user.id if user else None
+    logger.warning(
+        "Rejected client-originated websocket mutation: event=%s sid=%s user_id=%s",
+        event_name,
+        request.sid,
+        user_id,
+    )
+    return {
+        'success': False,
+        'message': 'Client-originated mutation events are disabled. Use REST API endpoints.',
+        'event': event_name,
+    }
+
+
+def _extract_board_id(payload):
+    """Safely extract and validate board_id from socket event payload."""
+    if not isinstance(payload, dict):
+        return None
+
+    raw_board_id = payload.get('board_id')
+    if raw_board_id is None:
+        return None
+
+    try:
+        board_id = int(raw_board_id)
+    except (TypeError, ValueError):
+        return None
+
+    if board_id <= 0:
+        return None
+
+    return board_id
+
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """Handle client connection to WebSocket.
     
     When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
@@ -9572,8 +9613,13 @@ def handle_connect():
     if REJECT_SOCKETIO_CONNECTIONS:
         logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
         return False  # Reject the connection
+
+    user = get_authenticated_socket_user()
+    if not user:
+        logger.warning("Rejecting unauthenticated Socket.IO connection from %s", request.sid)
+        return False
     
-    logger.info(f"Client connected: {request.sid}")
+    logger.info("Authenticated client connected: sid=%s user_id=%s", request.sid, user.id)
     emit('connected', {'data': 'Connected to board server'})
 
 
@@ -9590,12 +9636,30 @@ def on_join_board(data):
     Args:
         data: Dictionary containing 'board_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        join_room(room)
-        logger.info(f"Client {request.sid} joined board {board_id}")
-        emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+    user = get_authenticated_socket_user()
+    if not user:
+        logger.warning("Unauthorized join_board attempt: sid=%s", request.sid)
+        return {'success': False, 'message': 'Authentication required'}
+
+    board_id = _extract_board_id(data)
+    if board_id is None:
+        return {'success': False, 'message': 'Valid board_id is required'}
+
+    has_access, _ = can_access_board(user.id, board_id)
+    if not has_access:
+        logger.warning(
+            "Denied join_board: sid=%s user_id=%s board_id=%s",
+            request.sid,
+            user.id,
+            board_id,
+        )
+        return {'success': False, 'message': 'Access denied to this board'}
+
+    room = f'board_{board_id}'
+    join_room(room)
+    logger.info("Client %s (user_id=%s) joined board %s", request.sid, user.id, board_id)
+    emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+    return {'success': True, 'board_id': board_id}
 
 
 @socketio.on('leave_board')
@@ -9605,11 +9669,22 @@ def on_leave_board(data):
     Args:
         data: Dictionary containing 'board_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        leave_room(room)
-        logger.info(f"Client {request.sid} left board {board_id}")
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
+    board_id = _extract_board_id(data)
+    if board_id is None:
+        return {'success': False, 'message': 'Valid board_id is required'}
+
+    has_access, _ = can_access_board(user.id, board_id)
+    if not has_access:
+        return {'success': False, 'message': 'Access denied to this board'}
+
+    room = f'board_{board_id}'
+    leave_room(room)
+    logger.info("Client %s (user_id=%s) left board %s", request.sid, user.id, board_id)
+    return {'success': True, 'board_id': board_id}
 
 
 @socketio.on('card_moved')
@@ -9620,11 +9695,7 @@ def broadcast_card_moved(data):
         data: Dictionary containing 'board_id', 'card_id', 'from_column_id', 
               'to_column_id', 'from_index', 'to_index'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_moved', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card move for board {board_id}")
+    return _reject_client_originated_mutation('card_moved')
 
 
 @socketio.on('card_updated')
@@ -9635,11 +9706,7 @@ def broadcast_card_updated(data):
         data: Dictionary containing 'board_id', 'card_id', and updated fields
               (title, description, color, etc.)
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_updated', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card update for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('card_updated')
 
 
 @socketio.on('card_created')
@@ -9649,11 +9716,7 @@ def broadcast_card_created(data):
     Args:
         data: Dictionary containing 'board_id', 'column_id', 'card_id', 'card_data'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_created', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card creation for board {board_id}")
+    return _reject_client_originated_mutation('card_created')
 
 
 @socketio.on('card_deleted')
@@ -9663,11 +9726,7 @@ def broadcast_card_deleted(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'column_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_deleted', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card deletion for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('card_deleted')
 
 
 @socketio.on('column_reordered')
@@ -9677,11 +9736,7 @@ def broadcast_column_reordered(data):
     Args:
         data: Dictionary containing 'board_id', 'column_order' (list of column IDs)
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('column_reordered', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted column reorder for board {board_id}")
+    return _reject_client_originated_mutation('column_reordered')
 
 
 @socketio.on('checklist_item_added')
@@ -9691,11 +9746,7 @@ def broadcast_checklist_item_added(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id', 'item_data'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_added', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item addition for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_added')
 
 
 @socketio.on('checklist_item_updated')
@@ -9705,11 +9756,7 @@ def broadcast_checklist_item_updated(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id', 'updated_fields'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_updated', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item update for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_updated')
 
 
 @socketio.on('checklist_item_deleted')
@@ -9719,11 +9766,7 @@ def broadcast_checklist_item_deleted(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_deleted', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item deletion for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_deleted')
 
 
 # ============================================================================
@@ -9733,12 +9776,16 @@ def broadcast_checklist_item_deleted(data):
 @socketio.on('join_theme')
 def on_join_theme():
     """Handle client joining the theme room to receive theme updates."""
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
     join_room('theme')
-    logger.info(f"✓ Client {request.sid} joined theme room")
-    
+    logger.info(f"✓ Client {request.sid} (user_id={user.id}) joined theme room")
+
     # Send current theme to the new client
+    session = SessionLocal()
     try:
-        session = SessionLocal()
         setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
         if setting:
             try:
@@ -9753,16 +9800,24 @@ def on_join_theme():
                 logger.error(f"✗ Error parsing theme_id: {str(e)}")
         else:
             logger.info("ℹ No selected_theme setting found")
-        session.close()
     except Exception as e:
         logger.error(f"✗ Error sending current theme to client: {str(e)}")
+    finally:
+        session.close()
+
+    return {'success': True}
 
 
 @socketio.on('leave_theme')
 def on_leave_theme():
     """Handle client leaving the theme room."""
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
     leave_room('theme')
-    logger.info(f"Client {request.sid} left theme room")
+    logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
+    return {'success': True}
 
 
 if __name__ == "__main__":

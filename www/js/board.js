@@ -1236,7 +1236,10 @@ class BoardManager {
       
       // Add event listener for add column button
       if (this.canEdit) {
-        document.getElementById('add-column-empty-btn').addEventListener('click', () => this.openAddColumnModal());
+        const addColumnEmptyBtn = document.getElementById('add-column-empty-btn');
+        if (addColumnEmptyBtn) {
+          addColumnEmptyBtn.addEventListener('click', () => this.openAddColumnModal());
+        }
       }
     } else {
       const canCreateCardsInTaskView = this.canEdit || this.canCallPermissionEndpoint('POST', '/api/columns/:id/cards');

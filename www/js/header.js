@@ -518,7 +518,7 @@ class Header {
             return;
           }
           this.setView('done');
-          document.getElementById('views-dropdown-menu').classList.remove('show');
+          dropdownMenu.classList.remove('show');
         });
         
         dropdownMenu.appendChild(doneItem);

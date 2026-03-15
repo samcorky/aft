@@ -78,6 +78,72 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def _resolve_session_user(skip_email_hash_validation=False):
+    """Resolve and validate the current session user.
+
+    Args:
+        skip_email_hash_validation: When True, does not validate the stored
+            email hash against the current user email hash.
+
+    Returns:
+        tuple: (user, db_session)
+            - user: Authenticated User or None
+            - db_session: Open database session if user is returned, else None
+    """
+    user_id = session.get('user_id')
+    stored_email_hash = session.get('user_email_hash')
+
+    if not user_id:
+        return None, None
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            User.id == user_id,
+            User.is_active == True,
+            User.is_approved == True
+        ).first()
+
+        if not user:
+            session.clear()
+            db.close()
+            return None, None
+
+        if not skip_email_hash_validation:
+            current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+            if stored_email_hash != current_email_hash:
+                logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
+                session.clear()
+                db.close()
+                return None, None
+
+        return user, db
+    except Exception as e:
+        logger.error(f"Error resolving user from session: {e}")
+        db.close()
+        return None, None
+
+
+def get_authenticated_socket_user():
+    """Resolve the currently authenticated session user for Socket.IO handlers.
+
+    Unlike HTTP request middleware, this helper always closes the DB session and
+    returns a detached user object for short-lived Socket.IO event checks.
+
+    Returns:
+        User | None: Authenticated and approved user, or None.
+    """
+    user, db = _resolve_session_user(skip_email_hash_validation=False)
+    if not user or not db:
+        return None
+
+    try:
+        db.expunge(user)
+        return user
+    finally:
+        db.close()
+
+
 def load_user_from_session():
     """
     Middleware to load user from session or Basic Auth into Flask g object.
@@ -89,53 +155,21 @@ def load_user_from_session():
     """
     from flask import request
     
-    user_id = session.get('user_id')
-    stored_email_hash = session.get('user_email_hash')
+    # Skip email hash validation during database restore operations
+    # (the database is being modified, so user data may be temporarily inconsistent)
+    is_restore_endpoint = (
+        request.path.startswith('/api/database/restore') or
+        request.path.startswith('/api/database/backups/restore/')
+    )
+
+    user, db = _resolve_session_user(skip_email_hash_validation=is_restore_endpoint)
+    if user and db:
+        g.user = user
+        g.db = db  # Make db available for the request
+        return
     
-    if user_id:
-        db = SessionLocal()
-        try:
-            user = db.query(User).filter(
-                User.id == user_id,
-                User.is_active == True,
-                User.is_approved == True
-            ).first()
-            
-            if user:
-                # Skip email hash validation during database restore operations
-                # (the database is being modified, so user data may be temporarily inconsistent)
-                is_restore_endpoint = (
-                    request.path.startswith('/api/database/restore') or
-                    request.path.startswith('/api/database/backups/restore/')
-                )
-                
-                if not is_restore_endpoint:
-                    # Validate session is for this specific user (prevents old sessions from
-                    # accessing new users with same ID after database reset)
-                    current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
-                    if stored_email_hash != current_email_hash:
-                        # Session email hash doesn't match - clear session
-                        logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
-                        session.clear()
-                        g.user = None
-                        g.db = None
-                        db.close()
-                        return
-                
-                g.user = user
-                g.db = db  # Make db available for the request
-                return  # Successfully authenticated via session
-            else:
-                # User not found or inactive, clear session
-                session.clear()
-                g.user = None
-                g.db = None
-                db.close()
-        except Exception as e:
-            logger.error(f"Error loading user from session: {e}")
-            g.user = None
-            g.db = None
-            db.close()
+    g.user = None
+    g.db = None
     
     # If no session auth, try Basic Auth (for Swagger UI)
     auth = request.authorization

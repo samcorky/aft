@@ -212,7 +212,6 @@ def validate_safe_url(url):
 app = Flask(__name__)
 
 # Configure session
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -251,7 +250,15 @@ CORS(
 
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
-redis_url = os.getenv('REDIS_URL')
+
+_secret_key = os.getenv('SECRET_KEY')
+if not _secret_key:
+    raise RuntimeError(
+        'SECRET_KEY environment variable is not set. '
+        'Generate one with: python -c "import secrets; print(secrets.token_hex(32))" '
+        'and add it to your .env file. Never use a hardcoded or default secret in production.'
+    )
+app.config['SECRET_KEY'] = _secret_key
 
 # Validate Redis configuration for multi-worker deployment
 if not redis_url:

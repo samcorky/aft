@@ -97,7 +97,8 @@ def load_user_from_session():
         try:
             user = db.query(User).filter(
                 User.id == user_id,
-                User.is_active == True
+                User.is_active == True,
+                User.is_approved == True
             ).first()
             
             if user:
@@ -633,24 +634,24 @@ def update_profile():
                 ).first()
                 if existing_user:
                     return create_error_response("Username already taken", 409)
-                
+
                 db_user.username = new_username
-        
+
         # Validate and update email
         if 'email' in data:
             new_email = data['email'].strip().lower()
             if not new_email:
                 return create_error_response("Email cannot be empty", 400)
-            
+
             # Basic email validation
             import re
             email_regex = r'^[^\s@]+@[^\s@]+\.[^\s@]+$'
             if not re.match(email_regex, new_email):
                 return create_error_response("Invalid email format", 400)
-            
+
             if len(new_email) > 255:
                 return create_error_response("Email too long (max 255 characters)", 400)
-            
+
             # Check if email is already taken by another user
             if new_email != db_user.email:
                 existing_user = db.query(User).filter(
@@ -659,7 +660,7 @@ def update_profile():
                 ).first()
                 if existing_user:
                     return create_error_response("Email already taken", 409)
-                
+
                 db_user.email = new_email
                 # Mark email as unverified if changed
                 db_user.email_verified = False
@@ -1100,7 +1101,7 @@ def setup_admin():
                 User.is_active == True,
                 User.password_hash.isnot(None)
             ).count()
-            
+
             if existing_users > 0:
                 return create_error_response(
                     "Setup is already complete. Please use the login page.",

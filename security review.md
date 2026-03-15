@@ -119,7 +119,7 @@ Recommendations:
 ---
 
 ### 4) High: Batch card archive/unarchive lacks user scoping
-Status: Confirmed by code path review; high confidence exploitability.
+Status: **Fixed in code (2026-03-15)**; regression tests added, but local execution was blocked by the existing non-fresh test database.
 
 What was observed:
 - Batch endpoints disable required board context.
@@ -134,10 +134,17 @@ Primary code references:
 Impact:
 - Users with card.archive may archive/unarchive cards outside authorized boards by submitting foreign ids.
 
+Actions taken:
+- Added a shared batch-authorization helper that loads requested card ids through `get_user_scoped_query(...)` for the current user and compares the full requested set against the fully authorized set before any mutation runs.
+- Changed batch archive and batch unarchive to fail closed if any requested card id is missing or out of scope; no partial success is allowed.
+- Returned explicit user-facing failure messages that state no cards were archived/unarchived when the request is rejected.
+- Updated the board UI batch archive/unarchive handlers to show the server-provided rejection message directly.
+- Added regression coverage for nonexistent ids, mixed valid/invalid ids, and mixed own/foreign ids for both archive and unarchive paths.
+
 Recommendations:
-- Require board context or derive and validate board access for every provided card id.
-- Use user-scoped query selection first, then update only scoped records.
-- Fail closed if any requested id is out of scope.
+- ~~Require board context or derive and validate board access for every provided card id.~~ **FIXED**: batch handlers now validate every submitted card id against the current user's scoped card set before mutating.
+- ~~Use user-scoped query selection first, then update only scoped records.~~ **FIXED**
+- ~~Fail closed if any requested id is out of scope.~~ **FIXED**
 
 ---
 
@@ -230,7 +237,7 @@ Recommendations:
 ## Fix Priority Plan
 1. Immediate: secret handling + session loader approval enforcement + key rotation.
 2. Immediate: websocket authentication and board authorization on join/events. **Completed (2026-03-15)**
-3. Near-term: notification user scoping and batch card scope enforcement.
+3. Near-term: notification user scoping and batch card scope enforcement. **Implemented for both issues (2026-03-15)**
 4. Near-term: theme ownership scoping and user_id ownership guarantees.
 5. Near-term: bootstrap and test-only route hardening for production.
 
@@ -243,5 +250,6 @@ Recommendations:
 - Not fully tested in this review:
   - End-to-end browser UI flows and visual behaviors in the web interface
   - Manual click-path UX regression testing
+   - New Issue 4 API regression tests could not be executed in this workspace because the pytest authentication fixture requires a fresh database and the current local data already contains users
 
 So this review did test backend API and realtime channel behavior, but it did not perform a full manual browser UI penetration run.

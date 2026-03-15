@@ -2,6 +2,39 @@
 import pytest
 
 
+def _create_second_user_accessible_card(api_client, authenticated_session, second_user_session, title):
+    second_user_me = second_user_session.get(f'{api_client}/api/auth/me')
+    assert second_user_me.status_code == 200
+    second_user_id = second_user_me.json()['user']['id']
+
+    shared_board_response = authenticated_session.post(f'{api_client}/api/boards', json={
+        'name': f'Shared Board {title}',
+        'description': 'Board used for cross-user card authorization tests'
+    })
+    assert shared_board_response.status_code == 201
+    shared_board_id = shared_board_response.json()['board']['id']
+
+    assign_role_response = authenticated_session.post(
+        f'{api_client}/api/users/{second_user_id}/roles',
+        json={'role_name': 'board_editor', 'board_id': shared_board_id}
+    )
+    assert assign_role_response.status_code == 200, assign_role_response.text
+
+    shared_column_response = authenticated_session.post(
+        f'{api_client}/api/boards/{shared_board_id}/columns',
+        json={'name': f'Shared Column {title}'}
+    )
+    assert shared_column_response.status_code == 201
+    shared_column_id = shared_column_response.json()['column']['id']
+
+    shared_card_response = authenticated_session.post(
+        f'{api_client}/api/columns/{shared_column_id}/cards',
+        json={'title': title}
+    )
+    assert shared_card_response.status_code == 201
+    return shared_card_response.json()['card']
+
+
 @pytest.mark.api
 class TestCardsAPI:
     """Test cases for card API endpoints."""
@@ -760,13 +793,13 @@ class TestCardsAPI:
         response = authenticated_session.post(f'{api_client}/api/cards/batch/archive', json={
             'card_ids': [9999, 9998, 9997]
         })
-        assert response.status_code == 200
+        assert response.status_code == 404
         data = response.json()
-        assert data['success'] is True
-        assert data['archived_count'] == 0  # No cards found to archive
+        assert data['success'] is False
+        assert 'No cards were archived' in data['message']
     
     def test_batch_archive_cards_partial_valid_ids(self, api_client, authenticated_session, sample_column):
-        """Test batch archive with mix of valid and invalid IDs."""
+        """Test batch archive rejects mixed valid and invalid IDs atomically."""
         # Create one card
         card = authenticated_session.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
             'title': 'Valid Card'
@@ -776,14 +809,46 @@ class TestCardsAPI:
         response = authenticated_session.post(f'{api_client}/api/cards/batch/archive', json={
             'card_ids': [card['id'], 9999, 9998]
         })
-        assert response.status_code == 200
+        assert response.status_code == 404
         data = response.json()
-        assert data['success'] is True
-        assert data['archived_count'] == 1  # Only the valid card
+        assert data['success'] is False
+        assert 'No cards were archived' in data['message']
         
-        # Verify the valid card is archived
+        # Verify the valid card was not modified
         card_response = authenticated_session.get(f'{api_client}/api/cards/{card["id"]}')
-        assert card_response.json()['card']['archived'] is True
+        assert card_response.json()['card']['archived'] is False
+
+    def test_batch_archive_cards_rejects_other_users_cards_atomically(
+        self, api_client, authenticated_session, second_user_session, sample_column
+    ):
+        """Test batch archive denies mixed in-scope and out-of-scope card IDs without changes."""
+        own_card = authenticated_session.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Owner Card'
+        }).json()['card']
+
+        second_card = _create_second_user_accessible_card(
+            api_client,
+            authenticated_session,
+            second_user_session,
+            'Second User Card'
+        )
+        second_card_id = second_card['id']
+
+        response = second_user_session.post(f'{api_client}/api/cards/batch/archive', json={
+            'card_ids': [second_card_id, own_card['id']]
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'No cards were archived' in data['message']
+
+        second_card_state = second_user_session.get(f'{api_client}/api/cards/{second_card_id}')
+        assert second_card_state.status_code == 200
+        assert second_card_state.json()['card']['archived'] is False
+
+        own_card_state = authenticated_session.get(f'{api_client}/api/cards/{own_card["id"]}')
+        assert own_card_state.status_code == 200
+        assert own_card_state.json()['card']['archived'] is False
     
     def test_batch_unarchive_cards(self, api_client, authenticated_session, sample_column):
         """Test unarchiving multiple cards in a batch."""
@@ -837,6 +902,68 @@ class TestCardsAPI:
         data = response.json()
         assert data['success'] is False
         assert 'card_ids must be an array' in data['message']
+
+    def test_batch_unarchive_cards_nonexistent_ids(self, api_client, authenticated_session):
+        """Test batch unarchive with non-existent card IDs."""
+        response = authenticated_session.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': [9999, 9998, 9997]
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'No cards were unarchived' in data['message']
+
+    def test_batch_unarchive_cards_partial_valid_ids(self, api_client, authenticated_session, sample_column):
+        """Test batch unarchive rejects mixed valid and invalid IDs atomically."""
+        card = authenticated_session.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Archived Card'
+        }).json()['card']
+        authenticated_session.patch(f'{api_client}/api/cards/{card["id"]}/archive')
+
+        response = authenticated_session.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': [card['id'], 9999]
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'No cards were unarchived' in data['message']
+
+        card_response = authenticated_session.get(f'{api_client}/api/cards/{card["id"]}')
+        assert card_response.json()['card']['archived'] is True
+
+    def test_batch_unarchive_cards_rejects_other_users_cards_atomically(
+        self, api_client, authenticated_session, second_user_session, sample_column
+    ):
+        """Test batch unarchive denies mixed in-scope and out-of-scope card IDs without changes."""
+        own_card = authenticated_session.post(f'{api_client}/api/columns/{sample_column["id"]}/cards', json={
+            'title': 'Owner Archived Card'
+        }).json()['card']
+        authenticated_session.patch(f'{api_client}/api/cards/{own_card["id"]}/archive')
+
+        second_card = _create_second_user_accessible_card(
+            api_client,
+            authenticated_session,
+            second_user_session,
+            'Second User Archived Card'
+        )
+        second_card_id = second_card['id']
+        second_user_session.patch(f'{api_client}/api/cards/{second_card_id}/archive')
+
+        response = second_user_session.post(f'{api_client}/api/cards/batch/unarchive', json={
+            'card_ids': [second_card_id, own_card['id']]
+        })
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+        assert 'No cards were unarchived' in data['message']
+
+        second_card_state = second_user_session.get(f'{api_client}/api/cards/{second_card_id}')
+        assert second_card_state.status_code == 200
+        assert second_card_state.json()['card']['archived'] is True
+
+        own_card_state = authenticated_session.get(f'{api_client}/api/cards/{own_card["id"]}')
+        assert own_card_state.status_code == 200
+        assert own_card_state.json()['card']['archived'] is True
     
     def test_batch_unarchive_already_active_cards(self, api_client, authenticated_session, sample_column):
         """Test batch unarchive on already active cards."""

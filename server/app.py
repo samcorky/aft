@@ -6515,6 +6515,25 @@ def update_card_done_status(card_id):
         db.close()
 
 
+def _get_fully_authorized_batch_cards(db, user_id, card_ids, *, order_by=None):
+    from models import Card
+
+    unique_card_ids = list(dict.fromkeys(card_ids))
+    query = get_user_scoped_query(db, Card, user_id).filter(Card.id.in_(unique_card_ids))
+
+    if order_by is not None:
+        query = query.order_by(*order_by)
+
+    cards = query.all()
+    authorized_ids = {card.id for card in cards}
+    requested_ids = set(unique_card_ids)
+
+    if authorized_ids != requested_ids:
+        return None, unique_card_ids
+
+    return cards, unique_card_ids
+
+
 @app.route("/api/cards/batch/archive", methods=["POST"])
 @require_permission('card.archive', require_board_context=False)
 def batch_archive_cards():
@@ -6578,7 +6597,7 @@ def batch_archive_cards():
     try:
         from models import Card
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         card_ids = data.get("card_ids", [])
 
         if not card_ids:
@@ -6587,10 +6606,19 @@ def batch_archive_cards():
         if not isinstance(card_ids, list):
             return jsonify({"success": False, "message": "card_ids must be an array"}), 400
 
-        # Archive all cards with the given IDs
+        user_id = g.user.id
+        scoped_cards, scoped_card_ids = _get_fully_authorized_batch_cards(db, user_id, card_ids)
+
+        if scoped_cards is None:
+            return jsonify({
+                "success": False,
+                "message": "One or more selected cards were not found or are no longer accessible. No cards were archived."
+            }), 404
+
+        # Archive all authorized cards only after the full request passes validation.
         archived_count = (
-            db.query(Card)
-            .filter(Card.id.in_(card_ids))
+            get_user_scoped_query(db, Card, user_id)
+            .filter(Card.id.in_(scoped_card_ids))
             .update({Card.archived: True}, synchronize_session=False)
         )
         
@@ -6672,7 +6700,7 @@ def batch_unarchive_cards():
     try:
         from models import Card
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         card_ids = data.get("card_ids", [])
 
         if not card_ids:
@@ -6681,20 +6709,22 @@ def batch_unarchive_cards():
         if not isinstance(card_ids, list):
             return jsonify({"success": False, "message": "card_ids must be an array"}), 400
 
-        # Get all cards to unarchive with their column and order information
-        cards_to_unarchive = (
-            db.query(Card)
-            .filter(Card.id.in_(card_ids))
-            .order_by(Card.column_id, Card.order)
-            .all()
+        user_id = g.user.id
+        cards_to_unarchive, _ = _get_fully_authorized_batch_cards(
+            db,
+            user_id,
+            card_ids,
+            order_by=(Card.column_id, Card.order)
         )
-        
-        if not cards_to_unarchive:
+
+        if cards_to_unarchive is None:
             return jsonify({
-                "success": True,
-                "message": "No cards found to unarchive",
-                "unarchived_count": 0
-            }), 200
+                "success": False,
+                "message": "One or more selected cards were not found or are no longer accessible. No cards were unarchived."
+            }), 404
+
+        if not cards_to_unarchive:
+            return jsonify({"success": True, "message": "No cards found to unarchive", "unarchived_count": 0}), 200
         
         # Group cards by column for efficient order management
         cards_by_column = {}

@@ -3170,7 +3170,7 @@ class BoardManager {
         await this.loadBoard();
         await showAlert(`Successfully archived ${data.archived_count} card(s)`, 'Success');
       } else {
-        await showAlert('Failed to archive cards: ' + data.message, 'Error');
+        await showAlert(data.message || 'Failed to archive cards', 'Error');
       }
     } catch (err) {
       console.error('Error archiving cards:', err);
@@ -3212,7 +3212,7 @@ class BoardManager {
         await this.loadBoard();
         await showAlert(`Successfully unarchived ${data.unarchived_count} card(s)`, 'Success');
       } else {
-        await showAlert('Failed to unarchive cards: ' + data.message, 'Error');
+        await showAlert(data.message || 'Failed to unarchive cards', 'Error');
       }
     } catch (err) {
       console.error('Error unarchiving cards:', err);

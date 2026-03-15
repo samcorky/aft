@@ -250,6 +250,9 @@ CORS(
 
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
+redis_url = os.getenv('REDIS_URL')
+server_side_sessions_enabled = os.getenv('ENABLE_SERVER_SIDE_SESSIONS', 'false').lower() == 'true'
+redis_configured = bool(redis_url)
 
 _secret_key = os.getenv('SECRET_KEY')
 if not _secret_key:
@@ -259,6 +262,37 @@ if not _secret_key:
         'and add it to your .env file. Never use a hardcoded or default secret in production.'
     )
 app.config['SECRET_KEY'] = _secret_key
+
+if server_side_sessions_enabled:
+    if not redis_url:
+        raise RuntimeError(
+            'ENABLE_SERVER_SIDE_SESSIONS=true requires REDIS_URL to be configured.'
+        )
+
+    try:
+        import redis
+        from flask_session import Session as ServerSideSession
+    except ImportError as e:
+        raise RuntimeError(
+            'ENABLE_SERVER_SIDE_SESSIONS=true requires flask-session and redis packages. '
+            'Install with: pip install -r server/requirements.txt'
+        ) from e
+
+    app.config['SESSION_TYPE'] = 'redis'
+    app.config['SESSION_REDIS'] = redis.from_url(redis_url)
+    app.config['SESSION_KEY_PREFIX'] = 'aft:session:'
+    app.config['SESSION_PERMANENT'] = True
+    app.config['SESSION_USE_SIGNER'] = True
+    ServerSideSession(app)
+    logger.info(
+        'Session mode: server-side (Redis). feature_flag=ENABLE_SERVER_SIDE_SESSIONS:true redis_configured=%s',
+        redis_configured,
+    )
+else:
+    logger.info(
+        'Session mode: client-side (Flask signed cookie). feature_flag=ENABLE_SERVER_SIDE_SESSIONS:false redis_configured=%s',
+        redis_configured,
+    )
 
 # Validate Redis configuration for multi-worker deployment
 if not redis_url:

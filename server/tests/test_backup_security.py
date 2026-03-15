@@ -8,6 +8,12 @@ import pytest
 import tempfile
 import os
 
+# These tests validate backup SQL/file security logic and do not depend on session backend mode.
+# Force client-side session mode so importing app helpers does not require optional flask-session.
+os.environ['ENABLE_SERVER_SIDE_SESSIONS'] = 'false'
+# Provide a deterministic test secret so app import hardening does not fail in unit-test context.
+os.environ.setdefault('SECRET_KEY', 'unit-test-secret-key')
+
 
 # Test fixtures for SQL content
 VALID_BACKUP_HEADER = """-- AFT Database Backup

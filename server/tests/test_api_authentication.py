@@ -14,9 +14,43 @@ Tests the following endpoints:
 import pytest
 import requests
 import time
+import os
+import hashlib
+from pathlib import Path
+from flask import Flask
+from flask.sessions import SecureCookieSessionInterface
 
 # API base URL - matching conftest.py
 API_BASE_URL = "http://localhost"
+
+
+def _load_secret_key_for_cookie_signing():
+    """Load SECRET_KEY from environment or repository .env for session-forgery regression tests."""
+    env_secret = os.getenv("SECRET_KEY")
+    if env_secret:
+        return env_secret
+
+    env_file = Path(__file__).resolve().parents[2] / ".env"
+    if not env_file.exists():
+        return None
+
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        if key.strip() == "SECRET_KEY":
+            return value.strip().strip('"').strip("'")
+
+    return None
+
+
+def _forge_flask_session_cookie(secret_key, payload):
+    """Generate a Flask-compatible signed session cookie value for test validation."""
+    app = Flask(__name__)
+    app.config["SECRET_KEY"] = secret_key
+    serializer = SecureCookieSessionInterface().get_signing_serializer(app)
+    return serializer.dumps(payload)
 
 
 @pytest.fixture
@@ -285,6 +319,53 @@ class TestLogin:
         })
         assert response.status_code == 403
         assert 'approved' in response.json()['message'].lower()
+
+    @pytest.mark.security
+    @pytest.mark.api
+    def test_forged_session_cookie_for_pending_user_is_rejected(self):
+        """Critical #1 regression: forged cookie for pending user must not authenticate."""
+        secret_key = _load_secret_key_for_cookie_signing()
+        if not secret_key:
+            pytest.skip("SECRET_KEY not available to build signed regression cookie")
+
+        register_response = None
+        email = None
+
+        # Retry with high-entropy identities to avoid rare collisions in parallel runs.
+        for _ in range(3):
+            unique = time.time_ns()
+            email = f"pending-{unique}@test.local"
+            username = f"pending-{unique}"
+
+            register_response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
+                "email": email,
+                "username": username,
+                "password": "PendingPass123!"
+            })
+
+            if register_response.status_code == 201:
+                break
+
+        assert register_response is not None
+        assert register_response.status_code == 201, register_response.text
+
+        user_data = register_response.json()["user"]
+        user_id = user_data["id"]
+        email_hash = hashlib.sha256(email.encode()).hexdigest()[:16]
+
+        forged_cookie = _forge_flask_session_cookie(secret_key, {
+            "user_id": user_id,
+            "user_email_hash": email_hash,
+        })
+
+        forged_session = requests.Session()
+        forged_session.cookies.set("session", forged_cookie)
+
+        check_response = forged_session.get(f"{API_BASE_URL}/api/auth/check")
+        assert check_response.status_code == 401
+
+        body = check_response.json()
+        assert body.get("authenticated") is False
     
     def test_login_invalid_credentials(self, session):
         """Login should fail with wrong password."""

@@ -252,6 +252,14 @@ This file contains comprehensive tests for:
 - Update after delete
 - Create in deleted parent
 
+### Backup Security Unit Tests (`test_backup_security.py`)
+
+These tests import backup validation helpers directly from `app.py` and validate SQL/file safety logic only.
+
+- The module explicitly sets `ENABLE_SERVER_SIDE_SESSIONS=false` at test import time.
+- This is intentional: backup security tests are session-backend agnostic and should not require optional Redis session packages to run in local unit-test environments.
+- Runtime behavior is unchanged for the application; this only scopes test setup for that file.
+
 ### Test Isolation Strategy
 
 - **Session cleanup**: Cleans all data before test suite starts

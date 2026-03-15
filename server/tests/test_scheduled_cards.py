@@ -814,7 +814,7 @@ class TestColumnSpecificDuplicateChecking:
             'run_every': 1,
             'unit': 'day',
             'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
-            'schedule_enabled': True,
+            'schedule_enabled': False,
             'allow_duplicates': False,
             'keep_source_card': False
         })
@@ -872,7 +872,7 @@ class TestColumnSpecificDuplicateChecking:
             'run_every': 1,
             'unit': 'day',
             'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
-            'schedule_enabled': True,
+            'schedule_enabled': False,
             'allow_duplicates': False,
             'keep_source_card': False
         })
@@ -929,7 +929,7 @@ class TestColumnSpecificDuplicateChecking:
             'run_every': 1,
             'unit': 'day',
             'start_datetime': (now - timedelta(minutes=5)).strftime('%Y-%m-%dT%H:%M:%S'),
-            'schedule_enabled': True,
+            'schedule_enabled': False,
             'allow_duplicates': False,
             'keep_source_card': False
         })

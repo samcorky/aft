@@ -41,7 +41,7 @@ Recommendations:
 - ~~Remove secret fallback and fail startup if secret is missing.~~ **FIXED**: `app.py` now raises `RuntimeError` at startup if `SECRET_KEY` env var is absent. The hardcoded fallback `'dev-secret-key-change-in-production'` has been removed.
 - **ACTION REQUIRED — Rotate `SECRET_KEY`**: Add a freshly generated value to every `.env` file in all environments. Generate with: `python -c "import secrets; print(secrets.token_hex(32))"`. All current sessions will be invalidated on restart (expected behaviour after a key compromise).
 - ~~Enforce is_approved in session-based loading path (same policy as login).~~ **FIXED**: `auth.py` `load_user_from_session()` now filters `User.is_approved == True` alongside `User.is_active == True`. Unapproved users are rejected at session load on every authenticated request.
-- Consider server-side session store with opaque ids rather than trustable client-signed user identifiers. **DEFERRED**: Planned for near-term implementation using Flask-Session backed by Redis (Redis is already in the stack). This would eliminate the signed-cookie forgery class entirely. Long-term OIDC migration will supersede this, but Redis sessions are low-risk and faster to ship.
+- ~~Consider server-side session store with opaque ids rather than trustable client-signed user identifiers.~~ **IMPLEMENTED (Feature Flag)**: Redis-backed server-side sessions are now available via `ENABLE_SERVER_SIDE_SESSIONS=true`. This stores session data server-side and sends only an opaque session identifier cookie to clients.
 
 ---
 

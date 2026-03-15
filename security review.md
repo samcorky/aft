@@ -13,7 +13,7 @@ Work performed included:
 - Session forgery validation using the configured/default Flask secret behavior.
 
 ## Executive Summary
-Multiple critical and high-severity authorization flaws were confirmed. The most severe chain allows no-password authentication bypass through forged session cookies when the default Flask secret is in use, combined with missing approval checks in session loading. Websocket channels also accept unauthenticated joins and unauthenticated event injection. Additional IDOR and scoping flaws were confirmed in notifications, batch card archive operations, and theme operations.
+Multiple critical and high-severity authorization flaws were confirmed. The most severe chain allows no-password authentication bypass through forged session cookies when the default Flask secret is in use, combined with missing approval checks in session loading. The websocket unauthenticated join and client event-injection issue has now been remediated by enforcing authenticated Socket.IO connections, board-scoped join authorization, and server-only mutation broadcasts. Additional IDOR and scoping flaws were confirmed in notifications, batch card archive operations, and theme operations.
 
 ## Findings (Ordered by Severity)
 
@@ -46,7 +46,7 @@ Recommendations:
 ---
 
 ### 2) Critical: Unauthenticated websocket room join and event injection
-Status: Confirmed in live testing.
+Status: **Fixed (2026-03-15)**
 
 What was observed:
 - Socket.IO connection succeeded without authentication.
@@ -54,20 +54,31 @@ What was observed:
 - Unauthenticated client emitted card_updated; second client in same room received spoofed event.
 
 Primary code references:
-- server/app.py:9545 (join_board)
-- server/app.py:9589 (card_updated)
-- server/app.py:9604 (card_created)
-- server/app.py:9618 (card_deleted)
-- server/app.py:9692 (join_theme)
+- server/auth.py:127 (`get_authenticated_socket_user`)
+- server/app.py:9607 (`handle_connect`)
+- server/app.py:9633 (`on_join_board`)
+- server/app.py:9666 (`on_leave_board`)
+- server/app.py:9566 (`_reject_client_originated_mutation`)
+- server/app.py:9702, 9713, 9723 (client-emitted card mutation events)
+- server/app.py:9777 and 9812 (`join_theme` / `leave_theme`)
+- server/tests/test_websocket_security.py:29-90 (websocket regression coverage)
 
 Impact:
 - Unauthorized realtime data observation risk.
 - UI integrity risk from forged events (confusion, spoofed activity, trust erosion).
 
+Actions taken:
+- Added a shared session-resolution helper so Socket.IO handlers can reuse the same active/approved session validation model as HTTP request authentication.
+- Changed Socket.IO `connect` to reject unauthenticated clients before a websocket session is established.
+- Changed `join_board` and `leave_board` to validate `board_id` and authorize board membership with the existing server-side `can_access_board(...)` policy.
+- Changed `join_theme` and `leave_theme` to require an authenticated websocket session.
+- Replaced client-originated mutation broadcasts with explicit rejection responses; realtime updates now continue to flow only from server-side validated REST handlers via the existing broadcast path.
+- Added websocket security regression tests covering unauthenticated connect rejection, authorized/denied board join, and blocked rebroadcast of client-emitted mutation events.
+
 Recommendations:
-- Require websocket authentication at connect.
-- Authorize board membership on join_board using server-side board access checks.
-- Reject client-originated mutation events; only broadcast server-originated validated events.
+- ~~Require websocket authentication at connect.~~ **FIXED**: `handle_connect()` now resolves the current session user and returns `False` for unauthenticated socket connections.
+- ~~Authorize board membership on join_board using server-side board access checks.~~ **FIXED**: `join_board` / `leave_board` now validate the supplied `board_id` and enforce `can_access_board(...)` before room membership changes are allowed.
+- ~~Reject client-originated mutation events; only broadcast server-originated validated events.~~ **FIXED**: client-emitted mutation events now return an explicit rejection payload, and server-side route handlers remain the only broadcast source for board mutations.
 
 ---
 
@@ -207,7 +218,7 @@ Recommendations:
 
 ## Fix Priority Plan
 1. Immediate: secret handling + session loader approval enforcement + key rotation.
-2. Immediate: websocket authentication and board authorization on join/events.
+2. Immediate: websocket authentication and board authorization on join/events. **Completed (2026-03-15)**
 3. Near-term: notification user scoping and batch card scope enforcement.
 4. Near-term: theme ownership scoping and user_id ownership guarantees.
 5. Near-term: bootstrap and test-only route hardening for production.
@@ -216,6 +227,8 @@ Recommendations:
 - Confirmed tested directly:
   - API behavior (HTTP endpoints)
   - Realtime websocket channel behavior (Socket.IO)
+   - Post-fix Socket.IO validation for unauthenticated connect rejection, authorized/denied room joins, and blocked client-originated mutation rebroadcast
+   - Basic browser UI smoke testing for restricted-user board visibility after permission-based control removal
 - Not fully tested in this review:
   - End-to-end browser UI flows and visual behaviors in the web interface
   - Manual click-path UX regression testing

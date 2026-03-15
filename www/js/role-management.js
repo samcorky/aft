@@ -411,7 +411,9 @@ class RoleManagement {
 
   getSelectedPermissions() {
     const checkboxes = this.permissionsGrid.querySelectorAll('input[type="checkbox"]:checked');
-    return Array.from(checkboxes).map(cb => cb.id.replace('perm-', ''));
+    return Array.from(checkboxes)
+      .map(cb => cb.closest('.permission-checkbox-item')?.dataset.permission)
+      .filter(permission => typeof permission === 'string' && permission.length > 0);
   }
 
   async handleSaveRole() {

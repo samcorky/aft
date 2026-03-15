@@ -143,6 +143,12 @@ class BoardsManager {
   async loadBoards() {
     try {
       const response = await fetch('/api/boards');
+      let data = null;
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      }
       
       // Check for authentication errors
       if (response.status === 401) {
@@ -152,11 +158,23 @@ class BoardsManager {
       
       // Check for other HTTP errors
       if (!response.ok) {
-        this.showError(`Failed to load boards: HTTP ${response.status}`);
+        if (response.status === 403) {
+          const fallbackMessage = 'You do not have access to any existing boards and you do not have permission to create new boards. Ask an administrator to grant board.view access or the board_creator role.';
+          const permissionMessage = data?.message || fallbackMessage;
+          this.showError(this.escapeHtml(permissionMessage));
+          return;
+        }
+
+        const serverMessage = data?.message
+          ? `Failed to load boards: ${this.escapeHtml(data.message)}`
+          : `Failed to load boards: HTTP ${response.status}`;
+        this.showError(serverMessage);
         return;
       }
-      
-      const data = await response.json();
+
+      if (!data) {
+        data = await response.json();
+      }
       
       if (data.success) {
         this.boards = data.boards;

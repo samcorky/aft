@@ -27,8 +27,9 @@
 
 class PermissionManagerClass {
   constructor() {
-    this.endpointPermissions = new Map(); // Map of "METHOD /path" -> {permission, description}
+    this.endpointPermissions = new Map(); // Map of "METHOD /path" -> endpoint rule object
     this.userPermissions = new Set(); // Set of user's permissions
+    this.userContext = {}; // Additional server-provided context for composite rules
     this.isInitialized = false;
     this.boardId = null;
   }
@@ -78,6 +79,9 @@ class PermissionManagerClass {
       (data.user_permissions || []).forEach(perm => {
         this.userPermissions.add(perm);
       });
+
+      // Store optional context fields used by composite permission checks
+      this.userContext = data.user_context || {};
       
       this.isInitialized = true;
       
@@ -122,6 +126,83 @@ class PermissionManagerClass {
   }
 
   /**
+   * Check whether user has any permission from a list.
+   *
+   * @param {Array<string>} permissions - Permission list
+   * @returns {boolean} True if user has at least one permission
+   */
+  hasAnyPermission(permissions = []) {
+    if (!Array.isArray(permissions) || permissions.length === 0) {
+      return false;
+    }
+
+    return permissions.some(permission => this.hasPermission(permission));
+  }
+
+  /**
+   * Evaluate an endpoint rule object from /api/permissions/mapping.
+   *
+   * Supported rule shapes:
+   * - { mode: 'public' }
+   * - { mode: 'authenticated' }
+   * - { permission: 'card.update' }
+   * - { mode: 'composite', any_permissions: [...], allow_board_assignment: true }
+   *
+   * @param {object} endpointInfo - Endpoint rule object
+   * @returns {boolean} True if user can call endpoint
+   */
+  evaluateEndpointRule(endpointInfo) {
+    if (!endpointInfo || typeof endpointInfo !== 'object') {
+      return false;
+    }
+
+    const mode = endpointInfo.mode || null;
+
+    if (mode === 'public') {
+      return true;
+    }
+
+    if (mode === 'authenticated') {
+      // PermissionManager only initializes for authenticated users.
+      return true;
+    }
+
+    if (mode === 'composite') {
+      const anyPermissions = Array.isArray(endpointInfo.any_permissions)
+        ? endpointInfo.any_permissions
+        : [];
+      const allPermissions = Array.isArray(endpointInfo.all_permissions)
+        ? endpointInfo.all_permissions
+        : [];
+
+      if (anyPermissions.length > 0 && this.hasAnyPermission(anyPermissions)) {
+        return true;
+      }
+
+      if (allPermissions.length > 0 && allPermissions.every(permission => this.hasPermission(permission))) {
+        return true;
+      }
+
+      if (endpointInfo.permission && this.hasPermission(endpointInfo.permission)) {
+        return true;
+      }
+
+      if (endpointInfo.allow_board_assignment && this.userContext.has_board_assignment === true) {
+        return true;
+      }
+
+      return false;
+    }
+
+    if (Array.isArray(endpointInfo.any_permissions) && endpointInfo.any_permissions.length > 0) {
+      return this.hasAnyPermission(endpointInfo.any_permissions);
+    }
+
+    // Backward-compatible default: single permission field (or null for public).
+    return this.hasPermission(endpointInfo.permission);
+  }
+
+  /**
    * Check if the user can call a specific API endpoint
    * 
    * @param {string} method - HTTP method (GET, POST, PATCH, DELETE, etc.)
@@ -150,9 +231,8 @@ class PermissionManagerClass {
       console.warn(`No permission mapping found for: ${lookupKey}`);
       return false;
     }
-    
-    // Check if user has the required permission
-    return this.hasPermission(endpointInfo.permission);
+
+    return this.evaluateEndpointRule(endpointInfo);
   }
 
   /**

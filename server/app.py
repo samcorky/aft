@@ -1020,24 +1020,36 @@ def get_permissions_mapping():
               description: Current user's permissions
     """
     board_id = request.args.get('board_id', type=int)
+    db = SessionLocal()
     
     try:
         from utils import get_user_permissions
-        
+
         # Get user's permissions (board-specific if board_id provided)
         user_perms = get_user_permissions(g.user.id, board_id=board_id)
-        
-        # Comprehensive mapping of API endpoints to required permissions
-        # Format: endpoint_method: {permission, description}
+
+        # Detect whether user has any board-scoped assignment. This is needed
+        # for composite endpoint rules like GET /api/boards.
+        has_board_assignment = db.query(UserRole.id).filter(
+            UserRole.user_id == g.user.id,
+            UserRole.board_id.isnot(None)
+        ).first() is not None
+
+        # Comprehensive mapping of API endpoints to required permissions.
         endpoint_mapping = {
             # Board management
-            'GET /api/boards': {'permission': 'board.view', 'description': 'View boards list'},
+            'GET /api/boards': {
+                'mode': 'composite',
+                'any_permissions': ['board.view', 'board.create'],
+                'allow_board_assignment': True,
+                'description': 'View boards list (global board permission OR board assignment)'
+            },
             'POST /api/boards': {'permission': 'board.create', 'description': 'Create new board'},
             'DELETE /api/boards/:id': {'permission': 'board.delete', 'description': 'Delete board'},
             'PATCH /api/boards/:id': {'permission': 'board.edit', 'description': 'Edit board'},
             'GET /api/boards/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards'},
             'GET /api/boards/:id/cards': {'permission': 'card.view', 'description': 'View board cards'},
-            
+
             # Column management
             'GET /api/boards/:id/columns': {'permission': 'board.view', 'description': 'View board columns'},
             'POST /api/boards/:id/columns': {'permission': 'column.create', 'description': 'Create column'},
@@ -1046,7 +1058,7 @@ def get_permissions_mapping():
             'GET /api/columns/:id/cards': {'permission': 'card.view', 'description': 'View column cards'},
             'GET /api/columns/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards in column'},
             'POST /api/columns/:id/archive-after': {'permission': 'card.archive', 'description': 'Archive cards after position'},
-            
+
             # Card management
             'POST /api/columns/:id/cards': {'permission': 'card.create', 'description': 'Create card'},
             'DELETE /api/columns/:id/cards': {'permission': 'card.delete', 'description': 'Delete all cards in column'},
@@ -1060,12 +1072,13 @@ def get_permissions_mapping():
             'PATCH /api/cards/:id/done': {'permission': 'card.update', 'description': 'Update card done status'},
             'POST /api/cards/batch/archive': {'permission': 'card.archive', 'description': 'Batch archive cards'},
             'POST /api/cards/batch/unarchive': {'permission': 'card.archive', 'description': 'Batch unarchive cards'},
-            
+
             # Schedule management
             'POST /api/schedules': {'permission': 'schedule.create', 'description': 'Create scheduled card'},
-            'PATCH /api/schedules/:id': {'permission': 'schedule.edit', 'description': 'Update schedule'},
+            'GET /api/schedules/:id': {'permission': 'schedule.view', 'description': 'View schedule details'},
+            'PUT /api/schedules/:id': {'permission': 'schedule.edit', 'description': 'Update schedule'},
             'DELETE /api/schedules/:id': {'permission': 'schedule.delete', 'description': 'Delete schedule'},
-            
+
             # Settings
             'GET /api/settings/schema': {'permission': 'setting.view', 'description': 'View settings schema'},
             'GET /api/settings/:key': {'permission': 'setting.view', 'description': 'View setting'},
@@ -1077,7 +1090,7 @@ def get_permissions_mapping():
             'PUT /api/settings/housekeeping/config': {'permission': 'setting.edit', 'description': 'Update housekeeping config'},
             'GET /api/settings/card-scheduler/status': {'permission': 'setting.view', 'description': 'View scheduler status'},
             'PUT /api/settings/card-scheduler/config': {'permission': 'setting.edit', 'description': 'Update scheduler config'},
-            
+
             # Database backups
             'GET /api/database/backup': {'permission': 'admin.database', 'description': 'Download database backup'},
             'POST /api/database/backup/manual': {'permission': 'admin.database', 'description': 'Create manual backup'},
@@ -1087,7 +1100,7 @@ def get_permissions_mapping():
             'DELETE /api/database/backups/delete/:filename': {'permission': 'admin.database', 'description': 'Delete backup'},
             'POST /api/database/backups/delete-multiple': {'permission': 'admin.database', 'description': 'Delete multiple backups'},
             'DELETE /api/database': {'permission': 'admin.database', 'description': 'Reset database'},
-            
+
             # User management (from user_management.py blueprint)
             'GET /api/users': {'permission': 'user.manage', 'description': 'List all users'},
             'GET /api/users/:id': {'permission': 'user.manage', 'description': 'Get user details'},
@@ -1096,32 +1109,36 @@ def get_permissions_mapping():
             'PATCH /api/users/:id/active': {'permission': 'user.manage', 'description': 'Toggle user active status'},
             'POST /api/users/:id/roles': {'permission': 'user.role', 'description': 'Assign user role'},
             'DELETE /api/users/:id/roles/:role_id': {'permission': 'user.role', 'description': 'Remove user role'},
-            
+
             # Role management (from role_management.py blueprint)
             'GET /api/roles': {'permission': 'role.manage', 'description': 'List all roles'},
             'POST /api/roles': {'permission': 'role.manage', 'description': 'Create role'},
             'GET /api/roles/:id': {'permission': 'role.manage', 'description': 'Get role details'},
             'PATCH /api/roles/:id': {'permission': 'role.manage', 'description': 'Update role'},
             'DELETE /api/roles/:id': {'permission': 'role.manage', 'description': 'Delete role'},
-            'GET /api/roles/permission-model': {'permission': None, 'description': 'Get permission model (public)'},
-            
+            'GET /api/roles/permission-model': {'mode': 'public', 'description': 'Get permission model (public)'},
+
             # Theme management
-            'GET /api/themes': {'permission': None, 'description': 'List themes (public)'},
+            'GET /api/themes': {'permission': 'theme.view', 'description': 'List themes'},
             'POST /api/themes': {'permission': 'theme.create', 'description': 'Create theme'},
-            'GET /api/themes/:id': {'permission': None, 'description': 'Get theme (public)'},
-            'PATCH /api/themes/:id': {'permission': 'theme.edit', 'description': 'Update theme'},
+            'GET /api/themes/:id': {'permission': 'theme.view', 'description': 'Get theme details'},
+            'PUT /api/themes/:id': {'permission': 'theme.edit', 'description': 'Update theme'},
+            'PUT /api/themes/:id/rename': {'permission': 'theme.edit', 'description': 'Rename theme'},
             'DELETE /api/themes/:id': {'permission': 'theme.delete', 'description': 'Delete theme'},
-            
+
             # System/Monitoring
             'GET /api/stats': {'permission': 'board.view', 'description': 'View statistics'},
             'GET /api/scheduler/health': {'permission': 'setting.view', 'description': 'View scheduler health'},
             'GET /api/broadcast-status': {'permission': 'monitoring.system', 'description': 'View broadcast status'},
         }
-        
+
         return jsonify({
             'success': True,
             'endpoint_permissions': endpoint_mapping,
             'user_permissions': sorted(list(user_perms)),
+            'user_context': {
+                'has_board_assignment': has_board_assignment
+            },
             'board_id': board_id
         })
         
@@ -1131,6 +1148,8 @@ def get_permissions_mapping():
             'success': False,
             'message': f'Failed to get permissions mapping: {str(e)}'
         }), 500
+    finally:
+      db.close()
 
 
 @app.route("/api/broadcast-status")
@@ -3748,17 +3767,26 @@ def get_boards():
 
         # Allow board list access when user has global board permissions OR
         # any board-specific assignment (e.g., board_viewer/board_editor).
-        has_global_board_perm = (
-          has_permission(user_perms, 'board.view')
-          or has_permission(user_perms, 'board.create')
-        )
+        can_view_boards = has_permission(user_perms, 'board.view')
+        can_create_boards = has_permission(user_perms, 'board.create')
+        has_global_board_perm = can_view_boards or can_create_boards
         has_board_assignment = db.query(UserRole.id).filter(
           UserRole.user_id == user_id,
           UserRole.board_id.isnot(None)
         ).first() is not None
 
         if not has_global_board_perm and not has_board_assignment:
-          abort(403, description="Permission denied: requires board.view or board.create")
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "boards_access_denied",
+                    "message": "You do not have access to any existing boards and you do not have permission to create a new board. Ask an administrator to grant board.view access or the board_creator role.",
+                    "details": {
+                        "can_create_board": False,
+                        "has_board_access": False,
+                    },
+                }
+            ), 403
         
         if has_permission(user_perms, 'system.admin'):
             # Admins see all boards in the system

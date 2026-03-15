@@ -273,6 +273,24 @@ def test_single_permission_is_sufficient_for_representative_action(
     )
 
 
+def test_boards_endpoint_returns_helpful_403_for_user_with_no_board_access(
+    authenticated_session,
+):
+    """A user with no board roles/perms should get a clear 403 from GET /api/boards."""
+    suffix = uuid.uuid4().hex[:8]
+    _, user_session = _create_permission_user(authenticated_session, suffix)
+
+    response = _request(user_session, "GET", "/api/boards")
+
+    assert response.status_code == 403, response.text
+    data = response.json()
+    assert data.get("success") is False
+    assert data.get("error") == "boards_access_denied"
+    assert "do not have access to any existing boards" in data.get("message", "")
+    assert data.get("details", {}).get("can_create_board") is False
+    assert data.get("details", {}).get("has_board_access") is False
+
+
 def test_permission_model_gaps_are_explicit():
     """Keep unbound permission definitions explicit until API coverage exists."""
     exercised_permissions = {case["permission"] for case in PERMISSION_CASES}

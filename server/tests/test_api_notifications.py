@@ -962,3 +962,131 @@ class TestNotificationSecurityURLValidation:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
+
+
+@pytest.mark.api
+class TestNotificationIDORSecurity:
+    """Regression tests for Issue 3: Notification authorization IDOR (cross-user mutation).
+
+    Each test verifies that a request from User B cannot read, mutate, or
+    enumerate notifications that belong to User A.
+    """
+
+    def test_cannot_mark_other_users_notification_as_read(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """User B must not be able to mark User A's notification as read."""
+        create_resp = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User A private',
+            'message': 'Belongs to user A',
+        })
+        assert create_resp.status_code == 201
+        notif_id = create_resp.json()['notification']['id']
+
+        response = second_user_session.put(f'{api_client}/api/notifications/{notif_id}/read')
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        check = authenticated_session.get(f'{api_client}/api/notifications')
+        notifs = check.json()['notifications']
+        target = next((n for n in notifs if n['id'] == notif_id), None)
+        assert target is not None, "User A's notification disappeared"
+        assert target['unread'] is True, "Notification was unexpectedly marked read by User B"
+
+    def test_cannot_mark_other_users_notification_as_unread(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """User B must not be able to mark User A's notification as unread."""
+        create_resp = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User A read notif',
+            'message': 'Already read',
+        })
+        assert create_resp.status_code == 201
+        notif_id = create_resp.json()['notification']['id']
+        authenticated_session.put(f'{api_client}/api/notifications/{notif_id}/read')
+
+        response = second_user_session.put(f'{api_client}/api/notifications/{notif_id}/unread')
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        check = authenticated_session.get(f'{api_client}/api/notifications')
+        notifs = check.json()['notifications']
+        target = next((n for n in notifs if n['id'] == notif_id), None)
+        assert target is not None, "User A's notification disappeared"
+        assert target['unread'] is False, "Notification was unexpectedly flipped to unread by User B"
+
+    def test_cannot_delete_other_users_notification(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """User B must not be able to delete User A's notification."""
+        create_resp = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Do not delete',
+            'message': 'Belongs to user A',
+        })
+        assert create_resp.status_code == 201
+        notif_id = create_resp.json()['notification']['id']
+
+        response = second_user_session.delete(f'{api_client}/api/notifications/{notif_id}')
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        check = authenticated_session.get(f'{api_client}/api/notifications')
+        notifs = check.json()['notifications']
+        assert any(n['id'] == notif_id for n in notifs), (
+            "User A's notification was deleted by User B"
+        )
+
+    def test_mark_all_read_only_affects_own_notifications(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """User B's mark-all-read must not touch User A's unread notifications."""
+        create_resp = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User A unread',
+            'message': 'Should stay unread',
+        })
+        assert create_resp.status_code == 201
+        a_notif_id = create_resp.json()['notification']['id']
+
+        b_create = second_user_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User B unread',
+            'message': 'User B notification',
+        })
+        assert b_create.status_code == 201
+
+        mark_resp = second_user_session.put(f'{api_client}/api/notifications/mark-all-read')
+        assert mark_resp.status_code == 200
+        assert mark_resp.json()['count'] == 1, "Expected exactly User B's 1 notification to be updated"
+
+        check = authenticated_session.get(f'{api_client}/api/notifications')
+        notifs = check.json()['notifications']
+        target = next((n for n in notifs if n['id'] == a_notif_id), None)
+        assert target is not None, "User A's notification disappeared"
+        assert target['unread'] is True, "User A's notification was marked read by User B's bulk action"
+
+    def test_delete_all_only_affects_own_notifications(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """User B's delete-all must not delete User A's notifications."""
+        create_resp = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User A must survive',
+            'message': 'Should not be deleted',
+        })
+        assert create_resp.status_code == 201
+        a_notif_id = create_resp.json()['notification']['id']
+
+        second_user_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'User B to delete',
+            'message': 'User B notification',
+        })
+        delete_resp = second_user_session.delete(f'{api_client}/api/notifications/delete-all')
+        assert delete_resp.status_code == 200
+        assert delete_resp.json()['count'] == 1, "Expected exactly User B's 1 notification to be deleted"
+
+        check = authenticated_session.get(f'{api_client}/api/notifications')
+        notifs = check.json()['notifications']
+        assert any(n['id'] == a_notif_id for n in notifs), (
+            "User A's notification was deleted by User B's delete-all"
+        )

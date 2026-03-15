@@ -83,7 +83,7 @@ Recommendations:
 ---
 
 ### 3) High: Notification authorization IDOR (cross-user mutation)
-Status: Confirmed in live testing.
+Status: **Fixed (2026-03-15)**
 
 What was observed:
 - User A created a notification.
@@ -96,14 +96,25 @@ Primary code references:
 - server/app.py:8389 (delete one)
 - server/app.py:8438 (mark all read globally)
 - server/app.py:8486 (delete all globally)
+- server/tests/test_api_notifications.py (cross-user IDOR regression tests)
 
 Impact:
 - Horizontal privilege abuse (cross-user data/state manipulation).
 
+Actions taken:
+- Added user ownership filtering (`Notification.user_id == get_current_user_id()`) for:
+   - `PUT /api/notifications/<id>/read`
+   - `PUT /api/notifications/<id>/unread`
+   - `DELETE /api/notifications/<id>`
+- Scoped bulk operations to current user:
+   - `PUT /api/notifications/mark-all-read`
+   - `DELETE /api/notifications/delete-all`
+- Added regression coverage for cross-user mutation attempts (mark read/unread, delete one, mark-all-read, delete-all) to ensure User B cannot mutate User A notifications.
+
 Recommendations:
-- Scope all notification queries by current user id.
-- Scope bulk operations by current user id.
-- Add tests for cross-user notification access/mutation denial.
+- ~~Scope all notification queries by current user id.~~ **FIXED**
+- ~~Scope bulk operations by current user id.~~ **FIXED**
+- ~~Add tests for cross-user notification access/mutation denial.~~ **FIXED**
 
 ---
 

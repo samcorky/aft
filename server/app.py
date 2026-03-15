@@ -8322,7 +8322,10 @@ def mark_notification_read(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -8375,7 +8378,10 @@ def mark_notification_unread(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -8428,7 +8434,10 @@ def delete_notification(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -8476,8 +8485,12 @@ def mark_all_notifications_read():
     try:
         from models import Notification
 
-        # Update all unread notifications
-        result = db.query(Notification).filter(Notification.unread.is_(True)).update({"unread": False})
+        # Update all unread notifications belonging to the current user
+        current_user_id = get_current_user_id()
+        result = db.query(Notification).filter(
+            Notification.unread.is_(True),
+            Notification.user_id == current_user_id
+        ).update({"unread": False})
         db.commit()
 
         logger.info(f"Marked {result} notifications as read")
@@ -8524,8 +8537,11 @@ def delete_all_notifications():
     try:
         from models import Notification
 
-        # Delete all notifications
-        result = db.query(Notification).delete()
+        # Delete all notifications belonging to the current user
+        current_user_id = get_current_user_id()
+        result = db.query(Notification).filter(
+            Notification.user_id == current_user_id
+        ).delete()
         db.commit()
 
         logger.info(f"Deleted {result} notifications")

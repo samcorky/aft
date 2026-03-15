@@ -2,6 +2,7 @@
 import pytest
 import requests
 import time
+import uuid
 
 
 # API base URL - tests hit through nginx like external API clients would
@@ -428,3 +429,55 @@ def sample_notification(api_client, authenticated_session):
     assert response.status_code == 201
     notification = response.json()['notification']
     return notification
+
+
+@pytest.fixture
+def second_user_session(api_client, test_admin_session):
+    """Return an authenticated session for a unique second user.
+
+    The user is created and approved per test to avoid brittle reuse of
+    previously-created pending accounts from earlier runs.
+    """
+    session = requests.Session()
+
+    suffix = uuid.uuid4().hex[:8]
+    generated_password = f"TestUserB-{uuid.uuid4().hex[:12]}-Aa1!"
+    test_user_payload = {
+        "email": f"test-user-b-{suffix}@localhost",
+        "username": f"test-user-b-{suffix}",
+        "password": generated_password,
+        "display_name": f"Test User B {suffix}",
+    }
+
+    # Register user B and approve it before login.
+    register_response = session.post(f"{api_client}/api/auth/register", json={
+        "email": test_user_payload["email"],
+        "username": test_user_payload["username"],
+        "password": test_user_payload["password"],
+        "display_name": test_user_payload["display_name"],
+    })
+    assert register_response.status_code == 201, (
+        f"Failed to register test-user-b: {register_response.status_code} - {register_response.text}"
+    )
+
+    register_data = register_response.json()
+    user_id = register_data.get('user', {}).get('id') or register_data.get('data', {}).get('user', {}).get('id')
+    assert user_id is not None, "Register response missing user id for test-user-b"
+
+    approve_resp = test_admin_session.post(f"{api_client}/api/users/{user_id}/approve")
+    assert approve_resp.status_code == 200, (
+        f"Failed to approve test-user-b: {approve_resp.status_code} - {approve_resp.text}"
+    )
+
+    login_response = session.post(f"{api_client}/api/auth/login", json={
+        "email": test_user_payload["email"],
+        "password": test_user_payload["password"],
+    })
+    assert login_response.status_code == 200, (
+        f"Login as test-user-b failed: {login_response.status_code} – {login_response.text}"
+    )
+
+    yield session
+
+    # Clean up user B's notifications after the test.
+    session.delete(f"{api_client}/api/notifications/delete-all")

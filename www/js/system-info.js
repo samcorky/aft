@@ -142,8 +142,8 @@ class SystemInfo {
   async loadSystemInfo() {
     try {
       // Fetch all data in parallel
-      const [testResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse, cardSchedulerStatusResponse, schedulerHealthResponse] = await Promise.all([
-        fetch('/api/test'),
+      const [liveResponse, versionResponse, statsResponse, backupStatusResponse, housekeepingStatusResponse, cardSchedulerStatusResponse, schedulerHealthResponse] = await Promise.all([
+        fetch('/api/health/live'),
         fetch('/api/version'),
         fetch('/api/stats'),
         fetch('/api/settings/backup/status'),
@@ -152,7 +152,7 @@ class SystemInfo {
         fetch('/api/scheduler/health')
       ]);
 
-      const testData = await testResponse.json();
+      const liveData = await liveResponse.json();
       const versionData = await versionResponse.json();
       const statsData = await statsResponse.json();
       const backupStatusData = await backupStatusResponse.json();
@@ -162,7 +162,7 @@ class SystemInfo {
 
       // Update connection status
       const connectionElement = document.getElementById('db-connection');
-      if (testData.success) {
+      if (liveData.ok && versionData.success) {
         connectionElement.innerHTML = `
           <span class="status-icon success"></span>
           <span>Connected</span>

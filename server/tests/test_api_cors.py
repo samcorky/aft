@@ -334,11 +334,11 @@ class TestCORSWithDifferentEndpoints:
         )
         assert response.status_code == 200
 
-    def test_cors_on_test_endpoint(self, api_client, authenticated_session):
-        """Test CORS validation on health/test endpoint."""
+    def test_cors_on_liveness_endpoint(self, api_client, authenticated_session):
+        """Test CORS validation on public liveness endpoint."""
         headers = {'Origin': 'http://localhost'}
         response = authenticated_session.get(
-            f'{api_client}/api/test',
+            f'{api_client}/api/health/live',
             headers=headers
         )
         assert response.status_code == 200

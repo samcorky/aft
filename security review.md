@@ -201,6 +201,14 @@ Recommendations:
 - Protect bootstrap route via one-time setup token and narrow exposure window.
 - Auto-disable setup route after first successful bootstrap.
 
+Implementation plan:
+- Add a public minimal liveness endpoint (`/api/health/live`) and move DB/API readiness checks to `/api/health/ready`.
+- Protect readiness with `X-Health-Token` (`HEALTHCHECK_TOKEN`) plus source IP allow-list (`HEALTHCHECK_ALLOWED_SOURCE_IP`, default `127.0.0.1` for same-host compose).
+- Update compose `server` healthcheck to call `/api/health/ready` with the token header so `nginx` startup gating still works.
+- Add regression tests for liveness data minimization, readiness token/IP enforcement, and compose healthcheck behavior.
+
+**Note on setup endpoint protection**: Setup endpoints (`/api/auth/setup/status`, `/api/auth/setup/admin`) are intentionally deferred from token-based protection. Setup operations should only occur before the instance is internet-facing (during initial deployment). Requiring a setup bootstrap token adds operational complexity (token generation, distribution, environment variable management) for a scenario that should be prevented by deployment practices—namely, not exposing an unconfigured instance to untrusted network access. Setup should be completed immediately after deployment starts, within a controlled environment. Therefore, defending against attacks that assume internet exposure before proper initialization is out of scope; the primary defense is deployment discipline rather than application mechanics.
+
 ---
 
 ### 7) Medium: Production-accessible test-admin creation path with known credentials

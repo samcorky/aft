@@ -736,14 +736,14 @@ class Header {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    let testData = null;
+    let liveData = null;
     
     try {
-      const response = await fetch('/api/test', {
+      const response = await fetch('/api/health/live', {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      testData = await response.json();
+      liveData = await response.json();
     } catch (error) {
       clearTimeout(timeoutId);
       // Server is not responding - network error or server is down
@@ -770,7 +770,7 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
-        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // Set dbConnected=true: We've already verified server is reachable (via /api/health/live above)
         // WebSocket failure doesn't affect REST API calls or database operations
         this.dbConnected = true;
         return;
@@ -786,7 +786,7 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // Set dbConnected=true: We've already verified server is reachable (via /api/health/live above)
         // WebSocket failure doesn't affect REST API calls or database operations
         this.dbConnected = true;
         return;
@@ -801,29 +801,51 @@ class Header {
       }
     }
 
-    // Third: Check database health (API returned but may indicate DB error)
-    if (!testData || !testData.success) {
-      // Database is unhealthy - API responded but database connection failed
+    if (!liveData || !liveData.ok) {
       this.statusIcon.className = 'status-icon error';
-      this.statusText.textContent = 'DB Error';
-      this.statusText.title = testData?.message || 'Database error. Check database connection.';
+      this.statusText.textContent = 'Server Disconnected';
+      this.statusText.title = 'Unable to connect to server. Check your connection or try refreshing the page.';
       this.dbConnected = false;
       return;
     }
 
-    // All systems OK - get full status
-    const versionController = new AbortController();
-    const versionTimeoutId = setTimeout(() => versionController.abort(), 5000);
+    // Third: Check database health via authenticated version endpoint
+    let versionData = null;
+    const dbController = new AbortController();
+    const dbTimeoutId = setTimeout(() => dbController.abort(), 5000);
+
+    try {
+      const versionResponse = await fetch('/api/version', { signal: dbController.signal });
+      clearTimeout(dbTimeoutId);
+      versionData = await versionResponse.json();
+
+      if (!versionResponse.ok || !versionData.success) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'DB Error';
+        this.statusText.title = versionData?.message || 'Database error. Check database connection.';
+        this.dbConnected = false;
+        return;
+      }
+    } catch (err) {
+      clearTimeout(dbTimeoutId);
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'DB Error';
+      this.statusText.title = err.name === 'AbortError'
+        ? 'Database check timed out (5s).'
+        : `Database check failed: ${err.message}`;
+      this.dbConnected = false;
+      return;
+    }
+
+    // All systems OK - get scheduler status
+    const healthController = new AbortController();
+    const healthTimeoutId = setTimeout(() => healthController.abort(), 5000);
     
     try {
-      const [versionResponse, healthResponse] = await Promise.all([
-        fetch('/api/version', { signal: versionController.signal }),
-        fetch('/api/scheduler/health', { signal: versionController.signal })
-      ]);
+      const healthResponse = await fetch('/api/scheduler/health', { signal: healthController.signal });
       
-      clearTimeout(versionTimeoutId);
+      clearTimeout(healthTimeoutId);
       
-      const versionData = await versionResponse.json();
       const healthData = await healthResponse.json();
       
       // Check housekeeping scheduler health
@@ -832,14 +854,14 @@ class Header {
                                      housekeepingHealth.running && 
                                      housekeepingHealth.thread_alive;
       
-      this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
+      this.updateStatus('success', 'Connected', null, isHousekeepingHealthy);
       
       // Update version display
       if (versionData.success) {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
-      clearTimeout(versionTimeoutId);
+      clearTimeout(healthTimeoutId);
       
       // Server/connection error (not a DB-specific error)
       if (err.name === 'AbortError') {

@@ -5,19 +5,29 @@ import pytest
 
 @pytest.mark.api
 class TestHealthEndpoints:
-    """Tests for /api/test, /api/stats, and /api/scheduler/health endpoints."""
+    """Tests for health, stats, and scheduler-health endpoints."""
+
+    def test_liveness_endpoint(self, api_client, authenticated_session):
+        """Test public liveness endpoint."""
+        response = authenticated_session.get(f"{api_client}/api/health/live")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["ok"] is True
+
+    def test_readiness_requires_token(self, api_client, authenticated_session):
+        """Readiness endpoint should not be accessible without health token."""
+        response = authenticated_session.get(f"{api_client}/api/health/ready")
+        assert response.status_code == 404
 
     def test_database_connection(self, api_client, authenticated_session):
-        """Test database connection endpoint."""
+        """Test legacy database connection endpoint still functions for authenticated users."""
         response = authenticated_session.get(f"{api_client}/api/test")
         assert response.status_code == 200
         
         data = response.json()
         assert data["success"] is True
         assert data["message"] == "Connected to database"
-        assert "boards_count" in data
-        assert isinstance(data["boards_count"], int)
-        assert data["boards_count"] >= 0
 
     def test_database_stats_empty(self, api_client, authenticated_session, isolated_test):
         """Test stats endpoint with empty database."""

@@ -4,6 +4,7 @@ from flask_cors import CORS
 import logging
 import json
 import os
+import secrets
 import time
 import tempfile
 import subprocess
@@ -510,12 +511,16 @@ app.register_blueprint(role_mgmt_bp)
 def before_request():
     """Load authenticated user into Flask g object and check setup status."""
     # Skip setup check for setup/auth endpoints, health checks, and static files
-    if (request.path.startswith('/api/auth/setup') or
-        request.path == '/api/test' or  # Health check endpoint
+    if (
+        request.path.startswith('/api/auth/setup') or
+        request.path == '/api/test' or  # Legacy health endpoint
+        request.path == '/api/health/live' or
+        request.path == '/api/health/ready' or
         request.path.startswith('/setup.html') or
         request.path.startswith('/css/') or
         request.path.startswith('/js/') or
-        request.path.startswith('/images/')):
+        request.path.startswith('/images/')
+    ):
         load_user_from_session()
         return
     
@@ -1449,9 +1454,82 @@ def get_scheduler_health():
     return jsonify(health), 200
 
 
+def _healthcheck_allowed_source_ips():
+    """Return the configured set of source IPs allowed for readiness checks."""
+    allowed_raw = os.getenv('HEALTHCHECK_ALLOWED_SOURCE_IP', '127.0.0.1')
+    allowed_ips = {ip.strip() for ip in allowed_raw.split(',') if ip.strip()}
+    if '127.0.0.1' in allowed_ips:
+        allowed_ips.add('::1')
+    return allowed_ips
+
+
+def _is_internal_readiness_request_authorized():
+    """Validate token + source IP for the internal readiness endpoint."""
+    expected_token = os.getenv('HEALTHCHECK_TOKEN', '').strip()
+    provided_token = request.headers.get('X-Health-Token', '').strip()
+
+    if not expected_token:
+        logger.warning('HEALTHCHECK_TOKEN is not set; readiness request denied')
+        return False
+
+    if not provided_token or not secrets.compare_digest(provided_token, expected_token):
+        return False
+
+    remote_addr = (request.remote_addr or '').strip()
+    return remote_addr in _healthcheck_allowed_source_ips()
+
+
+@app.route("/api/health/live")
+def health_live():
+    """Public liveness endpoint with minimal disclosure.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: API process is reachable
+        schema:
+          type: object
+          properties:
+            ok:
+              type: boolean
+              example: true
+    """
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/health/ready")
+def health_ready():
+    """Internal readiness endpoint for compose health checks.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: API and database are ready
+      404:
+        description: Request is not authorized for readiness checks
+      503:
+        description: API is up but dependencies are not ready
+    """
+    if not _is_internal_readiness_request_authorized():
+        return jsonify({"ok": False}), 404
+
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        logger.warning(f"Readiness check failed: {e}")
+        return jsonify({"ok": False}), 503
+    finally:
+        db.close()
+
+
 @app.route("/api/test")
+@require_authentication
 def test_db():
-    """Test database connection and schema.
+    """Test database connectivity (legacy endpoint).
     ---
     tags:
       - Health
@@ -1467,9 +1545,6 @@ def test_db():
             message:
               type: string
               example: "Connected to database"
-            boards_count:
-              type: integer
-              example: 0
       500:
         description: Database connection failed
         schema:
@@ -1483,17 +1558,11 @@ def test_db():
     """
     db = SessionLocal()
     try:
-        # Test query
-        board_count = db.query(Board).count()
-        return jsonify(
-            {
-                "success": True,
-                "message": "Connected to database",
-                "boards_count": board_count,
-            }
-        )
+        db.execute(text("SELECT 1"))
+        return jsonify({"success": True, "message": "Connected to database"})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Legacy health check failed: {e}")
+        return jsonify({"success": False, "message": "Database not reachable"}), 500
     finally:
         db.close()
 

@@ -78,13 +78,12 @@ class TestThemeAPIForWebSocketSync:
         assert 'db_version' in data
     
     def test_health_check_endpoint_for_websocket_status(self, api_client, authenticated_session):
-        """Test /api/test endpoint used for WebSocket connection monitoring."""
-        response = authenticated_session.get(f'{api_client}/api/test')
+        """Test /api/health/live endpoint used for server connectivity monitoring."""
+        response = authenticated_session.get(f'{api_client}/api/health/live')
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
-        assert 'message' in data
+        assert data['ok'] is True
     
     def test_scheduler_health_endpoint(self, api_client, authenticated_session):
         """Test /api/scheduler/health endpoint for header status widget."""
@@ -150,13 +149,13 @@ class TestBoardAPIForWebSocketSync:
 class TestAPIErrorHandlingForWebSocket:
     """Test API error handling and fallback behavior for WebSocket features."""
     
-    def test_api_test_endpoint_available(self, api_client, authenticated_session):
-        """Test database connection check endpoint for WebSocket fallback."""
-        response = authenticated_session.get(f'{api_client}/api/test')
+    def test_api_liveness_endpoint_available(self, api_client, authenticated_session):
+        """Test server liveness endpoint for WebSocket fallback."""
+        response = authenticated_session.get(f'{api_client}/api/health/live')
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
+        assert data['ok'] is True
     
     def test_version_endpoint_timeout_resilience(self, api_client, authenticated_session):
         """Test that version endpoint responds within timeout window."""
@@ -174,7 +173,7 @@ class TestAPIErrorHandlingForWebSocket:
         # Make concurrent requests to simulate header status polling
         
         def health_check():
-            return authenticated_session.get(f'{api_client}/api/test', timeout=5)
+            return authenticated_session.get(f'{api_client}/api/version', timeout=5)
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = [executor.submit(health_check) for _ in range(3)]
@@ -248,10 +247,10 @@ class TestAPIIntegrationForWebSocket:
         
         def status_check():
             """Simulate header status widget polling."""
+            live = authenticated_session.get(f'{api_client}/api/health/live', timeout=5)
             version = authenticated_session.get(f'{api_client}/api/version', timeout=5)
             health = authenticated_session.get(f'{api_client}/api/scheduler/health', timeout=5)
-            test = authenticated_session.get(f'{api_client}/api/test', timeout=5)
-            return all(r.status_code == 200 for r in [version, health, test])
+            return all(r.status_code == 200 for r in [live, version, health])
         
         # Simulate 5-second polling interval with multiple concurrent clients
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:

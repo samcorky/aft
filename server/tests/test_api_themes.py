@@ -2,6 +2,94 @@
 import pytest
 import json
 import time
+import uuid
+import requests
+
+
+def _create_custom_theme(api_client, session, suffix):
+    """Create a custom theme for the authenticated session user and return it."""
+    themes_response = session.get(f'{api_client}/api/themes')
+    assert themes_response.status_code == 200
+    source_theme = themes_response.json()[0]
+
+    create_response = session.post(f'{api_client}/api/themes/copy', json={
+        'source_theme_id': source_theme['id'],
+        'new_name': f'IDOR Theme {suffix} {int(time.time() * 1000)}',
+    })
+    assert create_response.status_code == 201, create_response.text
+    return create_response.json()
+
+
+def _create_user_with_permissions(api_client, authenticated_session, permissions, suffix):
+    """Create, approve, and login a non-admin user with explicit permissions."""
+    session = requests.Session()
+    password = f"ThemePerm-{uuid.uuid4().hex[:12]}-Aa1!"
+    email = f"theme-perm-{suffix}-{uuid.uuid4().hex[:6]}@localhost"
+    username = f"theme_perm_{suffix}_{uuid.uuid4().hex[:6]}"
+
+    register_response = session.post(f'{api_client}/api/auth/register', json={
+        'email': email,
+        'username': username,
+        'password': password,
+    })
+    assert register_response.status_code == 201, register_response.text
+    user_id = register_response.json().get('user', {}).get('id')
+    assert user_id is not None
+
+    approve_response = authenticated_session.post(f'{api_client}/api/users/{user_id}/approve')
+    assert approve_response.status_code == 200, approve_response.text
+
+    role_name = f"theme_idor_viewer_{uuid.uuid4().hex[:8]}"
+    create_role = authenticated_session.post(f'{api_client}/api/roles', json={
+        'name': role_name,
+        'description': 'Theme IDOR viewer role',
+        'permissions': permissions,
+    })
+    assert create_role.status_code == 201, create_role.text
+
+    assign_role = authenticated_session.post(
+        f'{api_client}/api/users/{user_id}/roles',
+        json={'role_name': role_name},
+    )
+    assert assign_role.status_code == 200, assign_role.text
+
+    login_response = session.post(f'{api_client}/api/auth/login', json={
+        'email': email,
+        'password': password,
+    })
+    assert login_response.status_code == 200, login_response.text
+
+    return session
+
+
+@pytest.fixture
+def second_user_theme_session(api_client, authenticated_session, second_user_session):
+    """Second user session with explicit theme and setting permissions for IDOR checks."""
+    me = second_user_session.get(f'{api_client}/api/auth/me')
+    assert me.status_code == 200
+    second_user_id = me.json()['user']['id']
+
+    role_name = f"theme_idor_{uuid.uuid4().hex[:8]}"
+    create_role = authenticated_session.post(f'{api_client}/api/roles', json={
+        'name': role_name,
+        'description': 'Theme IDOR regression role',
+        'permissions': [
+            'theme.view',
+            'theme.create',
+            'theme.edit',
+            'theme.delete',
+            'setting.edit',
+        ],
+    })
+    assert create_role.status_code == 201, create_role.text
+
+    assign_role = authenticated_session.post(
+        f'{api_client}/api/users/{second_user_id}/roles',
+        json={'role_name': role_name},
+    )
+    assert assign_role.status_code == 200, assign_role.text
+
+    return second_user_session
 
 
 @pytest.mark.api
@@ -561,3 +649,140 @@ class TestThemesAPI:
         assert response.status_code == 404
         data = response.json()
         assert data['success'] is False
+
+
+@pytest.mark.api
+class TestThemeIDORSecurity:
+    """Regression tests for cross-user theme access and mutation protection."""
+
+    def test_user_b_cannot_get_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'get')
+
+        response = second_user_theme_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_update_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'update')
+
+        response = second_user_theme_session.put(
+            f"{api_client}/api/themes/{theme['id']}",
+            json={'name': f"Should Fail {int(time.time() * 1000)}"},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        verify = authenticated_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert verify.status_code == 200
+        assert verify.json()['name'] == theme['name']
+
+    def test_user_b_cannot_rename_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'rename')
+
+        response = second_user_theme_session.put(
+            f"{api_client}/api/themes/{theme['id']}/rename",
+            json={'name': f"Nope {int(time.time() * 1000)}"},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_delete_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'delete')
+
+        response = second_user_theme_session.delete(f"{api_client}/api/themes/{theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        verify = authenticated_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert verify.status_code == 200
+
+    def test_user_b_cannot_export_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'export')
+
+        response = second_user_theme_session.get(f"{api_client}/api/themes/{theme['id']}/export")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_copy_user_a_private_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'copy-source')
+
+        response = second_user_theme_session.post(f'{api_client}/api/themes/copy', json={
+            'source_theme_id': theme['id'],
+            'new_name': f"Copy Should Fail {int(time.time() * 1000)}",
+        })
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_set_current_theme_to_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'selected-theme')
+
+        response = second_user_theme_session.put(
+            f'{api_client}/api/settings/theme',
+            json={'theme_id': theme['id']},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_copy_creates_user_owned_theme_hidden_from_other_users(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        second_theme = _create_custom_theme(api_client, second_user_theme_session, 'owned-by-b')
+        third_user_view_session = _create_user_with_permissions(
+            api_client,
+            authenticated_session,
+            ['theme.view'],
+            'copy-hidden',
+        )
+
+        response = third_user_view_session.get(f"{api_client}/api/themes/{second_theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_import_creates_user_owned_theme_hidden_from_other_users(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        imported = second_user_theme_session.post(f'{api_client}/api/themes/import', json={
+            'name': f"Imported B {int(time.time() * 1000)}",
+            'settings': {
+                'primary-color': '#2ea043',
+                'text-color': '#111111',
+                'background-light': '#f7f7f7',
+                'card-bg-color': '#ffffff',
+            },
+            'background_image': None,
+        })
+        assert imported.status_code == 201, imported.text
+        imported_theme = imported.json()
+        third_user_view_session = _create_user_with_permissions(
+            api_client,
+            authenticated_session,
+            ['theme.view'],
+            'import-hidden',
+        )
+
+        response = third_user_view_session.get(f"{api_client}/api/themes/{imported_theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )

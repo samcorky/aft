@@ -233,8 +233,10 @@ PERMISSION_CASES = [
     {"permission": "setting.edit", "scope": "global", "method": "PUT", "path": "/api/settings/default_board", "json": {"value": None}, "expected": {200}},
     {"permission": "theme.create", "scope": "global", "method": "POST", "path": "/api/themes/import", "json": {"name": "Created Theme {suffix}", "settings": {"primary-color": "#2ea043", "text-color": "#111111", "background-light": "#f7f7f7", "card-bg-color": "#ffffff"}}, "expected": {201}},
     {"permission": "theme.view", "scope": "global", "method": "GET", "path": "/api/themes", "json": None, "expected": {200}},
-    {"permission": "theme.edit", "scope": "global", "method": "PUT", "path": "/api/themes/{theme_id}", "json": {"name": "Edited Theme {suffix}"}, "expected": {200}},
-    {"permission": "theme.delete", "scope": "global", "method": "DELETE", "path": "/api/themes/{theme_id}", "json": None, "expected": {200}},
+    # With ownership scoping, a user with theme.edit/theme.delete but without ownership
+    # of admin-created context themes should get fail-closed "not found".
+    {"permission": "theme.edit", "scope": "global", "method": "PUT", "path": "/api/themes/{theme_id}", "json": {"name": "Edited Theme {suffix}"}, "expected": {404}},
+    {"permission": "theme.delete", "scope": "global", "method": "DELETE", "path": "/api/themes/{theme_id}", "json": None, "expected": {404}},
 ]
 
 

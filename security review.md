@@ -149,24 +149,33 @@ Recommendations:
 ---
 
 ### 5) High: Theme ownership/scoping flaws and unintended global theme creation
-Status: Confirmed by code path review.
+Status: **Fixed in code (2026-03-16)**; targeted and full theme API regression tests passed.
 
 What was observed:
 - Several theme operations query by id without user scoping.
 - Theme copy/import create new themes without user_id, likely making them global.
 
 Primary code references:
-- server/app.py:8793, 8869, 8927, 9107, 9318, 9369 (id-based unscoped theme queries)
-- server/app.py:8994 and 9064 (theme creation without user_id)
+- server/app.py:8778 (`_get_user_accessible_theme` helper)
+- server/app.py:8887, 8964, 9023, 9208, 9419, 9470 (scoped lookup enforced in get/update/rename/delete/export/settings)
+- server/app.py:9096 and 9168 (copy/import now persist `user_id` ownership)
+- server/tests/test_api_themes.py:655 (cross-user IDOR regression suite)
 
 Impact:
 - Possible cross-user theme operations.
 - User-created assets may unintentionally become globally visible/manageable.
 
+Actions taken:
+- Added a shared `_get_user_accessible_theme(...)` helper that always resolves theme IDs through `get_user_scoped_query(...)` for the current user.
+- Replaced unscoped `Theme.id` lookups in get/update/rename/delete/export and current-theme setting endpoints with scoped lookup helper calls.
+- Updated theme copy/import creation paths to set `user_id` to the authenticated user, preventing accidental global custom theme creation.
+- Added dedicated cross-user regression tests covering GET/UPDATE/RENAME/DELETE/EXPORT/COPY source and selected-theme IDOR paths.
+- Added ownership isolation tests that verify custom themes created by one non-admin user are not retrievable by another non-admin user with `theme.view` permission.
+
 Recommendations:
-- Use user-scoped theme lookup consistently for all theme CRUD/export paths.
-- Set user_id to current user for user-created themes.
-- Keep system themes immutable and separated from user-owned themes.
+- ~~Use user-scoped theme lookup consistently for all theme CRUD/export paths.~~ **FIXED**
+- ~~Set user_id to current user for user-created themes.~~ **FIXED**
+- ~~Keep system themes immutable and separated from user-owned themes.~~ **PARTIALLY VERIFIED** (immutability unchanged; ownership separation enforced for copy/import)
 
 ---
 

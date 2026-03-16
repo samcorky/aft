@@ -788,6 +788,56 @@ def validate_backup_file_size(file_path, max_size_mb=100):
         return False, f"Error checking file size: {str(e)}"
 
 
+def create_database_with_retry(db_host, db_root_password, db_name, max_retries=5, retry_delay_seconds=2):
+    """Create database with retry for transient MySQL schema-directory race conditions.
+
+    MySQL 9 can transiently report ERROR 3678 (schema directory already exists)
+    immediately after a DROP DATABASE while filesystem cleanup is still settling.
+    """
+    create_db_cmd = [
+        "mysql",
+        f"-h{db_host}",
+        "-uroot",
+        f"-p{db_root_password}",
+        "--skip-ssl",
+        "-e",
+        f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    ]
+
+    last_stderr = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise Exception("Timeout while creating database")
+
+        if result.returncode == 0:
+            logger.info(f"Database {db_name} created successfully")
+            return
+
+        stderr = (result.stderr or "").strip()
+        last_stderr = stderr
+        is_schema_directory_race = (
+            "ERROR 3678" in stderr
+            and "Schema directory" in stderr
+            and "already exists" in stderr
+        )
+
+        if is_schema_directory_race and attempt < max_retries:
+            logger.warning(
+                f"Database create attempt {attempt}/{max_retries} hit MySQL schema directory race; "
+                f"retrying in {retry_delay_seconds}s"
+            )
+            time.sleep(retry_delay_seconds)
+            continue
+
+        logger.error(f"Failed to create database: {stderr}")
+        raise Exception(f"Failed to create database: {stderr}")
+
+    logger.error(f"Failed to create database after {max_retries} attempts: {last_stderr}")
+    raise Exception(f"Failed to create database after {max_retries} attempts: {last_stderr}")
+
+
 @app.route("/api/version")
 @require_authentication
 def get_version():
@@ -1985,25 +2035,7 @@ def restore_database():
         
         # Recreate the database
         logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
-        create_db_cmd = [
-            "mysql",
-            f"-h{db_host}",
-            "-uroot",
-            f"-p{db_root_password}",
-            "--skip-ssl",
-            "-e",
-            f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-        ]
-        
-        try:
-            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                logger.error(f"Failed to create database: {result.stderr}")
-                raise Exception(f"Failed to create database: {result.stderr}")
-            logger.info(f"Database {db_name} created successfully")
-        except subprocess.TimeoutExpired:
-            logger.error(f"Timeout while creating database")
-            raise Exception("Timeout while creating database")
+        create_database_with_retry(db_host, db_root_password, db_name)
         
         # Grant permissions to the application user
         logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
@@ -2437,25 +2469,7 @@ def restore_backup_from_file(filename):
         
         # Recreate the database
         logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
-        create_db_cmd = [
-            "mysql",
-            f"-h{db_host}",
-            "-uroot",
-            f"-p{db_root_password}",
-            "--skip-ssl",
-            "-e",
-            f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-        ]
-        
-        try:
-            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                logger.error(f"Failed to create database: {result.stderr}")
-                raise Exception(f"Failed to create database: {result.stderr}")
-            logger.info(f"Database {db_name} created successfully")
-        except subprocess.TimeoutExpired:
-            logger.error(f"Timeout while creating database")
-            raise Exception("Timeout while creating database")
+        create_database_with_retry(db_host, db_root_password, db_name)
         
         # Grant permissions to the application user
         logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
@@ -8774,6 +8788,11 @@ else:
 # Theme API Endpoints
 # ============================================================================
 
+
+def _get_user_accessible_theme(session, user_id, theme_id):
+    """Return a theme only if it is visible to the current user."""
+    return get_user_scoped_query(session, Theme, user_id).filter(Theme.id == theme_id).first()
+
 @app.route("/api/themes", methods=["GET"])
 @require_permission('theme.view')
 def get_themes():
@@ -8878,7 +8897,8 @@ def update_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -8954,7 +8974,8 @@ def rename_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -9012,7 +9033,8 @@ def delete_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -9061,6 +9083,7 @@ def copy_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         source_id = data.get('source_theme_id')
         new_name = data.get('new_name')
@@ -9069,7 +9092,7 @@ def copy_theme():
             return create_error_response("source_theme_id and new_name are required", 400)
         
         # Check if source theme exists
-        source_theme = session.query(Theme).filter(Theme.id == source_id).first()
+        source_theme = _get_user_accessible_theme(session, user_id, source_id)
         if not source_theme:
             return create_error_response("Source theme not found", 404)
         
@@ -9083,7 +9106,8 @@ def copy_theme():
             name=new_name,
             settings=source_theme.settings,
             background_image=source_theme.background_image,
-            system_theme=False  # Copied themes are never system themes
+            system_theme=False,  # Copied themes are never system themes
+            user_id=user_id,
         )
         session.add(new_theme)
         session.commit()
@@ -9131,6 +9155,7 @@ def import_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         name = data.get('name')
         settings = data.get('settings')
@@ -9153,7 +9178,8 @@ def import_theme():
             name=name,
             settings=json.dumps(settings),
             background_image=data.get('background_image'),
-            system_theme=False
+            system_theme=False,
+            user_id=user_id,
         )
         session.add(new_theme)
         session.commit()
@@ -9192,7 +9218,8 @@ def export_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -9403,7 +9430,7 @@ def get_current_theme():
             return create_error_response("No theme selected", 404)
         
         theme_id = int(setting.value)
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         
         if not theme:
             return create_error_response("Selected theme not found", 404)
@@ -9454,7 +9481,7 @@ def update_current_theme():
             return create_error_response("theme_id is required", 400)
         
         # Verify theme exists
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         

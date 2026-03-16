@@ -180,7 +180,7 @@ Recommendations:
 ---
 
 ### 6) Medium: Unauthenticated reconnaissance and bootstrap exposure
-Status: Confirmed in live testing and code review.
+Status: **Partially fixed (2026-03-16)**
 
 What was observed:
 - Public test endpoint returned database connectivity and board count.
@@ -188,7 +188,10 @@ What was observed:
 - Setup admin endpoint is intentionally unauthenticated when setup incomplete.
 
 Primary code references:
-- server/app.py:1360 and 1395 (public test endpoint with board count)
+- server/app.py:1482 (`/api/health/live` minimal public liveness)
+- server/app.py:1501 (`/api/health/ready` token + source IP readiness checks)
+- server/app.py:1529 (`/api/test` now authenticated and recon data removed)
+- compose.yml:58 (healthcheck now calls `/api/health/ready` with `X-Health-Token`)
 - server/auth.py:993 (setup status)
 - server/auth.py:1031 (setup admin)
 
@@ -196,18 +199,19 @@ Impact:
 - Recon information disclosure.
 - Increased first-deploy takeover risk if instance is exposed during bootstrap.
 
+Actions taken:
+- Added public minimal liveness endpoint (`/api/health/live`) that returns only `{ "ok": true }`.
+- Moved internal readiness checks to `/api/health/ready` and protected them with `X-Health-Token` (`HEALTHCHECK_TOKEN`) and source IP allow-list (`HEALTHCHECK_ALLOWED_SOURCE_IP`).
+- Updated compose `server` healthcheck to call `/api/health/ready` with the token header so `nginx` startup gating behavior remains intact.
+- Hardened legacy `/api/test` by requiring authentication and removing public recon details (including board count).
+- Added/updated regression coverage for liveness data minimization and readiness token enforcement.
+
 Recommendations:
-- Restrict/disable public health details in production.
-- Protect bootstrap route via one-time setup token and narrow exposure window.
-- Auto-disable setup route after first successful bootstrap.
+- ~~Restrict/disable public health details in production.~~ **FIXED**
+- ~~Protect bootstrap route via one-time setup token and narrow exposure window.~~ **DEFERRED BY DESIGN** (deployment policy)
+- ~~Auto-disable setup route after first successful bootstrap.~~ **DEFERRED BY DESIGN** (deployment policy)
 
-Implementation plan:
-- Add a public minimal liveness endpoint (`/api/health/live`) and move DB/API readiness checks to `/api/health/ready`.
-- Protect readiness with `X-Health-Token` (`HEALTHCHECK_TOKEN`) plus source IP allow-list (`HEALTHCHECK_ALLOWED_SOURCE_IP`, default `127.0.0.1` for same-host compose).
-- Update compose `server` healthcheck to call `/api/health/ready` with the token header so `nginx` startup gating still works.
-- Add regression tests for liveness data minimization, readiness token/IP enforcement, and compose healthcheck behavior.
-
-**Note on setup endpoint protection**: Setup endpoints (`/api/auth/setup/status`, `/api/auth/setup/admin`) are intentionally deferred from token-based protection. Setup operations should only occur before the instance is internet-facing (during initial deployment). Requiring a setup bootstrap token adds operational complexity (token generation, distribution, environment variable management) for a scenario that should be prevented by deployment practices—namely, not exposing an unconfigured instance to untrusted network access. Setup should be completed immediately after deployment starts, within a controlled environment. Therefore, defending against attacks that assume internet exposure before proper initialization is out of scope; the primary defense is deployment discipline rather than application mechanics.
+**Decision note on setup endpoint protection**: Setup endpoints (`/api/auth/setup/status`, `/api/auth/setup/admin`) are intentionally deferred from token-based protection. Setup operations are expected to occur only before the instance is internet-facing (during controlled initial deployment). Requiring a setup bootstrap token adds operational complexity (token generation, distribution, environment variable management) for a scenario that should be prevented by deployment practice: do not expose an unconfigured instance to untrusted network access.
 
 ---
 
@@ -256,7 +260,7 @@ Recommendations:
 2. Immediate: websocket authentication and board authorization on join/events. **Completed (2026-03-15)**
 3. Near-term: notification user scoping and batch card scope enforcement. **Implemented for both issues (2026-03-15)**
 4. Near-term: theme ownership scoping and user_id ownership guarantees.
-5. Near-term: bootstrap and test-only route hardening for production.
+5. Near-term: test-only route hardening for production; bootstrap token hardening is deferred by deployment policy.
 
 ## What Was Tested
 - Confirmed tested directly:

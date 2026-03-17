@@ -59,6 +59,12 @@ pytest
 
 **Note:** Tests automatically handle authentication by creating a test admin user. For detailed testing instructions including fresh database setup, see [server/TESTING.md](server/TESTING.md).
 
+## Contributing and Agent Context
+
+If you are contributing code (human or AI-assisted), start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For portable, agent-specific project context that should be available across machines via git, use [AGENT_CONTEXT.md](AGENT_CONTEXT.md). Keep this file concise and focused on stable workflow/security/testing facts.
+
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.

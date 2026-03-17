@@ -34,6 +34,50 @@
   border: 2px dashed var(--border-color);
 }
 
+.test-user-guidance-section {
+  border: 2px solid #d97706;
+  background: #fef3c7;
+}
+
+.test-user-guidance-section h3 {
+  color: #b45309;
+}
+
+.test-user-guidance-copy {
+  margin-bottom: 12px;
+  color: #92400e;
+  line-height: 1.5;
+}
+
+.test-user-credentials {
+  background: rgba(255, 255, 255, 0.7);
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-family: monospace;
+  font-size: 0.9em;
+  color: #78350f;
+}
+
+.test-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.test-user-action-note {
+  color: #92400e;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.test-user-status {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 6px;
+}
+
 /* Section Icon */
 .section-icon {
   width: 24px;

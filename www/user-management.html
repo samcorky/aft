@@ -18,9 +18,9 @@
   <main class="canvas">
     <h1 class="page-title">User Management</h1>
     <div class="settings-container">
-      
+
       <!-- Pending Users Section -->
-      <div class="settings-section">
+      <div class="settings-section" id="pending-users-section">
         <h3>
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -46,7 +46,7 @@
       </div>
 
       <!-- Active Users Section -->
-      <div class="settings-section">
+      <div class="settings-section" id="active-users-section">
         <h3>
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -89,7 +89,7 @@
       </div>
 
       <!-- Manage User Roles Section -->
-      <div class="settings-section">
+      <div class="settings-section" id="role-management-section">
         <h3>
           <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -146,6 +146,38 @@
         <div id="permission-model-content" style="display: none;">
           <!-- Permission model information will be populated here -->
         </div>
+      </div>
+
+      <!-- Test Compatibility Guidance Section -->
+      <div class="settings-section test-user-guidance-section" id="test-user-guidance-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          Test Compatibility Guidance
+        </h3>
+        <p class="setting-help" id="test-user-presence">Checking known test user status...</p>
+        <p class="test-user-guidance-copy">
+          API tests work with a clean database. If the database already contains users, the suite expects an approved administrator account with the following credentials.
+        </p>
+        <div class="test-user-credentials">
+          <strong>Test Account Credentials:</strong><br>
+          Email: test-admin@localhost<br>
+          Username: test-admin<br>
+          Password: TestAdmin123!
+        </div>
+        <p class="test-user-guidance-copy" id="test-user-compatibility">
+          This page does not create or grant the account. Remove the known test user when it is no longer required.
+        </p>
+        <div class="test-user-actions">
+          <button class="btn btn-danger" id="test-user-btn" style="display: none;">
+            <span id="test-user-btn-text">Remove Known Test User</span>
+          </button>
+          <div class="test-user-action-note" id="test-user-action-note"></div>
+        </div>
+        <div id="test-user-status" class="test-user-status" style="display: none;"></div>
       </div>
 
       <!-- Status Message -->

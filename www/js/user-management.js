@@ -31,6 +31,7 @@ class UserManagement {
     this.boardSelect = document.getElementById('board-select');
     this.addRoleCancelBtn = document.getElementById('add-role-cancel-btn');
     this.addRoleOkBtn = document.getElementById('add-role-ok-btn');
+    this.testUserSection = document.getElementById('test-user-guidance-section');
     
     this.pendingCallback = null;
     this.allUsers = [];
@@ -40,6 +41,10 @@ class UserManagement {
     this.roles = [];
     this.boards = [];
     this.canAssignAllRoles = false; // Whether user has role.manage permission
+    this.canManageUsers = false;
+    this.canViewTestUserGuidance = false;
+    this.canRemoveTestUser = false;
+    this.testUserDetected = false;
     
     // Permission model elements
     this.permissionModelLoading = document.getElementById('permission-model-loading');
@@ -56,6 +61,10 @@ class UserManagement {
     // Check permission before loading page content
     const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
     const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
+
+    this.canManageUsers = hasUserManage;
+    this.canViewTestUserGuidance = hasUserManage || hasUserRole;
+    this.canRemoveTestUser = hasUserManage;
     
     if (!hasUserManage && !hasUserRole) {
       // User doesn't have either permission - show access denied
@@ -78,6 +87,12 @@ class UserManagement {
       loadPromises.push(this.loadBoards());
       loadPromises.push(this.loadRoleUsers());
     }
+
+    if (this.canViewTestUserGuidance) {
+      loadPromises.push(this.loadTestUserGuidance());
+    } else if (this.testUserSection) {
+      this.testUserSection.style.display = 'none';
+    }
     
     // Load permission model for everyone (it's public documentation)
     loadPromises.push(this.loadPermissionModel());
@@ -96,15 +111,15 @@ class UserManagement {
     // Hide sections based on permissions
     if (!hasUserManage) {
       // Hide pending and active user sections if user can't manage users
-      const pendingSection = document.querySelector('.settings-section:nth-child(1)');
-      const activeSection = document.querySelector('.settings-section:nth-child(2)');
+      const pendingSection = document.getElementById('pending-users-section');
+      const activeSection = document.getElementById('active-users-section');
       if (pendingSection) pendingSection.style.display = 'none';
       if (activeSection) activeSection.style.display = 'none';
     }
     
     if (!hasUserRole) {
       // Hide role assignment section if user can't assign roles
-      const roleSection = document.querySelector('.settings-section:nth-child(3)');
+      const roleSection = document.getElementById('role-management-section');
       if (roleSection) roleSection.style.display = 'none';
     }
   }
@@ -167,6 +182,13 @@ class UserManagement {
         if (e.target === this.addRoleModal) {
           this.closeAddRoleModal();
         }
+      });
+    }
+
+    const testUserBtn = document.getElementById('test-user-btn');
+    if (testUserBtn) {
+      testUserBtn.addEventListener('click', () => {
+        this.confirmRemoveKnownTestUser();
       });
     }
   }
@@ -602,6 +624,146 @@ class UserManagement {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  async loadTestUserGuidance() {
+    const presence = document.getElementById('test-user-presence');
+    const compatibility = document.getElementById('test-user-compatibility');
+    const actionNote = document.getElementById('test-user-action-note');
+    const statusDiv = document.getElementById('test-user-status');
+    const btn = document.getElementById('test-user-btn');
+    const btnText = document.getElementById('test-user-btn-text');
+
+    if (!presence || !compatibility || !actionNote || !statusDiv || !btn || !btnText) {
+      return;
+    }
+
+    if (this.testUserSection) {
+      this.testUserSection.style.display = 'block';
+    }
+
+    try {
+      const response = await fetch('/api/admin/test-user');
+      if (!response.ok) {
+        throw new Error(`Status check failed (${response.status})`);
+      }
+
+      const data = await response.json();
+      const detectedUser = data.detected_user;
+
+      this.testUserDetected = Boolean(detectedUser);
+      this.canRemoveTestUser = Boolean(data.permissions?.can_remove);
+
+      if (detectedUser) {
+        presence.textContent = data.test_user_compatible
+          ? 'Known test user detected and matches the current test suite expectations.'
+          : 'Known test user detected, but it is not active and approved. Tests may still fail until it is fixed or removed.';
+
+        compatibility.textContent = data.test_user_compatible
+          ? 'A clean database also works. Remove this account when testing is complete or when the environment should no longer contain known credentials.'
+          : 'A clean database is compatible. On a non-clean database, the known test user must be active and approved to satisfy the current test suite.';
+      } else {
+        presence.textContent = 'No known test user detected.';
+        compatibility.textContent = 'A clean database is already compatible with the tests. If tests must run against an existing database, create the approved administrator account shown above outside this page.';
+      }
+
+      if (this.canRemoveTestUser && this.testUserDetected) {
+        btn.style.display = 'inline-flex';
+        btn.disabled = false;
+        btnText.textContent = 'Remove Known Test User';
+        actionNote.textContent = 'Removal is available because you have user.manage.';
+      } else {
+        btn.style.display = 'none';
+        actionNote.textContent = this.testUserDetected
+          ? 'A user with user.manage should remove this account when it is no longer required.'
+          : 'This page no longer creates the known test user.';
+      }
+    } catch (error) {
+      console.error('Error loading test user guidance:', error);
+      this.testUserDetected = false;
+      btn.style.display = 'none';
+      presence.textContent = 'Unable to verify known test user status right now.';
+      compatibility.textContent = 'A clean database is still compatible with the tests.';
+      actionNote.textContent = 'Retry the page if you need to re-check the known test user.';
+      statusDiv.style.display = 'none';
+    }
+  }
+
+  confirmRemoveKnownTestUser() {
+    if (!this.testUserDetected || !this.canRemoveTestUser) {
+      return;
+    }
+
+    this.showConfirmModal(
+      'Remove Known Test User',
+      'Are you sure you want to remove the known test user? This page cannot recreate it.',
+      async () => {
+        await this.removeKnownTestUser();
+      }
+    );
+  }
+
+  async removeKnownTestUser() {
+    const btn = document.getElementById('test-user-btn');
+    const btnText = document.getElementById('test-user-btn-text');
+    const statusDiv = document.getElementById('test-user-status');
+
+    if (!btn || !btnText || !statusDiv) {
+      return;
+    }
+
+    btn.disabled = true;
+    const originalText = btnText.textContent;
+    btnText.textContent = 'Processing...';
+
+    try {
+      const response = await fetch('/api/admin/test-user', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Failed to remove known test user');
+      }
+
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = '#d1fae5';
+      statusDiv.style.color = '#065f46';
+      statusDiv.innerHTML = '<strong>Known test user removed successfully.</strong>';
+
+      if (data.deleted_current_user) {
+        statusDiv.innerHTML = '<strong>Known test user removed successfully.</strong><br>Redirecting to login...';
+        setTimeout(() => {
+          window.location.href = '/login.html';
+        }, 1200);
+        return;
+      }
+
+      const refreshPromises = [this.loadTestUserGuidance()];
+      if (this.canManageUsers) {
+        refreshPromises.push(this.loadActiveUsers());
+      }
+      if (typeof hasPermission === 'function' && hasPermission('user.role')) {
+        refreshPromises.push(this.loadRoleUsers());
+      }
+      await Promise.all(refreshPromises);
+
+      setTimeout(() => {
+        statusDiv.style.display = 'none';
+      }, 5000);
+    } catch (error) {
+      console.error('Error removing known test user:', error);
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = '#fee2e2';
+      statusDiv.style.color = '#991b1b';
+      statusDiv.textContent = `Error: ${error.message}`;
+    } finally {
+      btn.disabled = false;
+      btnText.textContent = originalText;
+    }
   }
 
   // Role assignment methods

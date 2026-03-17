@@ -196,37 +196,52 @@ def authenticated_session(test_admin_session):
         
         # Clear cookies
         test_admin_session.cookies.clear()
-        
-        # Check if we need to create admin (no users exist)
-        setup_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/setup/status")
-        if setup_response.status_code == 200:
+
+        deadline = time.time() + 10
+        last_error = "unknown"
+
+        while time.time() < deadline:
+            setup_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/setup/status")
+            if setup_response.status_code != 200:
+                last_error = f"setup status HTTP {setup_response.status_code}"
+                time.sleep(0.2)
+                continue
+
             setup_data = setup_response.json()
-            
+
             if not setup_data.get('setup_complete', False):
-                # Create admin via setup
                 admin_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
                     "email": "test-admin@localhost",
                     "username": "test-admin",
                     "password": "TestAdmin123!",
                     "display_name": "Test Admin"
                 })
-                if admin_response.status_code not in (200, 201):
-                    raise Exception(f"Failed to recreate test admin: HTTP {admin_response.status_code}")
-                print("[Test Setup] Test admin recreated successfully")
+                if admin_response.status_code in (200, 201):
+                    print("[Test Setup] Test admin recreated successfully")
+                else:
+                    last_error = f"setup admin HTTP {admin_response.status_code}"
+                    time.sleep(0.2)
+                    continue
             else:
-                # Admin exists, just login
                 login_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
                     "email": "test-admin@localhost",
                     "password": "TestAdmin123!"
                 })
-                if login_response.status_code != 200:
-                    raise Exception(f"Failed to login as test admin: HTTP {login_response.status_code}")
-                print("[Test Setup] Logged in as test admin successfully")
-        
-        # Verify session is now valid
-        verify_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
-        if verify_response.status_code != 200:
-            raise Exception(f"Session still invalid after recreation: HTTP {verify_response.status_code}")
+                if login_response.status_code == 200:
+                    print("[Test Setup] Logged in as test admin successfully")
+                else:
+                    last_error = f"login HTTP {login_response.status_code}"
+                    time.sleep(0.2)
+                    continue
+
+            verify_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
+            if verify_response.status_code == 200:
+                break
+
+            last_error = f"auth check HTTP {verify_response.status_code}"
+            time.sleep(0.2)
+        else:
+            raise Exception(f"Session still invalid after recreation: {last_error}")
     
     return test_admin_session
 
@@ -286,16 +301,82 @@ def _delete_all_data(session=None):
     """
     # Use provided session or fallback to requests module
     http = session if session else requests
+
+    def _setup_is_incomplete():
+        try:
+            status_response = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
+            if status_response.status_code != 200:
+                return True
+            return not status_response.json().get('setup_complete', False)
+        except requests.exceptions.RequestException:
+            return True
+
+    def _refresh_authenticated_session():
+        if not isinstance(session, requests.Session):
+            return False
+
+        try:
+            check_response = session.get(f"{API_BASE_URL}/api/auth/check", timeout=5)
+            if check_response.status_code == 200:
+                return True
+
+            if check_response.status_code == 503 and _setup_is_incomplete():
+                session.cookies.clear()
+                return False
+
+            session.cookies.clear()
+
+            login_candidates = [
+                ("test-admin@localhost", "TestAdmin123!"),
+                ("admin@localhost", "AdminPass123!"),
+            ]
+
+            for email, password in login_candidates:
+                login_response = session.post(
+                    f"{API_BASE_URL}/api/auth/login",
+                    json={"email": email, "password": password},
+                    timeout=5,
+                )
+                if login_response.status_code == 200:
+                    return True
+
+            return False
+        except requests.exceptions.RequestException:
+            return False
+
+    def _request_with_reauth(method, url, **kwargs):
+        response = method(url, **kwargs)
+
+        if not isinstance(session, requests.Session):
+            return response
+
+        if response.status_code not in (401, 503):
+            return response
+
+        if response.status_code == 503 and _setup_is_incomplete():
+            return response
+
+        if _refresh_authenticated_session():
+            return method(url, **kwargs)
+
+        return response
     
     try:
+        if isinstance(session, requests.Session):
+            _refresh_authenticated_session()
+
         # Delete all boards (cascades to columns and cards)
-        response = http.get(f"{API_BASE_URL}/api/boards", timeout=5)
+        response = _request_with_reauth(http.get, f"{API_BASE_URL}/api/boards", timeout=5)
         if response.status_code == 200:
             boards = response.json().get('boards', [])
             failed_deletes = []
             
             for board in boards:
-                delete_response = http.delete(f"{API_BASE_URL}/api/boards/{board['id']}", timeout=5)
+                delete_response = _request_with_reauth(
+                    http.delete,
+                    f"{API_BASE_URL}/api/boards/{board['id']}",
+                    timeout=5,
+                )
                 if delete_response.status_code != 200:
                     failed_deletes.append({
                         'id': board['id'],
@@ -330,7 +411,7 @@ def _delete_all_data(session=None):
                 raise Exception(error_msg)
         
         # Verify boards are actually deleted before proceeding
-        verify_response = http.get(f"{API_BASE_URL}/api/boards", timeout=5)
+        verify_response = _request_with_reauth(http.get, f"{API_BASE_URL}/api/boards", timeout=5)
         if verify_response.status_code == 200:
             remaining = verify_response.json().get('boards', [])
             if remaining:
@@ -338,31 +419,49 @@ def _delete_all_data(session=None):
                     f"Cleanup verification failed: {len(remaining)} board(s) still exist after cleanup. "
                     f"Database may be in an inconsistent state."
                 )
+        elif verify_response.status_code == 503 and _setup_is_incomplete():
+            return
         
         # Delete all notifications
-        delete_notif_response = http.delete(f"{API_BASE_URL}/api/notifications/delete-all", timeout=5)
+        delete_notif_response = _request_with_reauth(
+            http.delete,
+            f"{API_BASE_URL}/api/notifications/delete-all",
+            timeout=5,
+        )
+        if delete_notif_response.status_code == 503 and _setup_is_incomplete():
+            return
         if delete_notif_response.status_code not in (200, 404):  # 404 is OK if no notifications
             raise Exception(f"Failed to delete notifications: {delete_notif_response.status_code}")
         
         # Reset settings to defaults
-        settings_response = http.put(f"{API_BASE_URL}/api/settings/default_board", 
-                    json={'value': None}, 
-                    timeout=5)
+        settings_response = _request_with_reauth(
+            http.put,
+            f"{API_BASE_URL}/api/settings/default_board",
+            json={'value': None},
+            timeout=5,
+        )
+        if settings_response.status_code == 503 and _setup_is_incomplete():
+            return
         if settings_response.status_code not in (200, 404):
             # Settings failures are less critical, just warn
             print(f"Warning: Failed to reset default_board setting: {settings_response.status_code}")
         
         # Reset backup settings to migration defaults
-        backup_response = http.put(f"{API_BASE_URL}/api/settings/backup/config",
-                    json={
-                        'enabled': False,
-                        'frequency_value': 1,
-                        'frequency_unit': 'daily',
-                        'start_time': '00:00',
-                        'retention_count': 7,
-                        'minimum_free_space_mb': 100
-                    },
-                    timeout=5)
+        backup_response = _request_with_reauth(
+            http.put,
+            f"{API_BASE_URL}/api/settings/backup/config",
+            json={
+                'enabled': False,
+                'frequency_value': 1,
+                'frequency_unit': 'daily',
+                'start_time': '00:00',
+                'retention_count': 7,
+                'minimum_free_space_mb': 100
+            },
+            timeout=5,
+        )
+        if backup_response.status_code == 503 and _setup_is_incomplete():
+            return
         if backup_response.status_code not in (200, 404):
             print(f"Warning: Failed to reset backup settings: {backup_response.status_code}")
             

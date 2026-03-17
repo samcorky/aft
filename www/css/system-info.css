@@ -451,6 +451,35 @@
   font-weight: 500;
 }
 
+.test-user-guidance-copy {
+  margin-bottom: 12px;
+  color: #92400e;
+  line-height: 1.5;
+}
+
+.test-user-credentials {
+  background: rgba(255, 255, 255, 0.7);
+  padding: 10px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  font-family: monospace;
+  font-size: 0.9em;
+  color: #78350f;
+}
+
+.test-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.test-user-action-note {
+  color: #92400e;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
 .test-user-btn:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);

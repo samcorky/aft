@@ -216,23 +216,31 @@ Recommendations:
 ---
 
 ### 7) Medium: Production-accessible test-admin creation path with known credentials
-Status: Confirmed by code review.
+Status: **Fixed in code (2026-03-16)**; test-user guidance and cleanup regression coverage added.
 
 What was observed:
-- Endpoint can create/delete known test admin account credentials.
-- Protected by permissions, but still risky operationally in production.
+- Runtime UI/API path could create a known administrator account and return the password in the response.
+- Even with permission checks, the creation path unnecessarily preserved a production-facing privilege bootstrap mechanism.
 
 Primary code references:
-- server/app.py:799 (route)
-- server/app.py:892 (hardcoded password)
-- server/app.py:922 (password exposed in response message)
+- server/app.py (`/api/admin/test-user` now status + delete-only)
+- www/system-info.html and www/js/system-info.js (guidance widget no longer creates account)
+- www/user-management.html and www/js/user-management.js (matching guidance + detection widget)
 
 Impact:
-- Elevated blast radius if role assignment controls fail or are abused.
+- Removed the in-product path that could create a known administrator credential set.
+- Reduced the remaining surface to status visibility plus optional cleanup of an already-existing known test user.
+
+Actions taken:
+- Removed test-user creation behavior and the password-bearing success response from the runtime endpoint.
+- Replaced the endpoint with read-only status guidance for `user.manage` or `user.role`, plus delete-only cleanup restricted to `user.manage`.
+- Updated the System Info widget to explain that a clean database is test-compatible and that any needed test account must be created outside the UI.
+- Added the same guidance and detection widget to User Management so role-focused admins can safely detect the known test user without creating or elevating it.
+- Added regression coverage for status visibility and delete authorization.
 
 Recommendations:
-- Remove endpoint from production build.
-- At minimum, hard-gate with explicit environment controls and deny in production.
+- ~~Keep manual creation of known test accounts out of runtime UI flows.~~ **FIXED**
+- ~~Remove the known test user when it is no longer required in shared or persistent environments.~~ **OPERATIONAL PRACTICE**
 
 ## Exploit Attempts Performed (Easy to Hard)
 1. Unauthenticated API recon:

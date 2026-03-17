@@ -11,6 +11,8 @@ class SystemInfo {
     this.backupToggle = null;
     this.housekeepingToggle = null;
     this.cardSchedulerToggle = null;
+    this.canRemoveTestUser = false;
+    this.testUserDetected = false;
   }
 
   async init() {
@@ -40,19 +42,18 @@ class SystemInfo {
       return;
     }
     
-    // Check if user has both user.manage and user.role permissions
+    // Check if user has either user.manage or user.role permission
     const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
     const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
     
-    const testUserCard = document.querySelector('.warning-card.full-width');
+    const testUserCard = document.getElementById('test-user-card');
     
-    if (!hasUserManage || !hasUserRole) {
-      // Hide the test user management card entirely
+    if (!hasUserManage && !hasUserRole) {
       if (testUserCard) {
         testUserCard.style.display = 'none';
       }
     } else {
-      // User has both permissions, load test user status
+      this.canRemoveTestUser = hasUserManage;
       this.checkTestUserStatus();
     }
     
@@ -134,7 +135,7 @@ class SystemInfo {
     const testUserBtn = document.getElementById('test-user-btn');
     if (testUserBtn) {
       testUserBtn.addEventListener('click', async () => {
-        await this.toggleTestUser();
+        await this.removeTestUser();
       });
     }
   }
@@ -546,98 +547,109 @@ class SystemInfo {
   async checkTestUserStatus() {
     const btn = document.getElementById('test-user-btn');
     const btnText = document.getElementById('test-user-btn-text');
+    const presence = document.getElementById('test-user-presence');
+    const compatibility = document.getElementById('test-user-compatibility');
+    const actionNote = document.getElementById('test-user-action-note');
     
-    if (!btn || !btnText) {
+    if (!btn || !btnText || !presence || !compatibility || !actionNote) {
       return;
     }
     
     try {
-      // Check if test-admin user exists by trying to list users
-      const response = await fetch('/api/users');
+      const response = await fetch('/api/admin/test-user');
       
       if (!response.ok) {
-        // If we can't check, just show a generic message
-        btnText.textContent = 'Toggle Test User';
-        btn.style.background = '#3b82f6';
-        return;
+        throw new Error(`Status check failed (${response.status})`);
       }
 
       const data = await response.json();
-      const testUser = data.users?.find(u => u.email === 'test-admin@localhost');
-      
-      if (testUser) {
-        btnText.textContent = 'Remove Test User';
-        btn.style.background = '#ef4444';
+      const detectedUser = data.detected_user;
+
+      this.testUserDetected = Boolean(detectedUser);
+      this.canRemoveTestUser = Boolean(data.permissions?.can_remove);
+
+      if (detectedUser) {
+        presence.textContent = data.test_user_compatible
+          ? 'Known test user detected and matches the current test suite expectations.'
+          : 'Known test user detected, but it is not active and approved. Tests may still fail until it is fixed or removed.';
+
+        compatibility.textContent = data.test_user_compatible
+          ? 'A clean database also works. Remove this account when testing is complete or when the environment should no longer contain known credentials.'
+          : 'A clean database is compatible. On a non-clean database, the known test user must be active and approved to satisfy the current test suite.';
       } else {
-        btnText.textContent = 'Create Test User';
-        btn.style.background = '#3b82f6';
+        presence.textContent = 'No known test user detected.';
+        compatibility.textContent = 'A clean database is already compatible with the tests. If tests must run against an existing database, create the approved administrator account shown above outside this page.';
+      }
+
+      if (this.canRemoveTestUser && this.testUserDetected) {
+        btn.style.display = 'inline-flex';
+        btn.disabled = false;
+        btnText.textContent = 'Remove Known Test User';
+        btn.style.background = '#ef4444';
+        actionNote.textContent = 'Removal is available because you have user.manage.';
+      } else {
+        btn.style.display = 'none';
+        actionNote.textContent = this.testUserDetected
+          ? 'A user with user.manage should remove this account when it is no longer required.'
+          : 'This page no longer creates the known test user.';
       }
     } catch (error) {
       console.error('Error checking test user status:', error);
-      // Default to generic message if check fails
-      btnText.textContent = 'Toggle Test User';
-      btn.style.background = '#3b82f6';
+      this.testUserDetected = false;
+      btn.style.display = 'none';
+      presence.textContent = 'Unable to verify known test user status right now.';
+      compatibility.textContent = 'A clean database is still compatible with the tests.';
+      actionNote.textContent = 'Retry the page if you need to re-check the known test user.';
     }
   }
 
-  async toggleTestUser() {
-    console.log('toggleTestUser called');
+  async removeTestUser() {
     const btn = document.getElementById('test-user-btn');
     const btnText = document.getElementById('test-user-btn-text');
     const statusDiv = document.getElementById('test-user-status');
     
     if (!btn || !btnText || !statusDiv) {
-      console.error('Required elements not found');
+      return;
+    }
+
+    if (!this.testUserDetected || !this.canRemoveTestUser) {
       return;
     }
     
-    // Disable button during operation
     btn.disabled = true;
     const originalText = btnText.textContent;
     btnText.textContent = 'Processing...';
     
     try {
-      console.log('Sending request to /api/admin/test-user');
       const response = await fetch('/api/admin/test-user', {
-        method: 'POST',
+        method: 'DELETE',
         headers: {
           'Content-Type': 'application/json'
         }
       });
 
-      console.log('Response status:', response.status);
       const data = await response.json();
-      console.log('Response data:', data);
 
       if (data.success) {
-        // Update button based on action
-        if (data.action === 'created') {
-          btnText.textContent = 'Remove Test User';
-          btn.style.background = '#ef4444';
-          statusDiv.style.display = 'block';
-          statusDiv.style.background = '#d1fae5';
-          statusDiv.style.color = '#065f46';
-          statusDiv.innerHTML = `
-            <strong>✓ Test user created successfully</strong><br>
-            You can now log in with:<br>
-            Email: test-admin@localhost<br>
-            Password: TestAdmin123!
-          `;
-        } else {
-          btnText.textContent = 'Create Test User';
-          btn.style.background = '#3b82f6';
-          statusDiv.style.display = 'block';
-          statusDiv.style.background = '#fee2e2';
-          statusDiv.style.color = '#991b1b';
-          statusDiv.innerHTML = '<strong>✓ Test user removed successfully</strong>';
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = '#d1fae5';
+        statusDiv.style.color = '#065f46';
+        statusDiv.innerHTML = '<strong>✓ Known test user removed successfully</strong>';
+
+        if (data.deleted_current_user) {
+          statusDiv.innerHTML = '<strong>✓ Known test user removed successfully</strong><br>Redirecting to login...';
+          setTimeout(() => {
+            window.location.href = '/login.html';
+          }, 1200);
+          return;
         }
-        
-        // Hide status message after 5 seconds
+
+        await this.checkTestUserStatus();
+
         setTimeout(() => {
           statusDiv.style.display = 'none';
         }, 5000);
       } else {
-        // Show error
         statusDiv.style.display = 'block';
         statusDiv.style.background = '#fee2e2';
         statusDiv.style.color = '#991b1b';
@@ -645,7 +657,7 @@ class SystemInfo {
         btnText.textContent = originalText;
       }
     } catch (error) {
-      console.error('Error toggling test user:', error);
+      console.error('Error removing known test user:', error);
       statusDiv.style.display = 'block';
       statusDiv.style.background = '#fee2e2';
       statusDiv.style.color = '#991b1b';

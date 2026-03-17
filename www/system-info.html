@@ -214,14 +214,14 @@
       </div>
 
       <!-- Test User Management Card -->
-      <div class="info-card warning-card full-width">
+      <div class="info-card warning-card full-width" id="test-user-card">
         <h2>
           <svg class="warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
             <line x1="12" y1="8" x2="12" y2="12"></line>
             <line x1="12" y1="16" x2="12.01" y2="16"></line>
           </svg>
-          Test User Management
+          Test Compatibility Guidance
           <span class="permission-help-icon" aria-label="Permission information">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
@@ -229,29 +229,37 @@
               <line x1="12" y1="17" x2="12.01" y2="17"></line>
             </svg>
             <span class="permission-tooltip">
-              <strong>Required Permissions:</strong><br>
+              <strong>Visible To:</strong><br>
               • user.manage<br>
               • user.role<br><br>
-              This section is only visible to users with both permissions.
+              <strong>Removal Requires:</strong><br>
+              • user.manage<br><br>
+              This section does not create or grant the test account.
             </span>
           </span>
         </h2>
         <div class="info-content">
-          <p class="warning-text" style="margin-bottom: 15px; color: #d97706;">
-            ⚠️ <strong>FOR TESTING ONLY</strong> - Do not use in production environments
+          <p class="warning-text" id="test-user-presence" style="margin-bottom: 15px; color: #d97706;">
+            Checking known test user status...
           </p>
-          <p style="margin-bottom: 10px;">
-            Quickly create or remove a test admin account for development and testing purposes.
+          <p class="test-user-guidance-copy">
+            API tests work with a clean database. If the database already contains users, the suite expects an approved administrator account with the following credentials.
           </p>
-          <div style="background: #f3f4f6; padding: 10px; border-radius: 5px; margin-bottom: 15px; font-family: monospace; font-size: 0.9em;">
+          <div class="test-user-credentials">
             <strong>Test Account Credentials:</strong><br>
             Email: test-admin@localhost<br>
             Username: test-admin<br>
             Password: TestAdmin123!
           </div>
-          <button class="test-user-btn" id="test-user-btn" style="background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.2s;">
-            <span id="test-user-btn-text">Check Status...</span>
-          </button>
+          <p class="test-user-guidance-copy" id="test-user-compatibility">
+            This page does not create or grant the account. Remove the known test user when it is no longer required.
+          </p>
+          <div class="test-user-actions">
+            <button class="test-user-btn" id="test-user-btn" style="display: none; background: #ef4444; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.2s;">
+              <span id="test-user-btn-text">Remove Known Test User</span>
+            </button>
+            <div class="test-user-action-note" id="test-user-action-note"></div>
+          </div>
           <div id="test-user-status" style="margin-top: 10px; padding: 10px; border-radius: 5px; display: none;"></div>
         </div>
       </div>

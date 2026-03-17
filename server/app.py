@@ -15,6 +15,7 @@ from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
 from utils import (
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 # Application version
 APP_VERSION = "2026.1.2"
+
+TEST_USER_EMAIL = "test-admin@localhost"
+TEST_USER_USERNAME = "test-admin"
+TEST_USER_DISPLAY_NAME = "Test Admin"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -528,10 +533,32 @@ def before_request():
     from models import User
     db = SessionLocal()
     try:
+      try:
         has_users = db.query(User).filter(
-            User.is_active == True,
-            User.password_hash.isnot(None)
+          User.is_active == True,
+          User.password_hash.isnot(None)
         ).count() > 0
+      except (ProgrammingError, OperationalError) as error:
+        # During /api/database resets, tables are briefly absent while Alembic
+        # recreates the schema. Let reset/restore routes continue so their own
+        # locking and wait logic can finish the operation.
+        logger.info(f"Setup check skipped during transient database reset: {error}")
+
+        if request.path.startswith('/api/database'):
+          load_user_from_session()
+          return
+
+        if request.path.startswith('/api/'):
+          return jsonify({
+            'success': False,
+            'message': 'Initial setup required',
+            'redirect': '/setup.html'
+          }), 503
+
+        if request.path != '/setup.html':
+          from flask import redirect
+          return redirect('/setup.html', code=302)
+        return
         
         if not has_users:
             # Redirect to setup page for HTML requests
@@ -893,141 +920,126 @@ def get_version():
         db.close()
 
 
-@app.route("/api/admin/test-user", methods=["POST"])
-@require_authentication
-def toggle_test_user():
-    """Toggle test admin user (create if doesn't exist, delete if exists).
-    
-    ⚠️ WARNING: FOR TESTING ONLY - DO NOT USE IN PRODUCTION
-    
-    This endpoint creates or removes a test admin user account with known credentials.
-    It's designed for development and testing environments only.
-    
-    Test user credentials:
-    - Email: test-admin@localhost
-    - Username: test-admin
-    - Password: TestAdmin123!
-    ---
-    tags:
-      - Administration
-    responses:
-      200:
-        description: Test user created or deleted
-        schema:
-          type: object
-          properties:
-            success:
-              type: boolean
-            action:
-              type: string
-              enum: [created, deleted]
-            message:
-              type: string
-      403:
-        description: Forbidden - requires user.manage and user.role permissions
-      500:
-        description: Server error
-    """
-    # Check for both user.manage and user.role permissions
-    from utils import get_user_permissions
-    from permissions import has_permission
-    
+def _find_known_test_user(db):
+  return db.query(User).filter(
+    User.email == TEST_USER_EMAIL,
+    User.username == TEST_USER_USERNAME,
+  ).first()
+
+
+@app.route("/api/admin/test-user", methods=["GET"])
+@require_any_permission('user.manage', 'user.role')
+def get_test_user_status():
+  """Get known test user status and test compatibility guidance.
+
+  This endpoint does not create or elevate any user. It only reports whether the
+  known test account is present and whether it matches the current test suite
+  expectations.
+  ---
+  tags:
+    - Administration
+  responses:
+    200:
+    description: Known test user status
+    403:
+    description: Forbidden - requires user.manage or user.role
+  """
+  from permissions import has_permission
+
+  db = SessionLocal()
+  try:
+    test_user = _find_known_test_user(db)
     user_permissions = get_user_permissions(g.user.id)
-    
-    if not has_permission(user_permissions, 'user.manage'):
-        abort(403, description="Permission denied: user.manage required")
-    
-    if not has_permission(user_permissions, 'user.role'):
-        abort(403, description="Permission denied: user.role required")
-    
-    db = SessionLocal()
-    try:
-        # Check if test-admin user exists
-        test_user = db.query(User).filter(
-            User.email == "test-admin@localhost"
-        ).first()
-        
-        if test_user:
-            # Delete the test user
-            user_id = test_user.id
-            username = test_user.username
-            
-            # Delete user roles first (foreign key constraint)
-            db.query(UserRole).filter(UserRole.user_id == user_id).delete()
-            
-            # Delete the user
-            db.delete(test_user)
-            db.commit()
-            
-            logger.info(f"Test user deleted: {username} (ID: {user_id})")
-            
-            return jsonify({
-                "success": True,
-                "action": "deleted",
-                "message": f"Test user '{username}' has been deleted"
-            })
-        else:
-            # Create test-admin user
-            from auth import hash_password
-            
-            # Check if username already exists
-            existing_username = db.query(User).filter(
-                User.username == "test-admin"
-            ).first()
-            
-            if existing_username:
-                return jsonify({
-                    "success": False,
-                    "message": "Username 'test-admin' already exists with different email"
-                }), 400
-            
-            # Create new test admin user
-            test_user = User(
-                email="test-admin@localhost",
-                username="test-admin",
-                display_name="Test Admin",
-                password_hash=hash_password("TestAdmin123!"),
-                is_active=True,
-                is_approved=True,
-                email_verified=True
-            )
-            
-            db.add(test_user)
-            db.flush()  # Get user ID
-            
-            # Create default settings for the test user
-            from auth_helpers import create_default_user_settings
-            create_default_user_settings(test_user.id, db)
-            
-            # Assign administrator role
-            admin_role = db.query(Role).filter(Role.name == 'administrator').first()
-            if admin_role:
-                user_role = UserRole(
-                    user_id=test_user.id,
-                    role_id=admin_role.id,
-                    board_id=None  # Global role
-                )
-                db.add(user_role)
-            
-            db.commit()
-            
-            logger.info(f"Test user created: test-admin@localhost (ID: {test_user.id})")
-            
-            return jsonify({
-                "success": True,
-                "action": "created",
-                "message": "Test user 'test-admin' created successfully. Password: TestAdmin123!"
-            })
-            
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error toggling test user: {e}")
-        return jsonify({
-            "success": False,
-            "message": f"Failed to toggle test user: {str(e)}"
-        }), 500
-    finally:
-        db.close()
+    can_remove = has_permission(user_permissions, 'user.manage')
+
+    detected_user = None
+    if test_user:
+      detected_user = {
+        "id": test_user.id,
+        "email": test_user.email,
+        "username": test_user.username,
+        "display_name": test_user.display_name,
+        "is_active": test_user.is_active,
+        "is_approved": test_user.is_approved,
+      }
+
+    return jsonify({
+      "success": True,
+      "test_user_present": test_user is not None,
+      "test_user_compatible": bool(
+        test_user and test_user.is_active and test_user.is_approved
+      ),
+      "clean_database_compatible": True,
+      "expected_user": {
+        "email": TEST_USER_EMAIL,
+        "username": TEST_USER_USERNAME,
+        "display_name": TEST_USER_DISPLAY_NAME,
+      },
+      "detected_user": detected_user,
+      "permissions": {
+        "can_remove": can_remove,
+      },
+    })
+  finally:
+    db.close()
+
+
+@app.route("/api/admin/test-user", methods=["DELETE"])
+@require_permission('user.manage')
+def remove_test_user():
+  """Remove the known test user if it is present.
+
+  This endpoint intentionally supports cleanup only. It does not create the
+  account or assign the administrator role.
+  ---
+  tags:
+    - Administration
+  responses:
+    200:
+    description: Test user removed
+    404:
+    description: Known test user not found
+    403:
+    description: Forbidden - requires user.manage
+    500:
+    description: Server error
+  """
+  db = SessionLocal()
+  try:
+    test_user = _find_known_test_user(db)
+    if not test_user:
+      return jsonify({
+        "success": False,
+        "message": "Known test user was not found",
+      }), 404
+
+    deleted_current_user = test_user.id == g.user.id
+    user_id = test_user.id
+    username = test_user.username
+
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    db.delete(test_user)
+    db.commit()
+
+    logger.info(
+      f"Known test user deleted: {username} (ID: {user_id}) by user {g.user.id}"
+    )
+
+    return jsonify({
+      "success": True,
+      "action": "deleted",
+      "deleted_current_user": deleted_current_user,
+      "message": f"Known test user '{username}' has been deleted",
+    })
+  except Exception as e:
+    db.rollback()
+    logger.error(f"Error deleting known test user: {e}")
+    return jsonify({
+      "success": False,
+      "message": f"Failed to delete known test user: {str(e)}",
+    }), 500
+  finally:
+    db.close()
 
 
 @app.route("/api/debug/permissions")
@@ -1197,6 +1209,10 @@ def get_permissions_mapping():
             'DELETE /api/database/backups/delete/:filename': {'permission': 'admin.database', 'description': 'Delete backup'},
             'POST /api/database/backups/delete-multiple': {'permission': 'admin.database', 'description': 'Delete multiple backups'},
             'DELETE /api/database': {'permission': 'admin.database', 'description': 'Reset database'},
+
+            # Known test user guidance
+            'GET /api/admin/test-user': {'permission': 'user.manage or user.role', 'description': 'View known test user status'},
+            'DELETE /api/admin/test-user': {'permission': 'user.manage', 'description': 'Remove known test user'},
 
             # User management (from user_management.py blueprint)
             'GET /api/users': {'permission': 'user.manage', 'description': 'List all users'},

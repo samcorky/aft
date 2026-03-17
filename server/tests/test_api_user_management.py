@@ -14,6 +14,7 @@ Tests the following endpoints:
 import pytest
 import requests
 import time
+import uuid
 
 # API base URL - matching conftest.py
 API_BASE_URL = "http://localhost"
@@ -21,31 +22,171 @@ ADMIN_EMAIL = "test-admin@localhost"
 ADMIN_PASSWORD = "TestAdmin123!"
 
 
+def wait_for_setup_status(timeout_seconds=10):
+    """Wait until the setup status endpoint responds successfully."""
+    deadline = time.time() + timeout_seconds
+    last_response = None
+
+    while time.time() < deadline:
+        try:
+            response = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
+            last_response = response
+            if response.status_code == 200:
+                return response
+        except requests.exceptions.RequestException:
+            last_response = None
+
+        time.sleep(0.2)
+
+    if last_response is not None:
+        return last_response
+
+    raise AssertionError("Setup status endpoint did not become ready in time")
+
+
+def ensure_test_admin_session(admin_session, timeout_seconds=10):
+    """Create or log in the known test admin after a database reset."""
+    deadline = time.time() + timeout_seconds
+    last_response = None
+
+    while time.time() < deadline:
+        status_response = wait_for_setup_status(timeout_seconds=5)
+        assert status_response.status_code == 200, status_response.text
+
+        if not status_response.json().get("setup_complete", False):
+            last_response = admin_session.post(
+                f"{API_BASE_URL}/api/auth/setup/admin",
+                json={
+                    "email": ADMIN_EMAIL,
+                    "username": "test-admin",
+                    "password": ADMIN_PASSWORD,
+                    "display_name": "Test Admin"
+                },
+                timeout=5,
+            )
+            if last_response.status_code in (200, 201):
+                return admin_session
+        else:
+            last_response = admin_session.post(
+                f"{API_BASE_URL}/api/auth/login",
+                json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+                timeout=5,
+            )
+            if last_response.status_code == 200:
+                return admin_session
+
+        time.sleep(0.2)
+
+    response_text = last_response.text if last_response is not None else "No response"
+    response_code = last_response.status_code if last_response is not None else "n/a"
+    raise AssertionError(
+        f"Failed to initialize test admin session: HTTP {response_code} - {response_text}"
+    )
+
+
+def register_pending_test_users(expected_count=3, timeout_seconds=10):
+    """Register the default pending users used by this test module."""
+    for i in range(expected_count):
+        response = requests.post(
+            f"{API_BASE_URL}/api/auth/register",
+            json={
+                "email": f"user{i}@test.com",
+                "username": f"user{i}",
+                "password": f"UserPass{i}123!"
+            },
+            timeout=5,
+        )
+        assert response.status_code == 201, response.text
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        admin_session = requests.Session()
+        ensure_test_admin_session(admin_session, timeout_seconds=5)
+        pending_response = admin_session.get(f"{API_BASE_URL}/api/users/pending", timeout=5)
+        if pending_response.status_code == 200:
+            pending_users = pending_response.json().get('users', [])
+            default_users = [user for user in pending_users if user['email'].startswith('user')]
+            if len(default_users) >= expected_count:
+                return
+        time.sleep(0.2)
+
+    raise AssertionError("Pending test users did not become available in time")
+
+
+@pytest.fixture
+def empty_database(authenticated_session, test_admin_session):
+    """Reset to an empty DB for tests that delete the known admin user.
+
+    Skips the conftest autouse cleanup (conftest checks for this fixture name).
+    Recreates the test admin and refreshes the session-level cookies on teardown.
+    """
+    response = authenticated_session.delete(f"{API_BASE_URL}/api/database")
+    if response.status_code != 200:
+        raise AssertionError(
+            f"Failed to reset database before test: {response.status_code} - {response.text}"
+        )
+    wait_for_setup_status()
+
+    yield
+
+    # Teardown: ensure test admin exists so subsequent conftest usage works.
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            status = requests.get(f"{API_BASE_URL}/api/auth/setup/status", timeout=5)
+            if status.status_code == 200 and not status.json().get("setup_complete", False):
+                resp = requests.post(
+                    f"{API_BASE_URL}/api/auth/setup/admin",
+                    json={
+                        "email": "test-admin@localhost",
+                        "username": "test-admin",
+                        "password": "TestAdmin123!",
+                        "display_name": "Test Admin",
+                    },
+                    timeout=5,
+                )
+                if resp.status_code == 201:
+                    test_admin_session.cookies.clear()
+                    login_resp = test_admin_session.post(
+                        f"{API_BASE_URL}/api/auth/login",
+                        json={"email": "test-admin@localhost", "password": "TestAdmin123!"},
+                        timeout=5,
+                    )
+                    if login_resp.status_code == 200:
+                        test_admin_session.cookies.clear()
+                        test_admin_session.cookies.update(login_resp.cookies)
+                        time.sleep(0.3)
+                        verify = test_admin_session.get(
+                            f"{API_BASE_URL}/api/auth/check", timeout=5
+                        )
+                        if verify.status_code == 200 and verify.json().get("authenticated"):
+                            break
+            elif status.status_code == 200 and status.json().get("setup_complete", False):
+                login_resp = test_admin_session.post(
+                    f"{API_BASE_URL}/api/auth/login",
+                    json={"email": "test-admin@localhost", "password": "TestAdmin123!"},
+                    timeout=5,
+                )
+                if login_resp.status_code == 200:
+                    test_admin_session.cookies.clear()
+                    test_admin_session.cookies.update(login_resp.cookies)
+                    break
+        except Exception:
+            if attempt == max_retries - 1:
+                raise
+        time.sleep(0.3)
+
+
 @pytest.fixture
 def setup_test_environment(authenticated_session):
     """Setup test environment with admin and test users."""
     reset_response = authenticated_session.delete(f"{API_BASE_URL}/api/database")
     assert reset_response.status_code == 200, reset_response.text
-    time.sleep(0.6)
 
     admin_session = requests.Session()
-    setup_response = admin_session.post(f"{API_BASE_URL}/api/auth/setup/admin", json={
-        "email": ADMIN_EMAIL,
-        "username": "test-admin",
-        "password": ADMIN_PASSWORD,
-        "display_name": "Test Admin"
-    })
-    assert setup_response.status_code == 201, setup_response.text
+    ensure_test_admin_session(admin_session)
 
-    # Create some pending users
-    for i in range(3):
-        requests.post(f"{API_BASE_URL}/api/auth/register", json={
-            "email": f"user{i}@test.com",
-            "username": f"user{i}",
-            "password": f"UserPass{i}123!"
-        })
-    
-    time.sleep(0.2)
+    register_pending_test_users()
     return admin_session
 
 
@@ -477,7 +618,7 @@ class TestAdminPermissions:
             response = user_session.get(f"{API_BASE_URL}/api/users")
             assert response.status_code == 403  # Forbidden
     
-    def test_non_admin_cannot_approve_users(self, setup_test_environment):
+    def test_non_admin_cannot_approve_users(self, setup_test_environment):  # noqa: F811
         """Non-admin users should not be able to approve other users."""
         # Setup admin and regular user (reuse previous test pattern)
         admin_session = requests.Session()
@@ -510,19 +651,143 @@ class TestAdminPermissions:
             assert response.status_code == 403
 
 
+class TestKnownTestUserEndpoints:
+    """Test status and cleanup behavior for the known test user guidance endpoints."""
+
+    def test_known_test_user_status_requires_authentication(self, authenticated_session):
+        """GET /api/admin/test-user must reject unauthenticated callers."""
+        response = requests.get(f"{API_BASE_URL}/api/admin/test-user")
+        assert response.status_code == 401
+
+    def test_user_role_can_view_known_test_user_status(self, authenticated_session):
+        """Users that hold only user.role can read status but cannot remove."""
+        role_name = f"test_viewer_{uuid.uuid4().hex[:8]}"
+        role_response = authenticated_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": role_name,
+                "description": "Role for known test user status checks",
+                "permissions": ["user.role"]
+            }
+        )
+        assert role_response.status_code == 201, role_response.text
+
+        # Register a unique user so we are never blocked by existing pending state.
+        suffix = uuid.uuid4().hex[:8]
+        user_email = f"viewer_{suffix}@test.com"
+        user_password = "ViewerPass123!"
+        requests.post(f"{API_BASE_URL}/api/auth/register", json={
+            "email": user_email,
+            "username": f"viewer_{suffix}",
+            "password": user_password
+        })
+
+        pending_response = authenticated_session.get(f"{API_BASE_URL}/api/users/pending")
+        assert pending_response.status_code == 200
+        pending_users = pending_response.json()['users']
+        target_user = next((u for u in pending_users if u['email'] == user_email), None)
+        assert target_user is not None, "Registered user not found in pending list"
+        user_id = target_user['id']
+
+        assert authenticated_session.post(f"{API_BASE_URL}/api/users/{user_id}/approve").status_code == 200
+        assert authenticated_session.post(
+            f"{API_BASE_URL}/api/users/{user_id}/roles",
+            json={"role_name": role_name}
+        ).status_code == 200
+
+        user_session = requests.Session()
+        login_response = user_session.post(
+            f"{API_BASE_URL}/api/auth/login",
+            json={"email": user_email, "password": user_password}
+        )
+        assert login_response.status_code == 200, login_response.text
+
+        status_response = user_session.get(f"{API_BASE_URL}/api/admin/test-user")
+        assert status_response.status_code == 200, status_response.text
+
+        data = status_response.json()
+        assert data['success'] is True
+        assert data['test_user_present'] is True   # conftest admin is test-admin@localhost
+        assert data['test_user_compatible'] is True
+        assert data['clean_database_compatible'] is True
+        assert data['expected_user']['email'] == ADMIN_EMAIL
+        assert data['expected_user']['username'] == 'test-admin'
+        assert data['permissions']['can_remove'] is False
+
+    def test_user_role_cannot_remove_known_test_user(self, authenticated_session):
+        """DELETE /api/admin/test-user must be forbidden for user.role-only users."""
+        role_name = f"test_roleonly_{uuid.uuid4().hex[:8]}"
+        role_response = authenticated_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": role_name,
+                "description": "Role for delete-denied check",
+                "permissions": ["user.role"]
+            }
+        )
+        assert role_response.status_code == 201, role_response.text
+
+        suffix = uuid.uuid4().hex[:8]
+        user_email = f"deldenied_{suffix}@test.com"
+        user_password = "DeniedPass123!"
+        requests.post(f"{API_BASE_URL}/api/auth/register", json={
+            "email": user_email,
+            "username": f"deldenied_{suffix}",
+            "password": user_password
+        })
+
+        pending_response = authenticated_session.get(f"{API_BASE_URL}/api/users/pending")
+        pending_users = pending_response.json()['users']
+        target_user = next((u for u in pending_users if u['email'] == user_email), None)
+        assert target_user is not None
+        user_id = target_user['id']
+
+        assert authenticated_session.post(f"{API_BASE_URL}/api/users/{user_id}/approve").status_code == 200
+        assert authenticated_session.post(
+            f"{API_BASE_URL}/api/users/{user_id}/roles",
+            json={"role_name": role_name}
+        ).status_code == 200
+
+        user_session = requests.Session()
+        login_response = user_session.post(
+            f"{API_BASE_URL}/api/auth/login",
+            json={"email": user_email, "password": user_password}
+        )
+        assert login_response.status_code == 200, login_response.text
+
+        delete_response = user_session.delete(f"{API_BASE_URL}/api/admin/test-user")
+        assert delete_response.status_code == 403, delete_response.text
+
+    def test_admin_can_remove_known_test_user(self, empty_database):
+        """An admin with user.manage can delete the known test user (self-delete path)."""
+        # empty_database gives a clean DB with no users and handles teardown.
+        setup_session = requests.Session()
+        ensure_test_admin_session(setup_session)
+
+        delete_response = setup_session.delete(f"{API_BASE_URL}/api/admin/test-user")
+        assert delete_response.status_code == 200, delete_response.text
+
+        data = delete_response.json()
+        assert data['success'] is True
+        assert data['action'] == 'deleted'
+        assert data['deleted_current_user'] is True
+
+        login_response = requests.Session().post(
+            f"{API_BASE_URL}/api/auth/login",
+            json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+        )
+        assert login_response.status_code != 200
+
 class TestCompleteUserManagementFlow:
     """Test complete user management workflow."""
     
     def test_full_user_management_cycle(self, setup_test_environment):
         """Test complete lifecycle of user management."""
-        admin = requests.Session()
-        admin.post(f"{API_BASE_URL}/api/auth/login", json={
-            "email": ADMIN_EMAIL,
-            "password": ADMIN_PASSWORD
-        })
+        admin = setup_test_environment
         
         # 1. Check pending users
         response = admin.get(f"{API_BASE_URL}/api/users/pending")
+        assert response.status_code == 200, response.text
         initial_pending = len(response.json()['users'])
         assert initial_pending >= 3
         

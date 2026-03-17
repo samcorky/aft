@@ -209,8 +209,13 @@ class Notifications {
    * Render the notifications list.
    */
   renderNotifications() {
+    this.list.replaceChildren();
+
     if (this.notifications.length === 0) {
-      this.list.innerHTML = '<div class="notifications-empty">No notifications</div>';
+      const emptyState = document.createElement('div');
+      emptyState.className = 'notifications-empty';
+      emptyState.textContent = 'No notifications';
+      this.list.appendChild(emptyState);
       return;
     }
 
@@ -219,62 +224,83 @@ class Notifications {
       return new Date(b.created_at) - new Date(a.created_at);
     });
 
-    this.list.innerHTML = sortedNotifications.map(notification => {
-      // Build action button HTML if action is present and URL is safe
-      let actionButtonHtml = '';
+    const fragment = document.createDocumentFragment();
+
+    sortedNotifications.forEach(notification => {
+      const notificationId = String(notification.id);
+      const isUnreadValue = notification.unread ? 'true' : 'false';
+
+      const notificationItem = document.createElement('div');
+      notificationItem.className = `notification-item${notification.unread ? ' unread' : ''}`;
+      notificationItem.dataset.id = notificationId;
+      notificationItem.dataset.unread = isUnreadValue;
+      notificationItem.setAttribute('role', 'listitem');
+      notificationItem.setAttribute('tabindex', '0');
+
+      const notificationContent = document.createElement('div');
+      notificationContent.className = 'notification-content';
+
+      const subjectEl = document.createElement('div');
+      subjectEl.className = 'notification-subject';
+      subjectEl.textContent = notification.subject || '';
+      notificationContent.appendChild(subjectEl);
+
+      const messageEl = document.createElement('div');
+      messageEl.className = 'notification-message';
+      messageEl.textContent = notification.message || '';
+      notificationContent.appendChild(messageEl);
+
       if (notification.action_title && notification.action_url && this.isSafeUrl(notification.action_url)) {
-        const escapedTitle = this.escapeHtml(notification.action_title);
-        const safeNotificationId = this.escapeHtml(String(notification.id));
-        const safeUnread = notification.unread ? 'true' : 'false';
-        // URL is already validated by isSafeUrl(), no need to escape
-        actionButtonHtml = `
-          <a href="${notification.action_url}" 
-             class="notification-action-link" 
-             data-tooltip="${escapedTitle}"
-             data-notification-id="${safeNotificationId}"
-             data-is-unread="${safeUnread}"
-             aria-label="${escapedTitle}"
-             tabindex="0">
-            ${escapedTitle}
-          </a>
-        `;
+        const actionLink = document.createElement('a');
+        actionLink.href = notification.action_url;
+        actionLink.className = 'notification-action-link';
+        actionLink.dataset.tooltip = notification.action_title;
+        actionLink.dataset.notificationId = notificationId;
+        actionLink.dataset.isUnread = isUnreadValue;
+        actionLink.setAttribute('aria-label', notification.action_title);
+        actionLink.setAttribute('tabindex', '0');
+        actionLink.textContent = notification.action_title;
+        notificationContent.appendChild(actionLink);
       }
-      
-      const safeId = this.escapeHtml(String(notification.id));
-      const safeUnread = notification.unread ? 'true' : 'false';
-      
-      return `
-        <div class="notification-item ${notification.unread ? 'unread' : ''}" 
-             data-id="${safeId}"
-             data-unread="${safeUnread}"
-             role="listitem"
-             tabindex="0">
-          <div class="notification-content">
-            <div class="notification-subject">${this.escapeHtml(notification.subject)}</div>
-            <div class="notification-message">${this.escapeHtml(notification.message)}</div>
-            ${actionButtonHtml}
-            <div class="notification-time" data-tooltip="${formatTooltipDateTime(notification.created_at)}" aria-label="Created on ${formatTooltipDateTime(notification.created_at)}" tabindex="0">${this.formatTime(notification.created_at)}</div>
-          </div>
-          <div class="notification-actions">
-            <button class="notification-action-btn read-btn" 
-                    data-action="toggle-read"
-                    data-id="${safeId}"
-                    data-unread="${safeUnread}"
-                    aria-label="${notification.unread ? 'Mark as read' : 'Mark as unread'}"
-                    title="${notification.unread ? 'Mark as read' : 'Mark as unread'}">
-              ${notification.unread ? '✓' : '○'}
-            </button>
-            <button class="notification-action-btn delete-btn" 
-                    data-action="delete"
-                    data-id="${safeId}"
-                    aria-label="Delete notification"
-                    title="Delete">
-              ✕
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
+
+      const notificationTime = document.createElement('div');
+      notificationTime.className = 'notification-time';
+      const tooltipText = formatTooltipDateTime(notification.created_at);
+      notificationTime.dataset.tooltip = tooltipText;
+      notificationTime.setAttribute('aria-label', `Created on ${tooltipText}`);
+      notificationTime.setAttribute('tabindex', '0');
+      notificationTime.textContent = this.formatTime(notification.created_at);
+      notificationContent.appendChild(notificationTime);
+
+      const notificationActions = document.createElement('div');
+      notificationActions.className = 'notification-actions';
+
+      const readButton = document.createElement('button');
+      readButton.className = 'notification-action-btn read-btn';
+      readButton.dataset.action = 'toggle-read';
+      readButton.dataset.id = notificationId;
+      readButton.dataset.unread = isUnreadValue;
+      const readLabel = notification.unread ? 'Mark as read' : 'Mark as unread';
+      readButton.setAttribute('aria-label', readLabel);
+      readButton.title = readLabel;
+      readButton.textContent = notification.unread ? '✓' : '○';
+      notificationActions.appendChild(readButton);
+
+      const deleteButton = document.createElement('button');
+      deleteButton.className = 'notification-action-btn delete-btn';
+      deleteButton.dataset.action = 'delete';
+      deleteButton.dataset.id = notificationId;
+      deleteButton.setAttribute('aria-label', 'Delete notification');
+      deleteButton.title = 'Delete';
+      deleteButton.textContent = '✕';
+      notificationActions.appendChild(deleteButton);
+
+      notificationItem.appendChild(notificationContent);
+      notificationItem.appendChild(notificationActions);
+      fragment.appendChild(notificationItem);
+    });
+
+    this.list.appendChild(fragment);
   }
 
   /**
@@ -570,19 +596,14 @@ class Notifications {
   }
 
   /**
-   * Escape HTML to prevent XSS.
-   */
-  escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  /**
    * Show an error message.
    */
   showError(message) {
-    this.list.innerHTML = `<div class="notifications-error">${this.escapeHtml(message)}</div>`;
+    this.list.replaceChildren();
+    const errorState = document.createElement('div');
+    errorState.className = 'notifications-error';
+    errorState.textContent = message;
+    this.list.appendChild(errorState);
   }
 }
 

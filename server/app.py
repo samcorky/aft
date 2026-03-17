@@ -185,6 +185,7 @@ def validate_safe_url(url):
     
     Rejects:
     - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    - URL values containing characters that can break HTML attributes
     - URLs without proper structure
     
     Args:
@@ -195,8 +196,24 @@ def validate_safe_url(url):
     """
     if not url or not isinstance(url, str):
         return False, "URL must be a non-empty string"
-    
-    url_lower = url.strip().lower()
+
+    url = url.strip()
+    url_lower = url.lower()
+
+    # Reject all dangerous protocols first for clearer error messages
+    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
+    for protocol in dangerous_protocols:
+      if url_lower.startswith(protocol):
+        return False, f"URL protocol '{protocol}' is not allowed for security reasons"
+
+    # Defense in depth: reject characters that can break out of HTML attributes
+    unsafe_attribute_chars = ['"', "'", '<', '>', '`']
+    if any(char in url for char in unsafe_attribute_chars):
+        return False, "URL contains unsafe characters"
+
+    # Reject control characters that can cause parser confusion in HTML/headers
+    if any(char in url for char in ['\r', '\n', '\t']):
+        return False, "URL contains disallowed control characters"
     
     # Allow relative paths starting with /
     if url_lower.startswith('/'):
@@ -205,13 +222,7 @@ def validate_safe_url(url):
     # Allow http and https
     if url_lower.startswith('http://') or url_lower.startswith('https://'):
         return True, None
-    
-    # Reject all other protocols including dangerous ones
-    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
-    for protocol in dangerous_protocols:
-        if url_lower.startswith(protocol):
-            return False, f"URL protocol '{protocol}' is not allowed for security reasons"
-    
+
     # Reject anything that doesn't match allowed patterns
     return False, "URL must be a relative path starting with / or use http:// or https:// protocol"
 

@@ -963,6 +963,38 @@ class TestNotificationSecurityURLValidation:
         data = response.json()
         assert data['success'] is False
 
+    def test_create_notification_with_attribute_breakout_double_quote(self, api_client, authenticated_session):
+        """Test that action_url payloads containing double quotes are rejected."""
+        response = authenticated_session.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": '/x" onclick="alert(1)" data-x="'
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'invalid action url' in data['message'].lower()
+
+    def test_create_notification_with_attribute_breakout_single_quote(self, api_client, authenticated_session):
+        """Test that action_url payloads containing single quotes are rejected."""
+        response = authenticated_session.post(
+            f'{api_client}/api/notifications',
+            json={
+                "subject": "Test",
+                "message": "Test message",
+                "action_title": "Click",
+                "action_url": "/x' onclick='alert(1)' data-x='"
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'invalid action url' in data['message'].lower()
+
 
 @pytest.mark.api
 class TestNotificationIDORSecurity:

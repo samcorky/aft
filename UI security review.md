@@ -15,76 +15,57 @@ Work performed included:
 - Analysis of client-side permission caching and early-return optimizations.
 
 ## Executive Summary
-Four distinct security findings were identified during UI review. One finding (notification URL XSS sink) represents a real DOM injection risk where protocol validation is sufficient at the server level but attribute-context escaping is missing on the frontend. Three findings represent defense-in-depth or transport-layer gaps: session cookie transport security defaults, session cache stale-state exposure windows, and missing browser hardening headers in nginx. All findings are remediable through targeted patches; no fundamental architectural issues exist. The frontend consistently applies HTML escaping for text content through a shared `escapeHtml()` utility, which mitigates most SAST-flagged false positives.
+Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. Three findings remain as defense-in-depth or transport-layer gaps: session cookie transport security defaults, session cache stale-state exposure windows, and missing browser hardening headers in nginx. No fundamental architectural issues were identified.
 
 ## Findings (Ordered by Severity)
 
 ### 1) Medium: Notification action URL XSS via missing href attribute escaping
 **Severity:** Medium  
-**Status:** Not yet fixed  
+**Status:** **Fixed (2026-03-17)**  
 **CVSS Estimate:** 6.1 (CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N)
 
 #### What was observed:
-The notification system implements URL validation at the server level (`validate_safe_url()` in [server/app.py](server/app.py#L179-L218)) which allows only relative paths (`/`), `http://`, and `https://` protocols while rejecting dangerous protocols like `javascript:`, `data:`, `vbscript:`, etc.
+The notification system implemented URL protocol validation at the server level (`validate_safe_url()` in [server/app.py](server/app.py#L179-L218)) but previously rendered notifications with template-string HTML in a way that allowed href attribute breakout.
 
-On the frontend, [notifications.js](www/js/notifications.js#L187-L231) implements a matching `isSafeUrl()` check before rendering action URLs in HTML. However, the URL is inserted into an href attribute without HTML-attribute-context escaping:
+Before remediation, [www/js/notifications.js](www/js/notifications.js#L211) inserted untrusted notification values into `innerHTML`-built markup, including `href` values.
 
-```javascript
-// notifications.js lines 225-231
-const escapedTitle = this.escapeHtml(notification.action_title);
-actionButtonHtml = `<a href="${notification.action_url}" ...`; // VULNERABLE
-```
+#### Pre-fix attack vector:
+A URL value like `/x" onclick="alert(1)" data-x="` passed protocol validation (starts with `/`) but broke attribute boundaries when interpolated into HTML.
 
-**Attack vector:** A URL value like `/x" onclick="alert(1)" data-x="` passes the protocol validation (starts with `/`) but breaks the href attribute boundary when interpolated into the template literal:
-
-```html
-<!-- Generated HTML with malicious URL -->
-<a href="/x" onclick="alert(1)" data-x="">Click me</a>
-```
-
-When the user clicks the link, the `onclick` handler fires before navigation.
+#### Actions taken:
+- Replaced template-string/`innerHTML` notification list rendering with DOM node construction in [www/js/notifications.js](www/js/notifications.js#L211).
+- Set notification action URLs through DOM property assignment (`actionLink.href = notification.action_url`) after existing `isSafeUrl()` checks in [www/js/notifications.js](www/js/notifications.js#L253).
+- Removed `innerHTML`-based error rendering and switched to `textContent` in [www/js/notifications.js](www/js/notifications.js#L601).
+- Added server-side defense-in-depth URL hardening in [server/app.py](server/app.py#L204) and [server/app.py](server/app.py#L210) to reject dangerous protocols and unsafe attribute-breakout characters.
+- Added regression tests for attribute-breakout payloads in [server/tests/test_api_notifications.py](server/tests/test_api_notifications.py#L966) and [server/tests/test_api_notifications.py](server/tests/test_api_notifications.py#L982).
 
 #### Primary code references:
-- [www/js/notifications.js](www/js/notifications.js#L187-L231): Lines 187–231 contain the `isSafeUrl()` check and vulnerable href insertion
-- [server/app.py](server/app.py#L179-L218): Lines 179–218 contain server-side `validate_safe_url()` function
-- [server/app.py](server/app.py#L8199-L8250): Notification GET/POST endpoints; action_url validated and stored
+- [www/js/notifications.js](www/js/notifications.js#L211): Notification rendering now uses DOM APIs instead of `innerHTML` template assembly
+- [www/js/notifications.js](www/js/notifications.js#L253): Action links are created as DOM nodes and `href` is assigned via property
+- [www/js/notifications.js](www/js/notifications.js#L601): Error rendering now uses `textContent`
+- [server/app.py](server/app.py#L179): `validate_safe_url()` still enforces allowed protocols
+- [server/app.py](server/app.py#L204): Dangerous protocol checks
+- [server/app.py](server/app.py#L210): Unsafe attribute character checks
+- [server/tests/test_api_notifications.py](server/tests/test_api_notifications.py#L779): Existing protocol rejection test
+- [server/tests/test_api_notifications.py](server/tests/test_api_notifications.py#L966): Double-quote attribute-breakout regression test
+- [server/tests/test_api_notifications.py](server/tests/test_api_notifications.py#L982): Single-quote attribute-breakout regression test
 
 #### Impact:
+Pre-fix impact:
 - **Execution scope:** Client browser within authenticated session context
 - **Trust boundary broken:** Attacker with link data modification capability (e.g., via compromised API response or man-in-the-middle on unencrypted HTTP) can inject arbitrary JavaScript into notification action links
 - **Exposure:** Affects all users who click on notifications with attacker-crafted action_url values
 - **Privilege escalation:** Execution context is the current authenticated user's session; could exfiltrate session tokens, modify board state, or perform actions as that user
 
-#### Why existing validation is insufficient:
-The server protocol validation is a necessary but insufficient defense. URL protocol validation (safe_url) blocks dangerous schemes like `javascript:` and `data:`, which is correct. However, URL property can be exploited at the attribute level (HTML context) before the URL parsing layer. Once the URL is interpolated into the href attribute string, the attribute syntax itself becomes the injection point.
+#### Recommendations:
+- ~~Replace template-string href insertion with safe attribute escaping or DOM API rendering.~~ **FIXED**: notification list rendering now uses DOM APIs and avoids template-string `innerHTML` assembly for link nodes.
+- ~~Keep URL protocol validation in place as a precondition.~~ **FIXED**: existing `isSafeUrl()` and server `validate_safe_url()` checks are still enforced.
+- ~~Add regression tests for attribute-breakout payloads.~~ **FIXED**: protocol and attribute-breakout tests are in `test_api_notifications.py`.
 
-#### Recommended fix:
-Replace the template literal href insertion with one of these approaches:
-
-**Option A: Apply HTML-attribute escaping to the URL**
-```javascript
-// In notification rendering (notifications.js around line 231)
-const escapedUrl = this.escapeHtml(notification.action_url); // Escape for HTML attribute context
-actionButtonHtml = `<a href="${escapedUrl}" ...`;
-```
-**Note:** Confirm that attribute escaping preserves URL functionality; most browsers auto-decode attributes to the href value, so encoded spaces/quotes should still navigate correctly.
-
-**Option B: Use DOM API instead of template literal (recommended for cleaner semantics)**
-```javascript
-const link = document.createElement('a');
-link.href = notification.action_url; // Browser handles URL parsing/validation
-link.textContent = this.escapeHtml(notification.action_title);
-link.className = 'notification-action';
-// Append link to notification element
-```
-The DOM API approach is safer because browsers automatically validate and normalize the href property; setting via dot notation is parsed differently than string interpolation. The `isSafeUrl()` check should remain as a precondition to prevent obviously dangerous URLs.
-
-#### Priority:
-**HIGH** – Implement in next release. The fix is small (~5 lines); the risk is real XSS via user-clicked link rather than passive XSS.
-
-#### Testing recommendation:
-- Unit test: Verify prototype attack URLs (`/x" onclick="alert(1)"`, `/x' onclick='alert(1)'`) are either escaped or rejected after fix.
-- Integration test: Send notification with action_url containing these payloads via API; verify no onclick fires in rendered notification.
+#### Validation performed:
+- Focused pytest notification URL security tests passed (`6 passed`) including protocol and attribute-breakout cases.
+- Focused Snyk scan on [www/js/notifications.js](www/js/notifications.js) reported `issueCount: 0`.
+- Full Snyk scan on `www/js` reported `21` medium findings overall, with no current finding in `notifications.js`.
 
 ---
 
@@ -340,16 +321,16 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self' wss:; 
 **Tool:** Snyk Code (Static Application Security Testing)  
 **Scope:** `www/js/` directory  
 **Date:** 2026-03-17  
-**Issues Reported:** 22 medium-severity DOM-XSS issues
+**Issues Reported:** 21 medium-severity DOM-XSS issues
 
 **SAST Summary:**
-Snyk Code identified 22 potential DOM-XSS issues across 7 files. Manual validation determined that approximately 15 of these are false positives or already mitigated by the `escapeHtml()` utility function. Four findings with merit were identified (detailed above). The remaining issues are addressed by existing HTML escaping logic that the SAST tool did not fully trace due to data-flow complexity in vanilla JavaScript.
+Snyk Code identified 21 potential DOM-XSS issues in the current `www/js` scan. The previous `notifications.js` finding has been remediated and no longer appears in the scanner output after the DOM-rendering and URL-hardening changes. Remaining issues are primarily in other files and still require manual validation because SAST data-flow in vanilla JavaScript can over-report mitigated paths.
 
-**Files with flagged issues (false-positive rate ~70%):**
+**Files with flagged issues (updated):**
 - backup-restore.js: 3 issues → 0 confirmed (all mitigated by escapeHtml)
 - theme-builder.js: 3 issues → 0 confirmed (all mitigated by escapeHtml)
 - boards.js: 3 issues → 0 confirmed (all mitigated by escapeHtml)
-- notifications.js: 1 issue → 1 confirmed (href attribute escaping gap)
+- notifications.js: 0 issues (previous href attribute escaping gap fixed)
 - role-management.js: 6 issues → 0 confirmed (all mitigated by escapeHtml)
 - user-management.js: 6 issues → 0 confirmed (all mitigated by escapeHtml)
 
@@ -403,9 +384,9 @@ SESSION_COOKIE_SECURE = False        # ✗ Default allows HTTP transmission
 ## Recommendations Summary
 
 ### Immediate (Next Sprint)
-1. **FIX:** Notification href XSS – Apply attribute escaping to `action_url` (Finding #1)
-   - Effort: ~30 min
-   - Risk of non-fix: Real DOM injection via malicious notification URLs
+1. ~~**FIX:** Notification href XSS – Apply attribute escaping to `action_url` (Finding #1)~~ **FIXED (2026-03-17)**
+  - Implemented via DOM-based rendering and URL hardening checks
+  - Follow-up: retain regression tests and include in release verification
 2. **FIX:** Set `SESSION_COOKIE_SECURE=True` default in app.py (Finding #2)
    - Effort: 1-line change + verification
    - Risk of non-fix: Session hijacking if deployed on HTTP or mixed HTTP/HTTPS network

@@ -15,7 +15,7 @@ Work performed included:
 - Analysis of client-side permission caching and early-return optimizations.
 
 ## Executive Summary
-Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. The session cookie transport security finding has also been remediated by enforcing secure cookies by default and adding HTTP→HTTPS redirect protection for non-loopback traffic. Two findings remain as defense-in-depth gaps: session cache stale-state exposure windows and missing browser hardening headers in nginx. No fundamental architectural issues were identified.
+Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. The session cookie transport security finding has also been remediated by enforcing secure cookies by default and adding HTTP→HTTPS redirect protection for non-loopback traffic. The session cache stale-state behavior has now been formally assessed and accepted as an intentional trade-off for current expected use, with no near-term code adjustments planned. One finding remains as a defense-in-depth gap: missing browser hardening headers in nginx. No fundamental architectural issues were identified.
 
 ## Findings (Ordered by Severity)
 
@@ -139,7 +139,7 @@ Before rolling this change to production:
 
 ### 3) Low-Medium: Session cache stale-state window (permission changes not reflected until next API call fails)
 **Severity:** Low-Medium  
-**Status:** Design trade-off; not a bug per se  
+**Status:** **Accepted trade-off (2026-03-19); no adjustments planned for current expected use**  
 **CVSS Estimate:** 4.2 (CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N)
 
 #### What was observed:
@@ -242,14 +242,11 @@ socket.on('permission_updated', (data) => {
 ```
 **Impact:** Requires backend support to broadcast permission changes; immediate effect but adds complexity.
 
-#### Current recommendation:
-Accept the current behavior as a design trade-off if:
-- Your deployment environment is low-risk (internal users, limited admin changes)
-- Users understand that permission changes take effect on next page refresh
+#### Decision after assessment:
+For current expected use (internal users, limited adversarial risk, and acceptable page-refresh consistency), the existing cache-first behavior is accepted as an intentional trade-off and will remain unchanged for now.
 
-Deploy **Option B (TTL-based cache)** if:
-- Your environment requires permission changes to take effect within a known window (e.g., "within 10 minutes")
-- You want to balance UX and security without major architectural changes
+Potential future trigger for change:
+- Revisit **Option B (TTL-based cache)** if operational or compliance requirements change and permission revocation must take effect within a defined time window.
 
 #### Priority:
 **LOW** – The current behavior is acceptable for most deployments. Escalate to HIGH only if your deployment requires immediate permission revocation.
@@ -391,9 +388,8 @@ SESSION_COOKIE_SECURE = True         # ✓ Default enforces HTTPS-only cookie tr
 ### Near-term (Next Release)
 3. ~~**ADD:** Uncomment HTTP→HTTPS redirect in nginx.conf (Finding #2 mitigation)~~ **FIXED (2026-03-19)**
   - Implemented as conditional redirect with reverse-proxy loop protection
-4. **REVIEW:** Session cache TTL trade-off decision (Finding #3)
-   - Effort: Stakeholder discussion (engineering + product)
-   - Outcome: Accept current stale window OR implement TTL-based cache
+4. ~~**REVIEW:** Session cache TTL trade-off decision (Finding #3)~~ **ASSESSED (2026-03-19): ACCEPT AS-IS FOR NOW**
+  - Outcome: No adjustments for current expected use; revisit TTL-based cache only if revocation-latency requirements tighten.
 
 ### Medium-term (Next Quarter)
 5. **ADD:** Browser hardening headers to nginx (Finding #4)
@@ -412,7 +408,7 @@ SESSION_COOKIE_SECURE = True         # ✓ Default enforces HTTPS-only cookie tr
 - [ ] Notification XSS test: Attempt to render notification with `action_url='/x" onclick="alert(1)' data-x="'`; verify no onclick fires
 - [ ] Session cookie secure: Deploy to HTTP-only environment; verify `Set-Cookie` response includes `Secure; HttpOnly; SameSite=Lax` flags
 - [ ] Browser headers: Open "Network" tab in DevTools; verify responses include CSP, X-Frame-Options, HSTS headers
-- [ ] Session cache: Modify user permissions via admin panel; verify UI reflects changes on next page refresh or within configured TTL
+- [ ] Session cache: Modify user permissions via admin panel; verify UI reflects accepted behavior (changes take effect on next page refresh or on 401/403-driven cache clear)
 - [ ] SAST regression: Re-run Snyk Code on next release; compare issue count and validate new findings with manual inspection
 
 ---

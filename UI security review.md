@@ -15,7 +15,7 @@ Work performed included:
 - Analysis of client-side permission caching and early-return optimizations.
 
 ## Executive Summary
-Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. The session cookie transport security finding has also been remediated by enforcing secure cookies by default and adding HTTP→HTTPS redirect protection for non-loopback traffic. The session cache stale-state behavior has now been formally assessed and accepted as an intentional trade-off for current expected use, with no near-term code adjustments planned. One finding remains as a defense-in-depth gap: missing browser hardening headers in nginx. No fundamental architectural issues were identified.
+Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. The session cookie transport security finding has also been remediated by enforcing secure cookies by default and adding HTTP→HTTPS redirect protection for non-loopback traffic. The session cache stale-state behavior has now been formally assessed and accepted as an intentional trade-off for current expected use, with no near-term code adjustments planned. The missing browser hardening headers finding has now been remediated by implementing the recommended baseline header set in nginx for HTTPS responses. No fundamental architectural issues were identified.
 
 ## Findings (Ordered by Severity)
 
@@ -255,11 +255,11 @@ Potential future trigger for change:
 
 ### 4) Low: Missing browser hardening headers in nginx configuration
 **Severity:** Low  
-**Status:** Not yet fixed  
+**Status:** **Fixed (2026-03-19)**  
 **CVSS Estimate:** 3.7 (CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:N/A:N)
 
 #### What was observed:
-The nginx configuration in [server/nginx.conf](server/nginx.conf#L1-L160) serves static assets and proxies requests to the Flask backend. However, several important browser security headers are missing:
+Before remediation, the nginx configuration in [server/nginx.conf](server/nginx.conf#L1-L174) served static assets and proxied requests to the Flask backend without several important browser hardening headers:
 
 **Missing headers:**
 - `Content-Security-Policy` (CSP): Restricts resource loading and inline script execution
@@ -268,41 +268,39 @@ The nginx configuration in [server/nginx.conf](server/nginx.conf#L1-L160) serves
 - `Strict-Transport-Security` (HSTS): Enforces HTTPS on future connections
 - `Referrer-Policy`: Controls what referrer information is shared with linked sites
 
-**Current headers present:**
-- Cache-Control headers for API and static assets (good)
-- No CSP, X-Frame-Options, or HSTS (gaps)
+#### Actions taken:
+- Implemented the recommended Option A baseline browser hardening headers in the HTTPS nginx server block in [server/nginx.conf](server/nginx.conf#L102-L106).
+- Added `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Strict-Transport-Security`, and `Referrer-Policy` with the `always` flag for consistent HTTPS response coverage.
+- Repeated the same hardening headers in HTTPS location blocks that already define `add_header` directives to avoid nginx `add_header` inheritance gaps in [server/nginx.conf](server/nginx.conf#L134-L138), [server/nginx.conf](server/nginx.conf#L161-L165), and [server/nginx.conf](server/nginx.conf#L173-L177).
 
 #### Primary code references:
-- [server/nginx.conf](server/nginx.conf#L35-L37): Static asset cache headers (present)
-- [server/nginx.conf](server/nginx.conf#L114-L116): API cache headers (present)
-- [server/nginx.conf](server/nginx.conf#L73-L160): HTTPS block (HSTS missing)
+- [server/nginx.conf](server/nginx.conf#L102): CSP baseline policy (`default-src`, `script-src`, `style-src`)
+- [server/nginx.conf](server/nginx.conf#L103): `X-Frame-Options: SAMEORIGIN`
+- [server/nginx.conf](server/nginx.conf#L104): `X-Content-Type-Options: nosniff`
+- [server/nginx.conf](server/nginx.conf#L105): `Strict-Transport-Security`
+- [server/nginx.conf](server/nginx.conf#L106): `Referrer-Policy`
+- [server/nginx.conf](server/nginx.conf#L134): Header coverage maintained in `/api/` location responses
+- [server/nginx.conf](server/nginx.conf#L161): Header coverage maintained in static-asset location responses
+- [server/nginx.conf](server/nginx.conf#L173): Header coverage maintained in HTML location responses
 
 #### Impact:
+Pre-fix impact:
 - **Clickjacking risk (Low):** An attacker can frame the application in a hidden iframe and trick users into clicking UI elements
 - **MIME-type sniffing (Low):** Browsers may interpret uploaded files (PDFs, images) as scripts if Content-Type is incorrect
 - **HTTPS downgrade via HSTS bypass (Low-Medium):** Without HSTS, a user connecting to `https://example.com` for the first time can be downgraded to HTTP if intercepted
 - **XSS residual risk (Low):** CSP would prevent many inline script attacks, but the current frontend already applies HTML escaping, so this is defense-in-depth
 
-#### Recommended additions to nginx.conf:
+#### Recommendations:
+- ~~Add basic browser hardening headers (CSP, X-Frame-Options, X-Content-Type-Options, HSTS, Referrer-Policy).~~ **FIXED**: implemented in nginx HTTPS server and location blocks with `always` semantics.
+- ~~Preserve compatibility with current inline script usage while introducing CSP.~~ **FIXED**: deployed baseline CSP includes `'unsafe-inline'` for current compatibility.
+- **Future hardening option:** consider strict nonce-based CSP (`script-src 'nonce-...'`) after inline script refactoring.
 
-**Option A: Basic hardening (recommended)**
-```nginx
-# In the https server block (around line 75)
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' wss:; style-src 'self' 'unsafe-inline'" always;
-add_header X-Frame-Options "SAMEORIGIN" always;
-add_header X-Content-Type-Options "nosniff" always;
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-```
-
-**Option B: Strict CSP (requires refactoring inline scripts)**
-```nginx
-add_header Content-Security-Policy "default-src 'self'; script-src 'self' wss:; style-src 'self'" always;
-```
-**Note:** AFT has inline scripts in HTML templates (e.g., `<script>var data = {...}</script>`). A strict CSP without `'unsafe-inline'` will block these. To deploy strict CSP, extract inline scripts to separate files or use nonce-based CSP (`script-src 'nonce-{random}'`).
+#### Validation performed:
+- Static configuration validation completed by reviewing [server/nginx.conf](server/nginx.conf#L102-L177) to confirm header coverage in HTTPS server scope and `add_header`-overriding location scopes.
+- Runtime verification remains in the testing checklist (DevTools Network response-header check) for deployment validation.
 
 #### Priority:
-**LOW** – These headers are defense-in-depth; the primary security relies on escaping and authentication. Add during the next maintenance window or deployment sprint.
+**LOW (Completed)** – Defense-in-depth gap closed with baseline browser hardening headers.
 
 #### Deployment notes:
 - HSTS with `max-age=31536000` (1 year) is permanent; test thoroughly before deploying. Browsers will enforce HTTPS for 1 year after the first HSTS response.
@@ -392,13 +390,13 @@ SESSION_COOKIE_SECURE = True         # ✓ Default enforces HTTPS-only cookie tr
   - Outcome: No adjustments for current expected use; revisit TTL-based cache only if revocation-latency requirements tighten.
 
 ### Medium-term (Next Quarter)
-5. **ADD:** Browser hardening headers to nginx (Finding #4)
-   - Effort: 5 lines of nginx config
-   - Benefit: Defense-in-depth against clickjacking, MIME-sniffing, and XSS
+5. ~~**ADD:** Browser hardening headers to nginx (Finding #4)~~ **FIXED (2026-03-19)**
+  - Implemented baseline CSP, X-Frame-Options, X-Content-Type-Options, HSTS, and Referrer-Policy in HTTPS responses
+  - Added location-level header duplication where cache `add_header` directives would otherwise override inheritance
 
 ### Operational
 6. **ROTATE:** `SECRET_KEY` after deploying Session_Cookie_Secure changes (invalidates all sessions; expected behavior)
-7. **UPDATE:** `.env` template to explicitly set `SESSION_COOKIE_SECURE=true` and `HSTS=true` (SESSION_COOKIE_SECURE portion **FIXED**; HSTS still pending)
+7. ~~**UPDATE:** `.env` template to explicitly set `SESSION_COOKIE_SECURE=true` and `HSTS=true`~~ **N/A FOR CURRENT IMPLEMENTATION**: `SESSION_COOKIE_SECURE` is fixed and HSTS is enforced directly in nginx.
 8. **DOCUMENT:** Deployment checklist for HTTPS enforcement before security hardening rollout
 
 ---

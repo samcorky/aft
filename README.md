@@ -21,7 +21,7 @@ The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic
 
 **Development (default):**
 ```
-CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1
 ```
 
 **Production (example with multiple trusted domains):**
@@ -29,12 +29,12 @@ CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
 CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
-**Docker Host Access:**
+**Custom Host / Docker Host Access:**
 ```
-CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip,https://your-docker-host-ip,https://your-hostname
 ```
 
-Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
+Provide a comma-separated list of all origins that should be allowed to connect, including the exact scheme and host you use in the browser (for example https://staustell). This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
 
 #### HTTPS and Session Cookie Security
 By default, the stack now enforces secure session cookies and redirects direct HTTP requests to HTTPS.

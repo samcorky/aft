@@ -15,7 +15,7 @@ Work performed included:
 - Analysis of client-side permission caching and early-return optimizations.
 
 ## Executive Summary
-Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. Three findings remain as defense-in-depth or transport-layer gaps: session cookie transport security defaults, session cache stale-state exposure windows, and missing browser hardening headers in nginx. No fundamental architectural issues were identified.
+Four distinct security findings were identified during UI review. The highest UI finding (notification URL XSS sink) has now been remediated by removing template-string HTML rendering in notifications and enforcing safer DOM construction plus URL hardening checks. The session cookie transport security finding has also been remediated by enforcing secure cookies by default and adding HTTP→HTTPS redirect protection for non-loopback traffic. Two findings remain as defense-in-depth gaps: session cache stale-state exposure windows and missing browser hardening headers in nginx. No fundamental architectural issues were identified.
 
 ## Findings (Ordered by Severity)
 
@@ -71,63 +71,60 @@ Pre-fix impact:
 
 ### 2) Medium: Session cookie transport security defaults (SESSION_COOKIE_SECURE not enforced)
 **Severity:** Medium  
-**Status:** Not yet fixed  
+**Status:** **Fixed (2026-03-19)**  
 **CVSS Estimate:** 5.3 (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:L/A:N)
 
 #### What was observed:
-The Flask session cookie configuration in [server/app.py](server/app.py#L222-L224) sets session security properties:
+Before remediation, the Flask session cookie configuration in [server/app.py](server/app.py#L233-L235) set session security properties with an insecure default:
 
 ```python
-# server/app.py lines 222-224
+# server/app.py pre-fix
 SESSION_COOKIE_HTTPONLY = True  # Good: prevents JavaScript access
 SESSION_COOKIE_SAMESITE = 'Lax'  # Good: limits CSRF scope
 SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'  # Problem
 ```
 
-The `SESSION_COOKIE_SECURE` flag defaults to the string `'False'` when the environment variable is unset. Because of the `.lower() == 'true'` check, this evaluates to `False`, meaning session cookies are sent over **unencrypted HTTP** in environments where the env var is not explicitly set to `true`.
+The `SESSION_COOKIE_SECURE` flag defaulted to `'False'` when the environment variable was unset. Because of the `.lower() == 'true'` check, this evaluated to `False`, meaning session cookies could be sent over **unencrypted HTTP** in environments where the env var was not explicitly set to `true`.
+
+#### Actions taken:
+- Changed secure-cookie default to true in [server/app.py](server/app.py#L233) so session cookies are HTTPS-only unless explicitly opted out.
+- Added startup warning when secure cookies are explicitly disabled in [server/app.py](server/app.py#L238) and [server/app.py](server/app.py#L240).
+- Added HTTP→HTTPS redirect enforcement for non-loopback direct traffic in [server/nginx.conf](server/nginx.conf#L3), [server/nginx.conf](server/nginx.conf#L11), and [server/nginx.conf](server/nginx.conf#L18) with `X-Forwarded-Proto` loop protection.
+- Updated environment template to explicitly document secure-cookie defaults in [.env.example](.env.example#L27) and [.env.example](.env.example#L30).
 
 #### Primary code references:
-- [server/app.py](server/app.py#L222-L224): Session cookie configuration
-- [server/nginx.conf](server/nginx.conf#L73-L76): HTTPS listener on port 443, but HTTP listener on port 80 active with redirect commented out
+- [server/app.py](server/app.py#L233): `SESSION_COOKIE_SECURE` now defaults to `True`
+- [server/app.py](server/app.py#L238): Warning emitted when `SESSION_COOKIE_SECURE=false`
+- [server/nginx.conf](server/nginx.conf#L3): Redirect-skip map for upstream HTTPS and loopback host handling
+- [server/nginx.conf](server/nginx.conf#L11): HTTP listener remains active for reverse proxy and local workflows
+- [server/nginx.conf](server/nginx.conf#L19): HTTP redirects to HTTPS for non-loopback direct traffic
+- [.env.example](.env.example#L30): `SESSION_COOKIE_SECURE=true` explicitly documented
 
 #### Risk context:
-- The application runs HTTPS in production (nginx.conf has SSL certificate configuration at line 75).
-- However, the HTTP listener on port 80 remains active (line 73) and the automatic redirect to HTTPS is commented out (line ~74).
-- If an HTTPs redirect is not enforced upstream (at load balancer or firewall level), a user connecting to `http://example.com` receives the session cookie over unencrypted HTTP during login.
-- An attacker on the network (same WiFi, ARP spoofing, BGP hijack) can capture the session cookie and use it to impersonate the user.
+- Pre-fix risk was highest when HTTP was reachable and secure cookies were not enforced.
+- Current implementation reduces accidental insecure deployment by defaulting cookies to secure and redirecting non-loopback HTTP traffic to HTTPS.
+- Reverse-proxy TLS termination remains supported via `X-Forwarded-Proto=https` loop-protection logic.
 
 #### Impact:
+Pre-fix impact:
 - **Transport breach:** Session cookie transmitted over HTTP (if redirect not enforced upstream)
-- **Scope:** All deployments where (a) HTTP port 80 is exposed, (b) HTTP→HTTPS redirect is commented out, and (c) SESSION_COOKIE_SECURE env var is not explicitly set
-- **Privilege escalation:** Attacker can impersonate any user whose session cookie is captured on the network
-- **Session lifetime:** AFT uses Flask session cookies which expire on browser close or after a configured timeout; captured cookie is valid until expiry
-- **Mitigation already in place:** `HTTPONLY` flag prevents JavaScript from exfiltrating the cookie; `SAMESITE=Lax` prevents easy CSRF exploitation. However, these do NOT protect against network-level capture.
+- **Scope:** Deployments where HTTP was exposed and `SESSION_COOKIE_SECURE` was unset or false
+- **Privilege escalation:** Attacker could impersonate any user whose session cookie was captured on the network
+- **Session lifetime:** Captured cookie valid until expiry/invalidation
+- **Mitigation already in place:** `HTTPONLY` and `SAMESITE=Lax` helped against script/CSRF vectors but not network interception
 
 #### Why this is a real risk:
 While HTTPS should be enforced upstream (at load balancer or firewall), relying on external enforcement introduces an operational risk: if a single engineer misconfigures the load balancer or if the application is exposed to a non-HTTPS network segment for debugging, session cookies become vulnerable. The application should enforce the secure flag by default and require explicit opt-out, not the reverse.
 
-#### Recommended fix:
-**Option A: Change the default (RECOMMENDED)**
-```python
-# server/app.py line 223
-SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'True').lower() == 'true'  # Default to True
-```
-**Option B: Add startup validation warning**
-```python
-if not app.config.get('SESSION_COOKIE_SECURE'):
-    logger.warning("SESSION_COOKIE_SECURE is False. Session cookies will be sent over HTTP. "
-                  "This is a security risk. Set SESSION_COOKIE_SECURE=true in .env.")
-```
+#### Recommendations:
+- ~~Change the default to secure cookies (`SESSION_COOKIE_SECURE=True`).~~ **FIXED**: secure cookie default is now enforced in `app.py`.
+- ~~Add startup validation warning when secure cookies are disabled.~~ **FIXED**: warning is emitted at startup for explicit insecure opt-out.
+- ~~Enable HTTP→HTTPS redirect in nginx for direct HTTP traffic.~~ **FIXED**: non-loopback direct HTTP traffic is redirected to HTTPS with reverse-proxy loop protection.
 
-**Option C: Uncomment HTTP→HTTPS redirect in nginx.conf**
-```nginx
-# server/nginx.conf line 73-74
-listen 80;
-server_name _;
-return 301 https://$host$request_uri;  # Redirect all HTTP to HTTPS
-```
-
-**Recommendation:** Implement A + C together. Change the Flask default to True (eliminates accidental insecure deployment) and uncomment the nginx redirect (defense in depth; ensures HTTP connections are never sent to the Flask app).
+#### Validation performed:
+- Full backend test suite passed (`696 passed, 6 deselected`) after secure-cookie hardening and test-path adjustments.
+- Manual redirect validation confirmed non-loopback hostnames return HTTP `301` to HTTPS and upstream `X-Forwarded-Proto=https` requests are not re-redirected.
+- Current `.env.example` explicitly sets `SESSION_COOKIE_SECURE=true` for secure-by-default deployments.
 
 #### Priority:
 **HIGH** – Session hijacking is a critical attack; this is a low-lift fix with broad impact.
@@ -361,7 +358,7 @@ Snyk Code identified 21 potential DOM-XSS issues in the current `www/js` scan. T
 ```python
 SESSION_COOKIE_HTTPONLY = True       # ✓ Prevents JavaScript access
 SESSION_COOKIE_SAMESITE = 'Lax'      # ✓ Limited CSRF scope
-SESSION_COOKIE_SECURE = False        # ✗ Default allows HTTP transmission
+SESSION_COOKIE_SECURE = True         # ✓ Default enforces HTTPS-only cookie transport
 ```
 
 **Client-side Caching:**
@@ -387,13 +384,13 @@ SESSION_COOKIE_SECURE = False        # ✗ Default allows HTTP transmission
 1. ~~**FIX:** Notification href XSS – Apply attribute escaping to `action_url` (Finding #1)~~ **FIXED (2026-03-17)**
   - Implemented via DOM-based rendering and URL hardening checks
   - Follow-up: retain regression tests and include in release verification
-2. **FIX:** Set `SESSION_COOKIE_SECURE=True` default in app.py (Finding #2)
-   - Effort: 1-line change + verification
-   - Risk of non-fix: Session hijacking if deployed on HTTP or mixed HTTP/HTTPS network
+2. ~~**FIX:** Set `SESSION_COOKIE_SECURE=True` default in app.py (Finding #2)~~ **FIXED (2026-03-19)**
+  - Implemented with secure-by-default app config plus startup warning on explicit insecure override
+  - Risk reduced: accidental HTTP cookie transport from unset env defaults
 
 ### Near-term (Next Release)
-3. **ADD:** Uncomment HTTP→HTTPS redirect in nginx.conf (Finding #2 mitigation)
-   - Effort: Uncomment 1-2 lines
+3. ~~**ADD:** Uncomment HTTP→HTTPS redirect in nginx.conf (Finding #2 mitigation)~~ **FIXED (2026-03-19)**
+  - Implemented as conditional redirect with reverse-proxy loop protection
 4. **REVIEW:** Session cache TTL trade-off decision (Finding #3)
    - Effort: Stakeholder discussion (engineering + product)
    - Outcome: Accept current stale window OR implement TTL-based cache
@@ -405,7 +402,7 @@ SESSION_COOKIE_SECURE = False        # ✗ Default allows HTTP transmission
 
 ### Operational
 6. **ROTATE:** `SECRET_KEY` after deploying Session_Cookie_Secure changes (invalidates all sessions; expected behavior)
-7. **UPDATE:** `.env` template to explicitly set `SESSION_COOKIE_SECURE=true` and `HSTS=true`
+7. **UPDATE:** `.env` template to explicitly set `SESSION_COOKIE_SECURE=true` and `HSTS=true` (SESSION_COOKIE_SECURE portion **FIXED**; HSTS still pending)
 8. **DOCUMENT:** Deployment checklist for HTTPS enforcement before security hardening rollout
 
 ---

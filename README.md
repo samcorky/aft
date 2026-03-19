@@ -36,6 +36,15 @@ CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
 
 Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
 
+#### HTTPS and Session Cookie Security
+By default, the stack now enforces secure session cookies and redirects direct HTTP requests to HTTPS.
+
+- Nginx auto-generates a self-signed certificate at startup when no certificate files exist, so HTTPS works out of the box without manual certificate setup.
+- Flask defaults `SESSION_COOKIE_SECURE=true`, so browsers only send session cookies over HTTPS.
+- The HTTP listener (port 80) redirects non-localhost traffic to HTTPS unless an upstream reverse proxy forwards `X-Forwarded-Proto: https`.
+
+This keeps direct deployments secure by default while still supporting external reverse proxies and certificate resolvers.
+
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
 

@@ -230,10 +230,16 @@ def validate_safe_url(url):
 app = Flask(__name__)
 
 # Configure session
-app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'False').lower() == 'true'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'True').lower() == 'true'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 7  # 7 days
+
+if not app.config['SESSION_COOKIE_SECURE']:
+    logger.warning(
+        'SESSION_COOKIE_SECURE is set to false. Session cookies may be transmitted over plain HTTP. '
+        'Use only in controlled local development scenarios.'
+    )
 
 # Custom path converter that allows safe filenames (validation happens in the endpoint)
 class SafeFilenameConverter(BaseConverter):

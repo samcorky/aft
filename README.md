@@ -74,6 +74,31 @@ If you are contributing code (human or AI-assisted), start with [CONTRIBUTING.md
 
 For portable, agent-specific project context that should be available across machines via git, use [AGENT_CONTEXT.md](AGENT_CONTEXT.md). Keep this file concise and focused on stable workflow/security/testing facts.
 
+
+## Security and Access Control
+
+The application now includes a multi-user security model with authentication, role-based authorization, and secure-by-default deployment settings.
+
+- **Authentication Across HTTP + WebSocket** - Login/logout is enforced for protected API access and real-time socket connections.
+- **Role-Based Access Control (RBAC)** - Supports global and board-specific roles with permission checks on backend endpoints.
+- **Permission-Aware UI** - Frontend controls are shown/hidden based on effective permissions, reducing invalid actions before API calls.
+- **Ownership and IDOR Protection** - Server-side scoping checks prevent users from accessing resources they do not own or are not assigned to.
+- **Secure Session Defaults** - HTTPS-first behavior, secure session cookies by default, and optional Redis-backed server-side sessions.
+- **Operational Hardening** - Token-protected health checks and browser hardening headers in the reverse proxy layer.
+
+### Access Model and User Lifecycle
+
+- **Board Ownership and Sharing** - Boards are owned by a user, and access can be shared per board. Board-specific roles enable read-only access (viewer) or read/write collaboration (editor) without granting global access to all boards.
+- **Fine-Grained Per-Board Permissions** - Effective permissions are evaluated per board, so actions like editing or deleting are allowed only where the user has board-level rights.
+- **Custom Role Construction** - Role management supports building custom roles from individual permission blocks, then assigning those roles to users within the allowed assignment scope.
+- **Controlled Role Assignment** - Role changes require role-management permissions, with backend checks to prevent unauthorized escalation and invalid global vs board-specific assignments.
+- **Registration and Approval Workflow** - New user registrations are created in a pending state and must be approved by an administrator before login access is granted.
+- **First Admin Initial Setup** - A dedicated setup flow creates the first administrator account, auto-approves it, and completes initial bootstrap for the instance.
+
+For implementation details and extension guidance:
+- [server/AUTHENTICATION.md](server/AUTHENTICATION.md)
+- [server/PERMISSION_MODEL.md](server/PERMISSION_MODEL.md)
+- [PERMISSION_UI_SYSTEM.md](PERMISSION_UI_SYSTEM.md)
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.

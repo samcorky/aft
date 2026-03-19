@@ -3,17 +3,75 @@ import pytest
 import requests
 import time
 import uuid
+from urllib.parse import urlparse
 
 
 # API base URL - tests hit through nginx like external API clients would
 # This mimics how external tools/UIs would access the API (via 80/443, not internal 5000)
 API_BASE_URL = "http://localhost"
+TEST_API_HOST = urlparse(API_BASE_URL).hostname or "localhost"
 
 # Cleanup timing constants (in seconds)
 # These delays ensure async operations complete before proceeding
 CLEANUP_DELAY_SHORT = 0.1    # Standard delay after test cleanup
 CLEANUP_DELAY_MEDIUM = 0.15  # Delay for explicit clean operations
 CLEANUP_DELAY_LONG = 0.2     # Delay for session-level initialization
+
+
+def _mirror_secure_session_cookies_for_http(session):
+    """Mirror secure cookies to non-secure for local HTTP test runs.
+
+    When SESSION_COOKIE_SECURE=true in the server, auth cookies are marked
+    Secure and are not sent over HTTP by requests. The API tests intentionally
+    run against HTTP localhost, so mirror secure auth cookies as non-secure
+    inside the test client session only.
+    """
+    if not isinstance(session, requests.Session):
+        return
+
+    if not API_BASE_URL.startswith("http://"):
+        return
+
+    secure_cookies = [cookie for cookie in session.cookies if cookie.secure]
+    for cookie in secure_cookies:
+        cookie_path = cookie.path or "/"
+
+        # Host-only variant for localhost/127 test requests.
+        session.cookies.set(
+            cookie.name,
+            cookie.value,
+            path=cookie_path,
+            secure=False,
+        )
+
+        # Domain-scoped variant for clients that match by explicit host.
+        session.cookies.set(
+            cookie.name,
+            cookie.value,
+            domain=TEST_API_HOST,
+            path=cookie_path,
+            secure=False,
+        )
+
+
+_ORIGINAL_SESSION_REQUEST = requests.Session.request
+
+
+def _patched_session_request(self, method, url, *args, **kwargs):
+    """Patch requests.Session.request so HTTP test sessions keep auth cookies."""
+    if isinstance(url, str) and url.startswith("http://"):
+        _mirror_secure_session_cookies_for_http(self)
+
+    response = _ORIGINAL_SESSION_REQUEST(self, method, url, *args, **kwargs)
+
+    if isinstance(url, str) and url.startswith("http://"):
+        _mirror_secure_session_cookies_for_http(self)
+
+    return response
+
+
+# Apply once for the full pytest process so all ad-hoc sessions in tests behave.
+requests.Session.request = _patched_session_request
 
 
 @pytest.fixture(scope='session')
@@ -133,6 +191,8 @@ def test_admin_session(request, wait_for_api):
                     returncode=1
                 )
             print("[Test Setup] Successfully logged in as test admin")
+
+        _mirror_secure_session_cookies_for_http(session)
         
         return session
     
@@ -188,6 +248,7 @@ def authenticated_session(test_admin_session):
     recreates the test admin user and re-authenticates.
     """
     # Check if session is still valid
+    _mirror_secure_session_cookies_for_http(test_admin_session)
     check_response = test_admin_session.get(f"{API_BASE_URL}/api/auth/check")
     
     # If session is invalid (503 = no users, 401 = not authenticated)
@@ -218,6 +279,7 @@ def authenticated_session(test_admin_session):
                 })
                 if admin_response.status_code in (200, 201):
                     print("[Test Setup] Test admin recreated successfully")
+                    _mirror_secure_session_cookies_for_http(test_admin_session)
                 else:
                     last_error = f"setup admin HTTP {admin_response.status_code}"
                     time.sleep(0.2)
@@ -229,6 +291,7 @@ def authenticated_session(test_admin_session):
                 })
                 if login_response.status_code == 200:
                     print("[Test Setup] Logged in as test admin successfully")
+                    _mirror_secure_session_cookies_for_http(test_admin_session)
                 else:
                     last_error = f"login HTTP {login_response.status_code}"
                     time.sleep(0.2)
@@ -338,6 +401,7 @@ def _delete_all_data(session=None):
                     timeout=5,
                 )
                 if login_response.status_code == 200:
+                    _mirror_secure_session_cookies_for_http(session)
                     return True
 
             return False

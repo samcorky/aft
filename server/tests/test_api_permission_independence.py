@@ -14,7 +14,9 @@ import requests
 from permissions import PERMISSION_DEFINITIONS
 
 
-API_BASE_URL = "http://localhost"
+def _normalize_api_base_url(api_client):
+    """Normalize API base URL from fixture for consistent URL joining."""
+    return api_client.rstrip("/")
 
 
 def _render(value, context):
@@ -30,15 +32,15 @@ def _render(value, context):
     return value
 
 
-def _request(session, method, path, payload=None):
+def _request(session, api_base_url, method, path, payload=None):
     """Perform an API request with optional JSON body."""
-    return session.request(method, f"{API_BASE_URL}{path}", json=payload, timeout=10)
+    return session.request(method, f"{api_base_url}{path}", json=payload, timeout=10)
 
 
-def _create_board_context(admin_session, suffix):
+def _create_board_context(admin_session, api_base_url, suffix):
     """Create board resources used by permission tests."""
     board_resp = admin_session.post(
-        f"{API_BASE_URL}/api/boards",
+        f"{api_base_url}/api/boards",
         json={"name": f"Permission Board {suffix}", "description": "permission test board"},
         timeout=10,
     )
@@ -46,7 +48,7 @@ def _create_board_context(admin_session, suffix):
     board_id = board_resp.json()["board"]["id"]
 
     col_resp = admin_session.post(
-        f"{API_BASE_URL}/api/boards/{board_id}/columns",
+        f"{api_base_url}/api/boards/{board_id}/columns",
         json={"name": f"Source Column {suffix}"},
         timeout=10,
     )
@@ -54,7 +56,7 @@ def _create_board_context(admin_session, suffix):
     column_id = col_resp.json()["column"]["id"]
 
     col2_resp = admin_session.post(
-        f"{API_BASE_URL}/api/boards/{board_id}/columns",
+        f"{api_base_url}/api/boards/{board_id}/columns",
         json={"name": f"Target Column {suffix}"},
         timeout=10,
     )
@@ -62,7 +64,7 @@ def _create_board_context(admin_session, suffix):
     second_column_id = col2_resp.json()["column"]["id"]
 
     card_resp = admin_session.post(
-        f"{API_BASE_URL}/api/columns/{column_id}/cards",
+        f"{api_base_url}/api/columns/{column_id}/cards",
         json={"title": f"Card {suffix}", "description": "permission test card"},
         timeout=10,
     )
@@ -70,7 +72,7 @@ def _create_board_context(admin_session, suffix):
     card_id = card_resp.json()["card"]["id"]
 
     unscheduled_card_resp = admin_session.post(
-        f"{API_BASE_URL}/api/columns/{column_id}/cards",
+        f"{api_base_url}/api/columns/{column_id}/cards",
         json={"title": f"Unscheduled {suffix}", "description": "for schedule.create"},
         timeout=10,
     )
@@ -78,7 +80,7 @@ def _create_board_context(admin_session, suffix):
     unscheduled_card_id = unscheduled_card_resp.json()["card"]["id"]
 
     scheduled_source_resp = admin_session.post(
-        f"{API_BASE_URL}/api/columns/{column_id}/cards",
+        f"{api_base_url}/api/columns/{column_id}/cards",
         json={"title": f"Scheduled Source {suffix}", "description": "for schedule.edit/delete/view"},
         timeout=10,
     )
@@ -87,7 +89,7 @@ def _create_board_context(admin_session, suffix):
 
     future_iso = (datetime.utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat() + "Z"
     schedule_resp = admin_session.post(
-        f"{API_BASE_URL}/api/schedules",
+        f"{api_base_url}/api/schedules",
         json={
             "card_id": scheduled_source_card_id,
             "run_every": 1,
@@ -102,7 +104,7 @@ def _create_board_context(admin_session, suffix):
     schedule_id = schedule_resp.json()["schedule"]["id"]
 
     theme_resp = admin_session.post(
-        f"{API_BASE_URL}/api/themes/import",
+        f"{api_base_url}/api/themes/import",
         json={
             "name": f"Perm Theme {suffix}",
             "settings": {
@@ -130,14 +132,14 @@ def _create_board_context(admin_session, suffix):
     }
 
 
-def _create_permission_user(admin_session, suffix):
+def _create_permission_user(admin_session, api_base_url, suffix):
     """Register, approve, and login a user for permission testing."""
     email = f"perm-{suffix}@test.local"
     username = f"perm_{suffix}"
-    password = "PermUser123!"
+    password = f"PermUser-{uuid.uuid4().hex}-Aa1!"
 
     register_resp = requests.post(
-        f"{API_BASE_URL}/api/auth/register",
+        f"{api_base_url}/api/auth/register",
         json={"email": email, "username": username, "password": password},
         timeout=10,
     )
@@ -147,19 +149,19 @@ def _create_permission_user(admin_session, suffix):
     user_id = register_data.get("user", {}).get("id")
 
     if not user_id:
-        pending_resp = admin_session.get(f"{API_BASE_URL}/api/users/pending", timeout=10)
+        pending_resp = admin_session.get(f"{api_base_url}/api/users/pending", timeout=10)
         assert pending_resp.status_code == 200, pending_resp.text
         pending_users = pending_resp.json().get("users", [])
         matching = [u for u in pending_users if u.get("email") == email]
         assert matching, f"Registered user {email} not found in pending list"
         user_id = matching[0]["id"]
 
-    approve_resp = admin_session.post(f"{API_BASE_URL}/api/users/{user_id}/approve", timeout=10)
+    approve_resp = admin_session.post(f"{api_base_url}/api/users/{user_id}/approve", timeout=10)
     assert approve_resp.status_code == 200, approve_resp.text
 
     user_session = requests.Session()
     login_resp = user_session.post(
-        f"{API_BASE_URL}/api/auth/login",
+        f"{api_base_url}/api/auth/login",
         json={"email": email, "password": password},
         timeout=10,
     )
@@ -168,11 +170,11 @@ def _create_permission_user(admin_session, suffix):
     return user_id, user_session
 
 
-def _create_single_permission_role(admin_session, permission, suffix):
+def _create_single_permission_role(admin_session, api_base_url, permission, suffix):
     """Create a custom role containing only one permission."""
     role_name = f"perm_{permission.replace('.', '_')}_{suffix}"
     role_resp = admin_session.post(
-        f"{API_BASE_URL}/api/roles",
+        f"{api_base_url}/api/roles",
         json={
             "name": role_name,
             "description": f"Single permission role for {permission}",
@@ -184,14 +186,14 @@ def _create_single_permission_role(admin_session, permission, suffix):
     return role_name
 
 
-def _assign_role(admin_session, user_id, role_name, board_id=None):
+def _assign_role(admin_session, api_base_url, user_id, role_name, board_id=None):
     """Assign a role to a user globally or for a specific board."""
     payload = {"role_name": role_name}
     if board_id is not None:
         payload["board_id"] = board_id
 
     assign_resp = admin_session.post(
-        f"{API_BASE_URL}/api/users/{user_id}/roles",
+        f"{api_base_url}/api/users/{user_id}/roles",
         json=payload,
         timeout=10,
     )
@@ -242,24 +244,25 @@ PERMISSION_CASES = [
 
 @pytest.mark.parametrize("case", PERMISSION_CASES, ids=lambda c: c["permission"])
 def test_single_permission_is_sufficient_for_representative_action(
-    authenticated_session, case
+    authenticated_session, api_client, case
 ):
     """A user with one permission should be able to perform that permission's action."""
+    api_base_url = _normalize_api_base_url(api_client)
     suffix = uuid.uuid4().hex[:8]
-    context = _create_board_context(authenticated_session, suffix)
+    context = _create_board_context(authenticated_session, api_base_url, suffix)
 
-    user_id, user_session = _create_permission_user(authenticated_session, suffix)
+    user_id, user_session = _create_permission_user(authenticated_session, api_base_url, suffix)
     role_name = _create_single_permission_role(
-        authenticated_session, case["permission"], suffix
+        authenticated_session, api_base_url, case["permission"], suffix
     )
 
     board_scope_id = context["board_id"] if case["scope"] == "board" else None
-    _assign_role(authenticated_session, user_id, role_name, board_id=board_scope_id)
+    _assign_role(authenticated_session, api_base_url, user_id, role_name, board_id=board_scope_id)
 
     path = _render(case["path"], context)
     payload = _render(case.get("json"), context)
 
-    response = _request(user_session, case["method"], path, payload)
+    response = _request(user_session, api_base_url, case["method"], path, payload)
 
     assert response.status_code != 401, (
         f"Unexpected unauthenticated response for permission '{case['permission']}' "
@@ -276,13 +279,14 @@ def test_single_permission_is_sufficient_for_representative_action(
 
 
 def test_boards_endpoint_returns_helpful_403_for_user_with_no_board_access(
-    authenticated_session,
+    authenticated_session, api_client,
 ):
     """A user with no board roles/perms should get a clear 403 from GET /api/boards."""
+    api_base_url = _normalize_api_base_url(api_client)
     suffix = uuid.uuid4().hex[:8]
-    _, user_session = _create_permission_user(authenticated_session, suffix)
+    _, user_session = _create_permission_user(authenticated_session, api_base_url, suffix)
 
-    response = _request(user_session, "GET", "/api/boards")
+    response = _request(user_session, api_base_url, "GET", "/api/boards")
 
     assert response.status_code == 403, response.text
     data = response.json()

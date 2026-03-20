@@ -112,7 +112,48 @@ def upgrade():
         op.create_index('idx_user_role_board', 'user_roles', ['user_id', 'role_id', 'board_id'], unique=True)
     
     # Insert initial roles
-    from permissions import INITIAL_ROLES, get_role_permissions_json
+    # Define roles statically to avoid import path issues during migration
+    INITIAL_ROLES = {
+        'administrator': {
+            'description': '[GLOBAL] Full system administration - can see and manage everything',
+            'is_system_role': True,
+            'permissions': [
+                'system.admin', 'monitoring.system', 'admin.database', 'user.manage',
+                'user.role', 'role.manage', 'board.create', 'board.view', 'board.edit',
+                'board.delete', 'card.create', 'card.view', 'card.edit', 'card.update',
+                'card.delete', 'card.archive', 'column.create', 'column.update',
+                'column.delete', 'schedule.create', 'schedule.view', 'schedule.edit',
+                'schedule.delete', 'setting.view', 'setting.edit', 'theme.create',
+                'theme.view', 'theme.edit', 'theme.delete',
+            ]
+        },
+        'board_creator': {
+            'description': '[GLOBAL] Can create new boards (and automatically owns them with full control)',
+            'is_system_role': True,
+            'permissions': [
+                'board.create', 'theme.create', 'theme.view', 'theme.edit',
+                'theme.delete', 'setting.view', 'setting.edit',
+            ]
+        },
+        'board_editor': {
+            'description': '[BOARD-SPECIFIC] Full control of the assigned board - can manage everything on it',
+            'is_system_role': True,
+            'permissions': [
+                'board.view', 'board.edit', 'board.delete', 'card.create', 'card.view',
+                'card.edit', 'card.update', 'card.delete', 'card.archive', 'column.create',
+                'column.update', 'column.delete', 'schedule.create', 'schedule.view',
+                'schedule.edit', 'schedule.delete', 'setting.view', 'setting.edit',
+                'theme.create', 'theme.view', 'theme.edit', 'theme.delete',
+            ]
+        },
+        'board_viewer': {
+            'description': '[BOARD-SPECIFIC] Read-only access to the assigned board - cannot edit anything',
+            'is_system_role': True,
+            'permissions': [
+                'board.view', 'card.view', 'schedule.view', 'setting.view', 'theme.view',
+            ]
+        }
+    }
     
     roles_data = []
     for role_name, role_info in INITIAL_ROLES.items():
@@ -120,7 +161,7 @@ def upgrade():
             'name': role_name,
             'description': role_info['description'],
             'is_system_role': role_info['is_system_role'],
-            'permissions': get_role_permissions_json(role_name)
+            'permissions': json.dumps(role_info['permissions'])
         })
     
     # Insert roles idempotently

@@ -19,7 +19,7 @@ depends_on = None
 def upgrade():
     """Remove the old ix_settings_key unique index that conflicts with user-specific settings."""
     # Drop the old unique index on key column only
-    # The correct index idx_user_setting_key (on user_id, key) already exists
+    # The correct index idx_setting_scope_key (on COALESCE(user_id, 0), key) already exists
     bind = op.get_bind()
     inspector = sa.inspect(bind)
     index_names = {idx.get('name') for idx in inspector.get_indexes('settings')}

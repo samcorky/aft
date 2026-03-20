@@ -162,24 +162,37 @@ def upgrade():
     # Phase 4: Update unique constraints for multi-tenant tables
     # ========================================================================
     
-    # Drop the old unique constraint on themes.name and create composite unique index
-    # System themes (user_id IS NULL) must have unique names globally
-    # User themes are unique per user
+    # Drop the old unique constraint on themes.name and create scope-normalized unique index.
+    # COALESCE(user_id, 0) ensures system themes (NULL user_id) are globally unique by name.
     if table_exists('themes') and index_exists('themes', 'name'):
         op.drop_index('name', 'themes')  # Drop old UNIQUE constraint variant
     if table_exists('themes') and index_exists('themes', 'ix_themes_name'):
         op.drop_index('ix_themes_name', 'themes')  # Drop old UNIQUE constraint variant
-    if table_exists('themes') and not index_exists('themes', 'idx_theme_user_name'):
-        op.create_index('idx_theme_user_name', 'themes', ['user_id', 'name'], unique=True)
+    if table_exists('themes') and index_exists('themes', 'idx_theme_user_name'):
+        op.drop_index('idx_theme_user_name', 'themes')
+    if table_exists('themes') and not index_exists('themes', 'idx_theme_owner_scope_name'):
+        op.create_index(
+            'idx_theme_owner_scope_name',
+            'themes',
+            [sa.text('(coalesce(user_id, 0))'), 'name'],
+            unique=True,
+        )
     
-    # Drop the old unique constraint on settings.key and create composite unique index
-    # Each user can have their own value for each setting key
+    # Drop the old unique constraint on settings.key and create scope-normalized unique index.
+    # COALESCE(user_id, 0) ensures global settings (NULL user_id) are unique per key.
     if table_exists('settings') and index_exists('settings', 'key'):
         op.drop_index('key', 'settings')  # Drop old UNIQUE constraint variant
     if table_exists('settings') and index_exists('settings', 'ix_settings_key'):
         op.drop_index('ix_settings_key', 'settings')  # Drop old UNIQUE constraint variant
-    if table_exists('settings') and not index_exists('settings', 'idx_user_setting_key'):
-        op.create_index('idx_user_setting_key', 'settings', ['user_id', 'key'], unique=True)
+    if table_exists('settings') and index_exists('settings', 'idx_user_setting_key'):
+        op.drop_index('idx_user_setting_key', 'settings')
+    if table_exists('settings') and not index_exists('settings', 'idx_setting_scope_key'):
+        op.create_index(
+            'idx_setting_scope_key',
+            'settings',
+            [sa.text('(coalesce(user_id, 0))'), 'key'],
+            unique=True,
+        )
     
     # ========================================================================
     # Phase 5: Create default settings for all non-admin users
@@ -228,8 +241,8 @@ def downgrade():
     op.drop_index('ix_notifications_user_id', 'notifications')
     
     # Drop composite indexes
-    op.drop_index('idx_theme_user_name', 'themes')
-    op.drop_index('idx_user_setting_key', 'settings')
+    op.drop_index('idx_theme_owner_scope_name', 'themes')
+    op.drop_index('idx_setting_scope_key', 'settings')
     
     # Restore original unique constraints
     op.create_index('name', 'themes', ['name'], unique=True)

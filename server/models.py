@@ -24,8 +24,9 @@ class Theme(Base):
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
     
     __table_args__ = (
-        # System themes have unique names globally, user themes are unique per user
-        Index('idx_theme_user_name', 'user_id', 'name', unique=True),
+        # System themes (user_id is NULL) share scope 0; user themes are unique per user_id
+        # Use COALESCE to normalize NULL user_id to 0, ensuring global uniqueness
+        Index('idx_theme_owner_scope_name', func.coalesce(user_id, 0), 'name', unique=True),
     )
     
     def to_dict(self):
@@ -167,8 +168,8 @@ class Setting(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
     
     __table_args__ = (
-        # Each user can have one value per setting key
-        Index('idx_user_setting_key', 'user_id', 'key', unique=True),
+        # Each user can have one value per setting key; normalize NULL user_id to 0 for global uniqueness
+        Index('idx_setting_scope_key', func.coalesce(user_id, 0), 'key', unique=True),
     )
     
     def __repr__(self):
@@ -204,7 +205,7 @@ class Notification(Base):
     unread = Column(Boolean, nullable=False, default=True, index=True)
     
     # REQUIRED: notifications belong to specific users
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     
     created_at = Column(DateTime, nullable=False, server_default=func.now(), index=True)
     action_title = Column(String(100), nullable=True)

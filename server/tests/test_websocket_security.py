@@ -1,8 +1,14 @@
 """Security regression tests for Socket.IO authentication and authorization."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
+
+# Unit tests import app module directly, so ensure required startup env vars
+# exist before import-time configuration is evaluated.
+os.environ.setdefault('ENABLE_SERVER_SIDE_SESSIONS', 'false')
+os.environ.setdefault('SECRET_KEY', 'unit-test-secret-key')
 
 import app as app_module
 

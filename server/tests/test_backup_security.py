@@ -8,11 +8,16 @@ import pytest
 import tempfile
 import os
 
-# These tests validate backup SQL/file security logic and do not depend on session backend mode.
-# Force client-side session mode so importing app helpers does not require optional flask-session.
-os.environ['ENABLE_SERVER_SIDE_SESSIONS'] = 'false'
-# Provide a deterministic test secret so app import hardening does not fail in unit-test context.
-os.environ.setdefault('SECRET_KEY', 'unit-test-secret-key')
+@pytest.fixture(autouse=True)
+def _backup_security_env(monkeypatch):
+    """Scope auth-related env vars to each test to avoid cross-test leakage."""
+    # These tests validate backup SQL/file security logic and do not depend on
+    # server-side session backend mode.
+    monkeypatch.setenv('ENABLE_SERVER_SIDE_SESSIONS', 'false')
+
+    # Provide a deterministic test secret only when one is not already set.
+    current_secret = os.environ.get('SECRET_KEY', 'unit-test-secret-key')
+    monkeypatch.setenv('SECRET_KEY', current_secret)
 
 
 # Test fixtures for SQL content

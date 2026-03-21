@@ -757,6 +757,32 @@ class BoardManager {
     return this.boardId ? `aft:board:${this.boardId}:column-scroll` : null;
   }
 
+  sanitizeColumnScrollPositions(value) {
+    const sanitized = {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return sanitized;
+    }
+
+    Object.keys(value).forEach((key) => {
+      const raw = value[key];
+      const numberValue = typeof raw === 'number' ? raw : Number(raw);
+      if (Number.isFinite(numberValue)) {
+        sanitized[key] = numberValue;
+      }
+    });
+
+    return sanitized;
+  }
+
+  updateColumnScrollPosition(columnId, scrollTop, targetMap = this.columnScrollPositions) {
+    if (!columnId || !targetMap || typeof targetMap !== 'object') return;
+
+    const numberValue = typeof scrollTop === 'number' ? scrollTop : Number(scrollTop);
+    if (!Number.isFinite(numberValue)) return;
+
+    targetMap[columnId] = numberValue;
+  }
+
   loadPersistedColumnScrollPositions() {
     const storageKey = this.getColumnScrollStorageKey();
     if (!storageKey) return;
@@ -765,9 +791,7 @@ class BoardManager {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object') {
-        this.columnScrollPositions = parsed;
-      }
+      this.columnScrollPositions = this.sanitizeColumnScrollPositions(parsed);
     } catch (error) {
       console.warn('Failed to load column scroll positions:', error);
     }
@@ -796,11 +820,20 @@ class BoardManager {
   }
 
   captureColumnScrollPositions() {
+    const newPositions = {};
+    let capturedCount = 0;
+
     document.querySelectorAll('.column-cards[data-column-id]').forEach(columnCards => {
       const columnId = columnCards.getAttribute('data-column-id');
       if (!columnId) return;
-      this.columnScrollPositions[columnId] = columnCards.scrollTop || 0;
+      this.updateColumnScrollPosition(columnId, columnCards.scrollTop, newPositions);
+      capturedCount += 1;
     });
+
+    // Avoid wiping restored values during first load before columns are rendered.
+    if (capturedCount === 0) return;
+
+    this.columnScrollPositions = newPositions;
 
     this.schedulePersistColumnScrollPositions();
   }
@@ -1811,8 +1844,7 @@ class BoardManager {
       document.querySelectorAll('.column-cards[data-column-id]').forEach(columnCards => {
         columnCards.addEventListener('scroll', () => {
           const columnId = columnCards.getAttribute('data-column-id');
-          if (!columnId) return;
-          this.columnScrollPositions[columnId] = columnCards.scrollTop || 0;
+          this.updateColumnScrollPosition(columnId, columnCards.scrollTop);
           this.schedulePersistColumnScrollPositions();
         }, { passive: true });
       });

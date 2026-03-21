@@ -45,6 +45,13 @@
           root.style.setProperty(`--${key}`, theme[key]);
         });
         
+        // Also apply the cached background image
+        if (savedBgImage && savedBgImage !== 'none') {
+          root.style.setProperty('--background-image', `url('/images/backgrounds/${savedBgImage}')`);
+        } else {
+          root.style.setProperty('--background-image', 'none');
+        }
+        
         return true; // Successfully applied cached theme
       } catch (e) {
         console.warn('Error parsing cached theme:', e);

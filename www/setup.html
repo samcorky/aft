@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Initial Setup - AFT</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/setup.css">
+</head>
+<body>
+    <div class="setup-container">
+        <div class="setup-header">
+            <h1>🚀 Welcome to AFT</h1>
+            <p>Let's set up your administrator account</p>
+        </div>
+
+        <div class="info-box">
+            <h3>First Time Setup</h3>
+            <p>You're creating the first user account, which will have full administrator privileges. You'll be able to create additional users later.</p>
+        </div>
+
+        <div id="errorMessage" class="error-message"></div>
+
+        <form id="setupForm">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required aria-required="true" autocomplete="email" autofocus>
+                <small>Use a valid email for account recovery</small>
+            </div>
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required aria-required="true" autocomplete="username" maxlength="100" value="admin">
+                <small>Can only contain letters, numbers, underscores, and hyphens</small>
+            </div>
+
+            <div class="form-group">
+                <label for="displayName">Display Name</label>
+                <input type="text" id="displayName" name="displayName" autocomplete="name" maxlength="255" value="Administrator">
+                <small>This is how your name will appear in the app</small>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required aria-required="true" autocomplete="new-password" minlength="8">
+                <small>Minimum 8 characters - use a strong, unique password</small>
+                <div class="password-strength">
+                    <div id="passwordStrengthBar" class="password-strength-bar"></div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required aria-required="true" autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="btn-setup" id="setupButton">
+                Complete Setup
+            </button>
+        </form>
+    </div>
+
+    <script src="js/setup.js"></script>
+</body>
+</html>

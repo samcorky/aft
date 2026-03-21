@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - AFT</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/register.css">
+</head>
+<body>
+    <div class="register-container">
+        <div class="register-header">
+            <h1>Create Account</h1>
+            <p>Join AFT to start organizing</p>
+        </div>
+
+        <div id="errorMessage" class="error-message"></div>
+        <div id="successMessage" class="success-message"></div>
+
+        <form id="registerForm">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required aria-required="true" autocomplete="email" autofocus>
+            </div>
+
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required aria-required="true" autocomplete="username" maxlength="100">
+                <small>Letters, numbers, underscores, and hyphens only</small>
+            </div>
+
+            <div class="form-group">
+                <label for="displayName">Display Name (Optional)</label>
+                <input type="text" id="displayName" name="displayName" autocomplete="name" maxlength="255">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required aria-required="true" autocomplete="new-password" minlength="8">
+                <small>Minimum 8 characters</small>
+                <div class="password-strength">
+                    <div id="passwordStrengthBar" class="password-strength-bar"></div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required aria-required="true" autocomplete="new-password">
+            </div>
+
+            <button type="submit" class="btn-register" id="registerButton">
+                Create Account
+            </button>
+        </form>
+
+        <div class="register-footer">
+            Already have an account? <a href="login.html">Sign in</a>
+        </div>
+    </div>
+
+    <script src="js/register.js"></script>
+</body>
+</html>

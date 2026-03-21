@@ -6,6 +6,14 @@ class BoardsManager {
   }
 
   async init() {
+    // Initialize Permission Manager (no board context for boards list)
+    console.log('Initializing PermissionManager for boards page');
+    const permissionInitSuccess = await PermissionManager.init();
+    
+    if (!permissionInitSuccess) {
+      console.warn('Failed to initialize PermissionManager - some features may not be available');
+    }
+    
     // Check for default board setting and redirect if set
     const shouldRedirect = await this.checkDefaultBoard();
     if (shouldRedirect) {
@@ -135,16 +143,47 @@ class BoardsManager {
   async loadBoards() {
     try {
       const response = await fetch('/api/boards');
-      const data = await response.json();
+      let data = null;
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      }
+      
+      // Check for authentication errors
+      if (response.status === 401) {
+        this.showError('Authentication required. Please log in to view your boards.');
+        return;
+      }
+      
+      // Check for other HTTP errors
+      if (!response.ok) {
+        if (response.status === 403) {
+          const fallbackMessage = 'You do not have access to any existing boards and you do not have permission to create new boards. Ask an administrator to grant board.view access or the board_creator role.';
+          const permissionMessage = data?.message || fallbackMessage;
+          this.showError(this.escapeHtml(permissionMessage));
+          return;
+        }
+
+        const serverMessage = data?.message
+          ? `Failed to load boards: ${this.escapeHtml(data.message)}`
+          : `Failed to load boards: HTTP ${response.status}`;
+        this.showError(serverMessage);
+        return;
+      }
+
+      if (!data) {
+        data = await response.json();
+      }
       
       if (data.success) {
         this.boards = data.boards;
         this.renderBoardsList();
       } else {
-        this.showError('Failed to load boards: ' + data.message);
+        this.showError('Failed to load boards: ' + this.escapeHtml(data.message || 'Unknown error'));
       }
     } catch (err) {
-      this.showError('Error loading boards: ' + err.message);
+      this.showError('Error loading boards: ' + this.escapeHtml(err.message || 'Unknown error'));
     }
   }
 
@@ -165,11 +204,16 @@ class BoardsManager {
       `;
       
       // Add event listener for the empty state button
-      document.getElementById('empty-state-new-board-btn').addEventListener('click', () => this.openModal());
+      const emptyStateNewBoardBtn = document.getElementById('empty-state-new-board-btn');
+      if (emptyStateNewBoardBtn) {
+        emptyStateNewBoardBtn.addEventListener('click', () => this.openModal());
+      }
     } else {
       listContainer.className = 'boards-grid';
+      
+      // Render board cards (always include edit/delete buttons, will filter by permissions after)
       listContainer.innerHTML = this.boards.map(board => `
-        <div class="board-card" data-board-id="${board.id}">
+        <div class="board-card" data-board-id="${this.escapeHtml(String(board.id))}" data-can-edit="${this.escapeHtml(String(board.can_edit))}" data-can-delete="${this.escapeHtml(String(board.can_delete))}">
           <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
           <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
           <h4>${this.escapeHtml(board.name)}</h4>
@@ -181,8 +225,14 @@ class BoardsManager {
         </div>
       `;
       
+      // Apply permission-based rendering to board action buttons
+      this.applyPermissionBasedRendering();
+      
       // Add event listener for inline add board button
-      document.getElementById('add-board-inline-btn').addEventListener('click', () => this.openModal());
+      const addBoardInlineBtn = document.getElementById('add-board-inline-btn');
+      if (addBoardInlineBtn) {
+        addBoardInlineBtn.addEventListener('click', () => this.openModal());
+      }
       
       // Add event listeners for edit buttons
       listContainer.querySelectorAll('.board-edit-btn').forEach(btn => {
@@ -213,6 +263,71 @@ class BoardsManager {
     }
   }
 
+  /**
+   * Apply permission-based rendering to board action buttons
+   * Removes edit/delete buttons based on backend permission flags and user permissions
+   */
+  applyPermissionBasedRendering() {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      console.log('PermissionManager not available - using backend permission flags only');
+      // Fallback: just use backend flags
+      this.applyBackendPermissionFlags();
+      return;
+    }
+    
+    console.log('Applying permission-based rendering to board cards...');
+    
+    // For each board card, check permissions
+    document.querySelectorAll('.board-card').forEach(card => {
+      const canEdit = card.getAttribute('data-can-edit') === 'true';
+      const canDelete = card.getAttribute('data-can-delete') === 'true';
+      
+      const editBtn = card.querySelector('.board-edit-btn');
+      const deleteBtn = card.querySelector('.board-delete-btn');
+      
+      // Remove edit button if user doesn't have permission
+      // Backend has already calculated board-specific permissions (ownership + roles)
+      if (!canEdit) {
+        editBtn?.remove();
+      }
+      
+      // Remove delete button if user doesn't have permission
+      if (!canDelete) {
+        deleteBtn?.remove();
+      }
+    });
+    
+    // Check if user can create boards - if not, remove "New Board" button
+    if (!PermissionManager.hasPermission('board.create')) {
+      document.getElementById('add-board-inline-btn')?.remove();
+      document.getElementById('empty-state-new-board-btn')?.remove();
+    }
+    
+    console.log('Permission-based rendering complete');
+  }
+
+  /**
+   * Fallback method when PermissionManager is not available
+   * Uses backend permission flags only
+   */
+  applyBackendPermissionFlags() {
+    document.querySelectorAll('.board-card').forEach(card => {
+      const canEdit = card.getAttribute('data-can-edit') === 'true';
+      const canDelete = card.getAttribute('data-can-delete') === 'true';
+      
+      const editBtn = card.querySelector('.board-edit-btn');
+      const deleteBtn = card.querySelector('.board-delete-btn');
+      
+      if (!canEdit) {
+        editBtn?.remove();
+      }
+      
+      if (!canDelete) {
+        deleteBtn?.remove();
+      }
+    });
+  }
+
   openModal() {
     const modal = document.getElementById('new-board-modal');
     modal.classList.add('active');
@@ -233,7 +348,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || null;
     
     if (!boardName) {
-      await showAlert('Please enter a board name', 'Invalid Input');
+      this.showErrorToast('Please enter a board name');
       return;
     }
 
@@ -258,10 +373,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to create board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to create board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error creating board: ' + err.message, 'Error');
+      this.showErrorToast('Error creating board: ' + err.message);
     }
   }
 
@@ -286,10 +401,10 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to delete board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to delete board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error deleting board: ' + err.message, 'Error');
+      this.showErrorToast('Error deleting board: ' + err.message);
     }
   }
 
@@ -317,7 +432,7 @@ class BoardsManager {
     const boardDescription = formData.get('description')?.trim() || '';
     
     if (!boardName) {
-      await showAlert('Please enter a board name', 'Invalid Input');
+      this.showErrorToast('Please enter a board name');
       return;
     }
 
@@ -342,22 +457,60 @@ class BoardsManager {
           window.header.loadBoardsDropdown();
         }
       } else {
-        await showAlert('Failed to update board: ' + data.message, 'Error');
+        this.showErrorToast('Failed to update board: ' + data.message);
       }
     } catch (err) {
-      await showAlert('Error updating board: ' + err.message, 'Error');
+      this.showErrorToast('Error updating board: ' + err.message);
     }
   }
 
   showError(message) {
     const listContainer = document.getElementById('boards-list');
+    // Message should already be escaped before calling this function,
+    // but we double-escape for defense in depth
+    const safeMessage = typeof message === 'string' ? message : String(message);
     listContainer.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">⚠️</div>
         <h3>Error</h3>
-        <p>${this.escapeHtml(message)}</p>
+        <p>${safeMessage}</p>
       </div>
     `;
+  }
+
+  /**
+   * Show a non-blocking error toast notification.
+   * @param {string} message - Error message to display
+   * @param {number} duration - How long to show the toast in milliseconds (default 3000)
+   */
+  showErrorToast(message, duration = 3000) {
+    const toast = document.createElement('div');
+    toast.className = 'error-toast';
+    toast.textContent = message;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #e74c3c;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
   }
 
   escapeHtml(text) {

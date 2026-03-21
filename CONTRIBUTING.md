@@ -6,22 +6,25 @@ Thank you for your interest in contributing to AFT. This document provides guide
 
 Before submitting any code contribution, **verify ALL items** are complete:
 
+- [ ] **Authentication Setup** - If developing/testing features requiring authentication, ensure fresh database or test admin exists (see [Authentication for Development](#authentication-for-development))
 - [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
-- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](./TESTING.md))
+- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](server/TESTING.md))
 - [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
 - [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md))
 - [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
 - [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
 - [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
-- [ ] **Documentation** - README/docs updated if behavior changed
-- [ ] **All Tests Pass** - Run `pytest -v` and verify all tests pass
+- [ ] **Documentation** - README/docs updated if behaviour changed
+- [ ] **Agent Context Updated** - If workflow/security/testing behavior changed, update [AGENT_CONTEXT.md](./AGENT_CONTEXT.md)
+- [ ] **All Tests Pass** - Run `pytest -v` with fresh database and verify all tests pass
 
-**AI Contributors:** Read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md) before implementing ANY feature.
+**AI Contributors:** Start with [AGENT_CONTEXT.md](./AGENT_CONTEXT.md), then read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md, AUTHENTICATION.md) before implementing ANY feature.
 
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
+- [Human and Agent Documentation](#human-and-agent-documentation)
 - [Development Workflow](#development-workflow)
 - [Coding Standards](#coding-standards)
 - [Testing Requirements](#testing-requirements)
@@ -44,6 +47,30 @@ Before submitting any code contribution, **verify ALL items** are complete:
 ## Getting Started
 
 I had copilot write all of this primarily so I can ensure it always does all the things. If you're manually contributing, ensure your PR follows the spirit of this guide, or better yet, have an AI do it for you, that's how this app works.
+
+## Human and Agent Documentation
+
+Use this section to keep documentation tidy and predictable for both humans and AI agents.
+
+### Source of Truth for Agent-Specific Context
+
+- Store agent-specific, high-signal context in [AGENT_CONTEXT.md](./AGENT_CONTEXT.md).
+- Keep it concise and durable (workflow conventions, recurring pitfalls, stable security/testing facts).
+- Do not store secrets or environment-specific private values in that file.
+
+### What Goes Where
+
+- Use [AGENT_CONTEXT.md](./AGENT_CONTEXT.md) for agent-oriented startup context and repeatable operational notes.
+- Use human-facing docs (for example README, TESTING, SECURITY review docs, feature docs) for broader project documentation and reference material.
+- If guidance is useful to both humans and agents, keep it in normal project docs and optionally summarize it in [AGENT_CONTEXT.md](./AGENT_CONTEXT.md).
+
+### New Agent Session Setup
+
+For any new Copilot/AI agent session in this repo:
+
+1. Read [AGENT_CONTEXT.md](./AGENT_CONTEXT.md) first.
+2. Read [CONTRIBUTING.md](./CONTRIBUTING.md) and linked policy documents.
+3. After making workflow-impacting changes, update [AGENT_CONTEXT.md](./AGENT_CONTEXT.md) in the same PR.
 
 ### Prerequisites
 
@@ -81,6 +108,58 @@ I had copilot write all of this primarily so I can ensure it always does all the
    
    - Application: http://localhost:80
    - API: http://localhost/api/health
+
+## Authentication for Development
+
+**As of user support implementation, most API endpoints require authentication.** When developing or testing features:
+
+### Initial Setup (First Time)
+
+On a fresh database (no users exist), you can create an initial admin user:
+
+1. Navigate to http://localhost/setup.html
+2. Create your admin account
+3. Use these credentials for development and testing
+
+### Development Workflow
+
+1. **Login to UI**: Navigate to http://localhost/login.html and login with your admin credentials
+2. **API Testing**: Use browser dev tools or authenticated requests for API testing
+3. **Session Management**: The system uses session-based authentication with cookies
+
+### Running Tests
+
+**Tests require a fresh database** to automatically create the test admin user. See [TESTING.md](server/TESTING.md) for detailed instructions:
+
+```powershell
+# Windows
+docker compose down
+Remove-Item -Recurse -Force data
+docker compose up -d
+
+# Linux/macOS  
+docker compose down
+rm -rf data
+docker compose up -d
+```
+
+Then run tests:
+```powershell
+cd server
+.\venv\Scripts\Activate.ps1  # Windows
+# or
+source venv/bin/activate      # Linux/macOS
+
+pytest -v
+```
+
+### Authentication Documentation
+
+For detailed information about the authentication system:
+
+- **[AUTHENTICATION.md](server/AUTHENTICATION.md)** - Complete authentication architecture and implementation guide
+- **[AUTH_QUICK_REFERENCE.md](server/AUTH_QUICK_REFERENCE.md)** - Quick reference for using authentication in code
+- **[TESTING.md](server/TESTING.md)** - Test suite authentication requirements
 
 ## Development Workflow
 

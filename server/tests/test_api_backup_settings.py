@@ -1,15 +1,14 @@
 """Tests for backup settings API endpoints."""
 import pytest
-import requests
 
 
 @pytest.mark.api
 class TestBackupSettingsAPI:
     """Test cases for backup settings API endpoints."""
     
-    def test_get_backup_config_default(self, api_client):
+    def test_get_backup_config_default(self, api_client, authenticated_session):
         """Test getting backup config with default values."""
-        response = requests.get(f'{api_client}/api/settings/backup/config')
+        response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
@@ -22,7 +21,7 @@ class TestBackupSettingsAPI:
         assert 'start_time' in config
         assert 'retention_count' in config
     
-    def test_update_backup_config_all_fields(self, api_client):
+    def test_update_backup_config_all_fields(self, api_client, authenticated_session):
         """Test updating all backup configuration fields."""
         config_data = {
             'enabled': True,
@@ -32,7 +31,7 @@ class TestBackupSettingsAPI:
             'retention_count': 10
         }
         
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config_data
         )
@@ -41,7 +40,7 @@ class TestBackupSettingsAPI:
         assert data['success'] is True
         
         # Verify the settings were saved
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         get_data = get_response.json()
         config = get_data['config']
         
@@ -51,31 +50,31 @@ class TestBackupSettingsAPI:
         assert config['start_time'] == '02:30'
         assert config['retention_count'] == 10
     
-    def test_update_backup_config_partial_fields(self, api_client):
+    def test_update_backup_config_partial_fields(self, api_client, authenticated_session):
         """Test updating only some backup configuration fields."""
         # Set initial config
-        requests.put(
+        authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': False, 'frequency_value': 1}
         )
         
         # Update only enabled field
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True}
         )
         assert response.status_code == 200
         
         # Verify enabled changed but frequency_value remained
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['enabled'] is True
         assert config['frequency_value'] == 1
     
-    def test_update_backup_config_invalid_frequency_value(self, api_client):
+    def test_update_backup_config_invalid_frequency_value(self, api_client, authenticated_session):
         """Test validation of frequency_value."""
         # Test value too low
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 0}
         )
@@ -83,7 +82,7 @@ class TestBackupSettingsAPI:
         assert 'frequency_value' in response.json()['message']
         
         # Test value too high
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 100}
         )
@@ -91,36 +90,36 @@ class TestBackupSettingsAPI:
         assert 'frequency_value' in response.json()['message']
         
         # Test non-integer
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 'invalid'}
         )
         assert response.status_code == 400
     
-    def test_update_backup_config_invalid_frequency_unit(self, api_client):
+    def test_update_backup_config_invalid_frequency_unit(self, api_client, authenticated_session):
         """Test validation of frequency_unit."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_unit': 'weeks'}
         )
         assert response.status_code == 400
         assert 'frequency_unit' in response.json()['message']
     
-    def test_update_backup_config_valid_frequency_units(self, api_client):
+    def test_update_backup_config_valid_frequency_units(self, api_client, authenticated_session):
         """Test all valid frequency units."""
         for unit in ['minutes', 'hours', 'daily']:
-            response = requests.put(
+            response = authenticated_session.put(
                 f'{api_client}/api/settings/backup/config',
                 json={'frequency_unit': unit}
             )
             assert response.status_code == 200
             
             # Verify it was saved
-            get_response = requests.get(f'{api_client}/api/settings/backup/config')
+            get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
             config = get_response.json()['config']
             assert config['frequency_unit'] == unit
     
-    def test_update_backup_config_invalid_start_time(self, api_client):
+    def test_update_backup_config_invalid_start_time(self, api_client, authenticated_session):
         """Test validation of start_time format."""
         invalid_times = [
             'invalid',
@@ -130,28 +129,28 @@ class TestBackupSettingsAPI:
         ]
         
         for time_str in invalid_times:
-            response = requests.put(
+            response = authenticated_session.put(
                 f'{api_client}/api/settings/backup/config',
                 json={'start_time': time_str}
             )
             assert response.status_code == 400, f"Expected 400 for time: {time_str}"
             assert 'start_time' in response.json()['message']
     
-    def test_update_backup_config_valid_start_times(self, api_client):
+    def test_update_backup_config_valid_start_times(self, api_client, authenticated_session):
         """Test various valid start_time formats."""
         valid_times = ['00:00', '01:30', '1:30', '12:00', '23:59', '9:00', '9:30']
         
         for time_str in valid_times:
-            response = requests.put(
+            response = authenticated_session.put(
                 f'{api_client}/api/settings/backup/config',
                 json={'start_time': time_str}
             )
             assert response.status_code == 200, f"Expected 200 for time: {time_str}"
     
-    def test_update_backup_config_invalid_retention_count(self, api_client):
+    def test_update_backup_config_invalid_retention_count(self, api_client, authenticated_session):
         """Test validation of retention_count."""
         # Test value too low
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'retention_count': 0}
         )
@@ -159,43 +158,43 @@ class TestBackupSettingsAPI:
         assert 'retention_count' in response.json()['message']
         
         # Test value too high
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'retention_count': 101}
         )
         assert response.status_code == 400
         assert 'retention_count' in response.json()['message']
     
-    def test_update_backup_config_invalid_enabled_type(self, api_client):
+    def test_update_backup_config_invalid_enabled_type(self, api_client, authenticated_session):
         """Test validation of enabled field type."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': 'true'}  # String instead of boolean
         )
         assert response.status_code == 400
         assert 'enabled' in response.json()['message']
     
-    def test_update_backup_config_empty_body(self, api_client):
+    def test_update_backup_config_empty_body(self, api_client, authenticated_session):
         """Test updating with empty request body."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={}
         )
         # Should succeed but not change anything
         assert response.status_code == 200
     
-    def test_update_backup_config_missing_body(self, api_client):
+    def test_update_backup_config_missing_body(self, api_client, authenticated_session):
         """Test updating without request body."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             headers={'Content-Type': 'application/json'}
         )
         assert response.status_code == 400
         assert 'required' in response.json()['message'].lower()
     
-    def test_get_backup_status(self, api_client):
+    def test_get_backup_status(self, api_client, authenticated_session):
         """Test getting backup scheduler status."""
-        response = requests.get(f'{api_client}/api/settings/backup/status')
+        response = authenticated_session.get(f'{api_client}/api/settings/backup/status')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
@@ -219,7 +218,7 @@ class TestBackupSettingsAPI:
         # permission_error can be None or a string with error details
         assert status['permission_error'] is None or isinstance(status['permission_error'], str)
     
-    def test_backup_config_persistence(self, api_client):
+    def test_backup_config_persistence(self, api_client, authenticated_session):
         """Test that backup configuration persists across requests."""
         # Set specific configuration
         config_data = {
@@ -230,14 +229,14 @@ class TestBackupSettingsAPI:
             'retention_count': 5
         }
         
-        requests.put(
+        authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json=config_data
         )
         
         # Retrieve config multiple times to ensure persistence
         for _ in range(3):
-            response = requests.get(f'{api_client}/api/settings/backup/config')
+            response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
             config = response.json()['config']
             
             assert config['enabled'] is True
@@ -246,29 +245,29 @@ class TestBackupSettingsAPI:
             assert config['start_time'] == '03:00'
             assert config['retention_count'] == 5
     
-    def test_update_backup_config_boundary_values(self, api_client):
+    def test_update_backup_config_boundary_values(self, api_client, authenticated_session):
         """Test boundary values for numeric fields."""
         # Test minimum values
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 1, 'retention_count': 1}
         )
         assert response.status_code == 200
         
         # Test maximum values
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_value': 99, 'retention_count': 100}
         )
         assert response.status_code == 200
         
         # Verify saved values
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['frequency_value'] == 99
         assert config['retention_count'] == 100
     
-    def test_can_enable_with_database_defaults(self, api_client, isolated_test):
+    def test_can_enable_with_database_defaults(self, api_client, authenticated_session, isolated_test):
         """Test that enabling backups works when database has default settings.
         
         This test uses isolated_test fixture to ensure clean state, then verifies
@@ -276,7 +275,7 @@ class TestBackupSettingsAPI:
         On a fresh install, all backup settings should exist in the database.
         """
         # First verify migration defaults exist in database
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         assert get_response.status_code == 200
         config = get_response.json()['config']
         
@@ -289,58 +288,58 @@ class TestBackupSettingsAPI:
         assert config['minimum_free_space_mb'] == 100
         
         # Now try to enable - should succeed because DB has valid defaults from migration
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True}
         )
         assert response.status_code == 200
         
         # Verify enabled was updated
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['enabled'] is True
     
-    def test_cannot_enable_with_invalid_frequency_value(self, api_client):
+    def test_cannot_enable_with_invalid_frequency_value(self, api_client, authenticated_session):
         """Test that you cannot enable backups if frequency_value would be invalid."""
         # This should be caught by validation before the enable check
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True, 'frequency_value': 0}
         )
         assert response.status_code == 400
         assert 'frequency_value' in response.json()['message']
     
-    def test_cannot_enable_with_invalid_frequency_unit(self, api_client):
+    def test_cannot_enable_with_invalid_frequency_unit(self, api_client, authenticated_session):
         """Test that you cannot enable backups if frequency_unit would be invalid."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True, 'frequency_unit': 'invalid'}
         )
         assert response.status_code == 400
         assert 'frequency_unit' in response.json()['message']
     
-    def test_cannot_enable_with_invalid_start_time(self, api_client):
+    def test_cannot_enable_with_invalid_start_time(self, api_client, authenticated_session):
         """Test that you cannot enable backups if start_time would be invalid."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True, 'start_time': '25:99'}
         )
         assert response.status_code == 400
         assert 'start_time' in response.json()['message']
     
-    def test_cannot_enable_with_invalid_retention_count(self, api_client):
+    def test_cannot_enable_with_invalid_retention_count(self, api_client, authenticated_session):
         """Test that you cannot enable backups if retention_count would be invalid."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'enabled': True, 'retention_count': 0}
         )
         assert response.status_code == 400
         assert 'retention_count' in response.json()['message']
     
-    def test_can_enable_with_all_valid_settings(self, api_client):
+    def test_can_enable_with_all_valid_settings(self, api_client, authenticated_session):
         """Test that enabling succeeds when all settings are valid."""
         # First set all valid settings
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={
                 'enabled': True,
@@ -353,14 +352,14 @@ class TestBackupSettingsAPI:
         assert response.status_code == 200
         
         # Verify enabled is true
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['enabled'] is True
     
-    def test_daily_frequency_unit_must_have_frequency_value_1(self, api_client):
+    def test_daily_frequency_unit_must_have_frequency_value_1(self, api_client, authenticated_session):
         """Test that daily frequency_unit requires frequency_value of 1."""
         # Daily with frequency_value > 1 should fail
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_unit': 'daily', 'frequency_value': 2}
         )
@@ -368,21 +367,21 @@ class TestBackupSettingsAPI:
         assert 'Daily backups must have frequency_value of 1' in response.json()['message']
         
         # Daily with frequency_value = 1 should succeed
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_unit': 'daily', 'frequency_value': 1}
         )
         assert response.status_code == 200
         
         # Verify it was saved
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['frequency_unit'] == 'daily'
         assert config['frequency_value'] == 1
     
-    def test_cannot_enable_daily_with_invalid_frequency_value(self, api_client):
+    def test_cannot_enable_daily_with_invalid_frequency_value(self, api_client, authenticated_session):
         """Test that you cannot enable daily backups with frequency_value != 1."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={
                 'enabled': True,
@@ -395,9 +394,9 @@ class TestBackupSettingsAPI:
         assert response.status_code == 400
         assert 'Daily backups' in response.json()['message'] and 'frequency_value of 1' in response.json()['message']
     
-    def test_can_enable_daily_with_frequency_value_1(self, api_client):
+    def test_can_enable_daily_with_frequency_value_1(self, api_client, authenticated_session):
         """Test that you can enable daily backups with frequency_value of 1."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={
                 'enabled': True,
@@ -410,15 +409,15 @@ class TestBackupSettingsAPI:
         assert response.status_code == 200
         
         # Verify settings were saved
-        get_response = requests.get(f'{api_client}/api/settings/backup/config')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/backup/config')
         config = get_response.json()['config']
         assert config['enabled'] is True
         assert config['frequency_unit'] == 'daily'
         assert config['frequency_value'] == 1
     
-    def test_old_days_unit_should_be_rejected(self, api_client):
+    def test_old_days_unit_should_be_rejected(self, api_client, authenticated_session):
         """Test that old 'days' frequency_unit is no longer accepted."""
-        response = requests.put(
+        response = authenticated_session.put(
             f'{api_client}/api/settings/backup/config',
             json={'frequency_unit': 'days'}
         )

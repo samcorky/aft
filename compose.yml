@@ -55,7 +55,7 @@ services:
     networks:
       - aft
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/test').read()"]
+      test: ["CMD", "python", "-c", "import os, urllib.request; req = urllib.request.Request('http://localhost:5000/api/health/ready', headers={'X-Health-Token': os.environ.get('HEALTHCHECK_TOKEN', '')}); urllib.request.urlopen(req).read()"]
       interval: 5s
       timeout: 3s
       retries: 5

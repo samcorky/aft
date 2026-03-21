@@ -1,6 +1,5 @@
 """Tests for API endpoints that support WebSocket theme synchronization."""
 import pytest
-import requests
 import time
 import concurrent.futures
 
@@ -9,18 +8,18 @@ import concurrent.futures
 class TestThemeAPIForWebSocketSync:
     """Test cases for theme API endpoints required for WebSocket synchronization."""
     
-    def test_theme_api_endpoint_exists(self, api_client):
+    def test_theme_api_endpoint_exists(self, api_client, authenticated_session):
         """Test that theme API endpoints are available for WebSocket integration."""
         # Verify /api/settings/theme endpoint exists
-        response = requests.get(f'{api_client}/api/settings/theme')
+        response = authenticated_session.get(f'{api_client}/api/settings/theme')
         assert response.status_code == 200
         data = response.json()
         assert 'id' in data or 'success' in data
     
-    def test_theme_update_api_endpoint(self, api_client):
+    def test_theme_update_api_endpoint(self, api_client, authenticated_session):
         """Test theme update endpoint that triggers WebSocket broadcast."""
         # First get list of themes to find a theme to copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         assert themes_response.status_code == 200
         themes_data = themes_response.json()
         assert isinstance(themes_data, list) and len(themes_data) > 0, "No themes available to copy"
@@ -30,7 +29,7 @@ class TestThemeAPIForWebSocketSync:
         # Copy a theme to create a custom theme
         import time
         unique_name = f'Test Custom Theme {int(time.time() * 1000)}'
-        copy_response = requests.post(
+        copy_response = authenticated_session.post(
             f'{api_client}/api/themes/copy',
             json={
                 'source_theme_id': source_theme_id,
@@ -42,7 +41,7 @@ class TestThemeAPIForWebSocketSync:
         theme_id = theme_data['id']
         
         # Update the created theme via API
-        update_response = requests.put(
+        update_response = authenticated_session.put(
             f'{api_client}/api/themes/{theme_id}',
             json={
                 'name': f'Updated Theme {int(time.time() * 1000)}',
@@ -58,19 +57,19 @@ class TestThemeAPIForWebSocketSync:
         update_data = update_response.json()
         assert 'id' in update_data or 'success' in update_data
     
-    def test_theme_join_room_preparation(self, api_client):
+    def test_theme_join_room_preparation(self, api_client, authenticated_session):
         """Test that theme endpoints support room-based updates."""
         # Verify endpoint structure supports WebSocket room events
-        response = requests.get(f'{api_client}/api/themes')
+        response = authenticated_session.get(f'{api_client}/api/themes')
         assert response.status_code == 200
         
         data = response.json()
         # Should have themes list for WebSocket to sync
         assert isinstance(data, list) or isinstance(data, dict)
     
-    def test_version_endpoint_for_header_status(self, api_client):
+    def test_version_endpoint_for_header_status(self, api_client, authenticated_session):
         """Test /api/version endpoint used by header status widget."""
-        response = requests.get(f'{api_client}/api/version')
+        response = authenticated_session.get(f'{api_client}/api/version')
         assert response.status_code == 200
         
         data = response.json()
@@ -78,18 +77,17 @@ class TestThemeAPIForWebSocketSync:
         assert 'app_version' in data
         assert 'db_version' in data
     
-    def test_health_check_endpoint_for_websocket_status(self, api_client):
-        """Test /api/test endpoint used for WebSocket connection monitoring."""
-        response = requests.get(f'{api_client}/api/test')
+    def test_health_check_endpoint_for_websocket_status(self, api_client, authenticated_session):
+        """Test /api/health/live endpoint used for server connectivity monitoring."""
+        response = authenticated_session.get(f'{api_client}/api/health/live')
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
-        assert 'message' in data
+        assert data['ok'] is True
     
-    def test_scheduler_health_endpoint(self, api_client):
+    def test_scheduler_health_endpoint(self, api_client, authenticated_session):
         """Test /api/scheduler/health endpoint for header status widget."""
-        response = requests.get(f'{api_client}/api/scheduler/health')
+        response = authenticated_session.get(f'{api_client}/api/scheduler/health')
         assert response.status_code == 200
         
         data = response.json()
@@ -101,10 +99,10 @@ class TestThemeAPIForWebSocketSync:
 class TestBoardAPIForWebSocketSync:
     """Test cases for board API endpoints required for WebSocket room synchronization."""
     
-    def test_board_room_join_preparation(self, api_client, sample_board):
+    def test_board_room_join_preparation(self, api_client, authenticated_session, sample_board):
         """Test that board endpoints support room-based real-time updates."""
         # Verify board can be retrieved for room synchronization
-        response = requests.get(
+        response = authenticated_session.get(
             f'{api_client}/api/boards/{sample_board["id"]}/columns'
         )
         assert response.status_code == 200
@@ -113,10 +111,10 @@ class TestBoardAPIForWebSocketSync:
         assert data['success'] is True
         assert 'columns' in data
     
-    def test_card_creation_triggers_broadcast(self, api_client, sample_column):
+    def test_card_creation_triggers_broadcast(self, api_client, authenticated_session, sample_column):
         """Test that card creation would trigger WebSocket broadcast."""
         # Create a card (which should trigger WebSocket event)
-        card_response = requests.post(
+        card_response = authenticated_session.post(
             f'{api_client}/api/columns/{sample_column["id"]}/cards',
             json={
                 'title': 'WebSocket Test Card',
@@ -130,9 +128,9 @@ class TestBoardAPIForWebSocketSync:
         assert card_data['success'] is True
         assert 'id' in card_data['card']
     
-    def test_card_update_triggers_broadcast(self, api_client, sample_card):
+    def test_card_update_triggers_broadcast(self, api_client, authenticated_session, sample_card):
         """Test that card update would trigger WebSocket broadcast."""
-        update_response = requests.patch(
+        update_response = authenticated_session.patch(
             f'{api_client}/api/cards/{sample_card["id"]}',
             json={
                 'title': 'Updated WebSocket Test Card',
@@ -151,31 +149,31 @@ class TestBoardAPIForWebSocketSync:
 class TestAPIErrorHandlingForWebSocket:
     """Test API error handling and fallback behavior for WebSocket features."""
     
-    def test_api_test_endpoint_available(self, api_client):
-        """Test database connection check endpoint for WebSocket fallback."""
-        response = requests.get(f'{api_client}/api/test')
+    def test_api_liveness_endpoint_available(self, api_client, authenticated_session):
+        """Test server liveness endpoint for WebSocket fallback."""
+        response = authenticated_session.get(f'{api_client}/api/health/live')
         assert response.status_code == 200
         
         data = response.json()
-        assert data['success'] is True
+        assert data['ok'] is True
     
-    def test_version_endpoint_timeout_resilience(self, api_client):
+    def test_version_endpoint_timeout_resilience(self, api_client, authenticated_session):
         """Test that version endpoint responds within timeout window."""
         start_time = time.time()
         
-        response = requests.get(f'{api_client}/api/version', timeout=5)
+        response = authenticated_session.get(f'{api_client}/api/version', timeout=5)
         elapsed = time.time() - start_time
         
         # Should complete well within 5 second timeout
         assert elapsed < 5
         assert response.status_code == 200
     
-    def test_database_status_check_resilience(self, api_client):
+    def test_database_status_check_resilience(self, api_client, authenticated_session):
         """Test that database status check handles timeouts gracefully."""
         # Make concurrent requests to simulate header status polling
         
         def health_check():
-            return requests.get(f'{api_client}/api/test', timeout=5)
+            return authenticated_session.get(f'{api_client}/api/version', timeout=5)
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = [executor.submit(health_check) for _ in range(3)]
@@ -190,14 +188,14 @@ class TestAPIErrorHandlingForWebSocket:
 class TestAPIIntegrationForWebSocket:
     """Integration tests for API endpoints that support WebSocket functionality across multiple features."""
     
-    def test_theme_change_updates_all_pages(self, api_client):
+    def test_theme_change_updates_all_pages(self, api_client, authenticated_session):
         """Test that theme changes propagate across pages via WebSocket."""
         # Get initial theme
-        initial_response = requests.get(f'{api_client}/api/settings/theme')
+        initial_response = authenticated_session.get(f'{api_client}/api/settings/theme')
         assert initial_response.status_code == 200
         
         # Get all themes
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         assert themes_response.status_code == 200
         themes_data = themes_response.json()
         
@@ -206,7 +204,7 @@ class TestAPIIntegrationForWebSocket:
             theme_id = themes_data[0]['id']
             
             # Update theme
-            update_response = requests.put(
+            update_response = authenticated_session.put(
                 f'{api_client}/api/themes/{theme_id}',
                 json={
                     'name': 'Integration Test Theme',
@@ -219,10 +217,10 @@ class TestAPIIntegrationForWebSocket:
             # Verify response is valid
             assert update_response.status_code in [200, 400]
     
-    def test_board_updates_broadcast_to_all_clients(self, api_client, sample_board):
+    def test_board_updates_broadcast_to_all_clients(self, api_client, authenticated_session, sample_board):
         """Test that board updates are broadcast via WebSocket."""
         # Create multiple cards to simulate broadcast
-        columns_response = requests.get(
+        columns_response = authenticated_session.get(
             f'{api_client}/api/boards/{sample_board["id"]}/columns'
         )
         assert columns_response.status_code == 200
@@ -233,7 +231,7 @@ class TestAPIIntegrationForWebSocket:
             
             # Create cards that would trigger broadcasts
             for i in range(2):
-                card_response = requests.post(
+                card_response = authenticated_session.post(
                     f'{api_client}/api/columns/{column_id}/cards',
                     json={
                         'title': f'Broadcast Test Card {i+1}',
@@ -244,15 +242,15 @@ class TestAPIIntegrationForWebSocket:
                 assert card_response.status_code == 201
                 time.sleep(0.1)  # Small delay between operations
     
-    def test_header_status_widget_polling_resilience(self, api_client):
+    def test_header_status_widget_polling_resilience(self, api_client, authenticated_session):
         """Test that header status polling handles multiple concurrent checks."""
         
         def status_check():
             """Simulate header status widget polling."""
-            version = requests.get(f'{api_client}/api/version', timeout=5)
-            health = requests.get(f'{api_client}/api/scheduler/health', timeout=5)
-            test = requests.get(f'{api_client}/api/test', timeout=5)
-            return all(r.status_code == 200 for r in [version, health, test])
+            live = authenticated_session.get(f'{api_client}/api/health/live', timeout=5)
+            version = authenticated_session.get(f'{api_client}/api/version', timeout=5)
+            health = authenticated_session.get(f'{api_client}/api/scheduler/health', timeout=5)
+            return all(r.status_code == 200 for r in [live, version, health])
         
         # Simulate 5-second polling interval with multiple concurrent clients
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:

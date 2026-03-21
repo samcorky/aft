@@ -74,6 +74,21 @@ class BackupRestore {
   }
 
   async init() {
+    // Wait for user data to be ready (loaded by header.js)
+    if (!window.userDataReady) {
+      setTimeout(() => this.init(), 100);
+      return;
+    }
+    
+    // Check permission before loading page content
+    const hasAdminDatabase = typeof hasPermission === 'function' && hasPermission('admin.database');
+    
+    if (!hasAdminDatabase) {
+      // User doesn't have permission - show access denied
+      showAccessDenied('You need the "admin.database" permission to access this page.');
+      return;
+    }
+    
     await this.loadBackupConfig();
     await this.loadBackupStatus();
     await this.loadAvailableBackups();
@@ -190,7 +205,8 @@ class BackupRestore {
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?(.+)"?/);
         if (filenameMatch) {
-          filename = filenameMatch[1];
+          // Sanitize filename from header to prevent XSS
+          filename = this.escapeHtml(filenameMatch[1]);
         }
       }
 
@@ -303,7 +319,7 @@ class BackupRestore {
       // Update modal to show progress
       titleElement.textContent = 'Restoring Database';
       titleElement.style.color = 'var(--primary-color)';
-      messageElement.textContent = 'Restoring database... This may take a minute.';
+      messageElement.textContent = 'Restoring database... This may take several minutes for large databases. Please wait.';
       confirmBtn.style.display = 'none';
       cancelBtn.style.display = 'none';
 
@@ -313,10 +329,17 @@ class BackupRestore {
         const formData = new FormData();
         formData.append('file', file);
 
+        // Set up timeout for 25 minutes (slightly less than backend 30 min timeout)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000);
+
         const response = await fetch('/api/database/restore', {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
@@ -343,8 +366,15 @@ class BackupRestore {
       } catch (error) {
         console.error('Error restoring database:', error);
         
+        let errorMessage = error.message;
+        if (error.name === 'AbortError') {
+          errorMessage = 'The restore operation timed out after 25 minutes. For very large databases, this may still be processing. Please wait a few minutes and refresh the page to check if the restore completed.';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = 'Network connection lost during restore. The restore may still be processing on the server. Please wait a few minutes and refresh the page to check the status.';
+        }
+        
         // Show error in modal
-        this.showRestoreResultInModal('Restore Failed', error.message, false);
+        this.showRestoreResultInModal('Restore Failed', errorMessage, false);
         this.restoreBtn.disabled = false;
       } finally {
         this.restoreFileInput.value = '';
@@ -594,26 +624,24 @@ class BackupRestore {
         formattedSize = `${(size / (1024 * 1024)).toFixed(2)} MB`;
       }
       
-      // Create filename with badge if manual
-      let filenameHtml = this.escapeHtml(backup.filename);
-      if (backup.is_manual) {
-        filenameHtml += ' <span class="backup-manual-badge">Manual</span>';
-      }
+      // Create filename with escaped content to prevent XSS
+      const escapedFilename = this.escapeHtml(backup.filename);
+      const manualBadge = backup.is_manual ? '<span class="backup-manual-badge">Manual</span>' : '';
       
       backupItem.innerHTML = `
         <div class="backup-checkbox">
-          <input type="checkbox" class="backup-select-checkbox" data-filename="${this.escapeHtml(backup.filename)}" aria-label="Select ${this.escapeHtml(backup.filename)}">
+          <input type="checkbox" class="backup-select-checkbox" data-filename="${escapedFilename}" aria-label="Select ${escapedFilename}">
         </div>
         <div class="backup-info">
-          <div class="backup-filename">${filenameHtml}</div>
+          <div class="backup-filename">${escapedFilename} ${manualBadge}</div>
           <div class="backup-date">${formattedDate}</div>
         </div>
         <div class="backup-size">${formattedSize}</div>
         <div class="backup-actions">
-          <button class="backup-restore-btn" data-filename="${this.escapeHtml(backup.filename)}">
+          <button class="backup-restore-btn" data-filename="${escapedFilename}">
             Restore
           </button>
-          <button class="backup-delete-btn" data-filename="${this.escapeHtml(backup.filename)}">
+          <button class="backup-delete-btn" data-filename="${escapedFilename}">
             Delete
           </button>
         </div>
@@ -778,7 +806,7 @@ class BackupRestore {
       // Update modal to show progress
       titleElement.textContent = 'Restoring Database';
       titleElement.style.color = 'var(--primary-color)';
-      messageElement.textContent = 'Restoring database... This may take a minute.';
+      messageElement.textContent = 'Restoring database... This may take several minutes for large databases. Please wait.';
       confirmBtn.style.display = 'none';
       cancelBtn.style.display = 'none';
 
@@ -787,9 +815,16 @@ class BackupRestore {
       restoreButtons.forEach(btn => btn.disabled = true);
 
       try {
+        // Set up timeout for 25 minutes (slightly less than backend 30 min timeout)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 25 * 60 * 1000);
+
         const response = await fetch(`/api/database/backups/restore/${filename}`, {
-          method: 'POST'
+          method: 'POST',
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         // Check if response is JSON
         const contentType = response.headers.get('content-type');
@@ -816,8 +851,15 @@ class BackupRestore {
       } catch (error) {
         console.error('Error restoring from automatic backup:', error);
         
+        let errorMessage = error.message;
+        if (error.name === 'AbortError') {
+          errorMessage = 'The restore operation timed out after 25 minutes. For very large databases, this may still be processing. Please wait a few minutes and refresh the page to check if the restore completed.';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = 'Network connection lost during restore. The restore may still be processing on the server. Please wait a few minutes and refresh the page to check the status.';
+        }
+        
         // Show error in modal
-        this.showRestoreResultInModal('Restore Failed', error.message, false);
+        this.showRestoreResultInModal('Restore Failed', errorMessage, false);
         
         // Re-enable buttons on error
         restoreButtons.forEach(btn => btn.disabled = false);

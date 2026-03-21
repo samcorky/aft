@@ -278,6 +278,35 @@
   border-radius: 8px;
 }
 
+.user-dropdown-header {
+  padding: 16px 20px 12px 20px;
+  border-bottom: 2px solid var(--border-color);
+  background-color: var(--header-menu-background);
+}
+
+.user-name-link {
+  text-decoration: none;
+  display: block;
+  transition: opacity 0.2s;
+}
+
+.user-name-link:hover {
+  opacity: 0.8;
+}
+
+.user-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--header-menu-text-color);
+  display: block;
+}
+
+.user-dropdown-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 4px 0;
+}
+
 .user-dropdown-item {
   padding: 12px 20px;
   color: var(--header-menu-text-color);

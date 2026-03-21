@@ -1,12 +1,56 @@
 """Utility functions for notification management."""
 import logging
+from flask import g, has_request_context
 from database import SessionLocal
-from models import Notification
+from models import Notification, Role, User, UserRole
 
 logger = logging.getLogger(__name__)
 
 
-def create_notification(subject: str, message: str, action_title: str = None, action_url: str = None) -> bool:
+def _resolve_recipient_user_ids(db, explicit_user_id=None):
+    """Resolve recipient user IDs for internal notifications.
+
+    Priority:
+    1. Explicit user_id argument
+    2. Current authenticated request user
+    3. Active/approved users with global administrator role
+    4. First active/approved user as last-resort fallback
+    """
+    if explicit_user_id is not None:
+        return [explicit_user_id]
+
+    if has_request_context() and getattr(g, 'user', None):
+        return [g.user.id]
+
+    admin_user_ids = (
+        db.query(User.id)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .filter(
+            User.is_active.is_(True),
+            User.is_approved.is_(True),
+            Role.name == 'administrator',
+            UserRole.board_id.is_(None),
+        )
+        .all()
+    )
+    resolved = [user_id for (user_id,) in admin_user_ids]
+    if resolved:
+        return resolved
+
+    fallback_user = (
+        db.query(User.id)
+        .filter(User.is_active.is_(True), User.is_approved.is_(True))
+        .order_by(User.id.asc())
+        .first()
+    )
+    if fallback_user:
+        return [fallback_user[0]]
+
+    return []
+
+
+def create_notification(subject: str, message: str, action_title: str = None, action_url: str = None, user_id: int = None) -> bool:
     """Create a notification in the database.
     
     This is a shared utility function for internal use (backup scheduler, 
@@ -110,17 +154,24 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
             logger.warning("Attempted to create notification with empty subject or message")
             return False
         
-        notification = Notification(
-            subject=subject,
-            message=message,
-            unread=True,
-            action_title=action_title,
-            action_url=action_url
-        )
-        
-        db.add(notification)
+        recipient_user_ids = _resolve_recipient_user_ids(db, explicit_user_id=user_id)
+        if not recipient_user_ids:
+            logger.warning("No eligible recipient users found for notification")
+            return False
+
+        for recipient_user_id in recipient_user_ids:
+            notification = Notification(
+                subject=subject,
+                message=message,
+                unread=True,
+                action_title=action_title,
+                action_url=action_url,
+                user_id=recipient_user_id,
+            )
+            db.add(notification)
+
         db.commit()
-        logger.info(f"Created notification: {subject}")
+        logger.info(f"Created notification for {len(recipient_user_ids)} recipient(s): {subject}")
         return True
         
     except Exception as e:

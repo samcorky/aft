@@ -9,6 +9,13 @@ class ThemeBuilder {
     this.themes = {}; // Will be loaded from API
     this.currentTheme = null;
     this.currentThemeData = null;
+    this.permissions = {
+      canViewThemes: true,
+      canCreateTheme: true,
+      canEditTheme: true,
+      canRenameTheme: true,
+      canDeleteTheme: true
+    };
   }
   
   /**
@@ -33,6 +40,23 @@ class ThemeBuilder {
           : `HTTP error! status: ${response.status}`
       };
     }
+  }
+  
+  /**
+   * Escape HTML special characters to prevent XSS
+   * @param {string} unsafe - Unsafe string to escape
+   * @returns {string} Escaped string
+   */
+  escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') {
+      return '';
+    }
+    return unsafe
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
   
   /**
@@ -63,6 +87,26 @@ class ThemeBuilder {
     this.applyBtn = document.getElementById('apply-theme-btn');
     this.statusDiv = document.getElementById('theme-status');
     this.backgroundSelect = document.getElementById('background-image-select');
+
+    // Initialize endpoint permission mapping so theme controls can be gated by
+    // exact API actions (edit, rename, create, delete).
+    if (window.PermissionManager) {
+      const permissionInitSuccess = await PermissionManager.init();
+      if (!permissionInitSuccess) {
+        console.warn('Failed to initialize PermissionManager for theme builder page');
+      }
+    }
+
+    this.refreshPermissionCapabilities();
+
+    if (!this.permissions.canViewThemes) {
+      if (typeof showAccessDenied === 'function') {
+        showAccessDenied('You need the "theme.view" permission to access this page.');
+      } else {
+        this.showStatus('You do not have permission to access this page.', 'error');
+      }
+      return;
+    }
     
     // Initialize all color inputs
     this.initColorInputs();
@@ -106,6 +150,9 @@ class ThemeBuilder {
     document.getElementById('download-bg-btn').addEventListener('click', () => this.downloadBackground());
     document.getElementById('bg-image-input').addEventListener('change', (e) => this.handleBackgroundUpload(e));
     document.getElementById('import-theme-input').addEventListener('change', (e) => this.handleThemeImport(e));
+
+    // Apply global permission-based button states not tied to system/user theme type.
+    this.applyPermissionBasedRendering();
     
     // Check for theme parameter in URL
     const urlParams = new URLSearchParams(window.location.search);
@@ -117,6 +164,42 @@ class ThemeBuilder {
     // Load initial theme
     if (this.themeSelect.value) {
       await this.onThemeChange();
+    }
+  }
+
+  refreshPermissionCapabilities() {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      this.permissions = {
+        canViewThemes: true,
+        canCreateTheme: true,
+        canEditTheme: true,
+        canRenameTheme: true,
+        canDeleteTheme: true
+      };
+      return;
+    }
+
+    this.permissions = {
+      canViewThemes: PermissionManager.canCallEndpoint('GET', '/api/themes'),
+      canCreateTheme: PermissionManager.canCallEndpoint('POST', '/api/themes'),
+      canEditTheme: PermissionManager.canCallEndpoint('PUT', '/api/themes/:id'),
+      canRenameTheme: PermissionManager.canCallEndpoint('PUT', '/api/themes/:id/rename'),
+      canDeleteTheme: PermissionManager.canCallEndpoint('DELETE', '/api/themes/:id')
+    };
+  }
+
+  applyPermissionBasedRendering() {
+    const copyBtn = document.getElementById('copy-theme-btn');
+    const importBtn = document.getElementById('import-theme-btn');
+
+    if (copyBtn && !this.permissions.canCreateTheme) {
+      copyBtn.disabled = true;
+      copyBtn.title = 'You do not have permission to create themes.';
+    }
+
+    if (importBtn && !this.permissions.canCreateTheme) {
+      importBtn.disabled = true;
+      importBtn.title = 'You do not have permission to import themes.';
     }
   }
   
@@ -387,42 +470,51 @@ class ThemeBuilder {
   updateSaveButtonState(isSystemTheme) {
     const renameBtn = document.getElementById('rename-theme-btn');
     const deleteBtn = document.getElementById('delete-theme-btn');
+    const canEditTheme = this.permissions.canEditTheme;
+    const canRenameTheme = this.permissions.canRenameTheme;
+    const canDeleteTheme = this.permissions.canDeleteTheme;
     
-    if (isSystemTheme) {
+    if (isSystemTheme || !canEditTheme) {
       this.saveBtn.disabled = true;
-      this.saveBtn.title = 'System themes cannot be modified. Create a copy to edit.';
-      renameBtn.disabled = true;
-      renameBtn.title = 'System themes cannot be renamed. Create a copy to edit.';
-      deleteBtn.disabled = true;
-      deleteBtn.title = 'System themes cannot be deleted.';
-      
-      // Disable all color inputs
-      for (const inputs of Object.values(this.colorInputs)) {
-        inputs.colorInput.disabled = true;
-        inputs.textInput.disabled = true;
-      }
-      
-      // Disable background selector and upload
-      this.backgroundSelect.disabled = true;
-      document.getElementById('upload-bg-btn').disabled = true;
+      this.saveBtn.title = isSystemTheme
+        ? 'System themes cannot be modified. Create a copy to edit.'
+        : 'You do not have permission to edit themes.';
     } else {
       this.saveBtn.disabled = false;
       this.saveBtn.title = 'Save changes to this theme';
+    }
+
+    if (isSystemTheme || !canRenameTheme) {
+      renameBtn.disabled = true;
+      renameBtn.title = isSystemTheme
+        ? 'System themes cannot be renamed. Create a copy to edit.'
+        : 'You do not have permission to rename themes.';
+    } else {
       renameBtn.disabled = false;
       renameBtn.title = 'Rename the selected theme';
+    }
+
+    if (isSystemTheme || !canDeleteTheme) {
+      deleteBtn.disabled = true;
+      deleteBtn.title = isSystemTheme
+        ? 'System themes cannot be deleted.'
+        : 'You do not have permission to delete themes.';
+    } else {
       deleteBtn.disabled = false;
       deleteBtn.title = 'Delete this custom theme permanently';
-      
-      // Enable all color inputs
-      for (const inputs of Object.values(this.colorInputs)) {
-        inputs.colorInput.disabled = false;
-        inputs.textInput.disabled = false;
-      }
-      
-      // Enable background selector and upload
-      this.backgroundSelect.disabled = false;
-      document.getElementById('upload-bg-btn').disabled = false;
     }
+
+    const disableThemeEditingFields = isSystemTheme || !canEditTheme;
+
+    // Disable or enable all color inputs.
+    for (const inputs of Object.values(this.colorInputs)) {
+      inputs.colorInput.disabled = disableThemeEditingFields;
+      inputs.textInput.disabled = disableThemeEditingFields;
+    }
+
+    // Disable or enable background selector and upload.
+    this.backgroundSelect.disabled = disableThemeEditingFields;
+    document.getElementById('upload-bg-btn').disabled = disableThemeEditingFields;
   }
   
   applyThemePreview() {
@@ -662,6 +754,12 @@ class ThemeBuilder {
       this.lastSaveError = true;
       return;
     }
+
+    if (!this.permissions.canEditTheme) {
+      this.showErrorToast('You do not have permission to edit themes');
+      this.lastSaveError = true;
+      return;
+    }
     
     // Note: We don't check dbConnected here because REST API calls work independently
     // of the periodic database status checks. The dbConnected flag is primarily for
@@ -765,6 +863,11 @@ class ThemeBuilder {
   }
   
   showCopyModal() {
+    if (!this.permissions.canCreateTheme) {
+      this.showErrorToast('You do not have permission to create themes');
+      return;
+    }
+
     // Note: We don't check dbConnected here because REST API calls work independently
     // of the periodic database status checks. The dbConnected flag is primarily for
     // blocking card creation, not for theme changes. The API call itself will fail
@@ -870,6 +973,11 @@ class ThemeBuilder {
       this.showErrorToast('Cannot rename system themes');
       return;
     }
+
+    if (!this.permissions.canRenameTheme) {
+      this.showErrorToast('You do not have permission to rename themes');
+      return;
+    }
     
     // Note: We don't check dbConnected here because REST API calls work independently
     // of the periodic database status checks. The dbConnected flag is primarily for
@@ -905,6 +1013,12 @@ class ThemeBuilder {
     
     if (newName === this.currentThemeData.name) {
       this.hideRenameModal();
+      return;
+    }
+
+    if (!this.permissions.canRenameTheme) {
+      errorDiv.textContent = 'You do not have permission to rename themes';
+      errorDiv.style.display = 'block';
       return;
     }
     
@@ -977,6 +1091,11 @@ class ThemeBuilder {
     
     if (this.currentThemeData.system_theme) {
       this.showErrorToast('Cannot delete system themes');
+      return;
+    }
+
+    if (!this.permissions.canDeleteTheme) {
+      this.showErrorToast('You do not have permission to delete themes');
       return;
     }
     
@@ -1166,12 +1285,13 @@ class ThemeBuilder {
         throw new Error(themeData.message || themeData.error || 'Failed to export theme');
       }
       
-      // Create download link
+      // Create download link with sanitized filename to prevent XSS
       const blob = new Blob([JSON.stringify(themeData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${themeData.name.replace(/\s+/g, '_')}.json`;
+      const sanitizedName = this.escapeHtml(themeData.name || 'theme').replace(/\s+/g, '_');
+      a.download = `${sanitizedName}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -1286,12 +1406,14 @@ class ThemeBuilder {
     }
     
     try {
-      const url = `/images/backgrounds/${bgValue}`;
+      // Sanitize background value to prevent path traversal and XSS
+      const sanitizedBgValue = bgValue.replace(/[\\/\.\s]/g, '_');
+      const url = `/images/backgrounds/${sanitizedBgValue}`;
       
       // Create download link
       const a = document.createElement('a');
       a.href = url;
-      a.download = bgValue;
+      a.download = sanitizedBgValue;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

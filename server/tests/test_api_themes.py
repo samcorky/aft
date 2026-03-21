@@ -1,17 +1,104 @@
 """Tests for theme API endpoints."""
 import pytest
-import requests
 import json
 import time
+import uuid
+import requests
+
+
+def _create_custom_theme(api_client, session, suffix):
+    """Create a custom theme for the authenticated session user and return it."""
+    themes_response = session.get(f'{api_client}/api/themes')
+    assert themes_response.status_code == 200
+    source_theme = themes_response.json()[0]
+
+    create_response = session.post(f'{api_client}/api/themes/copy', json={
+        'source_theme_id': source_theme['id'],
+        'new_name': f'IDOR Theme {suffix} {int(time.time() * 1000)}',
+    })
+    assert create_response.status_code == 201, create_response.text
+    return create_response.json()
+
+
+def _create_user_with_permissions(api_client, authenticated_session, permissions, suffix):
+    """Create, approve, and login a non-admin user with explicit permissions."""
+    session = requests.Session()
+    password = f"ThemePerm-{uuid.uuid4().hex[:12]}-Aa1!"
+    email = f"theme-perm-{suffix}-{uuid.uuid4().hex[:6]}@localhost"
+    username = f"theme_perm_{suffix}_{uuid.uuid4().hex[:6]}"
+
+    register_response = session.post(f'{api_client}/api/auth/register', json={
+        'email': email,
+        'username': username,
+        'password': password,
+    })
+    assert register_response.status_code == 201, register_response.text
+    user_id = register_response.json().get('user', {}).get('id')
+    assert user_id is not None
+
+    approve_response = authenticated_session.post(f'{api_client}/api/users/{user_id}/approve')
+    assert approve_response.status_code == 200, approve_response.text
+
+    role_name = f"theme_idor_viewer_{uuid.uuid4().hex[:8]}"
+    create_role = authenticated_session.post(f'{api_client}/api/roles', json={
+        'name': role_name,
+        'description': 'Theme IDOR viewer role',
+        'permissions': permissions,
+    })
+    assert create_role.status_code == 201, create_role.text
+
+    assign_role = authenticated_session.post(
+        f'{api_client}/api/users/{user_id}/roles',
+        json={'role_name': role_name},
+    )
+    assert assign_role.status_code == 200, assign_role.text
+
+    login_response = session.post(f'{api_client}/api/auth/login', json={
+        'email': email,
+        'password': password,
+    })
+    assert login_response.status_code == 200, login_response.text
+
+    return session
+
+
+@pytest.fixture
+def second_user_theme_session(api_client, authenticated_session, second_user_session):
+    """Second user session with explicit theme and setting permissions for IDOR checks."""
+    me = second_user_session.get(f'{api_client}/api/auth/me')
+    assert me.status_code == 200
+    second_user_id = me.json()['user']['id']
+
+    role_name = f"theme_idor_{uuid.uuid4().hex[:8]}"
+    create_role = authenticated_session.post(f'{api_client}/api/roles', json={
+        'name': role_name,
+        'description': 'Theme IDOR regression role',
+        'permissions': [
+            'theme.view',
+            'theme.create',
+            'theme.edit',
+            'theme.delete',
+            'setting.edit',
+        ],
+    })
+    assert create_role.status_code == 201, create_role.text
+
+    assign_role = authenticated_session.post(
+        f'{api_client}/api/users/{second_user_id}/roles',
+        json={'role_name': role_name},
+    )
+    assert assign_role.status_code == 200, assign_role.text
+
+    return second_user_session
 
 
 @pytest.mark.api
 class TestThemesAPI:
     """Test cases for theme API endpoints."""
     
-    def test_get_themes_list(self, api_client):
+    def test_get_themes_list(self, api_client, authenticated_session):
         """Test getting list of all themes."""
-        response = requests.get(f'{api_client}/api/themes')
+        response = authenticated_session.get(f'{api_client}/api/themes')
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
@@ -25,9 +112,9 @@ class TestThemesAPI:
         assert 'settings' in theme
         assert isinstance(theme['settings'], dict)
     
-    def test_get_themes_includes_system_themes(self, api_client):
+    def test_get_themes_includes_system_themes(self, api_client, authenticated_session):
         """Test that system themes are included in list."""
-        response = requests.get(f'{api_client}/api/themes')
+        response = authenticated_session.get(f'{api_client}/api/themes')
         assert response.status_code == 200
         data = response.json()
         
@@ -35,15 +122,15 @@ class TestThemesAPI:
         assert len(system_themes) > 0
         assert any(t['name'] == 'Default' for t in system_themes)
     
-    def test_get_theme_by_id(self, api_client):
+    def test_get_theme_by_id(self, api_client, authenticated_session):
         """Test getting a specific theme by ID."""
         # Get list first
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         themes = themes_response.json()
         theme_id = themes[0]['id']
         
         # Get specific theme
-        response = requests.get(f'{api_client}/api/themes/{theme_id}')
+        response = authenticated_session.get(f'{api_client}/api/themes/{theme_id}')
         assert response.status_code == 200
         data = response.json()
         assert data['id'] == theme_id
@@ -51,21 +138,21 @@ class TestThemesAPI:
         assert 'settings' in data
         assert 'background_image' in data
     
-    def test_get_theme_not_found(self, api_client):
+    def test_get_theme_not_found(self, api_client, authenticated_session):
         """Test getting a theme that doesn't exist."""
-        response = requests.get(f'{api_client}/api/themes/99999')
+        response = authenticated_session.get(f'{api_client}/api/themes/99999')
         assert response.status_code == 404
         data = response.json()
         assert data['success'] is False
     
-    def test_create_custom_theme(self, api_client):
+    def test_create_custom_theme(self, api_client, authenticated_session):
         """Test creating a new custom theme via copy endpoint."""
         # Get a theme to copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_theme = themes_response.json()[0]
         
         unique_name = f'Test Theme {int(time.time() * 1000)}'
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_theme['id'],
             'new_name': unique_name
         })
@@ -77,17 +164,17 @@ class TestThemesAPI:
         assert data['system_theme'] is False
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{data["id"]}')
+        authenticated_session.delete(f'{api_client}/api/themes/{data["id"]}')
     
-    def test_create_theme_duplicate_name(self, api_client):
+    def test_create_theme_duplicate_name(self, api_client, authenticated_session):
         """Test creating theme with duplicate name fails."""
         # Get existing theme name
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         themes = themes_response.json()
         existing_name = themes[0]['name']
         source_id = themes[1]['id'] if len(themes) > 1 else themes[0]['id']
         
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id,
             'new_name': existing_name
         })
@@ -96,24 +183,24 @@ class TestThemesAPI:
         assert data['success'] is False
         assert 'already exists' in data['message'].lower()
     
-    def test_create_theme_missing_name(self, api_client):
+    def test_create_theme_missing_name(self, api_client, authenticated_session):
         """Test creating theme without name fails."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_id = themes_response.json()[0]['id']
         
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id
         })
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
     
-    def test_create_theme_empty_name(self, api_client):
+    def test_create_theme_empty_name(self, api_client, authenticated_session):
         """Test creating theme with empty name fails."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_id = themes_response.json()[0]['id']
         
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id,
             'new_name': ''
         })
@@ -121,26 +208,26 @@ class TestThemesAPI:
         data = response.json()
         assert data['success'] is False
     
-    def test_create_theme_long_name(self, api_client):
+    def test_create_theme_long_name(self, api_client, authenticated_session):
         """Test creating theme with excessively long name."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_id = themes_response.json()[0]['id']
         
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id,
             'new_name': 'A' * 300  # 300 characters
         })
         # May fail with 400, 500 (db error), or 201 if truncated
         assert response.status_code in [400, 500, 201]
     
-    def test_update_theme(self, api_client):
+    def test_update_theme(self, api_client, authenticated_session):
         """Test updating an existing theme via copy first."""
         # Create a theme via copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_theme = themes_response.json()[0]
         
         unique_name = f'Update Test Theme {int(time.time() * 1000)}'
-        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+        create_response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_theme['id'],
             'new_name': unique_name
         })
@@ -153,7 +240,7 @@ class TestThemesAPI:
             'background_image': None
         }
         
-        response = requests.put(f'{api_client}/api/themes/{theme_id}', json=update_data)
+        response = authenticated_session.put(f'{api_client}/api/themes/{theme_id}', json=update_data)
         assert response.status_code == 200
         data = response.json()
         assert data['name'] == update_data['name']
@@ -161,16 +248,16 @@ class TestThemesAPI:
         assert settings['primary-color'] == '#00FF00'
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{theme_id}')
+        authenticated_session.delete(f'{api_client}/api/themes/{theme_id}')
     
-    def test_update_theme_missing_request_body(self, api_client):
+    def test_update_theme_missing_request_body(self, api_client, authenticated_session):
         """Test that updating a theme without a request body returns 400."""
         # Create a theme to update
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_theme = themes_response.json()[0]
         
         unique_name = f'Body Test Theme {int(time.time() * 1000)}'
-        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+        create_response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_theme['id'],
             'new_name': unique_name
         })
@@ -178,23 +265,23 @@ class TestThemesAPI:
         
         try:
             # Try to update without a request body
-            response = requests.put(f'{api_client}/api/themes/{theme_id}')
+            response = authenticated_session.put(f'{api_client}/api/themes/{theme_id}')
             assert response.status_code == 400
             data = response.json()
             assert data['success'] is False
             assert 'valid JSON' in data['message'] or 'required' in data['message']
         finally:
             # Cleanup
-            requests.delete(f'{api_client}/api/themes/{theme_id}')
+            authenticated_session.delete(f'{api_client}/api/themes/{theme_id}')
     
-    def test_update_theme_invalid_json(self, api_client):
+    def test_update_theme_invalid_json(self, api_client, authenticated_session):
         """Test that updating a theme with invalid JSON returns 400."""
         # Create a theme to update
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_theme = themes_response.json()[0]
         
         unique_name = f'Invalid JSON Test Theme {int(time.time() * 1000)}'
-        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+        create_response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_theme['id'],
             'new_name': unique_name
         })
@@ -203,7 +290,7 @@ class TestThemesAPI:
         try:
             # Try to update with invalid JSON (malformed request)
             # This is handled by Flask's request.get_json() raising BadRequest
-            response = requests.put(
+            response = authenticated_session.put(
                 f'{api_client}/api/themes/{theme_id}',
                 data='invalid json',
                 headers={'Content-Type': 'application/json'}
@@ -213,12 +300,12 @@ class TestThemesAPI:
             assert data['success'] is False
         finally:
             # Cleanup
-            requests.delete(f'{api_client}/api/themes/{theme_id}')
+            authenticated_session.delete(f'{api_client}/api/themes/{theme_id}')
     
 
         """Test that system themes cannot be updated."""
         # Get a system theme
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         system_theme = next(t for t in themes_response.json() if t['system_theme'])
         
         update_data = {
@@ -226,20 +313,20 @@ class TestThemesAPI:
             'settings': {'primary-color': '#FF0000'}
         }
         
-        response = requests.put(f'{api_client}/api/themes/{system_theme["id"]}', json=update_data)
+        response = authenticated_session.put(f'{api_client}/api/themes/{system_theme["id"]}', json=update_data)
         assert response.status_code == 400  # Changed from 403
         data = response.json()
         assert data['success'] is False
         assert 'system theme' in data['message'].lower()
     
-    def test_rename_theme(self, api_client):
+    def test_rename_theme(self, api_client, authenticated_session):
         """Test renaming a custom theme."""
         # Create a theme via copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_id = themes_response.json()[0]['id']
         
         unique_name = f'Rename Test Theme {int(time.time() * 1000)}'
-        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+        create_response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id,
             'new_name': unique_name
         })
@@ -247,7 +334,7 @@ class TestThemesAPI:
         
         # Rename it
         new_name = f'Renamed Theme {int(time.time() * 1000)}'
-        response = requests.put(f'{api_client}/api/themes/{theme_id}/rename', json={
+        response = authenticated_session.put(f'{api_client}/api/themes/{theme_id}/rename', json={
             'name': new_name
         })
         assert response.status_code == 200
@@ -255,42 +342,42 @@ class TestThemesAPI:
         assert data['name'] == new_name
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{theme_id}')
+        authenticated_session.delete(f'{api_client}/api/themes/{theme_id}')
     
-    def test_rename_system_theme_fails(self, api_client):
+    def test_rename_system_theme_fails(self, api_client, authenticated_session):
         """Test that system themes cannot be renamed."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         system_theme = next(t for t in themes_response.json() if t['system_theme'])
         
-        response = requests.put(f'{api_client}/api/themes/{system_theme["id"]}/rename', json={
+        response = authenticated_session.put(f'{api_client}/api/themes/{system_theme["id"]}/rename', json={
             'name': 'Hacked Name'
         })
         assert response.status_code == 400  # Changed from 403
         data = response.json()
         assert data['success'] is False
     
-    def test_rename_theme_duplicate_name(self, api_client):
+    def test_rename_theme_duplicate_name(self, api_client, authenticated_session):
         """Test renaming theme to existing name fails."""
         # Get themes
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         themes = themes_response.json()
         
         # Create two themes via copy with unique names
         theme1_name = f'Theme One {int(time.time() * 1000)}'
-        theme1 = requests.post(f'{api_client}/api/themes/copy', json={
+        theme1 = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': themes[0]['id'],
             'new_name': theme1_name
         }).json()
         
         time.sleep(0.001)  # Ensure unique timestamp
         theme2_name = f'Theme Two {int(time.time() * 1000)}'
-        theme2 = requests.post(f'{api_client}/api/themes/copy', json={
+        theme2 = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': themes[0]['id'],
             'new_name': theme2_name
         }).json()
         
         # Try to rename theme2 to theme1's name
-        response = requests.put(f'{api_client}/api/themes/{theme2["id"]}/rename', json={
+        response = authenticated_session.put(f'{api_client}/api/themes/{theme2["id"]}/rename', json={
             'name': theme1_name
         })
         assert response.status_code == 400
@@ -299,17 +386,17 @@ class TestThemesAPI:
         assert 'already exists' in data['message'].lower()
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{theme1["id"]}')
-        requests.delete(f'{api_client}/api/themes/{theme2["id"]}')
+        authenticated_session.delete(f'{api_client}/api/themes/{theme1["id"]}')
+        authenticated_session.delete(f'{api_client}/api/themes/{theme2["id"]}')
     
-    def test_copy_theme(self, api_client):
+    def test_copy_theme(self, api_client, authenticated_session):
         """Test copying an existing theme."""
         # Get a theme to copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         original_theme = themes_response.json()[0]
         
         unique_name = f'Copied Theme {int(time.time() * 1000)}'
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': original_theme['id'],  # Changed from source_id
             'new_name': unique_name
         })
@@ -320,11 +407,11 @@ class TestThemesAPI:
         assert data['settings'] == original_theme['settings']
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{data["id"]}')
+        authenticated_session.delete(f'{api_client}/api/themes/{data["id"]}')
     
-    def test_copy_theme_source_not_found(self, api_client):
+    def test_copy_theme_source_not_found(self, api_client, authenticated_session):
         """Test copying non-existent theme fails."""
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': 99999,  # Changed from source_id
             'new_name': 'Copy of Nothing'
         })
@@ -332,14 +419,14 @@ class TestThemesAPI:
         data = response.json()
         assert data['success'] is False
     
-    def test_copy_theme_duplicate_name(self, api_client):
+    def test_copy_theme_duplicate_name(self, api_client, authenticated_session):
         """Test copying theme with duplicate name fails."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         themes = themes_response.json()
         existing_name = themes[0]['name']
         source_id = themes[1]['id'] if len(themes) > 1 else themes[0]['id']
         
-        response = requests.post(f'{api_client}/api/themes/copy', json={
+        response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_id,  # Changed from source_id
             'new_name': existing_name
         })
@@ -347,13 +434,13 @@ class TestThemesAPI:
         data = response.json()
         assert data['success'] is False
     
-    def test_export_theme(self, api_client):
+    def test_export_theme(self, api_client, authenticated_session):
         """Test exporting a theme as JSON."""
         # Get a theme
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         theme = themes_response.json()[0]
         
-        response = requests.get(f'{api_client}/api/themes/{theme["id"]}/export')
+        response = authenticated_session.get(f'{api_client}/api/themes/{theme["id"]}/export')
         assert response.status_code == 200
         assert response.headers['Content-Type'] == 'application/json'
         
@@ -369,15 +456,15 @@ class TestThemesAPI:
             theme_settings = json.loads(theme['settings']) if isinstance(theme['settings'], str) else theme['settings']
             assert data_settings == theme_settings
     
-    def test_export_theme_not_found(self, api_client):
+    def test_export_theme_not_found(self, api_client, authenticated_session):
         """Test exporting non-existent theme fails."""
-        response = requests.get(f'{api_client}/api/themes/99999/export')
+        response = authenticated_session.get(f'{api_client}/api/themes/99999/export')
         assert response.status_code == 404
     
-    def test_import_theme(self, api_client):
+    def test_import_theme(self, api_client, authenticated_session):
         """Test importing a theme from JSON."""
         # Get a valid theme structure
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         existing_theme = themes_response.json()[0]
         
         unique_name = f'Imported Theme {int(time.time() * 1000)}'
@@ -387,7 +474,7 @@ class TestThemesAPI:
             'background_image': None
         }
         
-        response = requests.post(
+        response = authenticated_session.post(
             f'{api_client}/api/themes/import',
             json=theme_json
         )
@@ -396,24 +483,24 @@ class TestThemesAPI:
         assert data['name'] == unique_name
         
         # Cleanup
-        requests.delete(f'{api_client}/api/themes/{data["id"]}')
+        authenticated_session.delete(f'{api_client}/api/themes/{data["id"]}')
     
-    def test_import_theme_invalid_json(self, api_client):
+    def test_import_theme_invalid_json(self, api_client, authenticated_session):
         """Test importing theme with invalid JSON fails."""
         invalid_json = {
             'settings': {'primary-color': '#FF5733'}
             # Missing 'name' field
         }
         
-        response = requests.post(f'{api_client}/api/themes/import', json=invalid_json)
+        response = authenticated_session.post(f'{api_client}/api/themes/import', json=invalid_json)
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
     
-    def test_import_theme_duplicate_name(self, api_client):
+    def test_import_theme_duplicate_name(self, api_client, authenticated_session):
         """Test importing theme with duplicate name fails."""
         # Get existing theme
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         existing = themes_response.json()[0]
         existing_name = existing['name']
         
@@ -422,15 +509,15 @@ class TestThemesAPI:
             'settings': json.loads(existing['settings']) if isinstance(existing['settings'], str) else existing['settings']
         }
         
-        response = requests.post(f'{api_client}/api/themes/import', json=theme_json)
+        response = authenticated_session.post(f'{api_client}/api/themes/import', json=theme_json)
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
         assert 'already exists' in data['message'].lower()
     
-    def test_get_theme_images_list(self, api_client):
+    def test_get_theme_images_list(self, api_client, authenticated_session):
         """Test getting list of available background images."""
-        response = requests.get(f'{api_client}/api/themes/images')
+        response = authenticated_session.get(f'{api_client}/api/themes/images')
         assert response.status_code == 200
         data = response.json()
         assert 'images' in data
@@ -438,10 +525,10 @@ class TestThemesAPI:
         # Should have at least some default images
         assert len(data['images']) >= 0
     
-    def test_get_theme_image(self, api_client):
+    def test_get_theme_image(self, api_client, authenticated_session):
         """Test getting a specific background image."""
         # Get list of images first
-        images_response = requests.get(f'{api_client}/api/themes/images')
+        images_response = authenticated_session.get(f'{api_client}/api/themes/images')
         assert images_response.status_code == 200
         images = images_response.json()['images']
         
@@ -450,7 +537,7 @@ class TestThemesAPI:
         if len(images) > 0:
             # Test getting first image
             filename = images[0]
-            response = requests.get(f'{api_client}/api/themes/images/{filename}')
+            response = authenticated_session.get(f'{api_client}/api/themes/images/{filename}')
             # Image should exist and be served
             if response.status_code == 404:
                 # Image doesn't exist on filesystem - skip rather than fail
@@ -458,12 +545,12 @@ class TestThemesAPI:
             assert response.status_code == 200, f"Failed to get image {filename}: status {response.status_code}"
             assert 'image/' in response.headers.get('Content-Type', ''), f"Invalid content type for {filename}"
     
-    def test_get_theme_image_not_found(self, api_client):
+    def test_get_theme_image_not_found(self, api_client, authenticated_session):
         """Test getting non-existent image fails."""
-        response = requests.get(f'{api_client}/api/themes/images/nonexistent.png')
+        response = authenticated_session.get(f'{api_client}/api/themes/images/nonexistent.png')
         assert response.status_code == 404
     
-    def test_get_theme_image_path_traversal(self, api_client):
+    def test_get_theme_image_path_traversal(self, api_client, authenticated_session):
         """Test that path traversal is safe due to HTTP client and server normalization.
         
         Path traversal protection is provided by multiple layers:
@@ -476,29 +563,29 @@ class TestThemesAPI:
         implemented by standard HTTP libraries and web servers.
         """
         # Verify that non-existent normalized paths return 404
-        response = requests.get(f'{api_client}/api/etc/passwd')
+        response = authenticated_session.get(f'{api_client}/api/etc/passwd')
         assert response.status_code in [404, 405], "Non-existent paths should not be served"
         
         # Verify that standard image access still works
-        images_response = requests.get(f'{api_client}/api/themes/images')
+        images_response = authenticated_session.get(f'{api_client}/api/themes/images')
         assert images_response.status_code == 200, "Image list endpoint should work"
     
-    def test_get_current_theme_setting(self, api_client):
+    def test_get_current_theme_setting(self, api_client, authenticated_session):
         """Test getting current applied theme."""
-        response = requests.get(f'{api_client}/api/settings/theme')
+        response = authenticated_session.get(f'{api_client}/api/settings/theme')
         assert response.status_code == 200
         data = response.json()
         assert 'id' in data
         assert 'name' in data
         assert 'settings' in data
     
-    def test_set_current_theme(self, api_client):
+    def test_set_current_theme(self, api_client, authenticated_session):
         """Test setting the current theme."""
         # Get a theme
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         theme = themes_response.json()[0]
         
-        response = requests.put(f'{api_client}/api/settings/theme', json={
+        response = authenticated_session.put(f'{api_client}/api/settings/theme', json={
             'theme_id': theme['id']
         })
         assert response.status_code == 200
@@ -507,58 +594,195 @@ class TestThemesAPI:
         assert 'updated' in data['message'].lower()
         
         # Verify it was set by getting current theme
-        get_response = requests.get(f'{api_client}/api/settings/theme')
+        get_response = authenticated_session.get(f'{api_client}/api/settings/theme')
         assert get_response.status_code == 200
         current = get_response.json()
         assert current['id'] == theme['id']
     
-    def test_set_current_theme_not_found(self, api_client):
+    def test_set_current_theme_not_found(self, api_client, authenticated_session):
         """Test setting non-existent theme fails."""
-        response = requests.put(f'{api_client}/api/settings/theme', json={
+        response = authenticated_session.put(f'{api_client}/api/settings/theme', json={
             'theme_id': 99999
         })
         assert response.status_code == 404
         data = response.json()
         assert data['success'] is False
     
-    def test_delete_custom_theme(self, api_client):
+    def test_delete_custom_theme(self, api_client, authenticated_session):
         """Test deleting a custom theme."""
         # Create a theme via copy
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         source_theme = themes_response.json()[0]
         
         unique_name = f'Delete Test {int(time.time() * 1000)}'
-        create_response = requests.post(f'{api_client}/api/themes/copy', json={
+        create_response = authenticated_session.post(f'{api_client}/api/themes/copy', json={
             'source_theme_id': source_theme['id'],
             'new_name': unique_name
         })
         theme_id = create_response.json()['id']
         
         # Delete it
-        response = requests.delete(f'{api_client}/api/themes/{theme_id}')
+        response = authenticated_session.delete(f'{api_client}/api/themes/{theme_id}')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         assert 'deleted' in data['message'].lower()
         
         # Verify it's gone
-        get_response = requests.get(f'{api_client}/api/themes/{theme_id}')
+        get_response = authenticated_session.get(f'{api_client}/api/themes/{theme_id}')
         assert get_response.status_code == 404
     
-    def test_delete_system_theme_fails(self, api_client):
+    def test_delete_system_theme_fails(self, api_client, authenticated_session):
         """Test that system themes cannot be deleted."""
-        themes_response = requests.get(f'{api_client}/api/themes')
+        themes_response = authenticated_session.get(f'{api_client}/api/themes')
         system_theme = next(t for t in themes_response.json() if t['system_theme'])
         
-        response = requests.delete(f'{api_client}/api/themes/{system_theme["id"]}')
+        response = authenticated_session.delete(f'{api_client}/api/themes/{system_theme["id"]}')
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
         assert 'system theme' in data['message'].lower()
     
-    def test_delete_theme_not_found(self, api_client):
+    def test_delete_theme_not_found(self, api_client, authenticated_session):
         """Test deleting non-existent theme fails."""
-        response = requests.delete(f'{api_client}/api/themes/99999')
+        response = authenticated_session.delete(f'{api_client}/api/themes/99999')
         assert response.status_code == 404
         data = response.json()
         assert data['success'] is False
+
+
+@pytest.mark.api
+class TestThemeIDORSecurity:
+    """Regression tests for cross-user theme access and mutation protection."""
+
+    def test_user_b_cannot_get_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'get')
+
+        response = second_user_theme_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_update_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'update')
+
+        response = second_user_theme_session.put(
+            f"{api_client}/api/themes/{theme['id']}",
+            json={'name': f"Should Fail {int(time.time() * 1000)}"},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        verify = authenticated_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert verify.status_code == 200
+        assert verify.json()['name'] == theme['name']
+
+    def test_user_b_cannot_rename_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'rename')
+
+        response = second_user_theme_session.put(
+            f"{api_client}/api/themes/{theme['id']}/rename",
+            json={'name': f"Nope {int(time.time() * 1000)}"},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_delete_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'delete')
+
+        response = second_user_theme_session.delete(f"{api_client}/api/themes/{theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+        verify = authenticated_session.get(f"{api_client}/api/themes/{theme['id']}")
+        assert verify.status_code == 200
+
+    def test_user_b_cannot_export_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'export')
+
+        response = second_user_theme_session.get(f"{api_client}/api/themes/{theme['id']}/export")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_copy_user_a_private_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'copy-source')
+
+        response = second_user_theme_session.post(f'{api_client}/api/themes/copy', json={
+            'source_theme_id': theme['id'],
+            'new_name': f"Copy Should Fail {int(time.time() * 1000)}",
+        })
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_user_b_cannot_set_current_theme_to_user_a_theme(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        theme = _create_custom_theme(api_client, authenticated_session, 'selected-theme')
+
+        response = second_user_theme_session.put(
+            f'{api_client}/api/settings/theme',
+            json={'theme_id': theme['id']},
+        )
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_copy_creates_user_owned_theme_hidden_from_other_users(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        second_theme = _create_custom_theme(api_client, second_user_theme_session, 'owned-by-b')
+        third_user_view_session = _create_user_with_permissions(
+            api_client,
+            authenticated_session,
+            ['theme.view'],
+            'copy-hidden',
+        )
+
+        response = third_user_view_session.get(f"{api_client}/api/themes/{second_theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )
+
+    def test_import_creates_user_owned_theme_hidden_from_other_users(
+        self, api_client, authenticated_session, second_user_theme_session
+    ):
+        imported = second_user_theme_session.post(f'{api_client}/api/themes/import', json={
+            'name': f"Imported B {int(time.time() * 1000)}",
+            'settings': {
+                'primary-color': '#2ea043',
+                'text-color': '#111111',
+                'background-light': '#f7f7f7',
+                'card-bg-color': '#ffffff',
+            },
+            'background_image': None,
+        })
+        assert imported.status_code == 201, imported.text
+        imported_theme = imported.json()
+        third_user_view_session = _create_user_with_permissions(
+            api_client,
+            authenticated_session,
+            ['theme.view'],
+            'import-hidden',
+        )
+
+        response = third_user_view_session.get(f"{api_client}/api/themes/{imported_theme['id']}")
+        assert response.status_code == 404, (
+            f"Expected 404, got {response.status_code}: {response.text}"
+        )

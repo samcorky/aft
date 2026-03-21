@@ -100,6 +100,9 @@ class Header {
     // Initialize dropdown pin behavior for settings and user menus
     this.initializeDropdownPin();
     
+    // Load current user info
+    await this.loadCurrentUser();
+    
     // Load working style preference
     await this.loadWorkingStyle();
     
@@ -311,6 +314,160 @@ class Header {
     }
   }
 
+  // Load current user info
+  async loadCurrentUser() {
+    try {
+      const userNameEl = document.getElementById('header-user-name');
+      const loginItem = document.getElementById('login-menu-item');
+      const logoutItem = document.getElementById('logout-menu-item');
+      
+      // Check sessionStorage cache first to avoid API calls on every page load
+      const cachedUser = sessionStorage.getItem('currentUser');
+      if (cachedUser) {
+        try {
+          const userData = JSON.parse(cachedUser);
+          // Use cached data
+          window.currentUser = userData;
+          
+          const displayName = userData.display_name || userData.username || userData.email;
+          if (userNameEl) userNameEl.textContent = displayName;
+          if (loginItem) loginItem.style.display = 'none';
+          if (logoutItem) {
+            logoutItem.style.display = 'block';
+            // Add logout handler
+            logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          
+          // Filter menu items based on permissions
+          this.filterMenuByPermissions();
+          
+          // Mark user data as ready
+          window.userDataReady = true;
+          return; // Use cache, skip API call
+        } catch (e) {
+          // Invalid cache, remove it and fetch fresh
+          sessionStorage.removeItem('currentUser');
+        }
+      }
+      
+      // No cache or invalid cache - fetch from API
+      const response = await fetch('/api/auth/me');
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.user) {
+          // User is logged in - store globally and in cache
+          window.currentUser = data.user;
+          sessionStorage.setItem('currentUser', JSON.stringify(data.user));
+          
+          const displayName = data.user.display_name || data.user.username || data.user.email;
+          if (userNameEl) userNameEl.textContent = displayName;
+          if (loginItem) loginItem.style.display = 'none';
+          if (logoutItem) {
+            logoutItem.style.display = 'block';
+            // Add logout handler
+            logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          
+          // Filter menu items based on permissions
+          this.filterMenuByPermissions();
+          
+          // Mark user data as ready
+          window.userDataReady = true;
+          return;
+        }
+      }
+      
+      // User is not logged in or error occurred
+      window.currentUser = null;
+      sessionStorage.removeItem('currentUser');
+      if (userNameEl) userNameEl.textContent = 'Guest';
+      if (loginItem) loginItem.style.display = 'block';
+      if (logoutItem) logoutItem.style.display = 'none';
+      
+      // Hide permission-protected menu items
+      this.filterMenuByPermissions();
+      
+      // Mark user data as ready (even if not logged in)
+      window.userDataReady = true;
+    } catch (error) {
+      console.error('Error loading current user:', error);
+      // Show guest on error
+      window.currentUser = null;
+      sessionStorage.removeItem('currentUser');
+      const userNameEl = document.getElementById('header-user-name');
+      if (userNameEl) userNameEl.textContent = 'Guest';
+      const loginItem = document.getElementById('login-menu-item');
+      const logoutItem = document.getElementById('logout-menu-item');
+      if (loginItem) loginItem.style.display = 'block';
+      if (logoutItem) logoutItem.style.display = 'none';
+      
+      // Hide permission-protected menu items
+      this.filterMenuByPermissions();
+      
+      // Mark user data as ready (even on error)
+      window.userDataReady = true;
+    }
+  }
+
+  // Filter menu items based on user permissions
+  filterMenuByPermissions() {
+    // Menu items and their required permissions
+    const protectedItems = [
+      { selector: 'a[href="/backup-restore.html"]', permission: 'admin.database' },
+      { selector: 'a[href="/user-management.html"]', permissions: ['user.manage', 'user.role'], requireAny: true },
+      { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
+    ];
+    
+    protectedItems.forEach(item => {
+      const menuItem = document.querySelector(item.selector);
+      if (menuItem) {
+        let hasAccess = false;
+        
+        // Check if user has permission (hasPermission is defined in utils.js)
+        if (item.permissions && item.requireAny) {
+          // User needs ANY of the listed permissions
+          hasAccess = item.permissions.some(perm => 
+            typeof hasPermission === 'function' && hasPermission(perm)
+          );
+        } else if (item.permission) {
+          // User needs the single permission
+          hasAccess = typeof hasPermission === 'function' && hasPermission(item.permission);
+        }
+        
+        if (hasAccess) {
+          menuItem.style.display = '';  // Show
+        } else {
+          menuItem.style.display = 'none';  // Hide
+        }
+      }
+    });
+  }
+
+  // Handle logout
+  async handleLogout() {
+    try {
+      // Clear cached user data
+      sessionStorage.removeItem('currentUser');
+      window.currentUser = null;
+      window.userDataReady = false;
+      
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Redirect to logout page regardless of response
+      window.location.href = '/logout.html';
+    } catch (error) {
+      console.error('Error logging out:', error);
+      // Still redirect to logout page
+      window.location.href = '/logout.html';
+    }
+  }
+
   // Load working style preference
   async loadWorkingStyle() {
     try {
@@ -361,7 +518,7 @@ class Header {
             return;
           }
           this.setView('done');
-          document.getElementById('views-dropdown-menu').classList.remove('show');
+          dropdownMenu.classList.remove('show');
         });
         
         dropdownMenu.appendChild(doneItem);
@@ -579,14 +736,14 @@ class Header {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    let testData = null;
+    let liveData = null;
     
     try {
-      const response = await fetch('/api/test', {
+      const response = await fetch('/api/health/live', {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-      testData = await response.json();
+      liveData = await response.json();
     } catch (error) {
       clearTimeout(timeoutId);
       // Server is not responding - network error or server is down
@@ -613,7 +770,7 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Socket.IO library failed to load. Try force reloading (Ctrl+Shift+R).';
-        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // Set dbConnected=true: We've already verified server is reachable (via /api/health/live above)
         // WebSocket failure doesn't affect REST API calls or database operations
         this.dbConnected = true;
         return;
@@ -629,7 +786,7 @@ class Header {
         this.statusIcon.className = 'status-icon error';
         this.statusText.textContent = 'WebSocket Disconnected';
         this.statusText.title = 'Real-time updates are unavailable. Board changes will not sync in real-time. Try force reloading (Ctrl+Shift+R).';
-        // Set dbConnected=true: We've already verified server is reachable (via /api/test above)
+        // Set dbConnected=true: We've already verified server is reachable (via /api/health/live above)
         // WebSocket failure doesn't affect REST API calls or database operations
         this.dbConnected = true;
         return;
@@ -644,29 +801,51 @@ class Header {
       }
     }
 
-    // Third: Check database health (API returned but may indicate DB error)
-    if (!testData || !testData.success) {
-      // Database is unhealthy - API responded but database connection failed
+    if (!liveData || !liveData.ok) {
       this.statusIcon.className = 'status-icon error';
-      this.statusText.textContent = 'DB Error';
-      this.statusText.title = testData?.message || 'Database error. Check database connection.';
+      this.statusText.textContent = 'Server Disconnected';
+      this.statusText.title = 'Unable to connect to server. Check your connection or try refreshing the page.';
       this.dbConnected = false;
       return;
     }
 
-    // All systems OK - get full status
-    const versionController = new AbortController();
-    const versionTimeoutId = setTimeout(() => versionController.abort(), 5000);
+    // Third: Check database health via authenticated version endpoint
+    let versionData = null;
+    const dbController = new AbortController();
+    const dbTimeoutId = setTimeout(() => dbController.abort(), 5000);
+
+    try {
+      const versionResponse = await fetch('/api/version', { signal: dbController.signal });
+      clearTimeout(dbTimeoutId);
+      versionData = await versionResponse.json();
+
+      if (!versionResponse.ok || !versionData.success) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'DB Error';
+        this.statusText.title = versionData?.message || 'Database error. Check database connection.';
+        this.dbConnected = false;
+        return;
+      }
+    } catch (err) {
+      clearTimeout(dbTimeoutId);
+      this.statusIcon.className = 'status-icon error';
+      this.statusText.textContent = 'DB Error';
+      this.statusText.title = err.name === 'AbortError'
+        ? 'Database check timed out (5s).'
+        : `Database check failed: ${err.message}`;
+      this.dbConnected = false;
+      return;
+    }
+
+    // All systems OK - get scheduler status
+    const healthController = new AbortController();
+    const healthTimeoutId = setTimeout(() => healthController.abort(), 5000);
     
     try {
-      const [versionResponse, healthResponse] = await Promise.all([
-        fetch('/api/version', { signal: versionController.signal }),
-        fetch('/api/scheduler/health', { signal: versionController.signal })
-      ]);
+      const healthResponse = await fetch('/api/scheduler/health', { signal: healthController.signal });
       
-      clearTimeout(versionTimeoutId);
+      clearTimeout(healthTimeoutId);
       
-      const versionData = await versionResponse.json();
       const healthData = await healthResponse.json();
       
       // Check housekeeping scheduler health
@@ -675,14 +854,14 @@ class Header {
                                      housekeepingHealth.running && 
                                      housekeepingHealth.thread_alive;
       
-      this.updateStatus('success', 'Connected', testData.boards_count, isHousekeepingHealthy);
+      this.updateStatus('success', 'Connected', null, isHousekeepingHealthy);
       
       // Update version display
       if (versionData.success) {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }
     } catch (err) {
-      clearTimeout(versionTimeoutId);
+      clearTimeout(healthTimeoutId);
       
       // Server/connection error (not a DB-specific error)
       if (err.name === 'AbortError') {

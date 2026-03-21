@@ -1,23 +1,22 @@
 """Tests for board API endpoints."""
 import pytest
-import requests
 
 
 @pytest.mark.api
 class TestBoardsAPI:
     """Test cases for /api/boards endpoints."""
     
-    def test_get_boards_empty(self, api_client, clean_database):
+    def test_get_boards_empty(self, api_client, authenticated_session, clean_database):
         """Test getting boards when none exist."""
-        response = requests.get(f'{api_client}/api/boards')
+        response = authenticated_session.get(f'{api_client}/api/boards')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         assert data['boards'] == []
     
-    def test_get_boards_with_data(self, api_client, isolated_test, sample_board):
+    def test_get_boards_with_data(self, api_client, authenticated_session, isolated_test, sample_board):
         """Test getting boards with existing data."""
-        response = requests.get(f'{api_client}/api/boards')
+        response = authenticated_session.get(f'{api_client}/api/boards')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
@@ -26,9 +25,9 @@ class TestBoardsAPI:
         assert 'created_at' in data['boards'][0]
         assert 'updated_at' in data['boards'][0]
     
-    def test_create_board(self, api_client):
+    def test_create_board(self, api_client, authenticated_session):
         """Test creating a new board."""
-        response = requests.post(f'{api_client}/api/boards', json={
+        response = authenticated_session.post(f'{api_client}/api/boards', json={
             'name': 'New Board',
             'description': 'A new test board'
         })
@@ -40,34 +39,31 @@ class TestBoardsAPI:
         assert 'created_at' in data['board']
         assert 'updated_at' in data['board']
     
-    def test_create_board_missing_name(self, api_client):
+    def test_create_board_missing_name(self, api_client, authenticated_session):
         """Test creating a board without a name fails."""
-        response = requests.post(f'{api_client}/api/boards', json={
+        response = authenticated_session.post(f'{api_client}/api/boards', json={
             'description': 'No name provided'
         })
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
     
-    def test_get_board_by_id(self, api_client, sample_board):
+    def test_get_board_by_id(self, api_client, authenticated_session, sample_board):
         """Test getting a specific board's columns."""
-        response = requests.get(f'{api_client}/api/boards/{sample_board["id"]}/columns')
+        response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/columns')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         assert 'columns' in data
     
-    def test_get_board_not_found(self, api_client):
-        """Test getting columns for a non-existent board returns empty list."""
-        response = requests.get(f'{api_client}/api/boards/9999/columns')
-        assert response.status_code == 200
-        data = response.json()
-        assert data['success'] is True
-        assert data['columns'] == []
+    def test_get_board_not_found(self, api_client, authenticated_session):
+        """Test getting columns for a non-existent board returns 403 (no access)."""
+        response = authenticated_session.get(f'{api_client}/api/boards/9999/columns')
+        assert response.status_code == 403
     
-    def test_update_board(self, api_client, sample_board):
+    def test_update_board(self, api_client, authenticated_session, sample_board):
         """Test updating a board."""
-        response = requests.patch(f'{api_client}/api/boards/{sample_board["id"]}', json={
+        response = authenticated_session.patch(f'{api_client}/api/boards/{sample_board["id"]}', json={
             'name': 'Updated Board Name',
             'description': 'Updated description'
         })
@@ -76,39 +72,38 @@ class TestBoardsAPI:
         assert data['success'] is True
         assert data['board']['name'] == 'Updated Board Name'
     
-    def test_update_board_not_found(self, api_client):
-        """Test updating a non-existent board."""
-        response = requests.patch(f'{api_client}/api/boards/9999', json={
+    def test_update_board_not_found(self, api_client, authenticated_session):
+        """Test updating a non-existent board returns 403 (no access)."""
+        response = authenticated_session.patch(f'{api_client}/api/boards/9999', json={
             'name': 'Updated Name'
         })
-        assert response.status_code == 404
+        assert response.status_code == 403
     
-    def test_delete_board(self, api_client, sample_board):
+    def test_delete_board(self, api_client, authenticated_session, sample_board):
         """Test deleting a board."""
         board_id = sample_board['id']
-        response = requests.delete(f'{api_client}/api/boards/{board_id}')
+        response = authenticated_session.delete(f'{api_client}/api/boards/{board_id}')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         
-        # Verify board is deleted by checking columns endpoint returns empty
-        verify_response = requests.get(f'{api_client}/api/boards/{board_id}/columns')
-        assert verify_response.status_code == 200
-        assert verify_response.json()['columns'] == []
+        # Verify board is deleted - now returns 403 since it no longer exists in user's scope
+        verify_response = authenticated_session.get(f'{api_client}/api/boards/{board_id}/columns')
+        assert verify_response.status_code == 403
     
-    def test_delete_board_not_found(self, api_client):
-        """Test deleting a non-existent board."""
-        response = requests.delete(f'{api_client}/api/boards/9999')
-        assert response.status_code == 404
+    def test_delete_board_not_found(self, api_client, authenticated_session):
+        """Test deleting a non-existent board returns 403 (no access)."""
+        response = authenticated_session.delete(f'{api_client}/api/boards/9999')
+        assert response.status_code == 403
     
-    def test_get_board_scheduled_cards(self, api_client, sample_board, sample_column):
+    def test_get_board_scheduled_cards(self, api_client, authenticated_session, sample_board, sample_column):
         """Test getting board with all scheduled cards in one request."""
         # First create a regular card to schedule
         card_data = {
             'title': 'Card to Schedule',
             'description': 'This will become a template'
         }
-        card_response = requests.post(
+        card_response = authenticated_session.post(
             f'{api_client}/api/columns/{sample_column["id"]}/cards',
             json=card_data
         )
@@ -128,14 +123,14 @@ class TestBoardsAPI:
             'allow_duplicates': False,
             'keep_source_card': True
         }
-        schedule_response = requests.post(
+        schedule_response = authenticated_session.post(
             f'{api_client}/api/schedules',
             json=schedule_data
         )
         assert schedule_response.status_code == 201
         
         # Get board with scheduled cards
-        response = requests.get(f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled')
+        response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
@@ -158,21 +153,19 @@ class TestBoardsAPI:
         assert card['scheduled'] is True
         assert card['schedule'] is not None
     
-    def test_get_board_scheduled_cards_not_found(self, api_client):
-        """Test getting scheduled cards for a non-existent board."""
-        response = requests.get(f'{api_client}/api/boards/9999/cards/scheduled')
-        assert response.status_code == 404
-        data = response.json()
-        assert data['success'] is False
+    def test_get_board_scheduled_cards_not_found(self, api_client, authenticated_session):
+        """Test getting scheduled cards for a non-existent board returns 403 (no access)."""
+        response = authenticated_session.get(f'{api_client}/api/boards/9999/cards/scheduled')
+        assert response.status_code == 403
 
 
 @pytest.mark.api
 class TestBoardColumnsAPI:
     """Test cases for board column API endpoints."""
     
-    def test_create_column(self, api_client, sample_board):
+    def test_create_column(self, api_client, authenticated_session, sample_board):
         """Test creating a new column."""
-        response = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
+        response = authenticated_session.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={
             'name': 'To Do'
         })
         assert response.status_code == 201
@@ -181,21 +174,21 @@ class TestBoardColumnsAPI:
         assert data['column']['name'] == 'To Do'
         assert data['column']['board_id'] == sample_board['id']
     
-    def test_create_column_board_not_found(self, api_client):
-        """Test creating a column for non-existent board."""
-        response = requests.post(f'{api_client}/api/boards/9999/columns', json={
+    def test_create_column_board_not_found(self, api_client, authenticated_session):
+        """Test creating a column for non-existent board returns 403 (no access)."""
+        response = authenticated_session.post(f'{api_client}/api/boards/9999/columns', json={
             'name': 'To Do'
         })
-        assert response.status_code == 404
+        assert response.status_code == 403
     
-    def test_create_column_missing_name(self, api_client, sample_board):
+    def test_create_column_missing_name(self, api_client, authenticated_session, sample_board):
         """Test creating a column without a name."""
-        response = requests.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={})
+        response = authenticated_session.post(f'{api_client}/api/boards/{sample_board["id"]}/columns', json={})
         assert response.status_code == 400
     
-    def test_update_column(self, api_client, sample_column):
+    def test_update_column(self, api_client, authenticated_session, sample_column):
         """Test updating a column."""
-        response = requests.patch(f'{api_client}/api/columns/{sample_column["id"]}', json={
+        response = authenticated_session.patch(f'{api_client}/api/columns/{sample_column["id"]}', json={
             'name': 'Updated Column'
         })
         assert response.status_code == 200
@@ -203,24 +196,24 @@ class TestBoardColumnsAPI:
         assert data['success'] is True
         assert data['column']['name'] == 'Updated Column'
     
-    def test_delete_column(self, api_client, sample_column):
+    def test_delete_column(self, api_client, authenticated_session, sample_column):
         """Test deleting a column."""
         column_id = sample_column['id']
         board_id = sample_column['board_id']
         
         # Verify column exists first by getting board's columns
-        columns_check = requests.get(f'{api_client}/api/boards/{board_id}/columns')
+        columns_check = authenticated_session.get(f'{api_client}/api/boards/{board_id}/columns')
         assert columns_check.status_code == 200, f"Columns check failed: {columns_check.status_code} - {columns_check.text}"
         columns_before = columns_check.json()['columns']
         column_ids_before = [col['id'] for col in columns_before]
         assert column_id in column_ids_before, f"Column {column_id} not found in board before delete"
         
         # Delete the column
-        response = requests.delete(f'{api_client}/api/columns/{column_id}')
+        response = authenticated_session.delete(f'{api_client}/api/columns/{column_id}')
         assert response.status_code == 200, f"Delete column failed: {response.status_code} - {response.text}"
         
         # Verify column is deleted by checking board's columns
-        columns_after = requests.get(f'{api_client}/api/boards/{board_id}/columns')
+        columns_after = authenticated_session.get(f'{api_client}/api/boards/{board_id}/columns')
         assert columns_after.status_code == 200, f"Columns verify failed: {columns_after.status_code} - {columns_after.text}"
         columns_data = columns_after.json()['columns']
         column_ids_after = [col['id'] for col in columns_data]

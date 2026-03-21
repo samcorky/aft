@@ -7,17 +7,26 @@ This test suite includes both **unit tests** and **API integration tests**.
 - **Unit Tests**: Test individual functions and utilities without requiring a running server
 - **API Integration Tests**: Make HTTP requests to validate the external behavior of API endpoints
 
-## Test Organization
+## Test Organisation
 
 ```
 server/tests/
-├── __init__.py                  # Test package
-├── conftest.py                  # Pytest fixtures and configuration
-├── test_utils.py                # Unit tests for validation utilities (25 tests)
-├── test_api_boards.py           # Board and column API tests
-├── test_api_cards.py            # Card API tests
-├── test_api_settings.py         # Settings API tests
-└── test_api_edge_cases.py       # Edge case and security tests (40+ tests)
+├── __init__.py                     # Test package
+├── conftest.py                     # Pytest fixtures and configuration
+├── test_utils.py                   # Unit tests for validation utilities (25 tests)
+├── test_api_authentication.py      # Authentication and user management API tests
+├── test_api_boards.py              # Board and column API tests
+├── test_api_cards.py               # Card API tests
+├── test_api_checklist_items.py     # Checklist item API tests
+├── test_api_comments.py            # Comment API tests
+├── test_api_notifications.py       # Notification API tests
+├── test_api_settings.py            # Settings API tests
+├── test_api_themes.py              # Theme API tests
+├── test_api_edge_cases.py          # Edge case and security tests (40+ tests)
+├── test_api_database_backups.py    # Database backup/restore API tests
+├── test_api_card_scheduler.py      # Card scheduling API tests
+├── test_api_housekeeping.py        # Housekeeping and cleanup tests
+└── ... (additional test files)     # Other specialised tests
 ```
 
 ## Running Tests Locally (Recommended)
@@ -31,6 +40,52 @@ docker compose up -d
 ```
    - The API must be running at `http://localhost` (via nginx)
    - Wait a few seconds for the server to be ready
+
+### Important: Authentication for Tests
+
+**Tests now require authentication** (as of user support implementation). The test suite automatically handles authentication by:
+
+1. **Creating a test admin user** on first run (via `/api/auth/setup/admin` on fresh DB)
+2. **Logging in with known credentials** on subsequent runs
+3. **Using authenticated sessions** for all API requests
+
+The test admin credentials are:
+- Email: `test-admin@localhost`
+- Username: `test-admin`
+- Password: `TestAdmin123!`
+
+**You do NOT need to manually create users or login**. The test fixtures handle this automatically.
+
+#### When to Use a Fresh Database
+
+**IMPORTANT:** Automatic test admin creation **only works on a fresh database** with no existing users. If there is already an admin user in the system, the test admin creation will fail because new user registrations require admin approval.
+
+You **MUST** start with a fresh database if:
+
+- There are existing admin users in the system
+- Tests are failing with authentication errors
+- You want to test the initial setup flow
+- Previous test runs left the database in an unexpected state
+
+**To start with a fresh database:**
+
+```powershell
+# Windows PowerShell
+docker compose down
+Remove-Item -Recurse -Force data
+docker compose up -d
+```
+
+```bash
+# Linux/macOS
+docker compose down
+rm -rf data
+docker compose up -d
+```
+
+Wait a few seconds for the server to be ready, then run tests.
+
+**Note:** Once the test admin user exists, tests will work fine with existing data by logging in with the known credentials.
 
 ### Setup Local Environment
 
@@ -196,6 +251,14 @@ This file contains comprehensive tests for:
 - Double deletion
 - Update after delete
 - Create in deleted parent
+
+### Backup Security Unit Tests (`test_backup_security.py`)
+
+These tests import backup validation helpers directly from `app.py` and validate SQL/file safety logic only.
+
+- The module explicitly sets `ENABLE_SERVER_SIDE_SESSIONS=false` at test import time.
+- This is intentional: backup security tests are session-backend agnostic and should not require optional Redis session packages to run in local unit-test environments.
+- Runtime behavior is unchanged for the application; this only scopes test setup for that file.
 
 ### Test Isolation Strategy
 

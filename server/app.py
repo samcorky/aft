@@ -1,18 +1,21 @@
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, g
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import logging
 import json
 import os
+import secrets
 import time
 import tempfile
+import subprocess
 import uuid
 import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme
+from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
 from utils import (
@@ -24,7 +27,18 @@ from utils import (
     MAX_TITLE_LENGTH,
     MAX_DESCRIPTION_LENGTH,
     MAX_COMMENT_LENGTH,
+    get_user_scoped_query,
+    get_user_permissions,
+    require_permission,
+    require_any_permission,
+    require_board_access,
+    require_authentication,
+    get_current_user_id,
+    can_access_board,
 )
+from auth import auth_bp, load_user_from_session, get_authenticated_socket_user
+from user_management import user_mgmt_bp
+from role_management import role_mgmt_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 # Application version
 APP_VERSION = "2026.1.2"
+
+TEST_USER_EMAIL = "test-admin@localhost"
+TEST_USER_USERNAME = "test-admin"
+TEST_USER_DISPLAY_NAME = "Test Admin"
 
 # Settings schema - defines allowed settings and their validation rules
 SETTINGS_SCHEMA = {
@@ -167,6 +185,7 @@ def validate_safe_url(url):
     
     Rejects:
     - javascript:, data:, vbscript:, file:, and other dangerous protocols
+    - URL values containing characters that can break HTML attributes
     - URLs without proper structure
     
     Args:
@@ -177,8 +196,24 @@ def validate_safe_url(url):
     """
     if not url or not isinstance(url, str):
         return False, "URL must be a non-empty string"
-    
-    url_lower = url.strip().lower()
+
+    url = url.strip()
+    url_lower = url.lower()
+
+    # Reject all dangerous protocols first for clearer error messages
+    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
+    for protocol in dangerous_protocols:
+      if url_lower.startswith(protocol):
+        return False, f"URL protocol '{protocol}' is not allowed for security reasons"
+
+    # Defense in depth: reject characters that can break out of HTML attributes
+    unsafe_attribute_chars = ['"', "'", '<', '>', '`']
+    if any(char in url for char in unsafe_attribute_chars):
+        return False, "URL contains unsafe characters"
+
+    # Reject control characters that can cause parser confusion in HTML/headers
+    if any(char in url for char in ['\r', '\n', '\t']):
+        return False, "URL contains disallowed control characters"
     
     # Allow relative paths starting with /
     if url_lower.startswith('/'):
@@ -187,18 +222,24 @@ def validate_safe_url(url):
     # Allow http and https
     if url_lower.startswith('http://') or url_lower.startswith('https://'):
         return True, None
-    
-    # Reject all other protocols including dangerous ones
-    dangerous_protocols = ['javascript:', 'data:', 'vbscript:', 'file:', 'about:', 'blob:']
-    for protocol in dangerous_protocols:
-        if url_lower.startswith(protocol):
-            return False, f"URL protocol '{protocol}' is not allowed for security reasons"
-    
+
     # Reject anything that doesn't match allowed patterns
     return False, "URL must be a relative path starting with / or use http:// or https:// protocol"
 
 
 app = Flask(__name__)
+
+# Configure session
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'True').lower() == 'true'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 7  # 7 days
+
+if not app.config['SESSION_COOKIE_SECURE']:
+    logger.warning(
+        'SESSION_COOKIE_SECURE is set to false. Session cookies may be transmitted over plain HTTP. '
+        'Use only in controlled local development scenarios.'
+    )
 
 # Custom path converter that allows safe filenames (validation happens in the endpoint)
 class SafeFilenameConverter(BaseConverter):
@@ -234,6 +275,48 @@ CORS(
 # Initialize SocketIO for WebSocket support with Redis message queue for multi-worker support
 # Redis allows multiple gunicorn workers to communicate WebSocket events to each other
 redis_url = os.getenv('REDIS_URL')
+server_side_sessions_enabled = os.getenv('ENABLE_SERVER_SIDE_SESSIONS', 'false').lower() == 'true'
+redis_configured = bool(redis_url)
+
+_secret_key = os.getenv('SECRET_KEY')
+if not _secret_key:
+    raise RuntimeError(
+        'SECRET_KEY environment variable is not set. '
+        'Generate one with: python -c "import secrets; print(secrets.token_hex(32))" '
+        'and add it to your .env file. Never use a hardcoded or default secret in production.'
+    )
+app.config['SECRET_KEY'] = _secret_key
+
+if server_side_sessions_enabled:
+    if not redis_url:
+        raise RuntimeError(
+            'ENABLE_SERVER_SIDE_SESSIONS=true requires REDIS_URL to be configured.'
+        )
+
+    try:
+        import redis
+        from flask_session import Session as ServerSideSession
+    except ImportError as e:
+        raise RuntimeError(
+            'ENABLE_SERVER_SIDE_SESSIONS=true requires flask-session and redis packages. '
+            'Install with: pip install -r server/requirements.txt'
+        ) from e
+
+    app.config['SESSION_TYPE'] = 'redis'
+    app.config['SESSION_REDIS'] = redis.from_url(redis_url)
+    app.config['SESSION_KEY_PREFIX'] = 'aft:session:'
+    app.config['SESSION_PERMANENT'] = True
+    app.config['SESSION_USE_SIGNER'] = True
+    ServerSideSession(app)
+    logger.info(
+        'Session mode: server-side (Redis). feature_flag=ENABLE_SERVER_SIDE_SESSIONS:true redis_configured=%s',
+        redis_configured,
+    )
+else:
+    logger.info(
+        'Session mode: client-side (Flask signed cookie). feature_flag=ENABLE_SERVER_SIDE_SESSIONS:false redis_configured=%s',
+        redis_configured,
+    )
 
 # Validate Redis configuration for multi-worker deployment
 if not redis_url:
@@ -387,15 +470,143 @@ swagger_template = {
         "description": """
 API documentation for AFT application
 
+**Authentication:** This API uses session-based authentication. To test authenticated endpoints in Swagger UI:
+
+### Recommended Workflow
+1. **First, validate your credentials**: Call `/api/auth/validate` (POST) with your credentials to verify they work
+2. **Then, set up authentication**: 
+   - Click the "Authorise" button (🔓) at the top right
+   - Enter your credentials in the BasicAuth section (use email as username)
+   - Click "Authorise"
+3. **Test endpoints**: Your credentials will be sent with each request
+
+⚠️ **Important**: The Authorise modal will say "Authorized" even with invalid credentials. 
+This is a Swagger limitation - credentials are only validated when you actually call an endpoint.
+Always use `/api/auth/validate` first to verify your credentials are correct.
+
+### Alternative: Session-Based Login
+1. Call `/api/auth/login` (POST) with your email and password
+2. The session cookie will be automatically set and used for all requests
+3. No need to use the Authorise button
+
+### Default Test Credentials
+- Email: `test-admin@localhost`
+- Password: `TestAdmin123!`
+
 <a href="/" style="text-decoration: none;">← Back to AFT Home</a>
         """,
         "version": "1.0.0",
     },
     "basePath": "/",
     "schemes": ["http", "https"],
+    "securityDefinitions": {
+        "SessionAuth": {
+            "type": "apiKey",
+            "name": "session",
+            "in": "cookie",
+            "description": "Session-based authentication. Login via `/api/auth/login` to obtain a session cookie."
+        },
+        "BasicAuth": {
+            "type": "basic",
+            "description": "⚠️ Basic Auth for testing. Modal accepts any input - credentials are validated when calling endpoints. Use /api/auth/validate to test credentials first."
+        }
+    },
+    "security": [
+        {"SessionAuth": []},
+        {"BasicAuth": []}
+    ]
 }
 
 swagger = Swagger(app, config=swagger_config, template=swagger_template)
+
+# ============================================================================
+# Authentication Setup
+# ============================================================================
+
+# Register authentication blueprint
+app.register_blueprint(auth_bp)
+app.register_blueprint(user_mgmt_bp)
+app.register_blueprint(role_mgmt_bp)
+
+# Load user from session before each request
+@app.before_request
+def before_request():
+    """Load authenticated user into Flask g object and check setup status."""
+    # Skip setup check for setup/auth endpoints, health checks, and static files
+    if (
+        request.path.startswith('/api/auth/setup') or
+        request.path == '/api/test' or  # Legacy health endpoint
+        request.path == '/api/health/live' or
+        request.path == '/api/health/ready' or
+        request.path.startswith('/setup.html') or
+        request.path.startswith('/css/') or
+        request.path.startswith('/js/') or
+        request.path.startswith('/images/')
+    ):
+        load_user_from_session()
+        return
+    
+    # Check if initial setup is complete (any active user with password exists)
+    from models import User
+    db = SessionLocal()
+    try:
+      try:
+        has_users = db.query(User).filter(
+          User.is_active == True,
+          User.password_hash.isnot(None)
+        ).count() > 0
+      except (ProgrammingError, OperationalError) as error:
+        # During /api/database resets, tables are briefly absent while Alembic
+        # recreates the schema. Let reset/restore routes continue so their own
+        # locking and wait logic can finish the operation.
+        logger.info(f"Setup check skipped during transient database reset: {error}")
+
+        if request.path.startswith('/api/database'):
+          load_user_from_session()
+          return
+
+        if request.path.startswith('/api/'):
+          return jsonify({
+            'success': False,
+            'message': 'Initial setup required',
+            'redirect': '/setup.html'
+          }), 503
+
+        if request.path != '/setup.html':
+          from flask import redirect
+          return redirect('/setup.html', code=302)
+        return
+        
+        if not has_users:
+            # Redirect to setup page for HTML requests
+            if not request.path.startswith('/api/'):
+                if request.path != '/setup.html':
+                    from flask import redirect
+                    return redirect('/setup.html', code=302)
+            # For API requests, return a specific error
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Initial setup required',
+                    'redirect': '/setup.html'
+                }), 503
+    finally:
+        db.close()
+    
+    load_user_from_session()
+
+# Close database session after each request if it was opened
+@app.teardown_request
+def teardown_request(exception=None):
+    """Close database session if it was opened."""
+    db = g.pop('db', None)
+    if db is not None:
+        try:
+            db.close()
+        except Exception as e:
+            # Connection may have been killed during restore operations
+            # This is expected and can be safely ignored
+            logger.debug(f"Error closing database session in teardown (connection may have been killed): {e}")
 
 # Request size limit (110MB) for non-file-upload endpoints
 MAX_REQUEST_SIZE = 110 * 1024 * 1024
@@ -555,6 +766,9 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'notifications',
             'scheduled_cards',
             'themes',
+            'roles',
+            'users',
+            'user_roles',
             'alembic_version'
         ]
 
@@ -623,7 +837,58 @@ def validate_backup_file_size(file_path, max_size_mb=100):
         return False, f"Error checking file size: {str(e)}"
 
 
+def create_database_with_retry(db_host, db_root_password, db_name, max_retries=5, retry_delay_seconds=2):
+    """Create database with retry for transient MySQL schema-directory race conditions.
+
+    MySQL 9 can transiently report ERROR 3678 (schema directory already exists)
+    immediately after a DROP DATABASE while filesystem cleanup is still settling.
+    """
+    create_db_cmd = [
+        "mysql",
+        f"-h{db_host}",
+        "-uroot",
+        f"-p{db_root_password}",
+        "--skip-ssl",
+        "-e",
+        f"CREATE DATABASE `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    ]
+
+    last_stderr = ""
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = subprocess.run(create_db_cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise Exception("Timeout while creating database")
+
+        if result.returncode == 0:
+            logger.info(f"Database {db_name} created successfully")
+            return
+
+        stderr = (result.stderr or "").strip()
+        last_stderr = stderr
+        is_schema_directory_race = (
+            "ERROR 3678" in stderr
+            and "Schema directory" in stderr
+            and "already exists" in stderr
+        )
+
+        if is_schema_directory_race and attempt < max_retries:
+            logger.warning(
+                f"Database create attempt {attempt}/{max_retries} hit MySQL schema directory race; "
+                f"retrying in {retry_delay_seconds}s"
+            )
+            time.sleep(retry_delay_seconds)
+            continue
+
+        logger.error(f"Failed to create database: {stderr}")
+        raise Exception(f"Failed to create database: {stderr}")
+
+    logger.error(f"Failed to create database after {max_retries} attempts: {last_stderr}")
+    raise Exception(f"Failed to create database after {max_retries} attempts: {last_stderr}")
+
+
 @app.route("/api/version")
+@require_authentication
 def get_version():
     """Get application and database schema version.
     ---
@@ -672,7 +937,353 @@ def get_version():
         db.close()
 
 
+def _find_known_test_user(db):
+  return db.query(User).filter(
+    User.email == TEST_USER_EMAIL,
+    User.username == TEST_USER_USERNAME,
+  ).first()
+
+
+@app.route("/api/admin/test-user", methods=["GET"])
+@require_any_permission('user.manage', 'user.role')
+def get_test_user_status():
+  """Get known test user status and test compatibility guidance.
+
+  This endpoint does not create or elevate any user. It only reports whether the
+  known test account is present and whether it matches the current test suite
+  expectations.
+  ---
+  tags:
+    - Administration
+  responses:
+    200:
+      description: Known test user status
+    403:
+      description: Forbidden - requires user.manage or user.role
+  """
+  from permissions import has_permission
+
+  db = SessionLocal()
+  try:
+    test_user = _find_known_test_user(db)
+    user_permissions = get_user_permissions(g.user.id)
+    can_remove = has_permission(user_permissions, 'user.manage')
+
+    detected_user = None
+    if test_user:
+      detected_user = {
+        "id": test_user.id,
+        "email": test_user.email,
+        "username": test_user.username,
+        "display_name": test_user.display_name,
+        "is_active": test_user.is_active,
+        "is_approved": test_user.is_approved,
+      }
+
+    return jsonify({
+      "success": True,
+      "test_user_present": test_user is not None,
+      "test_user_compatible": bool(
+        test_user and test_user.is_active and test_user.is_approved
+      ),
+      "clean_database_compatible": True,
+      "expected_user": {
+        "email": TEST_USER_EMAIL,
+        "username": TEST_USER_USERNAME,
+        "display_name": TEST_USER_DISPLAY_NAME,
+      },
+      "detected_user": detected_user,
+      "permissions": {
+        "can_remove": can_remove,
+      },
+    })
+  finally:
+    db.close()
+
+
+@app.route("/api/admin/test-user", methods=["DELETE"])
+@require_permission('user.manage')
+def remove_test_user():
+  """Remove the known test user if it is present.
+
+  This endpoint intentionally supports cleanup only. It does not create the
+  account or assign the administrator role.
+  ---
+  tags:
+    - Administration
+  responses:
+    200:
+      description: Test user removed
+    404:
+      description: Known test user not found
+    403:
+      description: Forbidden - requires user.manage
+    500:
+      description: Server error
+  """
+  db = SessionLocal()
+  try:
+    test_user = _find_known_test_user(db)
+    if not test_user:
+      return jsonify({
+        "success": False,
+        "message": "Known test user was not found",
+      }), 404
+
+    deleted_current_user = test_user.id == g.user.id
+    user_id = test_user.id
+    username = test_user.username
+
+    db.query(UserRole).filter(UserRole.user_id == user_id).delete()
+    db.delete(test_user)
+    db.commit()
+
+    logger.info(
+      f"Known test user deleted: {username} (ID: {user_id}) by user {g.user.id}"
+    )
+
+    return jsonify({
+      "success": True,
+      "action": "deleted",
+      "deleted_current_user": deleted_current_user,
+      "message": f"Known test user '{username}' has been deleted",
+    })
+  except Exception as e:
+    db.rollback()
+    logger.error(f"Error deleting known test user: {e}")
+    return jsonify({
+      "success": False,
+      "message": f"Failed to delete known test user: {str(e)}",
+    }), 500
+  finally:
+    db.close()
+
+
+@app.route("/api/debug/permissions")
+@require_authentication
+def debug_user_permissions():
+    """Debug endpoint to check user permissions for a board.
+    
+    Query Parameters:
+        board_id (optional): Board ID to check board-specific permissions
+    """
+    board_id = request.args.get('board_id', type=int)
+    
+    db = SessionLocal()
+    try:
+        from utils import get_user_permissions
+        
+        # Get global permissions
+        global_perms = get_user_permissions(g.user.id, board_id=None)
+        
+        # Get board-specific permissions if board_id provided
+        board_perms = None
+        if board_id:
+            board_perms = get_user_permissions(g.user.id, board_id=board_id)
+        
+        # Get all user's role assignments
+        role_assignments = db.query(UserRole, Role).join(
+            Role, UserRole.role_id == Role.id
+        ).filter(
+            UserRole.user_id == g.user.id
+        ).all()
+        
+        roles_data = []
+        for user_role, role in role_assignments:
+            roles_data.append({
+                'role_name': role.name,
+                'role_id': role.id,
+                'board_id': user_role.board_id,
+                'permissions': json.loads(role.permissions) if isinstance(role.permissions, str) else role.permissions
+            })
+        
+        return jsonify({
+            'success': True,
+            'user_id': g.user.id,
+            'username': g.user.username,
+            'checked_board_id': board_id,
+            'global_permissions': sorted(list(global_perms)),
+            'board_specific_permissions': sorted(list(board_perms)) if board_perms else None,
+            'all_role_assignments': roles_data
+        })
+        
+    finally:
+        db.close()
+
+
+@app.route("/api/permissions/mapping")
+@require_authentication
+def get_permissions_mapping():
+    """Get mapping of API endpoints to required permissions and user's current permissions.
+    
+    This endpoint returns:
+    1. A mapping of all API endpoints to their required permissions
+    2. The current user's permissions (global and board-specific if board_id provided)
+    
+    This enables the frontend to implement permission-based UI rendering,
+    showing/hiding elements based on what the user can actually do.
+    
+    Query Parameters:
+        board_id (optional): Board ID to include board-specific permissions
+    ---
+    tags:
+      - Permissions
+    responses:
+      200:
+        description: Permission mapping and user permissions
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            endpoint_permissions:
+              type: object
+              description: Map of API endpoint patterns to required permissions
+            user_permissions:
+              type: array
+              items:
+                type: string
+              description: Current user's permissions
+    """
+    board_id = request.args.get('board_id', type=int)
+    db = SessionLocal()
+    
+    try:
+        from utils import get_user_permissions
+
+        # Get user's permissions (board-specific if board_id provided)
+        user_perms = get_user_permissions(g.user.id, board_id=board_id)
+
+        # Detect whether user has any board-scoped assignment. This is needed
+        # for composite endpoint rules like GET /api/boards.
+        has_board_assignment = db.query(UserRole.id).filter(
+            UserRole.user_id == g.user.id,
+            UserRole.board_id.isnot(None)
+        ).first() is not None
+
+        # Comprehensive mapping of API endpoints to required permissions.
+        endpoint_mapping = {
+            # Board management
+            'GET /api/boards': {
+                'mode': 'composite',
+                'any_permissions': ['board.view', 'board.create'],
+                'allow_board_assignment': True,
+                'description': 'View boards list (global board permission OR board assignment)'
+            },
+            'POST /api/boards': {'permission': 'board.create', 'description': 'Create new board'},
+            'DELETE /api/boards/:id': {'permission': 'board.delete', 'description': 'Delete board'},
+            'PATCH /api/boards/:id': {'permission': 'board.edit', 'description': 'Edit board'},
+            'GET /api/boards/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards'},
+            'GET /api/boards/:id/cards': {'permission': 'card.view', 'description': 'View board cards'},
+
+            # Column management
+            'GET /api/boards/:id/columns': {'permission': 'board.view', 'description': 'View board columns'},
+            'POST /api/boards/:id/columns': {'permission': 'column.create', 'description': 'Create column'},
+            'DELETE /api/columns/:id': {'permission': 'column.delete', 'description': 'Delete column'},
+            'PATCH /api/columns/:id': {'permission': 'column.update', 'description': 'Update column'},
+            'GET /api/columns/:id/cards': {'permission': 'card.view', 'description': 'View column cards'},
+            'GET /api/columns/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards in column'},
+            'POST /api/columns/:id/archive-after': {'permission': 'card.archive', 'description': 'Archive cards after position'},
+
+            # Card management
+            'POST /api/columns/:id/cards': {'permission': 'card.create', 'description': 'Create card'},
+            'DELETE /api/columns/:id/cards': {'permission': 'card.delete', 'description': 'Delete all cards in column'},
+            'POST /api/columns/:source_id/cards/move': {'permission': 'card.update', 'description': 'Move card between columns'},
+            'GET /api/cards/:id': {'permission': 'card.view', 'description': 'View card details'},
+            'PATCH /api/cards/:id': {'permission': 'card.update', 'description': 'Update card'},
+            'DELETE /api/cards/:id': {'permission': 'card.delete', 'description': 'Delete card'},
+            'PATCH /api/cards/:id/archive': {'permission': 'card.archive', 'description': 'Archive card'},
+            'PATCH /api/cards/:id/unarchive': {'permission': 'card.archive', 'description': 'Unarchive card'},
+            'GET /api/cards/:id/done': {'permission': 'card.view', 'description': 'Get card done status'},
+            'PATCH /api/cards/:id/done': {'permission': 'card.update', 'description': 'Update card done status'},
+            'POST /api/cards/batch/archive': {'permission': 'card.archive', 'description': 'Batch archive cards'},
+            'POST /api/cards/batch/unarchive': {'permission': 'card.archive', 'description': 'Batch unarchive cards'},
+
+            # Schedule management
+            'POST /api/schedules': {'permission': 'schedule.create', 'description': 'Create scheduled card'},
+            'GET /api/schedules/:id': {'permission': 'schedule.view', 'description': 'View schedule details'},
+            'PUT /api/schedules/:id': {'permission': 'schedule.edit', 'description': 'Update schedule'},
+            'DELETE /api/schedules/:id': {'permission': 'schedule.delete', 'description': 'Delete schedule'},
+
+            # Settings
+            'GET /api/settings/schema': {'permission': 'setting.view', 'description': 'View settings schema'},
+            'GET /api/settings/:key': {'permission': 'setting.view', 'description': 'View setting'},
+            'PUT /api/settings/:key': {'permission': 'setting.edit', 'description': 'Update setting'},
+            'GET /api/settings/backup/config': {'permission': 'setting.view', 'description': 'View backup config'},
+            'PUT /api/settings/backup/config': {'permission': 'setting.edit', 'description': 'Update backup config'},
+            'GET /api/settings/backup/status': {'permission': 'setting.view', 'description': 'View backup status'},
+            'GET /api/settings/housekeeping/status': {'permission': 'setting.view', 'description': 'View housekeeping status'},
+            'PUT /api/settings/housekeeping/config': {'permission': 'setting.edit', 'description': 'Update housekeeping config'},
+            'GET /api/settings/card-scheduler/status': {'permission': 'setting.view', 'description': 'View scheduler status'},
+            'PUT /api/settings/card-scheduler/config': {'permission': 'setting.edit', 'description': 'Update scheduler config'},
+
+            # Database backups
+            'GET /api/database/backup': {'permission': 'admin.database', 'description': 'Download database backup'},
+            'POST /api/database/backup/manual': {'permission': 'admin.database', 'description': 'Create manual backup'},
+            'POST /api/database/restore': {'permission': 'admin.database', 'description': 'Restore database'},
+            'GET /api/database/backups/list': {'permission': 'admin.database', 'description': 'List all backups'},
+            'POST /api/database/backups/restore/:filename': {'permission': 'admin.database', 'description': 'Restore specific backup'},
+            'DELETE /api/database/backups/delete/:filename': {'permission': 'admin.database', 'description': 'Delete backup'},
+            'POST /api/database/backups/delete-multiple': {'permission': 'admin.database', 'description': 'Delete multiple backups'},
+            'DELETE /api/database': {'permission': 'admin.database', 'description': 'Reset database'},
+
+            # Known test user guidance
+            'GET /api/admin/test-user': {'permission': 'user.manage or user.role', 'description': 'View known test user status'},
+            'DELETE /api/admin/test-user': {'permission': 'user.manage', 'description': 'Remove known test user'},
+
+            # User management (from user_management.py blueprint)
+            'GET /api/users': {'permission': 'user.manage', 'description': 'List all users'},
+            'GET /api/users/:id': {'permission': 'user.manage', 'description': 'Get user details'},
+            'PATCH /api/users/:id': {'permission': 'user.manage', 'description': 'Update user'},
+            'DELETE /api/users/:id': {'permission': 'user.manage', 'description': 'Delete user'},
+            'PATCH /api/users/:id/active': {'permission': 'user.manage', 'description': 'Toggle user active status'},
+            'POST /api/users/:id/roles': {'permission': 'user.role', 'description': 'Assign user role'},
+            'DELETE /api/users/:id/roles/:role_id': {'permission': 'user.role', 'description': 'Remove user role'},
+
+            # Role management (from role_management.py blueprint)
+            'GET /api/roles': {'permission': 'role.manage', 'description': 'List all roles'},
+            'POST /api/roles': {'permission': 'role.manage', 'description': 'Create role'},
+            'GET /api/roles/:id': {'permission': 'role.manage', 'description': 'Get role details'},
+            'PATCH /api/roles/:id': {'permission': 'role.manage', 'description': 'Update role'},
+            'DELETE /api/roles/:id': {'permission': 'role.manage', 'description': 'Delete role'},
+            'GET /api/roles/permission-model': {'mode': 'public', 'description': 'Get permission model (public)'},
+
+            # Theme management
+            'GET /api/themes': {'permission': 'theme.view', 'description': 'List themes'},
+            'POST /api/themes': {'permission': 'theme.create', 'description': 'Create theme'},
+            'GET /api/themes/:id': {'permission': 'theme.view', 'description': 'Get theme details'},
+            'PUT /api/themes/:id': {'permission': 'theme.edit', 'description': 'Update theme'},
+            'PUT /api/themes/:id/rename': {'permission': 'theme.edit', 'description': 'Rename theme'},
+            'DELETE /api/themes/:id': {'permission': 'theme.delete', 'description': 'Delete theme'},
+
+            # System/Monitoring
+            'GET /api/stats': {'permission': 'board.view', 'description': 'View statistics'},
+            'GET /api/scheduler/health': {'permission': 'setting.view', 'description': 'View scheduler health'},
+            'GET /api/broadcast-status': {'permission': 'monitoring.system', 'description': 'View broadcast status'},
+        }
+
+        return jsonify({
+            'success': True,
+            'endpoint_permissions': endpoint_mapping,
+            'user_permissions': sorted(list(user_perms)),
+            'user_context': {
+                'has_board_assignment': has_board_assignment
+            },
+            'board_id': board_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting permissions mapping: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to get permissions mapping: {str(e)}'
+        }), 500
+    finally:
+      db.close()
+
+
 @app.route("/api/broadcast-status")
+@require_permission('monitoring.system')
 def get_broadcast_status():
     """Get WebSocket broadcast error status for debugging.
     
@@ -713,6 +1324,7 @@ def get_broadcast_status():
 
 
 @app.route("/api/scheduler/health")
+@require_permission('setting.view')
 def get_scheduler_health():
     """Get health status of all background schedulers.
     ---
@@ -875,9 +1487,82 @@ def get_scheduler_health():
     return jsonify(health), 200
 
 
+def _healthcheck_allowed_source_ips():
+    """Return the configured set of source IPs allowed for readiness checks."""
+    allowed_raw = os.getenv('HEALTHCHECK_ALLOWED_SOURCE_IP', '127.0.0.1')
+    allowed_ips = {ip.strip() for ip in allowed_raw.split(',') if ip.strip()}
+    if '127.0.0.1' in allowed_ips:
+        allowed_ips.add('::1')
+    return allowed_ips
+
+
+def _is_internal_readiness_request_authorized():
+    """Validate token + source IP for the internal readiness endpoint."""
+    expected_token = os.getenv('HEALTHCHECK_TOKEN', '').strip()
+    provided_token = request.headers.get('X-Health-Token', '').strip()
+
+    if not expected_token:
+        logger.warning('HEALTHCHECK_TOKEN is not set; readiness request denied')
+        return False
+
+    if not provided_token or not secrets.compare_digest(provided_token, expected_token):
+        return False
+
+    remote_addr = (request.remote_addr or '').strip()
+    return remote_addr in _healthcheck_allowed_source_ips()
+
+
+@app.route("/api/health/live")
+def health_live():
+    """Public liveness endpoint with minimal disclosure.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: API process is reachable
+        schema:
+          type: object
+          properties:
+            ok:
+              type: boolean
+              example: true
+    """
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/health/ready")
+def health_ready():
+    """Internal readiness endpoint for compose health checks.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: API and database are ready
+      404:
+        description: Request is not authorized for readiness checks
+      503:
+        description: API is up but dependencies are not ready
+    """
+    if not _is_internal_readiness_request_authorized():
+        return jsonify({"ok": False}), 404
+
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+        return jsonify({"ok": True}), 200
+    except Exception as e:
+        logger.warning(f"Readiness check failed: {e}")
+        return jsonify({"ok": False}), 503
+    finally:
+        db.close()
+
+
 @app.route("/api/test")
+@require_authentication
 def test_db():
-    """Test database connection and schema.
+    """Test database connectivity (legacy endpoint).
     ---
     tags:
       - Health
@@ -893,9 +1578,6 @@ def test_db():
             message:
               type: string
               example: "Connected to database"
-            boards_count:
-              type: integer
-              example: 0
       500:
         description: Database connection failed
         schema:
@@ -909,24 +1591,19 @@ def test_db():
     """
     db = SessionLocal()
     try:
-        # Test query
-        board_count = db.query(Board).count()
-        return jsonify(
-            {
-                "success": True,
-                "message": "Connected to database",
-                "boards_count": board_count,
-            }
-        )
+        db.execute(text("SELECT 1"))
+        return jsonify({"success": True, "message": "Connected to database"})
     except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
+        logger.error(f"Legacy health check failed: {e}")
+        return jsonify({"success": False, "message": "Database not reachable"}), 500
     finally:
         db.close()
 
 
 @app.route("/api/stats")
+@require_permission('board.view')
 def get_stats():
-    """Get database statistics.
+    """Get database statistics for the current user.
     ---
     tags:
       - Health
@@ -960,6 +1637,10 @@ def get_stats():
             checklist_items_unchecked:
               type: integer
               example: 13
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Failed to get statistics
         schema:
@@ -974,16 +1655,17 @@ def get_stats():
     db = SessionLocal()
     try:
         from models import ChecklistItem
+        user_id = g.user.id
         
-        boards_count = db.query(Board).count()
-        columns_count = db.query(BoardColumn).count()
-        cards_count = db.query(Card).count()
-        cards_archived_count = db.query(Card).filter(Card.archived.is_(True)).count()
+        boards_count = get_user_scoped_query(db, Board, user_id).count()
+        columns_count = get_user_scoped_query(db, BoardColumn, user_id).count()
+        cards_count = get_user_scoped_query(db, Card, user_id).count()
+        cards_archived_count = get_user_scoped_query(db, Card, user_id).filter(Card.archived.is_(True)).count()
         
-        # Get checklist item counts
-        checklist_items_total = db.query(ChecklistItem).count()
-        checklist_items_checked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(True)).count()
-        checklist_items_unchecked = db.query(ChecklistItem).filter(ChecklistItem.checked.is_(False)).count()
+        # Get checklist item counts (scoped to user's cards)
+        checklist_items_total = get_user_scoped_query(db, ChecklistItem, user_id).count()
+        checklist_items_checked = get_user_scoped_query(db, ChecklistItem, user_id).filter(ChecklistItem.checked.is_(True)).count()
+        checklist_items_unchecked = get_user_scoped_query(db, ChecklistItem, user_id).filter(ChecklistItem.checked.is_(False)).count()
 
         return jsonify(
             {
@@ -1005,6 +1687,7 @@ def get_stats():
 
 
 @app.route("/api/database/backup", methods=["GET"])
+@require_permission('admin.database')
 def backup_database():
     """Create a database backup with version information.
     ---
@@ -1108,6 +1791,7 @@ def backup_database():
 
 
 @app.route("/api/database/backup/manual", methods=["POST"])
+@require_permission('admin.database')
 def create_manual_backup():
     """Create a manual backup and save to backups folder.
     ---
@@ -1205,6 +1889,7 @@ def create_manual_backup():
 
 
 @app.route("/api/database/restore", methods=["POST"])
+@require_permission('admin.database')
 def restore_database():
     """Restore database from backup file with version checking.
     ---
@@ -1255,21 +1940,29 @@ def restore_database():
     import tempfile
     import re
 
+    logger.info(f"=== Starting manual restore from uploaded file ===")
     try:
         # Check if file was uploaded
+        logger.info(f"Step 1: Validating file upload")
         if "file" not in request.files:
+            logger.error("No file uploaded in request")
             return jsonify({"success": False, "message": "No file uploaded"}), 400
 
         file = request.files["file"]
         if file.filename == "":
+            logger.error("Empty filename provided")
             return jsonify({"success": False, "message": "No file selected"}), 400
 
+        logger.info(f"Uploaded file: {file.filename}")
+        logger.info(f"Step 2: Saving uploaded file to temporary location")
         # Save uploaded file to temporary location
         temp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".sql")
         temp_path = temp_file.name
         temp_file.close()
         file.save(temp_path)
+        logger.info(f"File saved to: {temp_path}")
 
+        logger.info(f"Step 3: Validating file size and security")
         # File size validation: Check for reasonable size
         is_valid_size, size_error = validate_backup_file_size(temp_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
         if not is_valid_size:
@@ -1300,6 +1993,7 @@ def restore_database():
                 "message": f"Schema validation failed: {schema_error}"
             }), 400
 
+        logger.info(f"Step 4: Reading backup file to extract version information")
         # Read first few lines to get version info
         backup_version = None
         with open(temp_path, "r") as f:
@@ -1313,6 +2007,7 @@ def restore_database():
 
         if not backup_version:
             os.unlink(temp_path)
+            logger.error("No Alembic version found in backup file")
             return (
                 jsonify(
                     {
@@ -1323,12 +2018,15 @@ def restore_database():
                 400,
             )
 
+        logger.info(f"Backup version: {backup_version}")
+        logger.info(f"Step 5: Checking current database version")
         # Get current Alembic version (what we would create on restore)
         db = SessionLocal()
         result = db.execute(text("SELECT version_num FROM alembic_version"))
         row = result.fetchone()
         current_version = row[0] if row else "unknown"
         db.close()
+        logger.info(f"Current version: {current_version}")
 
         # Check version compatibility
         # Note: Alembic versions are revision IDs, not semantic versions
@@ -1345,25 +2043,132 @@ def restore_database():
         db_name = os.environ.get("MYSQL_DATABASE")
         db_host = "db"
 
-        # Drop all existing tables (including alembic_version)
-        db = SessionLocal()
-        from sqlalchemy import MetaData
-
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
-
-        # Explicitly drop alembic_version table if it exists
-        # (it's not in our models so metadata.reflect won't catch it)
+        logger.info(f"Step 6: Dropping all existing tables")
+        
+        # Close any existing database sessions in this request context to avoid connection issues
+        logger.info(f"Step 6.0: Closing request database sessions before killing connections")
+        from flask import g
+        request_db = g.pop('db', None)
+        if request_db:
+            try:
+                request_db.close()
+                logger.info(f"Closed request database session")
+            except Exception as e:
+                logger.warning(f"Error closing request database session: {e}")
+        
+        # Dispose of SQLAlchemy engine connection pool so it creates fresh connections
         try:
-            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
-            db.commit()
+            engine.dispose()
+            logger.info(f"Disposed SQLAlchemy engine connection pool")
         except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not drop alembic_version table: {e}")
+            logger.warning(f"Error disposing engine pool: {e}")
+        
+        # Kill all other database connections first to release locks
+        logger.info(f"Step 6.0.1: Killing all other database connections to release locks")
+        get_pids_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            "-N",
+            "-e",
+            f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+        ]
+        
+        try:
+            result = subprocess.run(get_pids_cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                pids = [pid.strip() for pid in result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+                
+                for pid in pids:
+                    logger.info(f"Killing connection: {pid}")
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                        logger.info(f"Killed connection: {pid}")
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+                
+                logger.info(f"Step 6.0.2: Waiting 2 seconds for connections to terminate")
+                import time
+                time.sleep(2)
+            else:
+                logger.info(f"No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections: {e}")
+        
+        # Use DROP DATABASE / CREATE DATABASE for a completely clean slate
+        logger.info(f"Step 6.1: Using DROP DATABASE / CREATE DATABASE for clean slate")
+        
+        # Get root credentials for database operations
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
+        
+        # Drop and recreate the database - this is the most reliable way to clear everything
+        logger.info(f"Step 6.1.1: Dropping database {db_name}")
+        drop_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"DROP DATABASE IF EXISTS `{db_name}`;"
+        ]
+        
+        try:
+            result = subprocess.run(drop_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to drop database: {result.stderr}")
+                raise Exception(f"Failed to drop database: {result.stderr}")
+            logger.info(f"Database {db_name} dropped successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while dropping database")
+            raise Exception("Timeout while dropping database")
+        
+        # Recreate the database
+        logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
+        create_database_with_retry(db_host, db_root_password, db_name)
+        
+        # Grant permissions to the application user
+        logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
+        grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+        ]
+        
+        try:
+            result = subprocess.run(grant_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"Failed to grant permissions: {result.stderr}")
+                # Don't fail here, permissions might already exist
+            else:
+                logger.info(f"Permissions granted successfully")
+        except Exception as e:
+            logger.warning(f"Error granting permissions: {e}")
+        
+        logger.info(f"Step 6.2: Database completely reset and ready for restore")
+        
+        # Give a moment for database to be ready
+        logger.info(f"Step 6.3: Waiting 2 seconds for database to be ready")
+        import time
+        time.sleep(2)
 
-        db.close()
-
+        logger.info(f"Step 7: Restoring data from backup file using mysql command")
         logger.info(f"Restoring database from backup (version {backup_version})")
 
         # Restore from SQL file
@@ -1386,8 +2191,34 @@ def restore_database():
         os.unlink(temp_path)
 
         if result.returncode != 0:
+            logger.error(f"MySQL restore failed with return code {result.returncode}: {result.stderr}")
             raise Exception(f"MySQL restore failed: {result.stderr}")
 
+        logger.info(f"MySQL restore completed successfully")
+        
+        # Verify database connection is working after restore
+        logger.info(f"Step 7.1: Verifying database connection after restore")
+        max_retries = 10
+        retry_delay = 2
+        connected = False
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                test_db = SessionLocal()
+                test_db.execute(text("SELECT 1"))
+                test_db.close()
+                logger.info(f"Database connection verified on attempt {attempt}")
+                connected = True
+                break
+            except Exception as e:
+                logger.warning(f"Database connection attempt {attempt}/{max_retries} failed: {e}")
+                if attempt < max_retries:
+                    import time
+                    time.sleep(retry_delay)
+                else:
+                    raise Exception(f"Failed to verify database connection after {max_retries} attempts")
+        
+        logger.info(f"Step 7.5: Cleaning up scheduler lock files after restore")
         # Clean up stale scheduler lock files after successful restore
         # This forces the scheduler threads to create fresh lock files with current timestamps
         # Otherwise the system info page will show stale heartbeat ages from before the restore
@@ -1409,20 +2240,26 @@ def restore_database():
 
         # If backup version differs from current, run migrations to upgrade
         if backup_version != current_version:
+            logger.info(f"Step 8: Running Alembic migrations from {backup_version} to {current_version}")
             logger.info(
                 f"Migrating database from {backup_version} to {current_version}"
             )
+            # Use stdout=None, stderr=None to avoid subprocess deadlock from filled pipes
+            # Output will flow to parent process logs
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 cwd="/app",
-                capture_output=True,
+                stdout=None,
+                stderr=None,
                 text=True,
             )
 
             if upgrade_result.returncode != 0:
-                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+                logger.error(f"Alembic upgrade failed with return code {upgrade_result.returncode}")
+                raise Exception(f"Alembic upgrade failed - check server logs for details")
 
-            logger.info("Database restored and upgraded successfully")
+            logger.info(f"Alembic migrations completed successfully")
+            logger.info(f"=== Manual restore completed successfully (with migration) ===")
             return jsonify(
                 {
                     "success": True,
@@ -1430,19 +2267,25 @@ def restore_database():
                 }
             )
         else:
+            logger.info(f"Step 8: No migration needed, versions match")
+            logger.info(f"=== Manual restore completed successfully (no migration) ===")
             logger.info("Database restored successfully")
             return jsonify(
                 {"success": True, "message": "Database restored successfully"}
             )
 
     except Exception as e:
-        logger.error(f"Error restoring database: {str(e)}")
+        import traceback
+        logger.error(f"=== Manual restore FAILED ===")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.unlink(temp_path)
         return jsonify({"success": False, "message": str(e)}), 500
 
 
 @app.route("/api/database/backups/list", methods=["GET"])
+@require_permission('admin.database')
 def list_backups():
     """List all available backup files (both automatic and manual).
     ---
@@ -1509,6 +2352,7 @@ def list_backups():
 
 
 @app.route("/api/database/backups/restore/<filename>", methods=["POST"])
+@require_permission('admin.database')
 def restore_backup_from_file(filename):
     """Restore from a specific backup file (automatic or manual).
     ---
@@ -1530,6 +2374,7 @@ def restore_backup_from_file(filename):
       500:
         description: Failed to restore backup
     """
+    logger.info(f"=== Starting restore from backup: {filename} ===")
     try:
         from pathlib import Path
         import re
@@ -1538,9 +2383,12 @@ def restore_backup_from_file(filename):
         
         # Validate filename to prevent path traversal
         # Allow both auto_backup and manual backup filenames (aft_backup)
+        logger.info(f"Step 1: Validating filename format")
         if not re.match(r'^(auto_backup_|aft_backup_)\d{8}_\d{6}\.sql$', filename):
+            logger.error(f"Invalid filename format: {filename}")
             return jsonify({"success": False, "message": "Invalid backup filename"}), 400
         
+        logger.info(f"Step 2: Checking backup file exists and is not a symlink")
         backup_dir = Path("/app/backups")
         backup_path = backup_dir / filename
         
@@ -1559,8 +2407,10 @@ def restore_backup_from_file(filename):
             return jsonify({"success": False, "message": "Invalid backup file path"}), 400
         
         if not resolved_backup_path.exists():
+            logger.error(f"Backup file not found: {resolved_backup_path}")
             return jsonify({"success": False, "message": "Backup file not found"}), 404
         
+        logger.info(f"Step 3: Validating file size and security")
         # File size validation
         is_valid_size, size_error = validate_backup_file_size(resolved_backup_path, max_size_mb=MAX_BACKUP_FILE_SIZE_MB)
         if not is_valid_size:
@@ -1588,6 +2438,7 @@ def restore_backup_from_file(filename):
                 "message": f"Schema validation failed: {schema_error}"
             }), 400
 
+        logger.info(f"Step 4: Reading backup file to extract version information")
         # Read and validate the backup file
         with open(resolved_backup_path, 'r') as f:
             content = f.read(10000)  # Read first 10KB to find version
@@ -1601,13 +2452,16 @@ def restore_backup_from_file(filename):
             }), 400
             
         backup_version = version_match.group(1)
+        logger.info(f"Backup version: {backup_version}")
         
         # Get current Alembic version
+        logger.info(f"Step 5: Checking current database version")
         db = SessionLocal()
         result = db.execute(text("SELECT version_num FROM alembic_version"))
         row = result.fetchone()
         current_version = row[0] if row else "unknown"
         db.close()
+        logger.info(f"Current version: {current_version}")
         
         # Check version compatibility
         # Note: Alembic versions are revision IDs, not semantic versions
@@ -1624,24 +2478,130 @@ def restore_backup_from_file(filename):
         db_name = os.environ.get("MYSQL_DATABASE")
         db_host = "db"
         
-        # Drop all existing tables
-        db = SessionLocal()
-        from sqlalchemy import MetaData
+        logger.info(f"Step 6: Dropping all existing tables")
         
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
+        # Close any existing database sessions in this request context to avoid connection issues
+        logger.info(f"Step 6.0: Closing request database sessions before killing connections")
+        from flask import g
+        request_db = g.pop('db', None)
+        if request_db:
+            try:
+                request_db.close()
+                logger.info(f"Closed request database session")
+            except Exception as e:
+                logger.warning(f"Error closing request database session: {e}")
         
-        # Drop alembic_version table
+        # Dispose of SQLAlchemy engine connection pool so it creates fresh connections
         try:
-            db.execute(text("DROP TABLE IF EXISTS alembic_version"))
-            db.commit()
+            engine.dispose()
+            logger.info(f"Disposed SQLAlchemy engine connection pool")
         except Exception as e:
-            db.rollback()
-            logger.warning(f"Could not drop alembic_version table: {e}")
-        finally:
-            db.close()
+            logger.warning(f"Error disposing engine pool: {e}")
         
+        # Kill all other database connections first to release locks
+        logger.info(f"Step 6.0.1: Killing all other database connections to release locks")
+        get_pids_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            "-N",
+            "-e",
+            f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+        ]
+        
+        try:
+            result = subprocess.run(get_pids_cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                pids = [pid.strip() for pid in result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+                
+                for pid in pids:
+                    logger.info(f"Killing connection: {pid}")
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                        logger.info(f"Killed connection: {pid}")
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+                
+                logger.info(f"Step 6.0.2: Waiting 2 seconds for connections to terminate")
+                time.sleep(2)
+            else:
+                logger.info(f"No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections: {e}")
+        
+        # Use DROP DATABASE / CREATE DATABASE for a completely clean slate
+        logger.info(f"Step 6.1: Using DROP DATABASE / CREATE DATABASE for clean slate")
+        
+        # Get root credentials for database operations
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
+        
+        # Drop and recreate the database - this is the most reliable way to clear everything
+        logger.info(f"Step 6.1.1: Dropping database {db_name}")
+        drop_db_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"DROP DATABASE IF EXISTS `{db_name}`;"
+        ]
+        
+        try:
+            result = subprocess.run(drop_db_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"Failed to drop database: {result.stderr}")
+                raise Exception(f"Failed to drop database: {result.stderr}")
+            logger.info(f"Database {db_name} dropped successfully")
+        except subprocess.TimeoutExpired:
+            logger.error(f"Timeout while dropping database")
+            raise Exception("Timeout while dropping database")
+        
+        # Recreate the database
+        logger.info(f"Step 6.1.2: Creating fresh database {db_name}")
+        create_database_with_retry(db_host, db_root_password, db_name)
+        
+        # Grant permissions to the application user
+        logger.info(f"Step 6.1.3: Granting permissions to user {db_user}")
+        grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+        ]
+        
+        try:
+            result = subprocess.run(grant_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"Failed to grant permissions: {result.stderr}")
+                # Don't fail here, permissions might already exist
+            else:
+                logger.info(f"Permissions granted successfully")
+        except Exception as e:
+            logger.warning(f"Error granting permissions: {e}")
+        
+        logger.info(f"Step 6.2: Database completely reset and ready for restore")
+        
+        # Give a moment for database to be ready
+        logger.info(f"Step 6.3: Waiting 2 seconds for database to be ready")
+        time.sleep(2)
+        
+        logger.info(f"Step 7: Restoring data from backup file using mysql command")
         # Restore from backup file
         mysql_cmd = [
             "mysql",
@@ -1658,39 +2618,72 @@ def restore_backup_from_file(filename):
             )
         
         if result.returncode != 0:
+            logger.error(f"MySQL restore failed with return code {result.returncode}: {result.stderr}")
             raise Exception(f"MySQL restore failed: {result.stderr}")
+        
+        logger.info(f"MySQL restore completed successfully")
+        
+        # Clean up stale scheduler lock files after successful restore
+        # This forces the scheduler threads to create fresh lock files with current timestamps
+        logger.info(f"Step 7.5: Cleaning up scheduler lock files after restore")
+        import tempfile
+        temp_dir = Path(tempfile.gettempdir())
+        lock_files_to_clean = [
+            temp_dir / "aft_backup_scheduler.lock",
+            temp_dir / "aft_card_scheduler.lock",
+            temp_dir / "aft_housekeeping_scheduler.lock",
+        ]
+        
+        for lock_file in lock_files_to_clean:
+            try:
+                if lock_file.exists():
+                    lock_file.unlink()
+                    logger.info(f"Cleaned up scheduler lock file: {lock_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clean lock file {lock_file}: {e}")
         
         # Run migrations if needed
         if backup_version != current_version:
-            logger.info(f"Migrating database from {backup_version} to {current_version}")
+            logger.info(f"Step 8: Running Alembic migrations from {backup_version} to {current_version}")
+            # Use stdout=None, stderr=None to avoid subprocess deadlock from filled pipes
+            # Output will flow to parent process logs
             upgrade_result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 cwd="/app",
-                capture_output=True,
+                stdout=None,
+                stderr=None,
                 text=True,
             )
             
             if upgrade_result.returncode != 0:
-                raise Exception(f"Alembic upgrade failed: {upgrade_result.stderr}")
+                logger.error(f"Alembic upgrade failed with return code {upgrade_result.returncode}")
+                raise Exception(f"Alembic upgrade failed - check server logs for details")
             
-            logger.info("Database restored and upgraded successfully")
+            logger.info(f"Alembic migrations completed successfully")
+            
+            logger.info(f"=== Restore completed successfully: {filename} (with migration) ===")
             return jsonify({
                 "success": True,
                 "message": f"Database restored from {filename} and upgraded to version {current_version}"
             })
         else:
-            logger.info(f"Database restored successfully from {filename}")
+            logger.info(f"Step 8: No migration needed, versions match")
+            logger.info(f"=== Restore completed successfully: {filename} (no migration) ===")
             return jsonify({
                 "success": True,
                 "message": f"Database restored successfully from {filename}"
             })
             
     except Exception as e:
-        logger.error(f"Error restoring from automatic backup: {str(e)}")
+        import traceback
+        logger.error(f"=== Restore FAILED for {filename} ===")
+        logger.error(f"Error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({"success": False, "message": str(e)}), 500
 
 
 @app.route("/api/database/backups/delete/<filename>", methods=["DELETE"])
+@require_permission('admin.database')
 def delete_backup(filename):
     """Delete a specific backup file.
     ---
@@ -1742,6 +2735,7 @@ def delete_backup(filename):
 
 
 @app.route("/api/database/backups/delete-multiple", methods=["POST"])
+@require_permission('admin.database')
 def delete_multiple_backups():
     """Delete multiple backup files.
     ---
@@ -1849,6 +2843,7 @@ def delete_multiple_backups():
 
 
 @app.route("/api/database", methods=["DELETE"])
+@require_permission('admin.database')
 def delete_database():
     """Delete all data from the database.
     ---
@@ -1878,36 +2873,266 @@ def delete_database():
               type: string
     """
     try:
-        db = SessionLocal()
+        # Get database credentials
+        db_user = os.environ.get("MYSQL_USER")
+        db_password = os.environ.get("MYSQL_PASSWORD")
+        db_name = os.environ.get("MYSQL_DATABASE")
+        db_root_password = os.environ.get("MYSQL_ROOT_PASSWORD")
+        db_host = "db"
 
-        # Drop all tables including alembic_version
-        from sqlalchemy import MetaData
+        if not db_user or not db_password or not db_name:
+            raise Exception("Missing required database environment variables")
 
-        metadata = MetaData()
-        metadata.reflect(bind=engine)
-        metadata.drop_all(bind=engine)
-        db.close()
+        lock_path = "/tmp/aft_db_reset.lock"
+        lock_fd = None
+
+        def acquire_reset_lock(timeout_seconds=60):
+          start = time.time()
+          while True:
+            try:
+              return os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+              # Recover from stale lock files left by terminated processes.
+              try:
+                if time.time() - os.path.getmtime(lock_path) > 600:
+                  os.remove(lock_path)
+                  continue
+              except FileNotFoundError:
+                continue
+
+              if time.time() - start > timeout_seconds:
+                return None
+              time.sleep(0.2)
+
+        def wait_for_schema_ready(timeout_seconds=120):
+          """Wait for critical tables to appear when another reset is running."""
+          start = time.time()
+          while time.time() - start <= timeout_seconds:
+            check_cmd = [
+              "mysql",
+              f"-h{db_host}",
+              f"-u{db_user}",
+              f"-p{db_password}",
+              "--skip-ssl",
+              db_name,
+              "-N",
+              "-e",
+              "SHOW TABLES LIKE 'users'; SHOW TABLES LIKE 'settings';"
+            ]
+
+            check_result = subprocess.run(
+              check_cmd,
+              capture_output=True,
+              text=True,
+              timeout=10
+            )
+
+            if check_result.returncode == 0:
+              table_lines = {line.strip() for line in check_result.stdout.splitlines() if line.strip()}
+              if "users" in table_lines and "settings" in table_lines:
+                return
+
+            time.sleep(1)
+
+          raise Exception("Timed out waiting for in-progress database reset to complete")
+
+        def release_reset_lock(fd):
+          try:
+            if fd is not None:
+              os.close(fd)
+          finally:
+            try:
+              os.remove(lock_path)
+            except FileNotFoundError:
+              pass
+
+        def ensure_database_exists_with_root():
+          if not db_root_password:
+            return
+
+          create_if_missing_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          ]
+
+          create_result = subprocess.run(
+            create_if_missing_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+          )
+          if create_result.returncode != 0:
+            raise Exception(f"Failed to ensure database exists: {create_result.stderr}")
+
+          grant_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            "-uroot",
+            f"-p{db_root_password}",
+            "--skip-ssl",
+            "-e",
+            f"GRANT ALL PRIVILEGES ON `{db_name}`.* TO '{db_user}'@'%'; FLUSH PRIVILEGES;"
+          ]
+
+          grant_result = subprocess.run(
+            grant_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+          )
+          if grant_result.returncode != 0:
+            logger.warning(f"Failed to grant permissions during reset: {grant_result.stderr}")
+
+        def drop_all_tables_with_app_user():
+          """Drop all tables in the target schema using the app DB user."""
+          get_tables_cmd = [
+            "mysql",
+            f"-h{db_host}",
+            f"-u{db_user}",
+            f"-p{db_password}",
+            "--skip-ssl",
+            db_name,
+            "-N",
+            "-e",
+            "SHOW TABLES;"
+          ]
+
+          tables_result = subprocess.run(
+            get_tables_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+          )
+
+          if tables_result.returncode != 0:
+            raise Exception(f"Failed to list tables: {tables_result.stderr}")
+
+          tables = [t.strip() for t in tables_result.stdout.strip().split('\n') if t.strip()]
+          logger.info(f"Found {len(tables)} tables to delete")
+
+          if tables:
+            drop_statements = "SET FOREIGN_KEY_CHECKS = 0; "
+            for table in tables:
+              drop_statements += f"DROP TABLE IF EXISTS `{table}`; "
+            drop_statements += "SET FOREIGN_KEY_CHECKS = 1;"
+
+            drop_cmd = [
+              "mysql",
+              f"-h{db_host}",
+              f"-u{db_user}",
+              f"-p{db_password}",
+              "--skip-ssl",
+              db_name,
+              "-e",
+              drop_statements
+            ]
+
+            drop_result = subprocess.run(
+              drop_cmd,
+              capture_output=True,
+              text=True,
+              timeout=120
+            )
+
+            if drop_result.returncode != 0:
+              raise Exception(f"Failed to drop tables: {drop_result.stderr}")
+
+        lock_fd = acquire_reset_lock()
+        if lock_fd is None:
+          logger.info("Database reset already in progress; waiting for completion")
+          wait_for_schema_ready()
+          return jsonify({"success": True, "message": "Database reset completed by another request"})
+
+        os.write(lock_fd, str(os.getpid()).encode("utf-8"))
+
+        # Reset connection pools before destructive DB operations.
+        try:
+            engine.dispose()
+            logger.info("Disposed SQLAlchemy engine connection pool")
+        except Exception as e:
+            logger.warning(f"Error disposing engine pool: {e}")
+
+        # Kill active database connections to prevent metadata lock timeouts.
+        try:
+            get_pids_cmd = [
+                "mysql",
+                f"-h{db_host}",
+                f"-u{db_user}",
+                f"-p{db_password}",
+                "--skip-ssl",
+                "-N",
+                "-e",
+                f"SELECT id FROM INFORMATION_SCHEMA.PROCESSLIST WHERE db = '{db_name}' AND id != CONNECTION_ID();"
+            ]
+
+            pids_result = subprocess.run(
+                get_pids_cmd,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
+            if pids_result.returncode == 0 and pids_result.stdout.strip():
+                pids = [pid.strip() for pid in pids_result.stdout.strip().split('\n') if pid.strip()]
+                logger.info(f"Found {len(pids)} active connections to kill: {pids}")
+
+                for pid in pids:
+                    kill_cmd = [
+                        "mysql",
+                        f"-h{db_host}",
+                        f"-u{db_user}",
+                        f"-p{db_password}",
+                        "--skip-ssl",
+                        "-e",
+                        f"KILL {pid};"
+                    ]
+                    try:
+                        subprocess.run(kill_cmd, capture_output=True, text=True, timeout=5)
+                    except Exception as e:
+                        logger.warning(f"Could not kill connection {pid}: {e}")
+
+                time.sleep(1)
+            else:
+                logger.info("No active connections to kill")
+        except Exception as e:
+            logger.warning(f"Error killing connections before reset: {e}")
+
+        # Keep schema in place and reset at table-level to avoid drop/create races.
+        ensure_database_exists_with_root()
+        drop_all_tables_with_app_user()
 
         # Run Alembic migrations to recreate database with proper version tracking
-        import subprocess
-
         result = subprocess.run(
-            ["alembic", "upgrade", "head"], cwd="/app", capture_output=True, text=True
+            ["alembic", "upgrade", "head"],
+            cwd="/app",
+            capture_output=True,
+            text=True,
+          timeout=300
         )
 
         if result.returncode != 0:
             raise Exception(f"Alembic migration failed: {result.stderr}")
 
-        logger.info(
-            "Database deleted and recreated successfully via Alembic migrations"
-        )
+        logger.info("Database deleted and recreated successfully via Alembic migrations")
         return jsonify({"success": True, "message": "Database deleted successfully"})
+    except subprocess.TimeoutExpired:
+        logger.error(f"Timeout while deleting database")
+        return jsonify({"success": False, "message": "Timeout while deleting database"}), 500
     except Exception as e:
         logger.error(f"Error deleting database: {str(e)}")
         return jsonify({"success": False, "message": str(e)}), 500
+    finally:
+        if lock_fd is not None:
+            release_reset_lock(lock_fd)
 
 
 @app.route("/api/settings/schema", methods=["GET"])
+@require_permission('setting.view')
 def get_settings_schema():
     """Get the settings schema showing all allowed settings and their validation rules.
     ---
@@ -1953,8 +3178,9 @@ def get_settings_schema():
 
 
 @app.route("/api/settings/<key>", methods=["GET"])
+@require_permission('setting.view')
 def get_setting(key):
-    """Get a setting value by key with validation.
+    """Get a setting value by key (user-specific or global) with validation.
     ---
     tags:
       - Settings
@@ -1979,6 +3205,10 @@ def get_setting(key):
             value:
               description: JSON parsed value
               example: null
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Setting not found
         schema:
@@ -2002,7 +3232,9 @@ def get_setting(key):
     """
     db = SessionLocal()
     try:
-        setting = db.query(Setting).filter(Setting.key == key).first()
+        user_id = g.user.id
+        # Use user-scoped query which gets user's settings + global settings (where user_id IS NULL)
+        setting = get_user_scoped_query(db, Setting, user_id).filter(Setting.key == key).first()
 
         if not setting:
             return (
@@ -2037,8 +3269,9 @@ def get_setting(key):
 
 
 @app.route("/api/settings/<key>", methods=["PUT"])
+@require_permission('setting.edit')
 def set_setting(key):
-    """Create or update a setting (upsert).
+    """Create or update a user-specific setting (upsert).
     ---
     tags:
       - Settings
@@ -2085,6 +3318,10 @@ def set_setting(key):
               example: false
             message:
               type: string
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
         schema:
@@ -2111,19 +3348,21 @@ def set_setting(key):
         if not is_valid:
             return jsonify({"success": False, "message": error_message}), 400
 
-        # Additional validation for default_board: verify board exists
+        user_id = g.user.id
+        
+        # Additional validation for default_board: verify board exists and user owns it
         if key == "default_board" and data["value"] is not None:
             db_check = SessionLocal()
             try:
                 board_exists = (
-                    db_check.query(Board).filter(Board.id == data["value"]).first()
+                    get_user_scoped_query(db_check, Board, user_id).filter(Board.id == data["value"]).first()
                 )
                 if not board_exists:
                     return (
                         jsonify(
                             {
                                 "success": False,
-                                "message": f"Board with ID {data['value']} does not exist",
+                                "message": f"Board with ID {data['value']} does not exist or you don't have access",
                             }
                         ),
                         400,
@@ -2136,15 +3375,16 @@ def set_setting(key):
 
         db = SessionLocal()
         try:
-            setting = db.query(Setting).filter(Setting.key == key).first()
+            # Query user-specific setting
+            setting = db.query(Setting).filter(Setting.key == key, Setting.user_id == user_id).first()
 
             if setting:
-                # Update existing
+                # Update existing user setting
                 setting.value = value
                 message = "Setting updated successfully"
             else:
-                # Create new
-                setting = Setting(key=key, value=value)
+                # Create new user-specific setting
+                setting = Setting(key=key, value=value, user_id=user_id)
                 db.add(setting)
                 message = "Setting created successfully"
 
@@ -2171,6 +3411,7 @@ def set_setting(key):
 
 
 @app.route("/api/settings/backup/config", methods=["GET"])
+@require_permission('setting.view')
 def get_backup_config():
     """Get all backup configuration settings.
     ---
@@ -2216,8 +3457,9 @@ def get_backup_config():
         ]
         
         config = {}
+        # Backup settings are global (user_id = NULL)
         for key in keys:
-            setting = db.query(Setting).filter(Setting.key == key).first()
+            setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
             if setting:
                 # Try to parse JSON, otherwise use raw value
                 try:
@@ -2237,6 +3479,7 @@ def get_backup_config():
 
 
 @app.route("/api/settings/backup/config", methods=["PUT"])
+@require_permission('setting.edit')
 def update_backup_config():
     """Update backup configuration settings.
     ---
@@ -2327,7 +3570,8 @@ def update_backup_config():
             freq_value = data.get("frequency_value")
             # If frequency_value not in request, check the existing database value
             if freq_value is None:
-                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value").first()
+                # Backup settings are global (user_id = NULL)
+                setting = db.query(Setting).filter(Setting.key == "backup_frequency_value", Setting.user_id.is_(None)).first()
                 if setting:
                     try:
                         freq_value = json.loads(setting.value)
@@ -2347,7 +3591,8 @@ def update_backup_config():
             current_settings = {}
             for field, key in mapping.items():
                 if field not in data:
-                    setting = db.query(Setting).filter(Setting.key == key).first()
+                    # Backup settings are global (user_id = NULL)
+                    setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
                     if setting:
                         try:
                             current_settings[field] = json.loads(setting.value)
@@ -2381,16 +3626,17 @@ def update_backup_config():
                     "message": "Cannot enable backups with invalid settings: " + "; ".join(required_errors)
                 }), 400
         
-        # Update settings
+        # Update global backup settings (user_id = NULL)
         for field, key in mapping.items():
             if field in data:
                 value = json.dumps(data[field])
-                setting = db.query(Setting).filter(Setting.key == key).first()
+                setting = db.query(Setting).filter(Setting.key == key, Setting.user_id.is_(None)).first()
                 
                 if setting:
                     setting.value = value
                 else:
-                    setting = Setting(key=key, value=value)
+                    # Create as global setting (user_id = NULL)
+                    setting = Setting(key=key, value=value, user_id=None)
                     db.add(setting)
         
         db.commit()
@@ -2405,6 +3651,7 @@ def update_backup_config():
 
 
 @app.route("/api/settings/backup/status", methods=["GET"])
+@require_permission('setting.view')
 def get_backup_status():
     """Get backup scheduler status.
     ---
@@ -2437,6 +3684,7 @@ def get_backup_status():
 
 
 @app.route("/api/settings/housekeeping/status", methods=["GET"])
+@require_permission('setting.view')
 def get_housekeeping_status():
     """Get housekeeping scheduler status.
     ---
@@ -2465,6 +3713,7 @@ def get_housekeeping_status():
 
 
 @app.route("/api/settings/housekeeping/config", methods=["PUT"])
+@require_permission('setting.edit')
 def update_housekeeping_config():
     """Update housekeeping scheduler configuration.
     ---
@@ -2497,14 +3746,15 @@ def update_housekeeping_config():
         if not isinstance(enabled, bool):
             return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
         
-        # Update setting
-        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled").first()
+        # Update global housekeeping setting (user_id = NULL)
+        setting = db.query(Setting).filter(Setting.key == "housekeeping_enabled", Setting.user_id.is_(None)).first()
         value = json.dumps(enabled)
         
         if setting:
             setting.value = value
         else:
-            setting = Setting(key="housekeeping_enabled", value=value)
+            # Create as global setting (user_id = NULL)
+            setting = Setting(key="housekeeping_enabled", value=value, user_id=None)
             db.add(setting)
         
         db.commit()
@@ -2519,6 +3769,7 @@ def update_housekeeping_config():
 
 
 @app.route("/api/settings/card-scheduler/status", methods=["GET"])
+@require_permission('setting.view')
 def get_card_scheduler_status():
     """Get card scheduler status.
     ---
@@ -2540,10 +3791,10 @@ def get_card_scheduler_status():
         from card_scheduler import get_scheduler as get_card_scheduler
         scheduler = get_card_scheduler()
         
-        # Get enabled setting
+        # Get global card scheduler enabled setting (user_id = NULL)
         db = SessionLocal()
         try:
-            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+            setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled", Setting.user_id.is_(None)).first()
             if setting is not None and setting.value is not None:
                 enabled = json.loads(str(setting.value))
             else:
@@ -2563,6 +3814,7 @@ def get_card_scheduler_status():
 
 
 @app.route("/api/settings/card-scheduler/config", methods=["PUT"])
+@require_permission('setting.edit')
 def update_card_scheduler_config():
     """Update card scheduler configuration.
     ---
@@ -2595,14 +3847,15 @@ def update_card_scheduler_config():
         if not isinstance(enabled, bool):
             return jsonify({"success": False, "message": "enabled must be a boolean"}), 400
         
-        # Update setting
-        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled").first()
+        # Update global card scheduler setting (user_id = NULL)
+        setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled", Setting.user_id.is_(None)).first()
         value = json.dumps(enabled)
         
         if setting:
             setting.value = value
         else:
-            setting = Setting(key="card_scheduler_enabled", value=value)
+            # Create as global setting (user_id = NULL)
+            setting = Setting(key="card_scheduler_enabled", value=value, user_id=None)
             db.add(setting)
         
         db.commit()
@@ -2617,14 +3870,18 @@ def update_card_scheduler_config():
 
 
 @app.route("/api/boards", methods=["GET"])
+@require_authentication
 def get_boards():
-    """Get all boards.
+    """Get all boards accessible by the current user (owned or shared via roles).
+    
+    Accessible by users with board.view OR board.create permission.
+    Users with board.create can see empty boards list and create new boards.
     ---
     tags:
       - Boards
     responses:
       200:
-        description: List of all boards
+        description: List of all boards accessible by the user
         schema:
           type: object
           properties:
@@ -2642,6 +3899,10 @@ def get_boards():
                   name:
                     type: string
                     example: "My Board"
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
         schema:
@@ -2655,20 +3916,69 @@ def get_boards():
     """
     db = SessionLocal()
     try:
-        boards = db.query(Board).all()
+        user_id = g.user.id
+        
+        # Check if user is a system administrator - they can see ALL boards
+        from utils import get_user_permissions
+        from permissions import has_permission
+        user_perms = get_user_permissions(user_id)
+
+        # Allow board list access when user has global board permissions OR
+        # any board-specific assignment (e.g., board_viewer/board_editor).
+        can_view_boards = has_permission(user_perms, 'board.view')
+        can_create_boards = has_permission(user_perms, 'board.create')
+        has_global_board_perm = can_view_boards or can_create_boards
+        has_board_assignment = db.query(UserRole.id).filter(
+          UserRole.user_id == user_id,
+          UserRole.board_id.isnot(None)
+        ).first() is not None
+
+        if not has_global_board_perm and not has_board_assignment:
+            return jsonify(
+                {
+                    "success": False,
+                    "error": "boards_access_denied",
+                    "message": "You do not have access to any existing boards and you do not have permission to create a new board. Ask an administrator to grant board.view access or the board_creator role.",
+                    "details": {
+                        "can_create_board": False,
+                        "has_board_access": False,
+                    },
+                }
+            ), 403
+        
+        if has_permission(user_perms, 'system.admin'):
+            # Admins see all boards in the system
+            boards = db.query(Board).order_by(Board.name).all()
+        else:
+            # Regular users: Get boards owned by user OR where user has a role assignment
+            owned_boards = db.query(Board).filter(Board.owner_id == user_id)
+            role_boards = db.query(Board).join(UserRole).filter(UserRole.user_id == user_id)
+            
+            # Combine both queries and remove duplicates
+            boards = owned_boards.union(role_boards).all()
+        
+        # Build board list with per-board permissions
+        boards_data = []
+        for b in boards:
+            # Get board-specific permissions for this user
+            board_permissions = get_user_permissions(user_id, board_id=b.id)
+            can_delete = 'board.delete' in board_permissions
+            can_edit = 'board.edit' in board_permissions
+            
+            boards_data.append({
+                "id": b.id, 
+                "name": b.name, 
+                "description": b.description,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+                "can_delete": can_delete,
+                "can_edit": can_edit
+            })
+        
         return jsonify(
             {
                 "success": True,
-                "boards": [
-                    {
-                        "id": b.id, 
-                        "name": b.name, 
-                        "description": b.description,
-                        "created_at": b.created_at.isoformat() if b.created_at else None,
-                        "updated_at": b.updated_at.isoformat() if b.updated_at else None
-                    }
-                    for b in boards
-                ],
+                "boards": boards_data,
             }
         )
     except Exception as e:
@@ -2678,6 +3988,7 @@ def get_boards():
 
 
 @app.route("/api/boards", methods=["POST"])
+@require_permission('board.create')
 def create_board():
     """Create a new board with input validation.
 
@@ -2783,7 +4094,8 @@ def create_board():
         # Create board
         from datetime import datetime
         now = datetime.utcnow()
-        board = Board(name=name, description=description, updated_at=now)
+        user_id = get_current_user_id()
+        board = Board(name=name, description=description, owner_id=user_id, updated_at=now)
         db.add(board)
         db.commit()
         db.refresh(board)
@@ -2806,8 +4118,9 @@ def create_board():
 
 
 @app.route("/api/boards/<int:board_id>/cards/scheduled", methods=["GET"])
+@require_board_access()
 def get_board_scheduled_cards(board_id):
-    """Get all scheduled cards for a board with nested structure (board -> columns -> cards).
+    """Get all scheduled cards for a board with nested structure (user must have access).
     Returns only scheduled template cards (scheduled=True) organized by column.
     ---
     tags:
@@ -2821,6 +4134,10 @@ def get_board_scheduled_cards(board_id):
     responses:
       200:
         description: Board with columns and scheduled cards
+      401:
+        description: Authentication required
+      403:
+        description: Access denied to this board
       404:
         description: Board not found
       500:
@@ -2830,6 +4147,7 @@ def get_board_scheduled_cards(board_id):
     try:
         from models import BoardColumn, Card
         
+        # Access already validated by @require_board_access decorator
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
@@ -2904,6 +4222,12 @@ def get_board_scheduled_cards(board_id):
             }
             result["columns"].append(column_data)
 
+        # Check if user has edit permissions for this board
+        user_permissions = get_user_permissions(g.user.id, board_id)
+        edit_permissions = ['card.create', 'card.edit', 'card.update', 'card.delete', 'card.archive', 'board.edit']
+        can_edit = any(perm in user_permissions for perm in edit_permissions)
+        result["can_edit"] = can_edit
+
         return jsonify({"success": True, "board": result})
         
     except Exception as e:
@@ -2914,6 +4238,8 @@ def get_board_scheduled_cards(board_id):
 
 
 @app.route("/api/boards/<int:board_id>", methods=["DELETE"])
+@require_board_access()
+@require_permission('board.delete')
 def delete_board(board_id):
     """Delete a board by ID.
     ---
@@ -2961,14 +4287,17 @@ def delete_board(board_id):
     """
     db = SessionLocal()
     try:
+        # Access already validated by @require_board_access decorator
         board = db.query(Board).filter(Board.id == board_id).first()
 
         if not board:
             return jsonify({"success": False, "message": "Board not found"}), 404
 
-        # Check if this board is set as default_board
+        # Check if this board is set as default_board for the current user
+        user_id = g.user.id
+        from utils import get_user_scoped_query
         default_board_setting = (
-            db.query(Setting).filter(Setting.key == "default_board").first()
+            get_user_scoped_query(db, Setting, user_id).filter(Setting.key == "default_board").first()
         )
         if default_board_setting:
             try:
@@ -2977,7 +4306,7 @@ def delete_board(board_id):
                     # Reset to null since we're deleting the default board
                     default_board_setting.value = "null"
                     logger.info(
-                        f"Reset default_board setting because board {board_id} was deleted"
+                        f"Reset default_board setting for user {user_id} because board {board_id} was deleted"
                     )
             except (json.JSONDecodeError, ValueError):
                 # Ignore if setting value is malformed - we're deleting the board anyway
@@ -2995,6 +4324,8 @@ def delete_board(board_id):
 
 
 @app.route("/api/boards/<int:board_id>", methods=["PATCH"])
+@require_board_access()
+@require_permission('board.edit')
 def update_board(board_id):
     """Update a board's name and/or description with validation.
 
@@ -3096,6 +4427,7 @@ def update_board(board_id):
                 "At least one field (name or description) is required", 400
             )
 
+        # Access already validated by @require_board_access decorator
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
             return create_error_response("Board not found", 404)
@@ -3159,8 +4491,9 @@ def update_board(board_id):
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["GET"])
+@require_board_access()
 def get_board_columns(board_id):
-    """Get all columns for a specific board.
+    """Get all columns for a specific board (user must have access).
     ---
     tags:
       - Columns
@@ -3196,6 +4529,10 @@ def get_board_columns(board_id):
                   order:
                     type: integer
                     example: 0
+      401:
+        description: Authentication required
+      403:
+        description: Access denied to this board
       500:
         description: Server error
         schema:
@@ -3211,6 +4548,7 @@ def get_board_columns(board_id):
     try:
         from models import BoardColumn
 
+        # Access already validated by @require_board_access decorator
         columns = (
             db.query(BoardColumn)
             .filter(BoardColumn.board_id == board_id)
@@ -3240,6 +4578,8 @@ def get_board_columns(board_id):
 
 
 @app.route("/api/boards/<int:board_id>/columns", methods=["POST"])
+@require_board_access()
+@require_permission('column.create')
 def create_column(board_id):
     """Create a new column for a board with input validation.
 
@@ -3400,6 +4740,7 @@ def create_column(board_id):
 
 
 @app.route("/api/columns/<int:column_id>", methods=["DELETE"])
+@require_permission('column.delete')
 def delete_column(column_id):
     """Delete a column by ID.
     ---
@@ -3449,10 +4790,16 @@ def delete_column(column_id):
     try:
         from models import BoardColumn
 
+        user_id = get_current_user_id()
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
 
         if not column:
             return jsonify({"success": False, "message": "Column not found"}), 404
+
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied"}), 403
 
         db.delete(column)
         db.commit()
@@ -3466,6 +4813,7 @@ def delete_column(column_id):
 
 
 @app.route("/api/columns/<int:column_id>", methods=["PATCH"])
+@require_permission('column.update')
 def update_column(column_id):
     """Update a column's name and/or order.
     ---
@@ -3560,10 +4908,16 @@ def update_column(column_id):
 
         from models import BoardColumn
 
+        user_id = get_current_user_id()
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
 
         if not column:
             return create_error_response("Column not found", 404)
+
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return create_error_response("Access denied", 403)
 
         old_order = column.order
         board_id = column.board_id
@@ -3658,6 +5012,7 @@ def update_column(column_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["GET"])
+@require_permission('card.view')
 def get_column_cards(column_id):
     """Get all cards for a specific column.
     ---
@@ -3720,11 +5075,12 @@ def get_column_cards(column_id):
         db = SessionLocal()
         from models import Card
 
+        user_id = g.user.id
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
         # Always filter out scheduled template cards (scheduled=True) from task views
-        cards_query = db.query(Card).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
+        cards_query = get_user_scoped_query(db, Card, user_id).filter(Card.column_id == column_id).filter(Card.scheduled.is_(False))
         
         # Apply archived filter
         if archived_param == 'true':
@@ -3777,6 +5133,7 @@ def get_column_cards(column_id):
 
 
 @app.route("/api/boards/<int:board_id>/cards", methods=["GET"])
+@require_board_access()
 def get_board_cards(board_id):
     """Get all cards for a board with nested structure (board -> columns -> cards).
     ---
@@ -3870,6 +5227,7 @@ def get_board_cards(board_id):
         db = SessionLocal()
         from models import BoardColumn, Card
 
+        # Access already validated by @require_board_access decorator
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
@@ -3953,6 +5311,12 @@ def get_board_cards(board_id):
             }
             result["columns"].append(column_data)
 
+        # Check if user has edit permissions for this board
+        user_permissions = get_user_permissions(g.user.id, board_id)
+        edit_permissions = ['card.create', 'card.edit', 'card.update', 'card.delete', 'card.archive', 'board.edit']
+        can_edit = any(perm in user_permissions for perm in edit_permissions)
+        result["can_edit"] = can_edit
+
         db.close()
         return jsonify({"success": True, "board": result})
     except Exception as e:
@@ -3960,6 +5324,7 @@ def get_board_cards(board_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
+@require_permission('card.create')
 def create_card(column_id):
     """Create a new card in a column with input validation.
 
@@ -4075,10 +5440,12 @@ def create_card(column_id):
 
         from models import BoardColumn, Card
 
-        # Verify column exists
-        column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
+        user_id = g.user.id
+        
+        # Verify column exists and user has access to its board
+        column = get_user_scoped_query(db, BoardColumn, user_id).filter(BoardColumn.id == column_id).first()
         if not column:
-            return create_error_response("Column not found", 404)
+            return create_error_response("Column not found or access denied", 404)
 
         # Validate and sanitize title
         title = data.get("title")
@@ -4189,6 +5556,7 @@ def create_card(column_id):
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["DELETE"])
+@require_permission('card.delete')
 def delete_all_cards_in_column(column_id):
     """Delete all cards in a column.
     ---
@@ -4241,10 +5609,17 @@ def delete_all_cards_in_column(column_id):
     try:
         from models import BoardColumn, Card
 
+        user_id = get_current_user_id()
+        
         # Verify column exists
         column = db.query(BoardColumn).filter(BoardColumn.id == column_id).first()
         if not column:
             return jsonify({"success": False, "message": "Column not found"}), 404
+        
+        # Verify user owns the board this column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied"}), 403
 
         # Delete all cards in the column
         deleted_count = (
@@ -4273,6 +5648,7 @@ def delete_all_cards_in_column(column_id):
 
 
 @app.route("/api/columns/<int:source_column_id>/cards/move", methods=["POST"])
+@require_permission('card.edit')
 def move_all_cards_in_column(source_column_id):
     """Move all cards from one column to another in a single transaction.
     ---
@@ -4359,6 +5735,8 @@ def move_all_cards_in_column(source_column_id):
     try:
         from models import BoardColumn, Card
 
+        user_id = get_current_user_id()
+        
         data = request.get_json()
         target_column_id = data.get("target_column_id")
         position = data.get("position", "bottom")
@@ -4375,11 +5753,21 @@ def move_all_cards_in_column(source_column_id):
         source_column = db.query(BoardColumn).filter(BoardColumn.id == source_column_id).first()
         if not source_column:
             return jsonify({"success": False, "message": "Source column not found"}), 404
+        
+        # Verify user owns the board this source column belongs to
+        board = get_user_scoped_query(db, Board, user_id).filter(Board.id == source_column.board_id).first()
+        if not board:
+            return jsonify({"success": False, "message": "Access denied to source board"}), 403
 
         # Verify target column exists
         target_column = db.query(BoardColumn).filter(BoardColumn.id == target_column_id).first()
         if not target_column:
             return jsonify({"success": False, "message": "Target column not found"}), 404
+        
+        # Verify user owns the board this target column belongs to
+        target_board = get_user_scoped_query(db, Board, user_id).filter(Board.id == target_column.board_id).first()
+        if not target_board:
+            return jsonify({"success": False, "message": "Access denied to target board"}), 403
 
         # Get cards from source column, optionally filtering out archived cards
         source_query = db.query(Card).filter(Card.column_id == source_column_id)
@@ -4447,8 +5835,9 @@ def move_all_cards_in_column(source_column_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["GET"])
+@require_permission('card.view')
 def get_card(card_id):
-    """Get a single card with its checklist items.
+    """Get a single card with its checklist items (user must have access).
     ---
     tags:
       - Cards
@@ -4484,6 +5873,10 @@ def get_card(card_id):
                   type: array
                   items:
                     type: object
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Card not found
     """
@@ -4491,7 +5884,8 @@ def get_card(card_id):
     try:
         from models import Card
         
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
         
@@ -4540,6 +5934,7 @@ def get_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["PATCH"])
+@require_permission('card.update')
 def update_card(card_id):
     """Update a card's title, description, column, and/or order.
     ---
@@ -4635,10 +6030,13 @@ def update_card(card_id):
 
         from models import Card, BoardColumn
 
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return create_error_response("Card not found", 404)
+            return create_error_response("Card not found or access denied", 404)
 
         old_column_id = card.column_id
         old_order = card.order
@@ -4802,6 +6200,7 @@ def update_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>", methods=["DELETE"])
+@require_permission('card.delete')
 def delete_card(card_id):
     """Delete a card by ID.
     ---
@@ -4851,11 +6250,14 @@ def delete_card(card_id):
         db = SessionLocal()
         from models import Card, BoardColumn
 
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
             db.close()
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         # Get board_id for WebSocket broadcast before deleting
         column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
@@ -4884,6 +6286,7 @@ def delete_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
+@require_permission('card.archive')
 def archive_card(card_id):
     """Archive a card by ID.
     ---
@@ -4914,10 +6317,13 @@ def archive_card(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         board_id = card.column.board_id if card.column else None
         card.archived = True
@@ -4960,6 +6366,7 @@ def archive_card(card_id):
         db.close()
 
 @app.route("/api/cards/<int:card_id>/unarchive", methods=["PATCH"])
+@require_permission('card.archive')
 def unarchive_card(card_id):
     """Unarchive a card by ID.
     ---
@@ -4990,10 +6397,13 @@ def unarchive_card(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
 
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
 
         # Get the card's current order and column
         card_order = card.order
@@ -5051,8 +6461,9 @@ def unarchive_card(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/done", methods=["GET"])
+@require_permission('card.view')
 def get_card_done_status(card_id):
-    """Get the done status of a card.
+    """Get the done status of a card (user must have access).
     ---
     tags:
       - Cards
@@ -5077,6 +6488,10 @@ def get_card_done_status(card_id):
             done:
               type: boolean
               example: false
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       404:
         description: Card not found
       500:
@@ -5084,7 +6499,8 @@ def get_card_done_status(card_id):
     """
     db = SessionLocal()
     try:
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         
         if not card:
             return jsonify({"success": False, "message": "Card not found"}), 404
@@ -5102,6 +6518,7 @@ def get_card_done_status(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/done", methods=["PATCH"])
+@require_permission('card.update')
 def update_card_done_status(card_id):
     """Update the done status of a card.
     ---
@@ -5161,10 +6578,13 @@ def update_card_done_status(card_id):
         if not isinstance(done_status, bool):
             return jsonify({"success": False, "message": "done must be a boolean"}), 400
         
-        card = db.query(Card).filter(Card.id == card_id).first()
+        user_id = g.user.id
+        
+        # Verify card exists and user has access to its board
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         
         if not card:
-            return jsonify({"success": False, "message": "Card not found"}), 404
+            return jsonify({"success": False, "message": "Card not found or access denied"}), 404
         
         board_id = card.column.board_id if card.column else None
         card.done = done_status
@@ -5211,7 +6631,27 @@ def update_card_done_status(card_id):
         db.close()
 
 
+def _get_fully_authorized_batch_cards(db, user_id, card_ids, *, order_by=None):
+    from models import Card
+
+    unique_card_ids = list(dict.fromkeys(card_ids))
+    query = get_user_scoped_query(db, Card, user_id).filter(Card.id.in_(unique_card_ids))
+
+    if order_by is not None:
+        query = query.order_by(*order_by)
+
+    cards = query.all()
+    authorized_ids = {card.id for card in cards}
+    requested_ids = set(unique_card_ids)
+
+    if authorized_ids != requested_ids:
+        return None, unique_card_ids
+
+    return cards, unique_card_ids
+
+
 @app.route("/api/cards/batch/archive", methods=["POST"])
+@require_permission('card.archive', require_board_context=False)
 def batch_archive_cards():
     """Archive multiple cards in a single transaction.
     ---
@@ -5273,7 +6713,7 @@ def batch_archive_cards():
     try:
         from models import Card
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         card_ids = data.get("card_ids", [])
 
         if not card_ids:
@@ -5282,10 +6722,19 @@ def batch_archive_cards():
         if not isinstance(card_ids, list):
             return jsonify({"success": False, "message": "card_ids must be an array"}), 400
 
-        # Archive all cards with the given IDs
+        user_id = g.user.id
+        scoped_cards, scoped_card_ids = _get_fully_authorized_batch_cards(db, user_id, card_ids)
+
+        if scoped_cards is None:
+            return jsonify({
+                "success": False,
+                "message": "One or more selected cards were not found or are no longer accessible. No cards were archived."
+            }), 404
+
+        # Archive all authorized cards only after the full request passes validation.
         archived_count = (
-            db.query(Card)
-            .filter(Card.id.in_(card_ids))
+            get_user_scoped_query(db, Card, user_id)
+            .filter(Card.id.in_(scoped_card_ids))
             .update({Card.archived: True}, synchronize_session=False)
         )
         
@@ -5305,6 +6754,7 @@ def batch_archive_cards():
 
 
 @app.route("/api/cards/batch/unarchive", methods=["POST"])
+@require_permission('card.archive', require_board_context=False)
 def batch_unarchive_cards():
     """Unarchive multiple cards in a single transaction.
     ---
@@ -5366,7 +6816,7 @@ def batch_unarchive_cards():
     try:
         from models import Card
 
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         card_ids = data.get("card_ids", [])
 
         if not card_ids:
@@ -5375,20 +6825,22 @@ def batch_unarchive_cards():
         if not isinstance(card_ids, list):
             return jsonify({"success": False, "message": "card_ids must be an array"}), 400
 
-        # Get all cards to unarchive with their column and order information
-        cards_to_unarchive = (
-            db.query(Card)
-            .filter(Card.id.in_(card_ids))
-            .order_by(Card.column_id, Card.order)
-            .all()
+        user_id = g.user.id
+        cards_to_unarchive, _ = _get_fully_authorized_batch_cards(
+            db,
+            user_id,
+            card_ids,
+            order_by=(Card.column_id, Card.order)
         )
-        
-        if not cards_to_unarchive:
+
+        if cards_to_unarchive is None:
             return jsonify({
-                "success": True,
-                "message": "No cards found to unarchive",
-                "unarchived_count": 0
-            }), 200
+                "success": False,
+                "message": "One or more selected cards were not found or are no longer accessible. No cards were unarchived."
+            }), 404
+
+        if not cards_to_unarchive:
+            return jsonify({"success": True, "message": "No cards found to unarchive", "unarchived_count": 0}), 200
         
         # Group cards by column for efficient order management
         cards_by_column = {}
@@ -5438,6 +6890,7 @@ def batch_unarchive_cards():
 
 
 @app.route("/api/columns/<int:column_id>/archive-after", methods=["POST"])
+@require_permission('card.archive')
 def archive_cards_after_period(column_id):
     """Archive cards in a column that haven't been updated within a specified time period.
     ---
@@ -5613,8 +7066,9 @@ def archive_cards_after_period(column_id):
 
 # Scheduled Cards API endpoints
 @app.route("/api/columns/<int:column_id>/cards/scheduled", methods=["GET"])
+@require_permission('card.view')
 def get_scheduled_cards(column_id):
-    """Get all scheduled template cards for a specific column.
+    """Get all scheduled template cards for a specific column (user must have access).
     ---
     tags:
       - Scheduled Cards
@@ -5635,15 +7089,20 @@ def get_scheduled_cards(column_id):
               example: true
             cards:
               type: array
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
     """
     try:
         db = SessionLocal()
         
+        user_id = g.user.id
         # Get only scheduled template cards (scheduled=True)
         cards = (
-            db.query(Card)
+            get_user_scoped_query(db, Card, user_id)
             .filter(Card.column_id == column_id)
             .filter(Card.scheduled.is_(True))
             .order_by(Card.order)
@@ -5681,6 +7140,7 @@ def get_scheduled_cards(column_id):
 
 
 @app.route("/api/schedules", methods=["POST"])
+@require_permission('schedule.create')
 def create_schedule():
     """Create a new schedule for a card.
     ---
@@ -5892,6 +7352,7 @@ def create_schedule():
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["GET"])
+@require_permission('schedule.view')
 def get_schedule(schedule_id):
     """Get a schedule by ID with next run times.
     ---
@@ -5951,6 +7412,7 @@ def get_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["PUT"])
+@require_permission('schedule.edit')
 def update_schedule(schedule_id):
     """Update a schedule.
     ---
@@ -6069,6 +7531,7 @@ def update_schedule(schedule_id):
 
 
 @app.route("/api/schedules/<int:schedule_id>", methods=["DELETE"])
+@require_permission('schedule.delete')
 def delete_schedule(schedule_id):
     """Delete a schedule and update related cards.
     ---
@@ -6128,6 +7591,7 @@ def delete_schedule(schedule_id):
 
 # Checklist Items API endpoints
 @app.route("/api/cards/<int:card_id>/checklist-items", methods=["POST"])
+@require_permission('card.update')
 def create_checklist_item(card_id):
     """Create a new checklist item for a card.
     ---
@@ -6302,6 +7766,7 @@ def create_checklist_item(card_id):
 
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["PATCH"])
+@require_permission('card.update')
 def update_checklist_item(item_id):
     """Update a checklist item's name, checked status, and/or order.
     ---
@@ -6443,6 +7908,7 @@ def update_checklist_item(item_id):
 
 
 @app.route("/api/checklist-items/<int:item_id>", methods=["DELETE"])
+@require_permission('card.update')
 def delete_checklist_item(item_id):
     """Delete a checklist item by ID.
     ---
@@ -6495,8 +7961,9 @@ def delete_checklist_item(item_id):
 
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["GET"])
+@require_permission('card.view')
 def get_card_comments(card_id):
-    """Get all comments for a card.
+    """Get all comments for a card (user must have access).
     ---
     tags:
       - Comments
@@ -6531,6 +7998,10 @@ def get_card_comments(card_id):
                   created_at:
                     type: string
                     format: date-time
+      401:
+        description: Authentication required
+      403:
+        description: Permission denied
       500:
         description: Server error
     """
@@ -6538,8 +8009,9 @@ def get_card_comments(card_id):
     try:
         from models import Comment
 
+        user_id = g.user.id
         comments = (
-            db.query(Comment)
+            get_user_scoped_query(db, Comment, user_id)
             .filter(Comment.card_id == card_id)
             .order_by(Comment.order.desc())  # Newest first
             .all()
@@ -6568,6 +8040,7 @@ def get_card_comments(card_id):
 
 
 @app.route("/api/cards/<int:card_id>/comments", methods=["POST"])
+@require_permission('card.update')
 def create_comment(card_id):
     """Create a new comment for a card.
     ---
@@ -6678,6 +8151,7 @@ def create_comment(card_id):
 
 
 @app.route("/api/comments/<int:comment_id>", methods=["DELETE"])
+@require_permission('card.update')
 def delete_comment(comment_id):
     """Delete a comment by ID.
     
@@ -6738,14 +8212,15 @@ def delete_comment(comment_id):
 
 
 @app.route("/api/notifications", methods=["GET"])
+@require_authentication
 def get_notifications():
-    """Get all notifications.
+    """Get all notifications for the current user.
     ---
     tags:
       - Notifications
     responses:
       200:
-        description: List of all notifications (newest first)
+        description: List of all notifications for the user (newest first)
         schema:
           type: object
           properties:
@@ -6768,6 +8243,8 @@ def get_notifications():
                   created_at:
                     type: string
                     format: date-time
+      401:
+        description: Authentication required
       500:
         description: Server error
     """
@@ -6775,8 +8252,9 @@ def get_notifications():
     try:
         from models import Notification
 
+        user_id = g.user.id
         notifications = (
-            db.query(Notification)
+            get_user_scoped_query(db, Notification, user_id)
             .order_by(Notification.created_at.desc())  # Newest first
             .all()
         )
@@ -6811,6 +8289,7 @@ from notification_utils import create_notification as create_notification_intern
 
 
 @app.route("/api/notifications", methods=["POST"])
+@require_authentication
 def create_notification():
     """Create a new notification.
     ---
@@ -6924,7 +8403,8 @@ def create_notification():
             message=message,
             unread=True,
             action_title=action_title,
-            action_url=action_url
+            action_url=action_url,
+            user_id=get_current_user_id()  # Associate with authenticated user
         )
         
         db.add(notification)
@@ -6955,6 +8435,7 @@ def create_notification():
 
 
 @app.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
+@require_authentication
 def mark_notification_read(notification_id):
     """Mark a notification as read.
     ---
@@ -6987,7 +8468,10 @@ def mark_notification_read(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -7007,6 +8491,7 @@ def mark_notification_read(notification_id):
 
 
 @app.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
+@require_authentication
 def mark_notification_unread(notification_id):
     """Mark a notification as unread.
     ---
@@ -7039,7 +8524,10 @@ def mark_notification_unread(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -7059,6 +8547,7 @@ def mark_notification_unread(notification_id):
 
 
 @app.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
+@require_authentication
 def delete_notification(notification_id):
     """Delete a notification.
     ---
@@ -7091,7 +8580,10 @@ def delete_notification(notification_id):
     try:
         from models import Notification
 
-        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        notification = db.query(Notification).filter(
+            Notification.id == notification_id,
+            Notification.user_id == get_current_user_id()
+        ).first()
 
         if not notification:
             return create_error_response("Notification not found", 404)
@@ -7111,6 +8603,7 @@ def delete_notification(notification_id):
 
 
 @app.route("/api/notifications/mark-all-read", methods=["PUT"])
+@require_authentication
 def mark_all_notifications_read():
     """Mark all notifications as read.
     ---
@@ -7138,8 +8631,12 @@ def mark_all_notifications_read():
     try:
         from models import Notification
 
-        # Update all unread notifications
-        result = db.query(Notification).filter(Notification.unread.is_(True)).update({"unread": False})
+        # Update all unread notifications belonging to the current user
+        current_user_id = get_current_user_id()
+        result = db.query(Notification).filter(
+            Notification.unread.is_(True),
+            Notification.user_id == current_user_id
+        ).update({"unread": False})
         db.commit()
 
         logger.info(f"Marked {result} notifications as read")
@@ -7158,6 +8655,7 @@ def mark_all_notifications_read():
 
 
 @app.route("/api/notifications/delete-all", methods=["DELETE"])
+@require_authentication
 def delete_all_notifications():
     """Delete all notifications.
     ---
@@ -7185,8 +8683,11 @@ def delete_all_notifications():
     try:
         from models import Notification
 
-        # Delete all notifications
-        result = db.query(Notification).delete()
+        # Delete all notifications belonging to the current user
+        current_user_id = get_current_user_id()
+        result = db.query(Notification).filter(
+            Notification.user_id == current_user_id
+        ).delete()
         db.commit()
 
         logger.info(f"Deleted {result} notifications")
@@ -7205,11 +8706,35 @@ def delete_all_notifications():
 
 
 # Error handlers to ensure API endpoints return JSON
+@app.errorhandler(401)
+def unauthorized_error(error):
+    """Handle 401 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": str(error.description) if hasattr(error, 'description') else "Authentication required"
+        }), 401
+    return error
+
+
+@app.errorhandler(403)
+def forbidden_error(error):
+    """Handle 403 errors with JSON response for API endpoints."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            "success": False, 
+            "message": str(error.description) if hasattr(error, 'description') else "Access forbidden"
+        }), 403
+    return error
+
+
 @app.errorhandler(404)
 def not_found_error(error):
     """Handle 404 errors with JSON response for API endpoints."""
     if request.path.startswith('/api/'):
-        return jsonify({"success": False, "message": "Endpoint not found"}), 404
+        # Check if error has a custom description (e.g., "Column not found")
+        message = str(error.description) if hasattr(error, 'description') and error.description else "Endpoint not found"
+        return jsonify({"success": False, "message": message}), 404
     # For non-API routes, return default Flask 404
     return error
 
@@ -7365,17 +8890,25 @@ else:
 # Theme API Endpoints
 # ============================================================================
 
+
+def _get_user_accessible_theme(session, user_id, theme_id):
+    """Return a theme only if it is visible to the current user."""
+    return get_user_scoped_query(session, Theme, user_id).filter(Theme.id == theme_id).first()
+
 @app.route("/api/themes", methods=["GET"])
+@require_permission('theme.view')
 def get_themes():
-    """Retrieve all themes from the database.
+    """Retrieve all themes accessible to the user.
     
     Fetches and returns a list of all available themes, including both
-    system themes and user-created custom themes. Each theme includes
+    system themes (global) and user-created custom themes. Each theme includes
     its ID, name, settings, background image, and system theme flag.
     
     Returns:
         tuple: (JSON response, HTTP status code)
             - 200: Success with list of theme objects
+            - 401: Authentication required
+            - 403: Permission denied
             - 500: Server error during database query
     
     Example:
@@ -7384,7 +8917,9 @@ def get_themes():
     """
     session = SessionLocal()
     try:
-        themes = session.query(Theme).all()
+        user_id = g.user.id
+        # Use user-scoped query which gets user's themes + system themes (where user_id IS NULL)
+        themes = get_user_scoped_query(session, Theme, user_id).all()
         return jsonify([theme.to_dict() for theme in themes]), 200
     except Exception as e:
         logger.error(f"Error getting themes: {str(e)}")
@@ -7394,8 +8929,9 @@ def get_themes():
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["GET"])
+@require_permission('theme.view')
 def get_theme(theme_id):
-    """Retrieve a specific theme by its unique ID.
+    """Retrieve a specific theme by its unique ID (user must have access).
     
     Fetches detailed information about a single theme including its
     name, color settings, background image, and whether it's a system
@@ -7407,6 +8943,8 @@ def get_theme(theme_id):
     Returns:
         tuple: (JSON response, HTTP status code)
             - 200: Success with theme object
+            - 401: Authentication required
+            - 403: Permission denied
             - 404: Theme with specified ID not found
             - 500: Server error during database query
     
@@ -7416,7 +8954,8 @@ def get_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = get_user_scoped_query(session, Theme, user_id).filter(Theme.id == theme_id).first()
         if not theme:
             return create_error_response("Theme not found", 404)
         return jsonify(theme.to_dict()), 200
@@ -7428,6 +8967,7 @@ def get_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["PUT"])
+@require_permission('theme.edit')
 def update_theme(theme_id):
     """Update an existing custom theme's properties.
     
@@ -7459,7 +8999,8 @@ def update_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -7505,6 +9046,7 @@ def update_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
+@require_permission('theme.edit')
 def rename_theme(theme_id):
     """Change the name of an existing custom theme.
     
@@ -7534,7 +9076,8 @@ def rename_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -7565,6 +9108,7 @@ def rename_theme(theme_id):
 
 
 @app.route("/api/themes/<int:theme_id>", methods=["DELETE"])
+@require_permission('theme.delete')
 def delete_theme(theme_id):
     """Delete a custom theme.
     
@@ -7591,7 +9135,8 @@ def delete_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -7611,6 +9156,7 @@ def delete_theme(theme_id):
 
 
 @app.route("/api/themes/copy", methods=["POST"])
+@require_permission('theme.create')
 def copy_theme():
     """Create a duplicate of an existing theme with a new name.
     
@@ -7639,6 +9185,7 @@ def copy_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         source_id = data.get('source_theme_id')
         new_name = data.get('new_name')
@@ -7647,9 +9194,13 @@ def copy_theme():
             return create_error_response("source_theme_id and new_name are required", 400)
         
         # Check if source theme exists
-        source_theme = session.query(Theme).filter(Theme.id == source_id).first()
+        source_theme = _get_user_accessible_theme(session, user_id, source_id)
         if not source_theme:
             return create_error_response("Source theme not found", 404)
+
+        # Users can only create persistent custom themes by copying system themes.
+        if not source_theme.system_theme:
+          return create_error_response("Only system themes can be copied", 400)
         
         # Check if new name is unique
         existing = session.query(Theme).filter(Theme.name == new_name).first()
@@ -7661,7 +9212,8 @@ def copy_theme():
             name=new_name,
             settings=source_theme.settings,
             background_image=source_theme.background_image,
-            system_theme=False  # Copied themes are never system themes
+            system_theme=False,  # Copied themes are never system themes
+            user_id=user_id,
         )
         session.add(new_theme)
         session.commit()
@@ -7676,6 +9228,7 @@ def copy_theme():
 
 
 @app.route("/api/themes/import", methods=["POST"])
+@require_permission('theme.create')
 def import_theme():
     """Import a theme from external JSON data.
     
@@ -7708,6 +9261,7 @@ def import_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         name = data.get('name')
         settings = data.get('settings')
@@ -7730,7 +9284,8 @@ def import_theme():
             name=name,
             settings=json.dumps(settings),
             background_image=data.get('background_image'),
-            system_theme=False
+            system_theme=False,
+            user_id=user_id,
         )
         session.add(new_theme)
         session.commit()
@@ -7745,6 +9300,7 @@ def import_theme():
 
 
 @app.route("/api/themes/<int:theme_id>/export", methods=["GET"])
+@require_permission('theme.view')
 def export_theme(theme_id):
     """Export a theme configuration as JSON data.
     
@@ -7768,7 +9324,8 @@ def export_theme(theme_id):
     """
     session = SessionLocal()
     try:
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        user_id = g.user.id
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
@@ -7787,6 +9344,7 @@ def export_theme(theme_id):
 
 
 @app.route("/api/themes/upload-image", methods=["POST"])
+@require_permission('theme.edit')
 def upload_theme_image():
     """Upload a background image file for use in themes.
     
@@ -7844,6 +9402,7 @@ def upload_theme_image():
 
 
 @app.route("/api/themes/images", methods=["GET"])
+@require_permission('theme.view')
 def list_theme_images():
     """List all available background images in the backgrounds directory.
     
@@ -7883,6 +9442,7 @@ def list_theme_images():
 
 
 @app.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
+@require_permission('theme.view')
 def get_theme_image(filename):
     """Retrieve a specific background image file.
     
@@ -7946,12 +9506,14 @@ def get_theme_image(filename):
 
 
 @app.route("/api/settings/theme", methods=["GET"])
+@require_permission('setting.view')
 def get_current_theme():
-    """Retrieve the currently active theme for the application.
+    """Retrieve the currently active theme for the current user.
     
     Looks up the 'selected_theme' setting to determine which theme is
-    currently active, then returns the complete theme object. This is
-    used by the frontend to apply the active theme on page load.
+    currently active for the logged-in user, then returns the complete 
+    theme object. This is used by the frontend to apply the active theme 
+    on page load.
     
     Returns:
         tuple: (JSON response, HTTP status code)
@@ -7965,13 +9527,16 @@ def get_current_theme():
     """
     session = SessionLocal()
     try:
-        # Get selected_theme setting
-        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        user_id = g.user.id
+        
+        # Get user's selected_theme setting using user-scoped query
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'selected_theme').first()
         if not setting:
             return create_error_response("No theme selected", 404)
         
         theme_id = int(setting.value)
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         
         if not theme:
             return create_error_response("Selected theme not found", 404)
@@ -7985,13 +9550,14 @@ def get_current_theme():
 
 
 @app.route("/api/settings/theme", methods=["PUT"])
+@require_permission('setting.edit')
 def update_current_theme():
-    """Set the active theme for the application.
+    """Set the active theme for the current user.
     
     Updates the 'selected_theme' setting to change which theme is currently
-    active. Validates that the specified theme exists before updating.
-    Creates the setting if it doesn't exist. This change affects all users
-    of the application.
+    active for the logged-in user. Validates that the specified theme exists 
+    before updating. Creates the setting if it doesn't exist. This change 
+    affects only the current user.
     
     Request Body:
         theme_id (int, required): ID of the theme to activate
@@ -8013,6 +9579,7 @@ def update_current_theme():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         theme_id = data.get('theme_id')
         
@@ -8020,18 +9587,21 @@ def update_current_theme():
             return create_error_response("theme_id is required", 400)
         
         # Verify theme exists
-        theme = session.query(Theme).filter(Theme.id == theme_id).first()
+        theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Theme not found", 404)
         
-        # Update or create selected_theme setting
-        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+        # Update or create user's selected_theme setting
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'selected_theme').first()
         if setting:
             setting.value = str(theme_id)
         else:
-            setting = Setting()
-            setting.key = 'selected_theme'
-            setting.value = str(theme_id)
+            setting = Setting(
+                key='selected_theme',
+                value=str(theme_id),
+                user_id=user_id
+            )
             session.add(setting)
         
         session.commit()
@@ -8052,12 +9622,13 @@ def update_current_theme():
 
 
 @app.route("/api/settings/working-style", methods=["GET"])
+@require_permission('setting.view')
 def get_working_style():
-    """Retrieve the current working style preference.
+    """Retrieve the current working style preference for the logged-in user.
     
     Looks up the 'working_style' setting to determine which working style
-    is currently active ('kanban' or 'board_task_category'). Returns the
-    working style value with validation.
+    is currently active for this user ('kanban' or 'board_task_category'). 
+    Returns the working style value with validation.
     
     Returns:
         tuple: (JSON response, HTTP status code)
@@ -8071,7 +9642,11 @@ def get_working_style():
     """
     session = SessionLocal()
     try:
-        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        user_id = g.user.id
+        
+        # Get user's working_style setting using user-scoped query
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
         
         if not setting:
             return create_error_response("Working style setting not found", 404)
@@ -8094,12 +9669,14 @@ def get_working_style():
 
 
 @app.route("/api/settings/working-style", methods=["PUT"])
+@require_permission('setting.edit')
 def set_working_style():
-    """Set the working style preference.
+    """Set the working style preference for the logged-in user.
     
-    Updates the 'working_style' setting to change the working style preference.
-    Valid values are 'kanban' (traditional kanban board) or 'board_task_category'
-    (board as task category with done status). Creates the setting if it doesn't exist.
+    Updates the 'working_style' setting to change the working style preference
+    for the current user. Valid values are 'kanban' (traditional kanban board) 
+    or 'board_task_category' (board as task category with done status). 
+    Creates the setting if it doesn't exist.
     
     Request Body:
         value (str, required): 'kanban' or 'board_task_category'
@@ -8117,6 +9694,7 @@ def set_working_style():
     """
     session = SessionLocal()
     try:
+        user_id = g.user.id
         data = request.get_json()
         
         if not data or "value" not in data:
@@ -8131,15 +9709,18 @@ def set_working_style():
                 400
             )
         
-        # Update or create working_style setting
-        setting = session.query(Setting).filter(Setting.key == 'working_style').first()
+        # Update or create user's working_style setting
+        from utils import get_user_scoped_query
+        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
         
         if setting:
             setting.value = f'"{working_style}"'  # JSON-encode the value
         else:
-            setting = Setting()
-            setting.key = 'working_style'
-            setting.value = f'"{working_style}"'  # JSON-encode the value
+            setting = Setting(
+                key='working_style',
+                value=f'"{working_style}"',
+                user_id=user_id
+            )
             session.add(setting)
         
         session.commit()
@@ -8161,8 +9742,48 @@ def set_working_style():
 # WebSocket Event Handlers for Real-Time Board Updates
 # ============================================================================
 
+def _reject_client_originated_mutation(event_name):
+    """Reject client-originated mutation events.
+
+    Mutations must flow through authenticated/authorized API endpoints so the
+    server remains the single source of truth for realtime broadcasts.
+    """
+    user = get_authenticated_socket_user()
+    user_id = user.id if user else None
+    logger.warning(
+        "Rejected client-originated websocket mutation: event=%s sid=%s user_id=%s",
+        event_name,
+        request.sid,
+        user_id,
+    )
+    return {
+        'success': False,
+        'message': 'Client-originated mutation events are disabled. Use REST API endpoints.',
+        'event': event_name,
+    }
+
+
+def _extract_board_id(payload):
+    """Safely extract and validate board_id from socket event payload."""
+    if not isinstance(payload, dict):
+        return None
+
+    raw_board_id = payload.get('board_id')
+    if raw_board_id is None:
+        return None
+
+    try:
+        board_id = int(raw_board_id)
+    except (TypeError, ValueError):
+        return None
+
+    if board_id <= 0:
+        return None
+
+    return board_id
+
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """Handle client connection to WebSocket.
     
     When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
@@ -8171,8 +9792,13 @@ def handle_connect():
     if REJECT_SOCKETIO_CONNECTIONS:
         logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
         return False  # Reject the connection
+
+    user = get_authenticated_socket_user()
+    if not user:
+        logger.warning("Rejecting unauthenticated Socket.IO connection from %s", request.sid)
+        return False
     
-    logger.info(f"Client connected: {request.sid}")
+    logger.info("Authenticated client connected: sid=%s user_id=%s", request.sid, user.id)
     emit('connected', {'data': 'Connected to board server'})
 
 
@@ -8189,12 +9815,30 @@ def on_join_board(data):
     Args:
         data: Dictionary containing 'board_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        join_room(room)
-        logger.info(f"Client {request.sid} joined board {board_id}")
-        emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+    user = get_authenticated_socket_user()
+    if not user:
+        logger.warning("Unauthorized join_board attempt: sid=%s", request.sid)
+        return {'success': False, 'message': 'Authentication required'}
+
+    board_id = _extract_board_id(data)
+    if board_id is None:
+        return {'success': False, 'message': 'Valid board_id is required'}
+
+    has_access, _ = can_access_board(user.id, board_id)
+    if not has_access:
+        logger.warning(
+            "Denied join_board: sid=%s user_id=%s board_id=%s",
+            request.sid,
+            user.id,
+            board_id,
+        )
+        return {'success': False, 'message': 'Access denied to this board'}
+
+    room = f'board_{board_id}'
+    join_room(room)
+    logger.info("Client %s (user_id=%s) joined board %s", request.sid, user.id, board_id)
+    emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
+    return {'success': True, 'board_id': board_id}
 
 
 @socketio.on('leave_board')
@@ -8204,11 +9848,22 @@ def on_leave_board(data):
     Args:
         data: Dictionary containing 'board_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        leave_room(room)
-        logger.info(f"Client {request.sid} left board {board_id}")
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
+    board_id = _extract_board_id(data)
+    if board_id is None:
+        return {'success': False, 'message': 'Valid board_id is required'}
+
+    has_access, _ = can_access_board(user.id, board_id)
+    if not has_access:
+        return {'success': False, 'message': 'Access denied to this board'}
+
+    room = f'board_{board_id}'
+    leave_room(room)
+    logger.info("Client %s (user_id=%s) left board %s", request.sid, user.id, board_id)
+    return {'success': True, 'board_id': board_id}
 
 
 @socketio.on('card_moved')
@@ -8219,11 +9874,7 @@ def broadcast_card_moved(data):
         data: Dictionary containing 'board_id', 'card_id', 'from_column_id', 
               'to_column_id', 'from_index', 'to_index'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_moved', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card move for board {board_id}")
+    return _reject_client_originated_mutation('card_moved')
 
 
 @socketio.on('card_updated')
@@ -8234,11 +9885,7 @@ def broadcast_card_updated(data):
         data: Dictionary containing 'board_id', 'card_id', and updated fields
               (title, description, color, etc.)
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_updated', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card update for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('card_updated')
 
 
 @socketio.on('card_created')
@@ -8248,11 +9895,7 @@ def broadcast_card_created(data):
     Args:
         data: Dictionary containing 'board_id', 'column_id', 'card_id', 'card_data'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_created', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card creation for board {board_id}")
+    return _reject_client_originated_mutation('card_created')
 
 
 @socketio.on('card_deleted')
@@ -8262,11 +9905,7 @@ def broadcast_card_deleted(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'column_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('card_deleted', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted card deletion for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('card_deleted')
 
 
 @socketio.on('column_reordered')
@@ -8276,11 +9915,7 @@ def broadcast_column_reordered(data):
     Args:
         data: Dictionary containing 'board_id', 'column_order' (list of column IDs)
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('column_reordered', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted column reorder for board {board_id}")
+    return _reject_client_originated_mutation('column_reordered')
 
 
 @socketio.on('checklist_item_added')
@@ -8290,11 +9925,7 @@ def broadcast_checklist_item_added(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id', 'item_data'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_added', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item addition for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_added')
 
 
 @socketio.on('checklist_item_updated')
@@ -8304,11 +9935,7 @@ def broadcast_checklist_item_updated(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id', 'updated_fields'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_updated', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item update for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_updated')
 
 
 @socketio.on('checklist_item_deleted')
@@ -8318,11 +9945,7 @@ def broadcast_checklist_item_deleted(data):
     Args:
         data: Dictionary containing 'board_id', 'card_id', 'item_id'
     """
-    board_id = data.get('board_id')
-    if board_id:
-        room = f'board_{board_id}'
-        emit('checklist_item_deleted', data, room=room, skip_sid=request.sid)
-        logger.info(f"Broadcasted checklist item deletion for board {board_id}, card {data.get('card_id')}")
+    return _reject_client_originated_mutation('checklist_item_deleted')
 
 
 # ============================================================================
@@ -8332,12 +9955,16 @@ def broadcast_checklist_item_deleted(data):
 @socketio.on('join_theme')
 def on_join_theme():
     """Handle client joining the theme room to receive theme updates."""
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
     join_room('theme')
-    logger.info(f"✓ Client {request.sid} joined theme room")
-    
+    logger.info(f"✓ Client {request.sid} (user_id={user.id}) joined theme room")
+
     # Send current theme to the new client
+    session = SessionLocal()
     try:
-        session = SessionLocal()
         setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
         if setting:
             try:
@@ -8352,16 +9979,24 @@ def on_join_theme():
                 logger.error(f"✗ Error parsing theme_id: {str(e)}")
         else:
             logger.info("ℹ No selected_theme setting found")
-        session.close()
     except Exception as e:
         logger.error(f"✗ Error sending current theme to client: {str(e)}")
+    finally:
+        session.close()
+
+    return {'success': True}
 
 
 @socketio.on('leave_theme')
 def on_leave_theme():
     """Handle client leaving the theme room."""
+    user = get_authenticated_socket_user()
+    if not user:
+        return {'success': False, 'message': 'Authentication required'}
+
     leave_room('theme')
-    logger.info(f"Client {request.sid} left theme room")
+    logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
+    return {'success': True}
 
 
 if __name__ == "__main__":

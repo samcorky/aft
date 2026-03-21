@@ -21,7 +21,7 @@ The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic
 
 **Development (default):**
 ```
-CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1
 ```
 
 **Production (example with multiple trusted domains):**
@@ -29,12 +29,21 @@ CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1
 CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
 ```
 
-**Docker Host Access:**
+**Custom Host / Docker Host Access:**
 ```
-CORS_ALLOWED_ORIGINS=http://your-docker-host-ip
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip,https://your-docker-host-ip,https://your-hostname
 ```
 
-Provide a comma-separated list of all origins that should be allowed to connect. This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
+Provide a comma-separated list of all origins that should be allowed to connect, including the exact scheme and host you use in the browser (for example https://staustell). This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
+
+#### HTTPS and Session Cookie Security
+By default, the stack now enforces secure session cookies and redirects direct HTTP requests to HTTPS.
+
+- Nginx auto-generates a self-signed certificate at startup when no certificate files exist, so HTTPS works out of the box without manual certificate setup.
+- Flask defaults `SESSION_COOKIE_SECURE=true`, so browsers only send session cookies over HTTPS.
+- The HTTP listener (port 80) redirects non-localhost traffic to HTTPS unless an upstream reverse proxy forwards `X-Forwarded-Proto: https`.
+
+This keeps direct deployments secure by default while still supporting external reverse proxies and certificate resolvers.
 
 ### Backup Storage
 Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
@@ -45,6 +54,51 @@ sudo chown -R 1000:1000 ./backups
 sudo chmod -R 755 ./backups
 ```
 
+## Testing
+
+For developers who want to run the test suite:
+
+```powershell
+cd server
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest
+```
+
+**Note:** Tests automatically handle authentication by creating a test admin user. For detailed testing instructions including fresh database setup, see [server/TESTING.md](server/TESTING.md).
+
+## Contributing and Agent Context
+
+If you are contributing code (human or AI-assisted), start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For portable, agent-specific project context that should be available across machines via git, use [AGENT_CONTEXT.md](AGENT_CONTEXT.md). Keep this file concise and focused on stable workflow/security/testing facts.
+
+
+## Security and Access Control
+
+The application now includes a multi-user security model with authentication, role-based authorization, and secure-by-default deployment settings.
+
+- **Authentication Across HTTP + WebSocket** - Login/logout is enforced for protected API access and real-time socket connections.
+- **Role-Based Access Control (RBAC)** - Supports global and board-specific roles with permission checks on backend endpoints.
+- **Permission-Aware UI** - Frontend controls are shown/hidden based on effective permissions, reducing invalid actions before API calls.
+- **Ownership and IDOR Protection** - Server-side scoping checks prevent users from accessing resources they do not own or are not assigned to.
+- **Secure Session Defaults** - HTTPS-first behavior, secure session cookies by default, and optional Redis-backed server-side sessions.
+- **Operational Hardening** - Token-protected health checks and browser hardening headers in the reverse proxy layer.
+
+### Access Model and User Lifecycle
+
+- **Board Ownership and Sharing** - Boards are owned by a user, and access can be shared per board. Board-specific roles enable read-only access (viewer) or read/write collaboration (editor) without granting global access to all boards.
+- **Fine-Grained Per-Board Permissions** - Effective permissions are evaluated per board, so actions like editing or deleting are allowed only where the user has board-level rights.
+- **Custom Role Construction** - Role management supports building custom roles from individual permission blocks, then assigning those roles to users within the allowed assignment scope.
+- **Controlled Role Assignment** - Role changes require role-management permissions, with backend checks to prevent unauthorized escalation and invalid global vs board-specific assignments.
+- **Registration and Approval Workflow** - New user registrations are created in a pending state and must be approved by an administrator before login access is granted.
+- **First Admin Initial Setup** - A dedicated setup flow creates the first administrator account, auto-approves it, and completes initial bootstrap for the instance.
+
+For implementation details and extension guidance:
+- [server/AUTHENTICATION.md](server/AUTHENTICATION.md)
+- [server/PERMISSION_MODEL.md](server/PERMISSION_MODEL.md)
+- [PERMISSION_UI_SYSTEM.md](PERMISSION_UI_SYSTEM.md)
 ## When?
 In one evening for version 1.
 That's right this is entirely copilot generated with my general guidance.

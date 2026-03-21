@@ -3,6 +3,58 @@
  */
 
 /**
+ * Global fetch wrapper to handle setup redirects and authentication
+ */
+(function() {
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this, args);
+    
+    // Clone response so we can read it twice if needed
+    const clonedResponse = response.clone();
+    
+    // Handle 401 Unauthorized responses
+    if (response.status === 401) {
+      console.error('Authentication required (401 Unauthorized)');
+      // Clear cached user data on authentication failure
+      sessionStorage.removeItem('currentUser');
+      window.currentUser = null;
+      window.userDataReady = false;
+      
+      // Don't redirect if already on login, register, logout, setup, about, or docs pages
+      if (!window.location.pathname.includes('login.html') && 
+          !window.location.pathname.includes('register.html') &&
+          !window.location.pathname.includes('logout.html') &&
+          !window.location.pathname.includes('setup.html') &&
+          !window.location.pathname.includes('about.html') &&
+          !window.location.pathname.includes('docs.html')) {
+        console.error('Authentication required, redirecting to login page');
+        // Store the current page to redirect back after login
+        sessionStorage.setItem('redirectAfterLogin', window.location.pathname + window.location.search);
+        window.location.href = '/login.html';
+      }
+      return response;
+    }
+    
+    // Check if this is a JSON response indicating setup required
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      try {
+        const data = await clonedResponse.json();
+        if (data.redirect === '/setup.html' && !window.location.pathname.includes('setup.html')) {
+          window.location.href = '/setup.html';
+          return response;
+        }
+      } catch (e) {
+        // Not JSON or couldn't parse, just return original response
+      }
+    }
+    
+    return response;
+  };
+})();
+
+/**
  * Apply time formatting based on user's preference.
  * Helper function used by both formatTime and formatTimeSync.
  * 
@@ -574,3 +626,129 @@ async function loadAndApplyThemeGlobal() {
     }
   }
 }
+
+/**
+ * Escape HTML special characters to prevent XSS.
+ * 
+ * @param {string} unsafe - Unsafe string to escape
+ * @returns {string} Escaped string
+ */
+function escapeHtml(unsafe) {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Global user context for storing current user and permissions.
+ * 
+ * Populated from sessionStorage cache (set during login) or fetched from /api/auth/me
+ * by header.js on first page load. Cached in sessionStorage to avoid API calls on 
+ * every page navigation.
+ * 
+ * Structure:
+ * {
+ *   id: number,
+ *   email: string,
+ *   username: string,
+ *   display_name: string,
+ *   permissions: string[],  // e.g., ['board.view', 'card.edit', 'user.manage']
+ *   roles: object[]
+ * }
+ */
+window.currentUser = null;
+
+/**
+ * Flag indicating whether user data has been loaded by header.js.
+ * Set to true after header completes loading (whether user is logged in or not).
+ * Use this to wait for user data before checking permissions.
+ */
+window.userDataReady = false;
+
+/**
+ * Check if the current user has a specific permission.
+ * 
+ * @param {string} permission - The permission to check (e.g., 'user.manage')
+ * @returns {boolean} True if user has the permission
+ */
+function hasPermission(permission) {
+  if (!window.currentUser || !window.currentUser.permissions) {
+    return false;
+  }
+  
+  // system.admin has all permissions
+  if (window.currentUser.permissions.includes('system.admin')) {
+    return true;
+  }
+  
+  return window.currentUser.permissions.includes(permission);
+}
+
+/**
+ * Show an access denied message and optionally redirect.
+ * 
+ * @param {string} message - Custom message to display
+ * @param {string} redirectTo - URL to redirect to (optional, defaults to home)
+ */
+function showAccessDenied(message = 'You do not have permission to access this page.', redirectTo = '/') {
+  // Create overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+  
+  // Create modal
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    background-color: var(--card-bg, #ffffff);
+    color: var(--text-primary, #2C3E50);
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 500px;
+    text-align: center;
+  `;
+  
+  // Create content
+  modal.innerHTML = `
+    <svg style="width: 64px; height: 64px; margin-bottom: 20px; color: var(--error-color, #e74c3c);" 
+         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    <h2 style="margin: 0 0 15px 0; font-size: 24px;">Access Denied</h2>
+    <p style="margin: 0 0 25px 0; font-size: 16px;">${escapeHtml(message)}</p>
+    <button id="access-denied-btn" style="
+      background-color: var(--primary-color, #3498db);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    ">Go to Home</button>
+  `;
+  
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  
+  // Handle button click
+  document.getElementById('access-denied-btn').addEventListener('click', () => {
+    window.location.href = redirectTo;
+  });
+}
+

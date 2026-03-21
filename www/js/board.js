@@ -743,6 +743,7 @@ class BoardManager {
     this.showDone = false; // Track whether to show done cards (for board_task_category style)
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
     this.workingStyle = 'kanban'; // Track working style: 'kanban' or 'board_task_category'
+    this.canEdit = true; // Track if user has edit permissions for this board
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
     this.currentLoadController = null; // Track in-flight board load requests
@@ -771,6 +772,36 @@ class BoardManager {
           : `HTTP error! status: ${response.status}`
       };
     }
+  }
+
+  /**
+   * Check endpoint permission through PermissionManager with safe fallback.
+   *
+   * @param {string} method - HTTP method
+   * @param {string} endpoint - Endpoint pattern (e.g. /api/cards/:id/archive)
+   * @returns {boolean} True if endpoint is allowed
+   */
+  canCallPermissionEndpoint(method, endpoint) {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      return false;
+    }
+
+    return PermissionManager.canCallEndpoint(method, endpoint);
+  }
+
+  /**
+   * Determine whether any column-menu action is currently available.
+   *
+   * @returns {boolean} True if at least one menu action is permitted
+   */
+  canShowColumnMenu() {
+    return this.canEdit ||
+      this.canCallPermissionEndpoint('POST', '/api/columns/:source_id/cards/move') ||
+      this.canCallPermissionEndpoint('POST', '/api/cards/batch/archive') ||
+      this.canCallPermissionEndpoint('POST', '/api/cards/batch/unarchive') ||
+      this.canCallPermissionEndpoint('POST', '/api/columns/:id/archive-after') ||
+      this.canCallPermissionEndpoint('DELETE', '/api/columns/:id/cards') ||
+      this.canCallPermissionEndpoint('DELETE', '/api/columns/:id');
   }
 
   /**
@@ -845,11 +876,23 @@ class BoardManager {
   async init() {
     // Get board ID from URL query parameter
     const urlParams = new URLSearchParams(window.location.search);
-    this.boardId = urlParams.get('id');
+    const boardIdParam = urlParams.get('id');
     
-    if (!this.boardId) {
-      this.showError('No board ID specified');
+    // Parse and validate board ID to prevent XSS
+    this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
+    
+    if (!this.boardId || isNaN(this.boardId)) {
+      this.showError('Invalid or missing board ID');
       return;
+    }
+
+    // Initialize Permission Manager with board context
+    console.log('Initializing PermissionManager for board:', this.boardId);
+    const permissionInitSuccess = await PermissionManager.init(this.boardId);
+    
+    if (!permissionInitSuccess) {
+      console.warn('Failed to initialize PermissionManager - some features may not be available');
+      // Continue anyway - the user is logged in if we're here
     }
 
     this.render();
@@ -1022,6 +1065,9 @@ class BoardManager {
       this.originalColumns = JSON.parse(JSON.stringify(board.columns));
       this.columns = board.columns;
       
+      // Store edit permission flag (default to true for backwards compatibility)
+      this.canEdit = board.can_edit !== undefined ? board.can_edit : true;
+      
       // Filter cards based on done status and view
       if (this.workingStyle === 'board_task_category') {
         if (this.showDone) {
@@ -1074,6 +1120,11 @@ class BoardManager {
       return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
     });
     if (anyModalOpen) {
+      return;
+    }
+
+    // Don't trigger if board is read-only
+    if (!this.canEdit) {
       return;
     }
 
@@ -1163,6 +1214,13 @@ class BoardManager {
       window.header.showViewsDropdown(this.columns.length > 0);
     }
     
+    // Add or remove read-only class from container
+    if (!this.canEdit) {
+      this.container.classList.add('board-readonly');
+    } else {
+      this.container.classList.remove('board-readonly');
+    }
+    
     if (this.columns.length === 0) {
       
       this.container.innerHTML = `
@@ -1171,27 +1229,48 @@ class BoardManager {
             <div class="empty-board-icon">📋</div>
             <h3>No columns yet</h3>
             <p>Add your first column to start organizing tasks!</p>
-            <button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>
+            ${this.canEdit ? '<button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>' : '<p style="color: var(--secondary-color); margin-top: 10px;">Read-only access - cannot add columns</p>'}
           </div>
         </div>
       `;
       
       // Add event listener for add column button
-      document.getElementById('add-column-empty-btn').addEventListener('click', () => this.openAddColumnModal());
+      if (this.canEdit) {
+        const addColumnEmptyBtn = document.getElementById('add-column-empty-btn');
+        if (addColumnEmptyBtn) {
+          addColumnEmptyBtn.addEventListener('click', () => this.openAddColumnModal());
+        }
+      }
     } else {
+      const canCreateCardsInTaskView = this.canEdit || this.canCallPermissionEndpoint('POST', '/api/columns/:id/cards');
+      const canCreateSchedules = this.canCallPermissionEndpoint('POST', '/api/schedules');
+      const canCreateCardsInCurrentView = this.currentView === 'scheduled'
+        ? (canCreateCardsInTaskView && canCreateSchedules)
+        : canCreateCardsInTaskView;
+      const canUpdateColumns = this.canEdit || this.canCallPermissionEndpoint('PATCH', '/api/columns/:id');
+      const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
+      const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
+      const canDeleteCard = this.canCallPermissionEndpoint('DELETE', '/api/cards/:id');
+      const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
+      const canShowCardActions = canArchiveCard || canUnarchiveCard || canDeleteCard ||
+        (this.workingStyle === 'board_task_category' && canToggleDone);
+      const canShowColumnMenu = this.canShowColumnMenu();
+
       this.container.innerHTML = `
+        ${!this.canEdit ? '<div class="board-readonly-indicator">Read Only</div>' : ''}
         <div class="columns-container">
           ${this.columns.map((column, index) => `
-            <div class="column" data-column-id="${column.id}" data-board-id="${this.boardId}" data-order="${column.order}">
+            <div class="column" data-column-id="${column.id}" data-board-id="${this.escapeHtml(String(this.boardId))}" data-order="${column.order}">
               <div class="column-header">
                 <div class="column-title-group">
                   <h4>${this.escapeHtml(column.name)} <span class="card-count">(${this.getColumnCardCount(column, index)})</span></h4>
-                  <button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>
+                  ${canUpdateColumns ? `<button class="column-edit-btn" data-column-id="${column.id}" data-column-name="${this.escapeHtml(column.name)}" title="Edit column">✎</button>` : ''}
                 </div>
                 <div class="column-actions">
-                  ${!this.showArchived ? `<button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>` : ''}
-                  <button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>
-                  <button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>
+                  ${!this.showArchived && canCreateCardsInCurrentView ? `<button class="column-add-card-btn" data-column-id="${column.id}" title="Add card">+</button>` : ''}
+                  ${canUpdateColumns ? `<button class="column-move-left-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move left">◀</button>` : ''}
+                  ${canUpdateColumns ? `<button class="column-move-right-btn" data-column-id="${column.id}" data-order="${column.order}" title="Move right">▶</button>` : ''}
+                  ${canShowColumnMenu ? `
                   <div class="column-menu-wrapper">
                     <button class="column-menu-btn" data-column-id="${column.id}" title="Column menu">⋮</button>
                     <div class="column-menu-dropdown" data-column-id="${column.id}">
@@ -1245,39 +1324,39 @@ class BoardManager {
                         <span>Delete column</span>
                       </button>
                     </div>
-                  </div>
+                  </div>` : ''}
                 </div>
               </div>
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
-                      <div class="card-action-buttons" draggable="false">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived && this.canEdit}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
+                      ${canShowCardActions ? `<div class="card-action-buttons" draggable="false">`  : '<div class="card-action-buttons readonly-hidden" draggable="false">'}
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
-                            `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">
+                            `${canUnarchiveCard ? `<button class="card-unarchive-btn" data-card-id="${card.id}" title="Unarchive card" draggable="false">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <rect x="3" y="4" width="18" height="16" rx="2"></rect>
                                 <line x1="3" y1="10" x2="21" y2="10"></line>
                                 <path d="M12 14v-2"></path>
                                 <path d="M9 14l3 2 3-2"></path>
                               </svg>
-                            </button>` :
+                            </button>` : ''}` :
                             `${this.workingStyle === 'board_task_category' ? 
-                              `<button class="card-done-btn" data-card-id="${card.id}" title="${card.done ? 'Mark as not done' : 'Mark as done'}" draggable="false">
+                              `${canToggleDone ? `<button class="card-done-btn" data-card-id="${card.id}" title="${card.done ? 'Mark as not done' : 'Mark as done'}" draggable="false">
                                 ${card.done ? '○' : '✓'}
-                              </button>` :
-                              `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
+                              </button>` : ''}` :
+                              `${canArchiveCard ? `<button class="card-archive-btn" data-card-id="${card.id}" title="Archive card" draggable="false">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                   <rect x="3" y="4" width="18" height="16" rx="2"></rect>
                                   <line x1="3" y1="10" x2="21" y2="10"></line>
                                   <path d="M12 14v2"></path>
                                   <path d="M9 16l3-2 3 2"></path>
                                 </svg>
-                              </button>`
+                              </button>` : ''}`
                             }`
                         }
-                        <button class="card-delete-btn" data-card-id="${card.id}" title="Delete card" draggable="false">×</button>
+                        ${canDeleteCard ? '<button class="card-delete-btn" data-card-id="' + card.id + '" title="Delete card" draggable="false">×</button>' : ''}
                       </div>
                       <div class="card-content-wrapper" id="card-content-${card.id}">
                         <h5 class="card-title">${linkifyUrls(this.escapeHtml(card.title))}</h5>
@@ -1308,6 +1387,7 @@ class BoardManager {
                                   class="card-checklist-checkbox" 
                                   data-item-id="${item.id}"
                                   ${item.checked ? 'checked' : ''}
+                                  ${!this.canEdit ? 'disabled' : ''}
                                 >
                                 <span class="card-checklist-name ${item.checked ? 'checked' : ''}">${linkifyUrls(this.escapeHtml(item.name))}</span>
                               </div>
@@ -1319,18 +1399,23 @@ class BoardManager {
                     </div>
                   `).join('') : ''
                 }
-                ${!this.showArchived ? `<button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>` : ''}
+                ${!this.showArchived && canCreateCardsInCurrentView ? `<button class="btn btn-secondary add-card-btn" data-column-id="${column.id}">+ Add Card</button>` : ''}
               </div>
             </div>
           `).join('')}
-          <div class="add-column-placeholder">
+          ${this.canEdit ? `<div class="add-column-placeholder">
             <button class="btn btn-primary" id="add-column-inline-btn">+ Add Column</button>
-          </div>
+          </div>` : ''}
         </div>
       `;
       
       // Add event listener for add column button next to columns
-      document.getElementById('add-column-inline-btn').addEventListener('click', () => this.openAddColumnModal());
+      if (this.canEdit) {
+        const addColumnBtn = document.getElementById('add-column-inline-btn');
+        if (addColumnBtn) {
+          addColumnBtn.addEventListener('click', () => this.openAddColumnModal());
+        }
+      }
       
       // Add hover listeners for columns to track which column is hovered
       document.querySelectorAll('.column').forEach(column => {
@@ -1631,9 +1716,120 @@ class BoardManager {
         });
       });
       
-      // Add drag and drop event listeners for cards
-      this.setupDragAndDrop();
+      // Add drag and drop event listeners for cards (only in edit mode)
+      if (this.canEdit) {
+        this.setupDragAndDrop();
+      }
+      
+      // Apply permission-based rendering (if PermissionManager is initialized)
+      this.applyPermissionBasedRendering();
     }
+  }
+
+  /**
+   * Apply permission-based rendering to UI elements
+   * This method checks user permissions and removes/hides elements the user cannot access
+   * Provides a centralized, extensible approach to permission-based UI
+   */
+  applyPermissionBasedRendering() {
+    if (!window.PermissionManager || !PermissionManager.initialized) {
+      console.log('PermissionManager not available - skipping permission-based rendering');
+      return;
+    }
+    
+    console.log('Applying permission-based rendering...');
+
+    const canCreateColumn = this.canCallPermissionEndpoint('POST', '/api/boards/:id/columns');
+    const canCreateCard = this.canCallPermissionEndpoint('POST', '/api/columns/:id/cards');
+    const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
+    const canUpdateColumn = this.canCallPermissionEndpoint('PATCH', '/api/columns/:id');
+    const canMoveAllCards = this.canCallPermissionEndpoint('POST', '/api/columns/:source_id/cards/move');
+    const canBatchArchive = this.canCallPermissionEndpoint('POST', '/api/cards/batch/archive');
+    const canBatchUnarchive = this.canCallPermissionEndpoint('POST', '/api/cards/batch/unarchive');
+    const canArchiveAfter = this.canCallPermissionEndpoint('POST', '/api/columns/:id/archive-after');
+    const canDeleteCardsInColumn = this.canCallPermissionEndpoint('DELETE', '/api/columns/:id/cards');
+    const canDeleteColumn = this.canCallPermissionEndpoint('DELETE', '/api/columns/:id');
+    const canDeleteCard = this.canCallPermissionEndpoint('DELETE', '/api/cards/:id');
+    const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
+    const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
+    
+    // Remove "Add Column" buttons if user can't call create-column endpoint.
+    if (!canCreateColumn) {
+      document.querySelectorAll('#add-column-empty-btn, #add-column-inline-btn').forEach(btn => btn.remove());
+    }
+    
+    // In scheduled view, creating a template through UI requires both card.create and schedule.create.
+    const canUseAddCardUi = this.currentView === 'scheduled'
+      ? (canCreateCard && canCreateSchedule)
+      : canCreateCard;
+    if (!canUseAddCardUi) {
+      document.querySelectorAll('.column-add-card-btn, .add-card-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column edit buttons if user cannot update columns.
+    if (!canUpdateColumn) {
+      document.querySelectorAll('.column-edit-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column move buttons if user cannot update columns.
+    if (!canUpdateColumn) {
+      document.querySelectorAll('.column-move-left-btn, .column-move-right-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove column menu and its items based on permissions
+    document.querySelectorAll('.column-menu-wrapper').forEach(menuWrapper => {
+      const dropdown = menuWrapper.querySelector('.column-menu-dropdown');
+      
+      if (!dropdown) return;
+      
+      // Check each menu item and remove if no permission
+      const moveAllBtn = dropdown.querySelector('.column-move-all-cards-btn');
+      const archiveAllBtn = dropdown.querySelector('.column-archive-all-cards-btn');
+      const unarchiveAllBtn = dropdown.querySelector('.column-unarchive-all-cards-btn');
+      const archiveAfterBtn = dropdown.querySelector('.column-archive-after-btn');
+      const deleteAllCardsBtn = dropdown.querySelector('.column-delete-cards-btn');
+      const deleteColumnBtn = dropdown.querySelector('.column-delete-btn');
+      
+      if (moveAllBtn && !canMoveAllCards) {
+        moveAllBtn.remove();
+      }
+      if (archiveAllBtn && !canBatchArchive) {
+        archiveAllBtn.remove();
+      }
+      if (unarchiveAllBtn && !canBatchUnarchive) {
+        unarchiveAllBtn.remove();
+      }
+      if (archiveAfterBtn && !canArchiveAfter) {
+        archiveAfterBtn.remove();
+      }
+      if (deleteAllCardsBtn && !canDeleteCardsInColumn) {
+        deleteAllCardsBtn.remove();
+      }
+      if (deleteColumnBtn && !canDeleteColumn) {
+        deleteColumnBtn.remove();
+      }
+      
+      // If all menu items are removed, remove the menu button too
+      const remainingItems = dropdown.querySelectorAll('.column-menu-item');
+      if (remainingItems.length === 0) {
+        menuWrapper.remove();
+      }
+    });
+    
+    // Remove card delete buttons if user cannot call delete-card endpoint.
+    if (!canDeleteCard) {
+      document.querySelectorAll('.card-delete-btn').forEach(btn => btn.remove());
+    }
+    
+    // Remove archive/unarchive buttons based on exact archive endpoints.
+    if (!canArchiveCard) {
+      document.querySelectorAll('.card-archive-btn').forEach(btn => btn.remove());
+    }
+    if (!canUnarchiveCard) {
+      document.querySelectorAll('.card-unarchive-btn').forEach(btn => btn.remove());
+    }
+    
+    console.log('Permission-based rendering complete');
   }
 
   async moveColumn(columnId, newOrder) {
@@ -1948,6 +2144,29 @@ class BoardManager {
       this.showErrorToast('Cannot open schedule editor: Database is not connected. Please wait for the connection to be restored.');
       return;
     }
+
+    const canViewSchedule = this.canCallPermissionEndpoint('GET', '/api/schedules/:id');
+    const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
+    const canEditSchedule = this.canCallPermissionEndpoint('PUT', '/api/schedules/:id');
+    const canDeleteSchedule = this.canCallPermissionEndpoint('DELETE', '/api/schedules/:id');
+
+    if (hasSchedule) {
+      if (!canViewSchedule) {
+        this.showErrorToast('You do not have permission to view this schedule.');
+        return;
+      }
+      if (!canEditSchedule && !canDeleteSchedule) {
+        this.showErrorToast('You do not have permission to modify this schedule.');
+        return;
+      }
+    } else if (!canCreateSchedule) {
+      this.showErrorToast('You do not have permission to create schedules.');
+      return;
+    }
+
+    const allowScheduleSubmit = hasSchedule ? canEditSchedule : canCreateSchedule;
+    const scheduleFieldsDisabled = hasSchedule && !canEditSchedule;
+    const scheduleDisabledAttr = scheduleFieldsDisabled ? 'disabled' : '';
     
     // If card has a schedule, fetch the schedule details
     let scheduleData = null;
@@ -2001,10 +2220,10 @@ class BoardManager {
         <div class="modal-content schedule-modal-content">
           <div class="modal-header">
             <div class="modal-header-actions">
-              ${hasSchedule ? `<button type="button" class="btn btn-secondary" id="edit-template-btn" data-card-id="${scheduleData?.card_id || ''}">Edit Template</button>` : ''}
-              ${hasSchedule ? `<button type="button" class="btn btn-danger" id="delete-schedule-btn">Delete Schedule</button>` : ''}
+              ${hasSchedule && canEditSchedule ? `<button type="button" class="btn btn-secondary" id="edit-template-btn" data-card-id="${scheduleData?.card_id || ''}">Edit Template</button>` : ''}
+              ${hasSchedule && canDeleteSchedule ? `<button type="button" class="btn btn-danger" id="delete-schedule-btn">Delete Schedule</button>` : ''}
               <button type="button" class="btn btn-secondary" id="cancel-schedule-btn">Cancel</button>
-              <button type="submit" form="schedule-form" class="btn btn-primary">${hasSchedule ? 'Update Schedule' : 'Create Schedule'}</button>
+              ${allowScheduleSubmit ? `<button type="submit" form="schedule-form" class="btn btn-primary">${hasSchedule ? 'Update Schedule' : 'Create Schedule'}</button>` : ''}
             </div>
             <h2>${hasSchedule ? 'Edit Schedule' : 'Create Schedule'}</h2>
           </div>
@@ -2012,11 +2231,11 @@ class BoardManager {
             <div class="form-row">
               <div class="form-group">
                 <label for="schedule-run-every">Run Every:</label>
-                <input type="number" id="schedule-run-every" name="run-every" min="1" value="${defaultRunEvery}" required>
+                <input type="number" id="schedule-run-every" name="run-every" min="1" value="${defaultRunEvery}" required ${scheduleDisabledAttr}>
               </div>
               <div class="form-group">
                 <label for="schedule-unit">Unit:</label>
-                <select id="schedule-unit" name="unit" required>
+                <select id="schedule-unit" name="unit" required ${scheduleDisabledAttr}>
                   <option value="minute" ${defaultUnit === 'minute' ? 'selected' : ''}>Minute(s)</option>
                   <option value="hour" ${defaultUnit === 'hour' ? 'selected' : ''}>Hour(s)</option>
                   <option value="day" ${defaultUnit === 'day' ? 'selected' : ''}>Day(s)</option>
@@ -2030,27 +2249,27 @@ class BoardManager {
             <div class="form-row">
               <div class="form-group full-width">
                 <label for="schedule-start-datetime">Start Date & Time:</label>
-                <input type="datetime-local" id="schedule-start-datetime" name="start-datetime" value="${defaultStartDatetime}" required>
+                <input type="datetime-local" id="schedule-start-datetime" name="start-datetime" value="${defaultStartDatetime}" required ${scheduleDisabledAttr}>
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group full-width">
                 <label for="schedule-end-datetime">End Date & Time (Optional):</label>
-                <input type="datetime-local" id="schedule-end-datetime" name="end-datetime" value="${defaultEndDatetime}">
+                <input type="datetime-local" id="schedule-end-datetime" name="end-datetime" value="${defaultEndDatetime}" ${scheduleDisabledAttr}>
               </div>
             </div>
 
             <div class="form-group">
               <label class="checkbox-label">
-                <input type="checkbox" id="schedule-enabled" name="enabled" ${defaultEnabled ? 'checked' : ''}>
+                <input type="checkbox" id="schedule-enabled" name="enabled" ${defaultEnabled ? 'checked' : ''} ${scheduleDisabledAttr}>
                 <span>Schedule Enabled</span>
               </label>
             </div>
 
             <div class="form-group">
               <label class="checkbox-label">
-                <input type="checkbox" id="schedule-allow-duplicates" name="allow-duplicates" ${defaultAllowDuplicates ? 'checked' : ''}>
+                <input type="checkbox" id="schedule-allow-duplicates" name="allow-duplicates" ${defaultAllowDuplicates ? 'checked' : ''} ${scheduleDisabledAttr}>
                 <span>Allow Duplicates (create new cards even if unarchived cards from this schedule exist)</span>
               </label>
             </div>
@@ -2307,6 +2526,11 @@ class BoardManager {
     // Handle form submit
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+
+      if (!allowScheduleSubmit) {
+        this.showErrorToast('You do not have permission to save schedule changes.');
+        return;
+      }
 
       const formData = {
         run_every: parseInt(runEveryInput.value),
@@ -2946,7 +3170,7 @@ class BoardManager {
         await this.loadBoard();
         await showAlert(`Successfully archived ${data.archived_count} card(s)`, 'Success');
       } else {
-        await showAlert('Failed to archive cards: ' + data.message, 'Error');
+        await showAlert(data.message || 'Failed to archive cards', 'Error');
       }
     } catch (err) {
       console.error('Error archiving cards:', err);
@@ -2988,7 +3212,7 @@ class BoardManager {
         await this.loadBoard();
         await showAlert(`Successfully unarchived ${data.unarchived_count} card(s)`, 'Success');
       } else {
-        await showAlert('Failed to unarchive cards: ' + data.message, 'Error');
+        await showAlert(data.message || 'Failed to unarchive cards', 'Error');
       }
     } catch (err) {
       console.error('Error unarchiving cards:', err);
@@ -3211,6 +3435,7 @@ class BoardManager {
             const updatedDate = new Date(card.updated_at || card.created_at);
             const now = new Date();
             const daysDiff = Math.floor((now - updatedDate) / (1000 * 60 * 60 * 24));
+            const affectedCount = parseInt(data.affected_count) || 0;
             
             previewContent.innerHTML = `
               <div style="padding: 10px; background: var(--bg-primary, white); border-radius: 3px; border-left: 3px solid var(--accent-primary, #007bff);">
@@ -3219,7 +3444,7 @@ class BoardManager {
                   Last updated: ${updatedDate.toLocaleString()} (${daysDiff} days ago)
                 </div>
                 <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color, #ddd); font-size: 0.85em;">
-                  <strong>${data.affected_count}</strong> card(s) would be archived
+                  <strong>${affectedCount}</strong> card(s) would be archived
                 </div>
               </div>
             `;
@@ -3427,6 +3652,12 @@ class BoardManager {
     // Check database connection before opening modal
     if (window.header && !window.header.dbConnected) {
       this.showErrorToast('Cannot create card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+    
+    // Check if board is read-only
+    if (!this.canEdit) {
+      this.showErrorToast('Cannot create card: This board is read-only');
       return;
     }
     
@@ -3724,6 +3955,9 @@ class BoardManager {
       return;
     }
     
+    // Note: We allow opening the modal in read-only mode to view card details
+    // The form inputs will be disabled via the isReadOnly checks below
+    
     const checklistItems = cardData.checklist_items || [];
     const comments = cardData.comments || [];
     const hasChecklist = checklistItems.length > 0;
@@ -3741,6 +3975,22 @@ class BoardManager {
     
     // Check if this is a scheduled template card
     const isTemplate = cardData.scheduled === true;
+    const cardHasSchedule = !!cardData.schedule;
+    
+    // Check if board is read-only
+    const isReadOnly = !this.canEdit;
+    const readonlyAttr = isReadOnly ? 'readonly' : '';
+    const disabledAttr = isReadOnly ? 'disabled' : '';
+
+    const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
+    const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
+    const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
+    const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
+    const canEditSchedule = this.canCallPermissionEndpoint('PUT', '/api/schedules/:id');
+    const canDeleteSchedule = this.canCallPermissionEndpoint('DELETE', '/api/schedules/:id');
+    const canOpenScheduleEditor = cardHasSchedule
+      ? (canEditSchedule || canDeleteSchedule)
+      : canCreateSchedule;
     
     // Track changes
     let hasUnsavedChanges = false;
@@ -3751,27 +4001,28 @@ class BoardManager {
       <div class="modal" id="edit-card-modal">
         <div class="modal-content card-modal-content">
           <div class="modal-header">
+            ${isReadOnly ? '<div class="board-readonly-indicator" style="position: static; margin-bottom: 10px;">Read Only</div>' : ''}
             <div class="modal-header-actions">
-              ${isTemplate ?
+              ${isTemplate && canOpenScheduleEditor ?
                 `<button type="button" class="btn btn-secondary" id="edit-schedule-from-template-btn" data-card-id="${cardData.id}" data-has-schedule="${cardData.schedule ? 'true' : 'false'}">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
                     <circle cx="12" cy="12" r="10"></circle>
                     <polyline points="12 6 12 12 16 14"></polyline>
                   </svg>
                   Edit Schedule
-                </button>` :
+                </button>` : (!isReadOnly || canArchiveCard || canUnarchiveCard || canToggleDone) ?
                 cardData.archived ? 
-                  `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` :
+                  `${canUnarchiveCard ? `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` : ''}` :
                   `${this.workingStyle === 'board_task_category' ? 
-                    `<button type="button" class="btn btn-secondary" id="done-card-detail-btn" data-card-id="${cardData.id}" title="${cardData.done ? 'Mark as not done' : 'Mark as done'}">
+                    `${canToggleDone ? `<button type="button" class="btn btn-secondary" id="done-card-detail-btn" data-card-id="${cardData.id}" title="${cardData.done ? 'Mark as not done' : 'Mark as done'}">
                       ${cardData.done ? '○ Mark Not Done' : '✓ Mark Done'}
-                    </button>` :
+                    </button>` : ''}` :
                     ''
                   }
-                  <button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="${cardData.id}">🗄️ Archive</button>`
+                  ${canArchiveCard ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
               }
-              <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">Cancel</button>
-              <button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>
+              <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">${isReadOnly ? 'Close' : 'Cancel'}</button>
+              ${!isReadOnly ? '<button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>' : ''}
             </div>
             <h2>
               ${isTemplate ? 'Edit Card Template' : 'Edit Card'}
@@ -3781,13 +4032,14 @@ class BoardManager {
           <form id="edit-card-form">
             <div class="form-group">
               <label for="edit-card-title">Title:</label>
-              <input type="text" id="edit-card-title" name="edit-card-title" value="${this.escapeHtml(cardData.title)}" required>
+              <input type="text" id="edit-card-title" name="edit-card-title" value="${this.escapeHtml(cardData.title)}" required ${readonlyAttr}>
             </div>
             <div class="form-group">
               <label for="edit-card-description">Description:</label>
-              <textarea id="edit-card-description" name="edit-card-description" rows="4">${this.escapeHtml(cardData.description || '')}</textarea>
+              <textarea id="edit-card-description" name="edit-card-description" rows="4" ${readonlyAttr}>${this.escapeHtml(cardData.description || '')}</textarea>
             </div>
             
+            ${!isTemplate && canOpenScheduleEditor ? `
             <div class="schedule-section">
               <button type="button" class="btn btn-secondary" id="schedule-card-btn" data-card-id="${cardData.id}" data-has-schedule="${cardData.schedule ? 'true' : 'false'}">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
@@ -3797,6 +4049,7 @@ class BoardManager {
                 ${cardData.schedule ? 'Edit Schedule' : 'Create Schedule'}
               </button>
             </div>
+            ` : ''}
             
             <div class="checklist-section">
               ${hasChecklist ? `
@@ -3804,22 +4057,22 @@ class BoardManager {
                   <h3>Checklist</h3>
                   <span class="checklist-summary">${checklistItems.filter(i => i.checked).length}/${checklistItems.length} (${calculateChecklistPercentage(checklistItems)}%)</span>
                 </div>
-                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>
+                ${!isReadOnly ? '<button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-top-btn">+ Add Item</button>' : ''}
                 <div class="checklist-items" id="checklist-items">
                   ${checklistItems.map(item => `
-                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="true" ${item.created_at || item.updated_at ? `data-tooltip="Created: ${item.created_at ? formatTooltipDateTime(item.created_at) : 'Unknown'}&#10;Updated: ${item.updated_at ? formatTooltipDateTime(item.updated_at) : 'Unknown'}"` : ''}>
-                      <span class="drag-handle" title="Drag to reorder">&#9776;</span>
-                      <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''}>
+                    <div class="checklist-item" data-item-id="${item.id}" data-item-order="${item.order}" draggable="${!isReadOnly}" ${item.created_at || item.updated_at ? `data-tooltip="Created: ${item.created_at ? formatTooltipDateTime(item.created_at) : 'Unknown'}&#10;Updated: ${item.updated_at ? formatTooltipDateTime(item.updated_at) : 'Unknown'}"` : ''}>
+                      ${!isReadOnly ? '<span class="drag-handle" title="Drag to reorder">&#9776;</span>' : ''}
+                      <input type="checkbox" class="checklist-checkbox" data-item-id="${item.id}" ${item.checked ? 'checked' : ''} ${disabledAttr}>
                       <span class="checklist-item-name">${linkifyUrls(this.escapeHtml(item.name))}</span>
-                      <div class="checklist-item-actions">
+                      ${!isReadOnly ? `<div class="checklist-item-actions">
                         <button type="button" class="checklist-edit-btn" data-item-id="${item.id}" title="Edit">✎</button>
                         <button type="button" class="checklist-delete-btn" data-item-id="${item.id}" title="Delete">🗑</button>
-                      </div>
+                      </div>` : ''}
                     </div>
                   `).join('')}
                 </div>
-                <button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>
-              ` : `
+                ${!isReadOnly ? '<button type="button" class="btn btn-secondary btn-sm" id="add-checklist-item-bottom-btn">+ Add Item</button>' : ''}
+              ` : isReadOnly ? '' : `
                 <div id="checklist-header-container">
                   <button type="button" class="btn btn-secondary" id="add-checklist-item-initial-btn">+ Add Checklist</button>
                 </div>
@@ -3850,12 +4103,12 @@ class BoardManager {
               <div class="comments-header">
                 <h3>Comments</h3>
               </div>
-              <div class="comment-input-container">
+              ${!isReadOnly ? `<div class="comment-input-container">
                 <textarea id="new-comment-input" placeholder="Add a comment..." rows="3" maxlength="50000"></textarea>
                 <button type="button" class="btn btn-primary btn-sm" id="post-comment-btn">Post Comment</button>
-              </div>
+              </div>` : ''}
               <div class="comments-list" id="comments-list">
-                ${hasComments ? comments.map(comment => this.generateCommentHtml(comment)).join('') : '<p class="no-comments">No comments yet.</p>'}
+                ${hasComments ? comments.map(comment => this.generateCommentHtml(comment, isReadOnly)).join('') : '<p class="no-comments">No comments yet.</p>'}
               </div>
             </div>
             ` : ''}
@@ -5210,13 +5463,13 @@ class BoardManager {
     return date.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(date);
   }
 
-  generateCommentHtml(comment) {
+  generateCommentHtml(comment, isReadOnly = false) {
     const isLongComment = comment.comment.split('\n').length > 10 || comment.comment.length > 500;
     return `
       <div class="comment-item" data-comment-id="${comment.id}">
         <div class="comment-header">
           <span class="comment-date" data-tooltip="${formatTooltipDateTime(comment.created_at)}" aria-label="Created on ${formatTooltipDateTime(comment.created_at)}" tabindex="0">${this.formatCommentDate(comment.created_at)}</span>
-          <button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>
+          ${!isReadOnly ? `<button type="button" class="comment-delete-btn" data-comment-id="${comment.id}" title="Delete" aria-label="Delete comment">🗑</button>` : ''}
         </div>
         <div class="comment-text ${isLongComment ? 'collapsed' : ''}" id="comment-text-${comment.id}" data-comment-id="${comment.id}">${linkifyUrls(this.escapeHtml(comment.comment))}</div>
         ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}

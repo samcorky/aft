@@ -55,7 +55,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="backup-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="backup-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -63,7 +63,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="backup-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="backupToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="backupToggle" class="backup-toggle-input" role="switch" aria-label="Enable automatic backups">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -101,7 +101,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="housekeeping-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="housekeeping-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -109,7 +109,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="housekeeping-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="housekeepingToggle" class="backup-toggle-input" role="switch" aria-label="Enable housekeeping module">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -142,7 +142,7 @@
           <div class="status-row">
             <span class="status-label">Status:</span>
             <span class="status-value">
-              <span id="card-module-health" class="status-badge status-loading"><span class="spinner"></span>Loading...</span>
+              <span id="card-module-health" class="status-badge status-loading" role="status" aria-live="polite"><span class="spinner"></span>Loading...</span>
             </span>
           </div>
           <div class="status-row">
@@ -150,7 +150,7 @@
             <span class="status-value">
               <div class="backup-toggle-wrapper" id="card-toggle-wrapper" style="display: none;">
                 <label class="backup-toggle-label">
-                  <input type="checkbox" id="cardSchedulerToggle" class="backup-toggle-input">
+                  <input type="checkbox" id="cardSchedulerToggle" class="backup-toggle-input" role="switch" aria-label="Enable card scheduler module">
                   <span class="backup-toggle-slider"></span>
                 </label>
               </div>
@@ -213,8 +213,59 @@
         </div>
       </div>
 
+      <!-- Test User Management Card -->
+      <div class="info-card warning-card full-width" id="test-user-card">
+        <h2>
+          <svg class="warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          Test Compatibility Guidance
+          <span class="permission-help-icon" aria-label="Permission information">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span class="permission-tooltip">
+              <strong>Visible To:</strong><br>
+              • user.manage<br>
+              • user.role<br><br>
+              <strong>Removal Requires:</strong><br>
+              • user.manage<br><br>
+              This section does not create or grant the test account.
+            </span>
+          </span>
+        </h2>
+        <div class="info-content">
+          <p class="warning-text" id="test-user-presence" style="margin-bottom: 15px; color: #d97706;">
+            Checking known test user status...
+          </p>
+          <p class="test-user-guidance-copy">
+            API tests work with a clean database. If the database already contains users, the suite expects an approved administrator account with the following credentials.
+          </p>
+          <div class="test-user-credentials">
+            <strong>Test Account Credentials:</strong><br>
+            Email: test-admin@localhost<br>
+            Username: test-admin<br>
+            Password: TestAdmin123!
+          </div>
+          <p class="test-user-guidance-copy" id="test-user-compatibility">
+            This page does not create or grant the account. Remove the known test user when it is no longer required.
+          </p>
+          <div class="test-user-actions">
+            <button class="test-user-btn" id="test-user-btn" style="display: none; background: #ef4444; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: all 0.2s;">
+              <span id="test-user-btn-text">Remove Known Test User</span>
+            </button>
+            <div class="test-user-action-note" id="test-user-action-note"></div>
+          </div>
+          <div id="test-user-status" style="margin-top: 10px; padding: 10px; border-radius: 5px; display: none;"></div>
+        </div>
+      </div>
+
       <!-- Danger Zone Card -->
-      <div class="info-card danger-card full-width">
+      <div id="danger-zone-card" class="info-card danger-card full-width">
         <h2>
           <svg class="warning-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -222,11 +273,9 @@
             <line x1="12" y1="17" x2="12.01" y2="17"></line>
           </svg>
           Danger Zone 
-          <a href="https://youtu.be/siwpn14IE7E" target="_blank" rel="noopener noreferrer" class="plane-link" title="Highway to the Danger Zone">
-            <svg class="plane-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path>
-            </svg>
-          </a>
+          <svg class="plane-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17.8 19.2L16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path>
+          </svg>
         </h2>
         <div class="info-content">
           <p class="danger-warning">
@@ -257,11 +306,13 @@
       <p class="modal-instruction">
         To confirm, please type: <strong>"Yes I am sure I want to delete all of my data!"</strong>
       </p>
+      <label for="delete-confirmation-input" class="sr-only">Confirmation text</label>
       <input 
         type="text" 
         id="delete-confirmation-input" 
         placeholder="Type confirmation text here..."
         autocomplete="off"
+        aria-describedby="delete-modal-warning"
       >
       <div class="error-message" id="delete-error"></div>
       <div class="modal-actions">

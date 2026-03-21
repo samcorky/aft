@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Management - AFT</title>
+  <link rel="icon" type="image/png" href="/images/NotA.png">
+  <script src="/js/theme-loader.js"></script>
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/header.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/user-management.css">
+  <link rel="stylesheet" href="/css/role-management.css">
+</head>
+<body>
+  <!-- Header component will be loaded here -->
+  
+  <main class="canvas">
+    <h1 class="page-title">User Management</h1>
+    <div class="settings-container">
+
+      <!-- Pending Users Section -->
+      <div class="settings-section" id="pending-users-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <polyline points="17 11 19 13 23 9"></polyline>
+          </svg>
+          Pending Approval
+        </h3>
+        <p class="setting-help">Users waiting for administrator approval to access the system.</p>
+        
+        <div id="pending-users-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading pending users...
+        </div>
+        
+        <div id="pending-users-empty" class="empty-message" style="display: none;">
+          No users are currently waiting for approval.
+        </div>
+        
+        <div id="pending-users-list" class="users-list" style="display: none;">
+          <!-- Pending users will be populated here -->
+        </div>
+      </div>
+
+      <!-- Active Users Section -->
+      <div class="settings-section" id="active-users-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+          Approved Users
+        </h3>
+        
+        <div class="filter-bar">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="user-search" placeholder="Search by name or email..." class="search-input">
+          </div>
+          <div class="filter-toggle">
+            <label class="toggle-label">
+              <input type="checkbox" id="show-active-only" checked>
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">Active only</span>
+            </label>
+          </div>
+        </div>
+        
+        <div id="active-users-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading users...
+        </div>
+        
+        <div id="active-users-empty" class="empty-message" style="display: none;">
+          No active users found.
+        </div>
+        
+        <div id="active-users-list" class="users-list" style="display: none;">
+          <!-- Active users will be populated here -->
+        </div>
+      </div>
+
+      <!-- Manage User Roles Section -->
+      <div class="settings-section" id="role-management-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <path d="M20 8v6"></path>
+            <path d="M23 11h-6"></path>
+          </svg>
+          Manage User Roles
+        </h3>
+        <p class="setting-help">Assign or remove roles from active users. Roles can be global or board-specific.</p>
+        <p class="setting-help" id="role-restriction-note" style="display: none; font-style: italic; color: var(--text-secondary);">Note: You can only assign or remove roles that you have been granted.</p>
+        
+        <div class="filter-bar">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="m21 21-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="role-user-search" placeholder="Search by name or email..." class="search-input">
+          </div>
+        </div>
+        
+        <div id="role-users-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading users...
+        </div>
+        
+        <div id="role-users-empty" class="empty-message" style="display: none;">
+          No active users found.
+        </div>
+        
+        <div id="role-users-list" class="users-list" style="display: none;">
+          <!-- Users will be populated here -->
+        </div>
+      </div>
+
+      <!-- Permission Model Documentation Section -->
+      <div class="settings-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 16v-4"></path>
+            <path d="M12 8h.01"></path>
+          </svg>
+          How Permissions Work
+        </h3>
+        <p class="setting-help">Understanding the permission model and role system.</p>
+        
+        <div id="permission-model-loading" class="loading-message">
+          <span class="spinner"></span>
+          Loading permission model...
+        </div>
+        
+        <div id="permission-model-content" style="display: none;">
+          <!-- Permission model information will be populated here -->
+        </div>
+      </div>
+
+      <!-- Test Compatibility Guidance Section -->
+      <div class="settings-section test-user-guidance-section" id="test-user-guidance-section">
+        <h3>
+          <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          Test Compatibility Guidance
+        </h3>
+        <p class="setting-help" id="test-user-presence">Checking known test user status...</p>
+        <p class="test-user-guidance-copy">
+          API tests work with a clean database. If the database already contains users, the suite expects an approved administrator account with the following credentials.
+        </p>
+        <div class="test-user-credentials">
+          <strong>Test Account Credentials:</strong><br>
+          Email: test-admin@localhost<br>
+          Username: test-admin<br>
+          Password: TestAdmin123!
+        </div>
+        <p class="test-user-guidance-copy" id="test-user-compatibility">
+          This page does not create or grant the account. Remove the known test user when it is no longer required.
+        </p>
+        <div class="test-user-actions">
+          <button class="btn btn-danger" id="test-user-btn" style="display: none;">
+            <span id="test-user-btn-text">Remove Known Test User</span>
+          </button>
+          <div class="test-user-action-note" id="test-user-action-note"></div>
+        </div>
+        <div id="test-user-status" class="test-user-status" style="display: none;"></div>
+      </div>
+
+      <!-- Status Message -->
+      <div class="settings-actions">
+        <div id="status-message" class="settings-status"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Add Role Modal -->
+  <div class="modal" id="add-role-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="add-role-modal-title" aria-describedby="add-role-user-name">
+    <div class="modal-content">
+      <h2 id="add-role-modal-title">Assign Role</h2>
+      <div class="modal-body">
+        <p id="add-role-user-name"></p>
+        
+        <div class="form-group">
+          <label for="role-select">Role</label>
+          <select id="role-select" class="setting-select">
+            <option value="">Select a role...</option>
+          </select>
+          <p class="setting-help" id="modal-role-restriction-note" style="display: none; font-style: italic;">Note: Only roles you have been granted are available.</p>
+        </div>
+        
+        <div class="form-group">
+          <label for="board-select">Board (Optional)</label>
+          <select id="board-select" class="setting-select">
+            <option value="">Global (All Boards)</option>
+          </select>
+          <p class="setting-help">Leave as "Global" to apply the role to all boards, or select a specific board.</p>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="add-role-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="add-role-ok-btn">Assign Role</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirmation Modal -->
+  <div class="modal" id="confirm-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+    <div class="modal-content">
+      <h2 id="confirm-modal-title">Confirm Action</h2>
+      <p id="confirm-modal-message"></p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="confirm-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="confirm-ok-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/utils.js"></script>
+  <script src="/js/notifications.js"></script>
+  <script src="/js/header.js"></script>
+  <script src="/js/user-management.js"></script>
+</body>
+</html>

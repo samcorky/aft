@@ -6,6 +6,7 @@ class Notifications {
     this.notifications = [];
     this.iconLink = document.getElementById('notifications-icon-link');
     this.popup = document.getElementById('notifications-popup');
+    this.dropdown = this.popup?.closest('.notifications-dropdown') || null;
     this.list = document.getElementById('notifications-list');
     this.badge = document.getElementById('notification-badge');
     this.markAllReadBtn = document.getElementById('mark-all-read-btn');
@@ -42,9 +43,11 @@ class Notifications {
     }
 
     // Hover behavior - load notifications when hovering
-    const notificationsDropdown = document.querySelector('.notifications-dropdown');
-    if (notificationsDropdown) {
-      notificationsDropdown.addEventListener('mouseenter', () => {
+    if (this.dropdown) {
+      this.dropdown.addEventListener('mouseenter', () => {
+        // Keep default right-expansion, but shift left when viewport space is limited.
+        requestAnimationFrame(() => this.positionPopupWithinViewport());
+
         // Only reload if last load was more than 5 seconds ago
         const now = Date.now();
         const timeSinceLastLoad = now - this.lastLoadTime;
@@ -55,6 +58,10 @@ class Notifications {
         }
       });
     }
+
+    window.addEventListener('resize', () => {
+      this.positionPopupWithinViewport();
+    });
 
     // Event delegation for notification actions
     this.list.addEventListener('click', (e) => this.handleNotificationClick(e));
@@ -111,6 +118,8 @@ class Notifications {
     
     this.popup.classList.add('pinned');
     this.isPopupOpen = true;
+
+    requestAnimationFrame(() => this.positionPopupWithinViewport());
     
     // Update hover state - disable hover on all menus when one is pinned
     if (typeof updateMenuHoverState === 'function') {
@@ -138,6 +147,31 @@ class Notifications {
         this.popup.focus();
       }
     }, 50); // Small delay to ensure DOM is updated after pinned class
+  }
+
+  /**
+   * Shift popup left when needed so it remains in the visible viewport.
+   */
+  positionPopupWithinViewport() {
+    if (!this.popup || this.popup.offsetParent === null) {
+      return;
+    }
+
+    this.popup.style.left = '0px';
+    this.popup.style.right = 'auto';
+
+    const rect = this.popup.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth;
+    const overflowRight = rect.right - viewportWidth;
+
+    if (overflowRight <= 0) {
+      return;
+    }
+
+    const shiftedLeft = -overflowRight;
+    const minLeft = -rect.left;
+    const clampedLeft = Math.max(shiftedLeft, minLeft);
+    this.popup.style.left = `${clampedLeft}px`;
   }
 
   /**

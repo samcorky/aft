@@ -43,6 +43,18 @@ body {
   background-repeat: no-repeat;
 }
 
+.page-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-bold);
+  margin-bottom: 24px;
+  padding: 20px 20px 16px 20px;
+  border-bottom: 3px solid var(--primary-color);
+  background: var(--page-panel-background);
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
 /* Legacy status styles - kept for backward compatibility */
 .status {
   padding: 15px;

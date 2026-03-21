@@ -10,7 +10,7 @@ import logging
 
 from sqlalchemy import func
 from database import SessionLocal
-from models import Card, ScheduledCard, Comment, ChecklistItem
+from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
 
@@ -397,6 +397,38 @@ class CardScheduler:
                 order=max_comment_order + 1
             )
             db.add(comment)
+
+            # Broadcast so connected clients see scheduler-created cards immediately.
+            try:
+                column = db.query(BoardColumn).filter(BoardColumn.id == template.column_id).first()
+                board_id = column.board_id if column else None
+                if board_id is not None:
+                    from app import broadcast_event
+
+                    broadcast_event('card_created', {
+                        'board_id': board_id,
+                        'column_id': new_card.column_id,
+                        'card_id': new_card.id,
+                        'card_data': {
+                            'id': new_card.id,
+                            'column_id': new_card.column_id,
+                            'title': new_card.title,
+                            'description': new_card.description,
+                            'order': new_card.order,
+                            'scheduled': new_card.scheduled,
+                            'schedule': new_card.schedule,
+                            'archived': new_card.archived,
+                            'done': new_card.done,
+                            'created_at': new_card.created_at.isoformat() if new_card.created_at else None,
+                            'updated_at': new_card.updated_at.isoformat() if new_card.updated_at else None
+                        }
+                    }, board_id)
+                else:
+                    logger.warning(
+                        f"Skipping scheduler card_created broadcast for card {new_card.id}: column {template.column_id} has no board_id"
+                    )
+            except Exception as broadcast_error:
+                logger.warning(f"Failed to broadcast scheduler-created card {new_card.id}: {broadcast_error}")
             
             logger.info(f"Created card {new_card.id} from schedule {schedule.id}")
             

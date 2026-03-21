@@ -1123,7 +1123,8 @@
 
 .next-run-item {
   padding: 12px;
-  background-color: white;
+  background-color: var(--page-panel-background);
+  color: var(--text-color);
   border-radius: 5px;
   border-left: 4px solid var(--primary-color);
   font-weight: 500;
@@ -1490,7 +1491,7 @@
 }
 
 .board-loading-content {
-  background: white;
+  background: var(--page-panel-background);
   padding: 30px 50px;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);

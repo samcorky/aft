@@ -129,7 +129,7 @@
   width: 100%;
   max-width: 400px;
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
   border-radius: 5px;
   font-size: 14px;
   background-color: var(--page-panel-background);
@@ -305,7 +305,7 @@
   height: 20px;
   left: 2px;
   top: 2px;
-  background-color: white;
+  background-color: var(--page-panel-background);
   border-radius: 50%;
   transition: transform 0.3s;
 }
@@ -352,7 +352,7 @@
   width: 100%;
   max-width: 400px;
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
   border-radius: 5px;
   font-size: 14px;
   background-color: var(--page-panel-background);
@@ -405,7 +405,7 @@
 .btn-secondary {
   background: var(--page-panel-background);
   color: var(--text-color);
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
@@ -634,7 +634,8 @@
 }
 
 .modal-content {
-  background-color: white;
+  background-color: var(--page-panel-background);
+  color: var(--text-color);
   border-radius: 12px;
   padding: 0;
   max-width: 500px;
@@ -704,6 +705,8 @@
   width: 100%;
   padding: 10px;
   border: 1px solid var(--border-color);
+  background-color: var(--background-light);
+  color: var(--text-color);
   border-radius: 4px;
   font-size: 14px;
   font-family: inherit;
@@ -752,7 +755,7 @@
 .modal-footer .btn-secondary {
   background: var(--page-panel-background);
   color: var(--text-color);
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-color);
 }
 
 .modal-footer .btn-secondary:hover {

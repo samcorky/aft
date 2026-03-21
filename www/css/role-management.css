@@ -354,6 +354,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 10px;
   background: var(--page-panel-background);
   border: 1px solid var(--border-color);
@@ -390,8 +391,8 @@
 .remove-role-btn {
   padding: 5px 12px;
   background: none;
-  border: 1px solid var(--danger-color);
-  color: var(--danger-color);
+  border: 1px solid var(--danger-color, var(--error-color));
+  color: var(--danger-color, var(--error-color));
   border-radius: 5px;
   cursor: pointer;
   font-size: 13px;
@@ -399,8 +400,8 @@
 }
 
 .remove-role-btn:hover {
-  background: var(--danger-color);
-  color: white;
+  background: var(--danger-color, var(--error-color));
+  color: var(--header-text-color, white);
 }
 
 .no-roles-message {

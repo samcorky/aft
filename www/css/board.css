@@ -883,6 +883,69 @@
   color: var(--text-bold);
 }
 
+.modal-description {
+  color: var(--text-color);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.archive-after-input-row {
+  display: flex;
+  gap: 10px;
+}
+
+.archive-after-input-row input,
+.archive-after-input-row select {
+  flex: 1;
+}
+
+.archive-after-preview {
+  margin-top: 20px;
+  padding: 15px;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.archive-after-preview-title {
+  margin: 0 0 10px;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
+.archive-after-preview-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.archive-after-preview-card {
+  padding: 10px;
+  background: var(--card-bg-color);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 4px;
+}
+
+.archive-after-preview-card-title {
+  margin-bottom: 5px;
+  font-weight: 600;
+  color: var(--text-bold);
+}
+
+.archive-after-preview-card-meta {
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+
+.archive-after-preview-card-summary {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.85em;
+  color: var(--text-color);
+}
+
 .modal-header {
   display: flex;
   flex-direction: column;

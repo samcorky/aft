@@ -3353,9 +3353,9 @@ class BoardManager {
           <form id="archive-after-form">
             <div class="form-group">
               <label for="archive-quantity">Archive cards older than:</label>
-              <div style="display: flex; gap: 10px;">
-                <input type="number" id="archive-quantity" name="quantity" min="1" step="1" value="7" required aria-required="true" style="flex: 1;">
-                <select id="archive-period" name="period" required aria-required="true" style="flex: 1;">
+              <div class="archive-after-input-row">
+                <input type="number" id="archive-quantity" name="quantity" min="1" step="1" value="7" required aria-required="true">
+                <select id="archive-period" name="period" required aria-required="true">
                   <option value="minutes">Minutes</option>
                   <option value="hours">Hours</option>
                   <option value="days" selected>Days</option>
@@ -3363,8 +3363,8 @@ class BoardManager {
                 </select>
               </div>
             </div>
-            <div id="preview-section" style="margin-top: 20px; padding: 15px; background: var(--card-bg, #f5f5f5); border-radius: 5px; display: none;" role="region" aria-live="polite">
-              <h3 style="margin-top: 0; font-size: 0.9em; color: var(--text-secondary, #666);">Preview - Most Recent Card to Archive:</h3>
+            <div id="preview-section" class="archive-after-preview" style="display: none;" role="region" aria-live="polite">
+              <h3 class="archive-after-preview-title">Preview - Most Recent Card to Archive:</h3>
               <div id="preview-content"></div>
             </div>
             <div class="modal-actions">
@@ -3429,7 +3429,7 @@ class BoardManager {
         
         if (response.ok && data.success) {
           if (data.affected_count === 0) {
-            previewContent.innerHTML = '<p style="color: var(--text-secondary, #666); font-style: italic;">No cards would be archived with these settings.</p>';
+            previewContent.innerHTML = '<p class="archive-after-preview-empty">No cards would be archived with these settings.</p>';
           } else {
             const card = data.most_recent_card;
             const updatedDate = new Date(card.updated_at || card.created_at);
@@ -3438,12 +3438,12 @@ class BoardManager {
             const affectedCount = parseInt(data.affected_count) || 0;
             
             previewContent.innerHTML = `
-              <div style="padding: 10px; background: var(--bg-primary, white); border-radius: 3px; border-left: 3px solid var(--accent-primary, #007bff);">
-                <div style="font-weight: bold; margin-bottom: 5px;">${this.escapeHtml(card.title)}</div>
-                <div style="font-size: 0.85em; color: var(--text-secondary, #666);">
+              <div class="archive-after-preview-card">
+                <div class="archive-after-preview-card-title">${this.escapeHtml(card.title)}</div>
+                <div class="archive-after-preview-card-meta">
                   Last updated: ${updatedDate.toLocaleString()} (${daysDiff} days ago)
                 </div>
-                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color, #ddd); font-size: 0.85em;">
+                <div class="archive-after-preview-card-summary">
                   <strong>${affectedCount}</strong> card(s) would be archived
                 </div>
               </div>

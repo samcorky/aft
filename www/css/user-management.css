@@ -35,28 +35,29 @@
 }
 
 .test-user-guidance-section {
-  border: 2px solid #d97706;
-  background: #fef3c7;
+  border: 2px solid var(--warning-color);
+  background: rgba(255, 193, 7, 0.12);
 }
 
 .test-user-guidance-section h3 {
-  color: #b45309;
+  color: var(--text-bold);
 }
 
 .test-user-guidance-copy {
   margin-bottom: 12px;
-  color: #92400e;
+  color: var(--text-color);
   line-height: 1.5;
 }
 
 .test-user-credentials {
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--page-panel-background);
+  border: 1px solid var(--border-color);
   padding: 10px;
   border-radius: 6px;
   margin-bottom: 15px;
   font-family: monospace;
   font-size: 0.9em;
-  color: #78350f;
+  color: var(--text-color);
 }
 
 .test-user-actions {
@@ -67,7 +68,7 @@
 }
 
 .test-user-action-note {
-  color: #92400e;
+  color: var(--text-color);
   font-size: 0.95rem;
   line-height: 1.4;
 }

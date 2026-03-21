@@ -136,11 +136,12 @@
 
 .role-action-btn {
   padding: 6px 12px;
-  background: none;
+  background: var(--page-panel-background);
   border: 1px solid var(--border-color);
   border-radius: 5px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
   transition: all 0.2s;
   color: var(--text-color);
   display: flex;
@@ -203,8 +204,9 @@
   padding: 4px 10px;
   background: var(--page-panel-background);
   border: 1px solid var(--border-color);
-  color: var(--text-secondary);
+  color: var(--text-color);
   font-size: 12px;
+  font-weight: 500;
   border-radius: 4px;
   font-family: 'Courier New', monospace;
 }
@@ -220,6 +222,46 @@
 
 .permission-toggle:hover {
   color: var(--primary-color-hover);
+}
+
+/* Keep role-list cards readable even with shared permission-doc styles in this file */
+.roles-list .role-card {
+  padding: 20px;
+  background: var(--background-light);
+  border: 1px solid var(--border-color);
+}
+
+.roles-list .role-name {
+  font-size: 16px;
+  color: var(--text-color);
+  font-family: inherit;
+  text-transform: capitalize;
+}
+
+.roles-list .role-description {
+  color: var(--text-secondary);
+}
+
+.roles-list .role-card strong {
+  color: var(--text-color);
+}
+
+.roles-list .permission-tag {
+  background: var(--page-panel-background);
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+
+.roles-list .role-action-btn {
+  background: var(--page-panel-background);
+  color: var(--text-color);
+  border-color: var(--border-color);
+}
+
+.roles-list .role-action-btn:hover {
+  background: var(--primary-color);
+  color: var(--header-text-color);
+  border-color: var(--primary-color);
 }
 
 /* Users List */
@@ -570,7 +612,8 @@
 
 .summary-label {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-color);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -611,8 +654,8 @@
   font-family: 'Courier New', monospace;
   font-size: 14px;
   font-weight: 600;
-  color: var(--primary-color);
-  background: var(--background-medium);
+  color: var(--text-color);
+  background: var(--page-panel-background);
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid var(--border-color);
@@ -620,16 +663,17 @@
 
 .endpoint-count {
   font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--page-panel-background);
+  color: var(--text-color);
+  background: var(--background-light);
   padding: 4px 10px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
+  font-weight: 600;
 }
 
 .permission-description {
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-color);
   margin: 0;
 }
 
@@ -664,8 +708,8 @@
 .endpoint-methods {
   font-size: 11px;
   font-weight: 700;
-  color: var(--success-color);
-  background: var(--background-medium);
+  color: var(--text-color);
+  background: rgba(40, 167, 69, 0.18);
   padding: 4px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -684,8 +728,8 @@
 }
 
 .endpoint-note {
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-secondary);
   font-style: italic;
 }
 
@@ -711,26 +755,28 @@
   border-radius: 12px;
   text-transform: uppercase;
   white-space: nowrap;
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
 }
 
 .protection-permission {
-  background: var(--primary-color);
-  color: white;
+  background: rgba(52, 152, 219, 0.18);
+  border-color: var(--primary-color);
 }
 
 .protection-auth {
-  background: var(--warning-color);
-  color: white;
+  background: rgba(255, 193, 7, 0.2);
+  border-color: var(--warning-color);
 }
 
 .protection-board {
-  background: var(--info-color);
-  color: white;
+  background: rgba(23, 162, 184, 0.2);
+  border-color: var(--info-color);
 }
 
 .protection-public {
-  background: var(--text-muted);
-  color: white;
+  background: rgba(127, 140, 141, 0.2);
+  border-color: var(--text-muted);
 }
 
 .permissions-list {
@@ -797,6 +843,11 @@
   color: var(--text-color);
   font-size: 16px;
   font-weight: 500;
+}
+
+.permission-section p {
+  color: var(--text-color);
+  line-height: 1.6;
 }
 
 .permission-concept {

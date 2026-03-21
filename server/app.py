@@ -957,9 +957,9 @@ def get_test_user_status():
     - Administration
   responses:
     200:
-    description: Known test user status
+      description: Known test user status
     403:
-    description: Forbidden - requires user.manage or user.role
+      description: Forbidden - requires user.manage or user.role
   """
   from permissions import has_permission
 
@@ -1013,13 +1013,13 @@ def remove_test_user():
     - Administration
   responses:
     200:
-    description: Test user removed
+      description: Test user removed
     404:
-    description: Known test user not found
+      description: Known test user not found
     403:
-    description: Forbidden - requires user.manage
+      description: Forbidden - requires user.manage
     500:
-    description: Server error
+      description: Server error
   """
   db = SessionLocal()
   try:

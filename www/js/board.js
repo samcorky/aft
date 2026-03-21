@@ -1,5 +1,11 @@
 // Board detail page functionality
 
+const COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX = 56;
+const COLUMN_AUTO_SCROLL_HOVER_DELAY_MS = 500;
+const COLUMN_AUTO_SCROLL_BASE_STEP_PX = 6;
+const COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX = 12;
+const COLUMN_AUTO_SCROLL_MIN_STEP_PX = 4;
+
 /**
  * Calculate the percentage of checked items in a checklist
  * @param {Array} items - Array of checklist items with 'checked' property
@@ -751,6 +757,13 @@ class BoardManager {
     this.currentViewState = null; // Track the view state for the current load
     this.columnScrollPositions = {};
     this.persistScrollTimeoutId = null;
+    this.autoScrollHoverTimeoutId = null;
+    this.autoScrollRafId = null;
+    this.autoScrollContainer = null;
+    this.autoScrollDirection = 0;
+    this.autoScrollPointerY = 0;
+    this.autoScrollPendingContainer = null;
+    this.autoScrollPendingDirection = 0;
   }
 
   getColumnScrollStorageKey() {
@@ -1077,6 +1090,7 @@ class BoardManager {
   }
 
   async loadBoard() {
+    this.stopColumnAutoScroll();
     this.captureColumnScrollPositions();
 
     // Cancel any in-flight board load request
@@ -1271,6 +1285,8 @@ class BoardManager {
       this.persistScrollTimeoutId = null;
     }
 
+    this.stopColumnAutoScroll();
+
     this.persistColumnScrollPositions();
   }
 
@@ -1328,6 +1344,8 @@ class BoardManager {
   }
 
   renderBoard() {
+    this.stopColumnAutoScroll();
+
     // Show/hide views dropdown in header based on columns
     if (window.header) {
       window.header.showViewsDropdown(this.columns.length > 0);
@@ -1993,6 +2011,117 @@ class BoardManager {
     }
   }
 
+  stopColumnAutoScroll() {
+    if (this.autoScrollHoverTimeoutId) {
+      clearTimeout(this.autoScrollHoverTimeoutId);
+      this.autoScrollHoverTimeoutId = null;
+    }
+
+    if (this.autoScrollRafId) {
+      cancelAnimationFrame(this.autoScrollRafId);
+      this.autoScrollRafId = null;
+    }
+
+    this.autoScrollContainer = null;
+    this.autoScrollDirection = 0;
+    this.autoScrollPendingContainer = null;
+    this.autoScrollPendingDirection = 0;
+  }
+
+  runColumnAutoScroll() {
+    if (!this.autoScrollContainer || this.autoScrollDirection === 0) {
+      this.stopColumnAutoScroll();
+      return;
+    }
+
+    const container = this.autoScrollContainer;
+    if (!container.isConnected) {
+      this.stopColumnAutoScroll();
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const edgeThreshold = COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX;
+
+    const distanceToActiveEdge = this.autoScrollDirection < 0
+      ? Math.max(0, this.autoScrollPointerY - rect.top)
+      : Math.max(0, rect.bottom - this.autoScrollPointerY);
+
+    const edgeProximity = Math.max(0, Math.min(1, (edgeThreshold - distanceToActiveEdge) / edgeThreshold));
+    const scrollStep = Math.max(
+      COLUMN_AUTO_SCROLL_MIN_STEP_PX,
+      Math.round(COLUMN_AUTO_SCROLL_BASE_STEP_PX + edgeProximity * COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX)
+    );
+
+    const previousScrollTop = container.scrollTop;
+    container.scrollTop += this.autoScrollDirection * scrollStep;
+
+    if (container.scrollTop === previousScrollTop) {
+      this.stopColumnAutoScroll();
+      return;
+    }
+
+    this.autoScrollRafId = requestAnimationFrame(() => this.runColumnAutoScroll());
+  }
+
+  scheduleColumnAutoScroll(container, direction, pointerY) {
+    this.autoScrollPointerY = pointerY;
+
+    if (
+      this.autoScrollContainer === container &&
+      this.autoScrollDirection === direction &&
+      this.autoScrollRafId
+    ) {
+      return;
+    }
+
+    if (
+      this.autoScrollPendingContainer === container &&
+      this.autoScrollPendingDirection === direction &&
+      this.autoScrollHoverTimeoutId
+    ) {
+      return;
+    }
+
+    this.stopColumnAutoScroll();
+    this.autoScrollPendingContainer = container;
+    this.autoScrollPendingDirection = direction;
+
+    this.autoScrollHoverTimeoutId = setTimeout(() => {
+      this.autoScrollHoverTimeoutId = null;
+      this.autoScrollContainer = this.autoScrollPendingContainer;
+      this.autoScrollDirection = this.autoScrollPendingDirection;
+      this.autoScrollPendingContainer = null;
+      this.autoScrollPendingDirection = 0;
+      this.runColumnAutoScroll();
+    }, COLUMN_AUTO_SCROLL_HOVER_DELAY_MS);
+  }
+
+  updateColumnAutoScrollDuringDrag(container, clientY) {
+    const rect = container.getBoundingClientRect();
+    const edgeThreshold = COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX;
+    const distanceToTop = clientY - rect.top;
+    const distanceToBottom = rect.bottom - clientY;
+
+    let direction = 0;
+
+    if (distanceToTop <= edgeThreshold && container.scrollTop > 0) {
+      direction = -1;
+    } else if (
+      distanceToBottom <= edgeThreshold &&
+      container.scrollTop + container.clientHeight < container.scrollHeight - 1
+    ) {
+      direction = 1;
+    }
+
+    if (direction === 0) {
+      this.stopColumnAutoScroll();
+      return;
+    }
+
+    this.scheduleColumnAutoScroll(container, direction, clientY);
+  }
+
   setupDragAndDrop() {
     const cards = document.querySelectorAll('.card');
     const columnCards = document.querySelectorAll('.column-cards');
@@ -2038,6 +2167,7 @@ class BoardManager {
         card.classList.remove('dragging');
         draggedCard = null;
         originalPosition = null; // Clear stored position
+        this.stopColumnAutoScroll();
       });
     });
     
@@ -2046,6 +2176,8 @@ class BoardManager {
       columnContainer.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+
+        this.updateColumnAutoScrollDuringDrag(columnContainer, e.clientY);
         
         const afterElement = this.getDragAfterElement(columnContainer, e.clientY);
         const dragging = document.querySelector('.dragging');
@@ -2067,6 +2199,7 @@ class BoardManager {
       
       columnContainer.addEventListener('drop', async (e) => {
         e.preventDefault();
+        this.stopColumnAutoScroll();
         
         if (!draggedCard || !originalPosition) return;
         
@@ -2082,6 +2215,12 @@ class BoardManager {
         const oldOrder = originalPosition.order;
         if (targetColumnId !== oldColumnId || newOrder !== oldOrder) {
           await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
+        }
+      });
+
+      columnContainer.addEventListener('dragleave', (e) => {
+        if (!columnContainer.contains(e.relatedTarget)) {
+          this.stopColumnAutoScroll();
         }
       });
     });

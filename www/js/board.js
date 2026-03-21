@@ -1,5 +1,11 @@
 // Board detail page functionality
 
+const COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX = 56;
+const COLUMN_AUTO_SCROLL_HOVER_DELAY_MS = 500;
+const COLUMN_AUTO_SCROLL_BASE_STEP_PX = 6;
+const COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX = 12;
+const COLUMN_AUTO_SCROLL_MIN_STEP_PX = 4;
+
 /**
  * Calculate the percentage of checked items in a checklist
  * @param {Array} items - Array of checklist items with 'checked' property
@@ -1084,6 +1090,7 @@ class BoardManager {
   }
 
   async loadBoard() {
+    this.stopColumnAutoScroll();
     this.captureColumnScrollPositions();
 
     // Cancel any in-flight board load request
@@ -1278,6 +1285,8 @@ class BoardManager {
       this.persistScrollTimeoutId = null;
     }
 
+    this.stopColumnAutoScroll();
+
     this.persistColumnScrollPositions();
   }
 
@@ -1335,6 +1344,8 @@ class BoardManager {
   }
 
   renderBoard() {
+    this.stopColumnAutoScroll();
+
     // Show/hide views dropdown in header based on columns
     if (window.header) {
       window.header.showViewsDropdown(this.columns.length > 0);
@@ -2024,15 +2035,23 @@ class BoardManager {
     }
 
     const container = this.autoScrollContainer;
+    if (!container.isConnected) {
+      this.stopColumnAutoScroll();
+      return;
+    }
+
     const rect = container.getBoundingClientRect();
-    const edgeThreshold = 56;
+    const edgeThreshold = COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX;
 
     const distanceToActiveEdge = this.autoScrollDirection < 0
       ? Math.max(0, this.autoScrollPointerY - rect.top)
       : Math.max(0, rect.bottom - this.autoScrollPointerY);
 
     const edgeProximity = Math.max(0, Math.min(1, (edgeThreshold - distanceToActiveEdge) / edgeThreshold));
-    const scrollStep = Math.max(4, Math.round(6 + edgeProximity * 12));
+    const scrollStep = Math.max(
+      COLUMN_AUTO_SCROLL_MIN_STEP_PX,
+      Math.round(COLUMN_AUTO_SCROLL_BASE_STEP_PX + edgeProximity * COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX)
+    );
 
     const previousScrollTop = container.scrollTop;
     container.scrollTop += this.autoScrollDirection * scrollStep;
@@ -2075,12 +2094,12 @@ class BoardManager {
       this.autoScrollPendingContainer = null;
       this.autoScrollPendingDirection = 0;
       this.runColumnAutoScroll();
-    }, 500);
+    }, COLUMN_AUTO_SCROLL_HOVER_DELAY_MS);
   }
 
   updateColumnAutoScrollDuringDrag(container, clientY) {
     const rect = container.getBoundingClientRect();
-    const edgeThreshold = 56;
+    const edgeThreshold = COLUMN_AUTO_SCROLL_EDGE_THRESHOLD_PX;
     const distanceToTop = clientY - rect.top;
     const distanceToBottom = rect.bottom - clientY;
 

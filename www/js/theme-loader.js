@@ -2,6 +2,31 @@
 // This must run IMMEDIATELY in the HEAD to prevent style flash
 
 (function() {
+  function getSafeBackgroundImage(filename) {
+    if (typeof filename !== 'string') {
+      return null;
+    }
+
+    const trimmedFilename = filename.trim();
+    if (!trimmedFilename || trimmedFilename === 'none') {
+      return null;
+    }
+
+    return /^[A-Za-z0-9_.-]+$/.test(trimmedFilename) ? trimmedFilename : null;
+  }
+
+  function applyBackgroundImage(root, filename) {
+    const safeFilename = getSafeBackgroundImage(filename);
+
+    if (safeFilename) {
+      root.style.setProperty('--background-image', `url('/images/backgrounds/${safeFilename}')`);
+      return safeFilename;
+    }
+
+    root.style.setProperty('--background-image', 'none');
+    return null;
+  }
+
   // Helper to apply theme colors and background
   function applyThemeToDOM(theme) {
     const root = document.documentElement;
@@ -14,13 +39,12 @@
     }
     
     // Apply background image
-    if (theme && theme.background_image) {
-      root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
+    const safeBackgroundImage = applyBackgroundImage(root, theme && theme.background_image);
+    if (safeBackgroundImage) {
       if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('backgroundImage', theme.background_image);
+        sessionStorage.setItem('backgroundImage', safeBackgroundImage);
       }
     } else {
-      root.style.setProperty('--background-image', 'none');
       if (typeof sessionStorage !== 'undefined') {
         sessionStorage.setItem('backgroundImage', 'none');
       }
@@ -46,11 +70,7 @@
         });
         
         // Also apply the cached background image
-        if (savedBgImage && savedBgImage !== 'none') {
-          root.style.setProperty('--background-image', `url('/images/backgrounds/${savedBgImage}')`);
-        } else {
-          root.style.setProperty('--background-image', 'none');
-        }
+        applyBackgroundImage(root, savedBgImage);
         
         return true; // Successfully applied cached theme
       } catch (e) {
@@ -59,11 +79,7 @@
     }
     
     // Apply cached background if no theme cache
-    if (savedBgImage && savedBgImage !== 'none') {
-      document.documentElement.style.setProperty('--background-image', `url('/images/backgrounds/${savedBgImage}')`);
-    } else {
-      document.documentElement.style.setProperty('--background-image', 'none');
-    }
+    applyBackgroundImage(document.documentElement, savedBgImage);
     
     return false; // No cached theme available
   }

@@ -746,8 +746,82 @@ class BoardManager {
     this.canEdit = true; // Track if user has edit permissions for this board
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
+    this.beforeUnloadHandler = this.handleBeforeUnload.bind(this);
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
+    this.columnScrollPositions = {};
+    this.persistScrollTimeoutId = null;
+  }
+
+  getColumnScrollStorageKey() {
+    return this.boardId ? `aft:board:${this.boardId}:column-scroll` : null;
+  }
+
+  loadPersistedColumnScrollPositions() {
+    const storageKey = this.getColumnScrollStorageKey();
+    if (!storageKey) return;
+
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        this.columnScrollPositions = parsed;
+      }
+    } catch (error) {
+      console.warn('Failed to load column scroll positions:', error);
+    }
+  }
+
+  persistColumnScrollPositions() {
+    const storageKey = this.getColumnScrollStorageKey();
+    if (!storageKey) return;
+
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(this.columnScrollPositions));
+    } catch (error) {
+      console.warn('Failed to persist column scroll positions:', error);
+    }
+  }
+
+  schedulePersistColumnScrollPositions() {
+    if (this.persistScrollTimeoutId) {
+      clearTimeout(this.persistScrollTimeoutId);
+    }
+
+    this.persistScrollTimeoutId = setTimeout(() => {
+      this.persistColumnScrollPositions();
+      this.persistScrollTimeoutId = null;
+    }, 150);
+  }
+
+  captureColumnScrollPositions() {
+    document.querySelectorAll('.column-cards[data-column-id]').forEach(columnCards => {
+      const columnId = columnCards.getAttribute('data-column-id');
+      if (!columnId) return;
+      this.columnScrollPositions[columnId] = columnCards.scrollTop || 0;
+    });
+
+    this.schedulePersistColumnScrollPositions();
+  }
+
+  restoreColumnScrollPositions() {
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.column-cards[data-column-id]').forEach(columnCards => {
+        const columnId = columnCards.getAttribute('data-column-id');
+        if (!columnId) return;
+
+        const savedScrollTop = this.columnScrollPositions[columnId];
+        if (typeof savedScrollTop === 'number' && savedScrollTop > 0) {
+          columnCards.scrollTop = savedScrollTop;
+        }
+      });
+    });
+  }
+
+  handleBeforeUnload() {
+    this.captureColumnScrollPositions();
+    this.persistColumnScrollPositions();
   }
 
   /**
@@ -896,6 +970,8 @@ class BoardManager {
     }
 
     this.render();
+    this.loadPersistedColumnScrollPositions();
+    window.addEventListener('beforeunload', this.beforeUnloadHandler);
     
     // Initialize WebSocket for real-time updates
     this.wsManager = new WebSocketManager(this.boardId, this);
@@ -968,6 +1044,8 @@ class BoardManager {
   }
 
   async loadBoard() {
+    this.captureColumnScrollPositions();
+
     // Cancel any in-flight board load request
     if (this.currentLoadController) {
       this.currentLoadController.abort();
@@ -1153,6 +1231,14 @@ class BoardManager {
     // Remove event listeners to prevent memory leaks
     document.removeEventListener('keydown', this.keyboardHandler);
     document.removeEventListener('click', this.closeDropdownHandler);
+    window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+
+    if (this.persistScrollTimeoutId) {
+      clearTimeout(this.persistScrollTimeoutId);
+      this.persistScrollTimeoutId = null;
+    }
+
+    this.persistColumnScrollPositions();
   }
 
   handleCloseDropdown(e) {
@@ -1720,6 +1806,18 @@ class BoardManager {
       if (this.canEdit) {
         this.setupDragAndDrop();
       }
+
+      // Track and restore per-column scroll state after each board render.
+      document.querySelectorAll('.column-cards[data-column-id]').forEach(columnCards => {
+        columnCards.addEventListener('scroll', () => {
+          const columnId = columnCards.getAttribute('data-column-id');
+          if (!columnId) return;
+          this.columnScrollPositions[columnId] = columnCards.scrollTop || 0;
+          this.schedulePersistColumnScrollPositions();
+        }, { passive: true });
+      });
+
+      this.restoreColumnScrollPositions();
       
       // Apply permission-based rendering (if PermissionManager is initialized)
       this.applyPermissionBasedRendering();

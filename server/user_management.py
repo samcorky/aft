@@ -8,6 +8,7 @@ This module provides admin-only endpoints for:
 - Activating/deactivating users
 """
 
+import json
 from flask import Blueprint, jsonify, request, g
 from database import SessionLocal
 from models import User, Role, UserRole
@@ -16,6 +17,7 @@ from utils import (
     create_error_response,
     create_success_response,
 )
+from permissions import INITIAL_ROLES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -216,6 +218,32 @@ def approve_user(user_id):
         
         user.is_approved = True
 
+        # Ensure approved users always get full theme rights globally.
+        # This gives access to copy system themes and manage only their own copies.
+        theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
+        if not theme_role:
+            role_info = INITIAL_ROLES.get('theme_user')
+            if role_info:
+                theme_role = Role(
+                    name='theme_user',
+                    description=role_info['description'],
+                    is_system_role=role_info['is_system_role'],
+                    permissions=json.dumps(role_info['permissions'])
+                )
+                db.add(theme_role)
+                db.flush()
+
+        if theme_role:
+            existing_theme_role = db.query(UserRole).filter(
+                UserRole.user_id == user.id,
+                UserRole.role_id == theme_role.id,
+                UserRole.board_id.is_(None)
+            ).first()
+            if not existing_theme_role:
+                db.add(UserRole(user_id=user.id, role_id=theme_role.id, board_id=None))
+        else:
+            logger.warning("System role 'theme_user' is unavailable; approved user may lack theme rights")
+
         db.commit()
 
         logger.info(f"User approved: {user.email} (ID: {user.id}) by admin {g.user.id}")
@@ -223,17 +251,17 @@ def approve_user(user_id):
         # TODO: Send approval notification email to user
         
         return create_success_response(
-          message=f"User {user.username} has been approved",
-          data={
-            'user': {
-              'id': user.id,
-              'email': user.email,
-              'username': user.username,
-              'display_name': user.display_name,
-              'is_active': user.is_active,
-              'is_approved': user.is_approved,
+            message=f"User {user.username} has been approved",
+            data={
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'username': user.username,
+                    'display_name': user.display_name,
+                    'is_active': user.is_active,
+                    'is_approved': user.is_approved,
+                }
             }
-          }
         )
         
     finally:

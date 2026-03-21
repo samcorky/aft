@@ -11,10 +11,12 @@ This module provides:
 
 import hashlib
 import secrets
+import json
 from flask import Blueprint, request, jsonify, session, g
 from sqlalchemy.sql import func
 from database import SessionLocal
 from models import User, Role, UserRole
+from permissions import INITIAL_ROLES
 from utils import (
     validate_string_length,
     create_error_response,
@@ -31,6 +33,36 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 # Session configuration constants
 SESSION_LIFETIME_HOURS = 24 * 7  # 7 days
 REMEMBER_ME_LIFETIME_DAYS = 30
+
+
+def ensure_theme_user_role(db, user_id):
+  """Ensure the user has the global theme_user role."""
+  theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
+  if not theme_role:
+    role_info = INITIAL_ROLES.get('theme_user')
+    if role_info:
+      theme_role = Role(
+        name='theme_user',
+        description=role_info['description'],
+        is_system_role=role_info['is_system_role'],
+        permissions=json.dumps(role_info['permissions'])
+      )
+      db.add(theme_role)
+      db.flush()
+
+  if not theme_role:
+    return False
+
+  existing_assignment = db.query(UserRole).filter(
+    UserRole.user_id == user_id,
+    UserRole.role_id == theme_role.id,
+    UserRole.board_id.is_(None)
+  ).first()
+  if existing_assignment:
+    return False
+
+  db.add(UserRole(user_id=user_id, role_id=theme_role.id, board_id=None))
+  return True
 
 
 def hash_password(password: str) -> str:
@@ -326,6 +358,9 @@ def login():
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
+
+            # Guarantee baseline theme rights for all approved users.
+            ensure_theme_user_role(db, user.id)
             
             # Update last login
             user.last_login_at = func.now()
@@ -563,6 +598,11 @@ def get_current_user():
     db = SessionLocal()
     try:
         from utils import get_user_permissions
+
+        # Backfill theme role for existing approved users on first authenticated access.
+        changed = ensure_theme_user_role(db, user.id)
+        if changed:
+            db.commit()
         
         roles = db.query(Role).join(UserRole).filter(
             UserRole.user_id == user.id,

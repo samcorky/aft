@@ -108,6 +108,18 @@ INITIAL_ROLES = {
             'setting.edit',
         ]
     },
+    'theme_user': {
+        'description': '[GLOBAL] Full theme management for personal themes',
+        'is_system_role': True,
+        'permissions': [
+            'theme.create',
+            'theme.view',
+            'theme.edit',
+            'theme.delete',
+            'setting.view',
+            'setting.edit',
+        ]
+    },
     
     # === BOARD-SPECIFIC ROLES (assigned with board_id) ===
     # These roles GRANT ACCESS to the specific board
@@ -156,7 +168,7 @@ INITIAL_ROLES = {
 BOARD_SPECIFIC_ONLY_ROLES = {'board_editor', 'board_viewer'}
 
 # Roles that MUST be global (cannot be board-specific)
-GLOBAL_ONLY_ROLES = {'administrator', 'board_creator'}
+GLOBAL_ONLY_ROLES = {'administrator', 'board_creator', 'theme_user'}
 
 
 def get_role_permissions_json(role_name):
@@ -248,6 +260,12 @@ def get_permission_model_info():
                     'description': 'Can create new boards (and automatically owns them with full control)',
                     'scope': 'global',
                     'use_case': 'Regular users who should be able to create their own boards'
+                },
+                {
+                    'name': 'theme_user',
+                    'description': 'Can view system themes and fully manage their own copied themes',
+                    'scope': 'global',
+                    'use_case': 'Default role for all approved users to manage personal themes'
                 }
             ],
             'board_specific': [
@@ -293,14 +311,14 @@ def get_permission_model_info():
             }
         ],
         'assignment_rules': [
-            'Global roles (administrator, board_creator) are assigned without selecting a board',
+            'Global roles (administrator, board_creator, theme_user) are assigned without selecting a board',
             'Board-specific roles (board_editor, board_viewer) MUST have a specific board selected',
             'Board owners can grant any role on their boards',
             'Users with user.role permission can grant roles they themselves have',
             'Administrators can grant any role'
         ],
         'summary': [
-            'Only 4 roles total (2 global, 2 board-specific)',
+            'Core system roles include 3 global roles and 2 board-specific roles',
             'Board owners have full control, others need explicit access',
             'No confusing "global editor" that does not grant access',
             'Can share boards with fine-grained control'

@@ -9197,6 +9197,10 @@ def copy_theme():
         source_theme = _get_user_accessible_theme(session, user_id, source_id)
         if not source_theme:
             return create_error_response("Source theme not found", 404)
+
+        # Users can only create persistent custom themes by copying system themes.
+        if not source_theme.system_theme:
+          return create_error_response("Only system themes can be copied", 400)
         
         # Check if new name is unique
         existing = session.query(Theme).filter(Theme.name == new_name).first()

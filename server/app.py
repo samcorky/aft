@@ -4729,6 +4729,13 @@ def create_column(board_id):
             "updated_at": column.updated_at.isoformat() if column.updated_at else None
         }
 
+        # Broadcast column creation so other connected clients can refresh immediately.
+        broadcast_event('column_created', {
+          'board_id': board_id,
+          'column_id': column.id,
+          'column_data': result
+        }, board_id)
+
         return create_success_response({"column": result}, status_code=201)
 
     except Exception as e:
@@ -4801,8 +4808,16 @@ def delete_column(column_id):
         if not board:
             return jsonify({"success": False, "message": "Access denied"}), 403
 
+        board_id = column.board_id
+
         db.delete(column)
         db.commit()
+
+        # Broadcast column deletion so other clients can refresh immediately.
+        broadcast_event('column_deleted', {
+          'board_id': board_id,
+          'column_id': column_id
+        }, board_id)
 
         return jsonify({"success": True, "message": "Column deleted successfully"}), 200
     except Exception as e:

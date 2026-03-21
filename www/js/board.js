@@ -497,6 +497,12 @@ class WebSocketManager {
     this.socket.on('column_reordered', (data) => {
       this.handleColumnReordered(data);
     });
+    this.socket.on('column_created', (data) => {
+      this.handleColumnCreated(data);
+    });
+    this.socket.on('column_deleted', (data) => {
+      this.handleColumnDeleted(data);
+    });
     this.socket.on('checklist_item_added', (data) => {
       this.handleChecklistItemAdded(data);
     });
@@ -664,6 +670,18 @@ class WebSocketManager {
   handleColumnReordered(data) {
     // Columns were reordered on another client
     // Refresh the board to reflect new column order
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnCreated(data) {
+    // A column was created on another client
+    // Reload board so the new column appears immediately
+    this.boardManager.loadBoard();
+  }
+
+  handleColumnDeleted(data) {
+    // A column was deleted on another client
+    // Reload board so removed columns disappear immediately
     this.boardManager.loadBoard();
   }
 

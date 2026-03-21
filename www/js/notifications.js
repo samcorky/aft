@@ -12,6 +12,7 @@ class Notifications {
     this.markAllReadBtn = document.getElementById('mark-all-read-btn');
     this.isPopupOpen = false;
     this.lastLoadTime = 0;  // Track last load time to avoid duplicate requests
+    this.resizeAnimationFrameId = null;  // Throttle resize repositioning
 
     this.init();
   }
@@ -60,7 +61,14 @@ class Notifications {
     }
 
     window.addEventListener('resize', () => {
-      this.positionPopupWithinViewport();
+      // Throttle resize repositioning to at most one per frame
+      if (this.resizeAnimationFrameId !== null) {
+        cancelAnimationFrame(this.resizeAnimationFrameId);
+      }
+      this.resizeAnimationFrameId = requestAnimationFrame(() => {
+        this.resizeAnimationFrameId = null;
+        this.positionPopupWithinViewport();
+      });
     });
 
     // Event delegation for notification actions
@@ -151,27 +159,42 @@ class Notifications {
 
   /**
    * Shift popup left when needed so it remains in the visible viewport.
+   * Also constrain popup width if it exceeds the viewport width.
    */
   positionPopupWithinViewport() {
     if (!this.popup || this.popup.offsetParent === null) {
       return;
     }
 
+    const viewportWidth = document.documentElement.clientWidth;
+
+    // Reset inline width constraints to get natural size
+    this.popup.style.maxWidth = '';
+    this.popup.style.width = '';
+
     this.popup.style.left = '0px';
     this.popup.style.right = 'auto';
 
     const rect = this.popup.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    const overflowRight = rect.right - viewportWidth;
+    const popupWidth = rect.width;
 
-    if (overflowRight <= 0) {
-      return;
+    // If popup is wider than viewport, constrain it
+    if (popupWidth > viewportWidth) {
+      const constrainedWidth = Math.max(viewportWidth - 16, 200); // Subtract 8px padding on each side, but keep minimum 200px
+      this.popup.style.maxWidth = `${constrainedWidth}px`;
+      // Recalculate rect after width constraint
     }
 
-    const shiftedLeft = -overflowRight;
-    const minLeft = -rect.left;
-    const clampedLeft = Math.max(shiftedLeft, minLeft);
-    this.popup.style.left = `${clampedLeft}px`;
+    const updatedRect = this.popup.getBoundingClientRect();
+    const overflowRight = updatedRect.right - viewportWidth;
+
+    // If still overflowing to the right, shift left
+    if (overflowRight > 0) {
+      const shiftedLeft = -overflowRight;
+      const minLeft = -updatedRect.left;
+      const clampedLeft = Math.max(shiftedLeft, minLeft);
+      this.popup.style.left = `${clampedLeft}px`;
+    }
   }
 
   /**

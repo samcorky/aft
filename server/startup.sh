@@ -42,7 +42,8 @@ echo "Running database migrations..."
 alembic upgrade head
 
 echo "Starting application..."
-# Use gunicorn with sync workers and Redis message queue for Socket.IO synchronization
-# Multiple sync workers + Redis handles WebSocket broadcasts across processes
-# Increased timeout to 1800s (30 minutes) for long operations like large database restores
-exec gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 1800 app:app
+# Use gthread workers for Flask-SocketIO in threading mode.
+# Sync workers can be killed by Gunicorn when handling long-lived websocket requests.
+# Redis message queue keeps Socket.IO broadcasts synchronized across worker processes.
+# Timeout remains high for long operations like large database restores.
+exec gunicorn --bind 0.0.0.0:5000 --worker-class gthread --workers 4 --threads 8 --timeout 1800 app:app

@@ -118,6 +118,7 @@
         const safeThemeSettings = applyThemeSettings(root, theme);
 
         if (!safeThemeSettings) {
+          applyBackgroundImage(root, savedBgImage);
           return false;
         }
         

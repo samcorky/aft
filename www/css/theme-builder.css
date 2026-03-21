@@ -1,25 +1,5 @@
 /* Theme Builder Styles */
 
-.page-header-panel {
-  background-color: var(--page-panel-background);
-  border-radius: 8px;
-  padding: 30px;
-  margin-bottom: 30px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.page-header-panel h2 {
-  margin-top: 0;
-  margin-bottom: 15px;
-  color: var(--text-bold);
-}
-
-.page-description {
-  color: var(--text-muted);
-  margin-bottom: 0;
-  font-size: 0.95rem;
-}
-
 .theme-section {
   margin-bottom: 40px;
 }

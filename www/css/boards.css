@@ -8,8 +8,9 @@
 .boards-header-panel {
   background-color: var(--page-panel-background);
   border-radius: 8px;
-  padding: 30px;
+  padding: 20px 30px 16px 30px;
   margin-bottom: 30px;
+  border-bottom: 3px solid var(--primary-color);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -77,12 +78,13 @@
 }
 
 .add-board-placeholder {
-  background: transparent;
+  background: var(--card-bg-color);
   border-radius: 8px;
   padding: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .add-board-placeholder .btn {

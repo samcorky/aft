@@ -2,29 +2,106 @@
 // This must run IMMEDIATELY in the HEAD to prevent style flash
 
 (function() {
+  const SAFE_THEME_SETTING_NAME = /^[A-Za-z0-9-]+$/;
+  const colorValidationElement = document.createElement('span');
+
+  function getSafeBackgroundImage(filename) {
+    if (typeof filename !== 'string') {
+      return null;
+    }
+
+    const trimmedFilename = filename.trim();
+    if (!trimmedFilename || trimmedFilename === 'none') {
+      return null;
+    }
+
+    return /^[A-Za-z0-9_.-]+$/.test(trimmedFilename) ? trimmedFilename : null;
+  }
+
+  function applyBackgroundImage(root, filename) {
+    const safeFilename = getSafeBackgroundImage(filename);
+
+    if (safeFilename) {
+      root.style.setProperty('--background-image', `url('/images/backgrounds/${safeFilename}')`);
+      return safeFilename;
+    }
+
+    root.style.setProperty('--background-image', 'none');
+    return null;
+  }
+
+  function isSafeThemeSettingValue(value) {
+    if (typeof value !== 'string') {
+      return false;
+    }
+
+    const trimmedValue = value.trim();
+    if (!trimmedValue) {
+      return false;
+    }
+
+    if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
+      return CSS.supports('color', trimmedValue);
+    }
+
+    colorValidationElement.style.color = '';
+    colorValidationElement.style.color = trimmedValue;
+    return colorValidationElement.style.color !== '';
+  }
+
+  function getSafeThemeSettings(settings) {
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      return null;
+    }
+
+    const safeSettings = {};
+
+    Object.entries(settings).forEach(([key, value]) => {
+      if (!SAFE_THEME_SETTING_NAME.test(key) || !isSafeThemeSettingValue(value)) {
+        return;
+      }
+
+      safeSettings[key] = value.trim();
+    });
+
+    return Object.keys(safeSettings).length > 0 ? safeSettings : null;
+  }
+
+  function applyThemeSettings(root, settings) {
+    const safeSettings = getSafeThemeSettings(settings);
+
+    if (!safeSettings) {
+      return null;
+    }
+
+    Object.entries(safeSettings).forEach(([key, value]) => {
+      root.style.setProperty(`--${key}`, value);
+    });
+
+    return safeSettings;
+  }
+
   // Helper to apply theme colors and background
   function applyThemeToDOM(theme) {
     const root = document.documentElement;
     
-    if (theme && theme.settings) {
-      // Apply all color variables from theme settings
-      Object.keys(theme.settings).forEach(key => {
-        root.style.setProperty(`--${key}`, theme.settings[key]);
-      });
-    }
+    const safeThemeSettings = theme && theme.settings ? applyThemeSettings(root, theme.settings) : null;
     
     // Apply background image
-    if (theme && theme.background_image) {
-      root.style.setProperty('--background-image', `url('/images/backgrounds/${theme.background_image}')`);
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('backgroundImage', theme.background_image);
+    const safeBackgroundImage = applyBackgroundImage(root, theme && theme.background_image);
+    if (typeof sessionStorage !== 'undefined') {
+      if (safeThemeSettings) {
+        sessionStorage.setItem('currentTheme', JSON.stringify(safeThemeSettings));
       }
-    } else {
-      root.style.setProperty('--background-image', 'none');
-      if (typeof sessionStorage !== 'undefined') {
+
+      if (safeBackgroundImage) {
+        sessionStorage.setItem('backgroundImage', safeBackgroundImage);
+      } else {
         sessionStorage.setItem('backgroundImage', 'none');
       }
     }
+
+    return !!safeThemeSettings;
   }
 
   // Try to load theme from sessionStorage first (fast path for same-session navigation)
@@ -38,12 +115,15 @@
         // because sessionStorage stores JSON.stringify(theme.settings) directly
         const theme = JSON.parse(savedTheme);
         const root = document.documentElement;
+        const safeThemeSettings = applyThemeSettings(root, theme);
+
+        if (!safeThemeSettings) {
+          applyBackgroundImage(root, savedBgImage);
+          return false;
+        }
         
-        // Apply all CSS variables from cache
-        // (theme is the settings object, unlike API responses which have theme.settings)
-        Object.keys(theme).forEach(key => {
-          root.style.setProperty(`--${key}`, theme[key]);
-        });
+        // Also apply the cached background image
+        applyBackgroundImage(root, savedBgImage);
         
         return true; // Successfully applied cached theme
       } catch (e) {
@@ -52,11 +132,7 @@
     }
     
     // Apply cached background if no theme cache
-    if (savedBgImage && savedBgImage !== 'none') {
-      document.documentElement.style.setProperty('--background-image', `url('/images/backgrounds/${savedBgImage}')`);
-    } else {
-      document.documentElement.style.setProperty('--background-image', 'none');
-    }
+    applyBackgroundImage(document.documentElement, savedBgImage);
     
     return false; // No cached theme available
   }
@@ -78,11 +154,6 @@
         
         // Apply theme from API
         applyThemeToDOM(theme);
-        
-        // Update sessionStorage cache
-        if (theme && theme.settings && typeof sessionStorage !== 'undefined') {
-          sessionStorage.setItem('currentTheme', JSON.stringify(theme.settings));
-        }
         
         return true; // Successfully loaded from API
       }

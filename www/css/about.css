@@ -51,12 +51,3 @@
   color: var(--primary-hover);
   text-decoration: underline;
 }
-
-.page-title {
-  font-size: 28px;
-  font-weight: 600;
-  color: var(--text-bold);
-  margin-bottom: 24px;
-  padding-bottom: 12px;
-  border-bottom: 3px solid var(--primary-color);
-}

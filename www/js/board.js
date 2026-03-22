@@ -771,7 +771,8 @@ class BoardManager {
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
     this.beforeUnloadHandler = this.handleBeforeUnload.bind(this);
-    this.viewportMetricsHandler = this.updateMobileBoardViewportMetrics.bind(this);
+    this.viewportMetricsHandler = this.queueMobileViewportMetricsUpdate.bind(this);
+    this.viewportMetricsRafId = null;
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
     this.columnScrollPositions = {};
@@ -890,14 +891,25 @@ class BoardManager {
   }
 
   setupMobileViewportSync() {
-    this.updateMobileBoardViewportMetrics();
+    this.queueMobileViewportMetricsUpdate();
     window.addEventListener('resize', this.viewportMetricsHandler);
     window.addEventListener('orientationchange', this.viewportMetricsHandler);
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', this.viewportMetricsHandler);
-      window.visualViewport.addEventListener('scroll', this.viewportMetricsHandler);
+      window.visualViewport.addEventListener('scroll', this.viewportMetricsHandler, { passive: true });
     }
+  }
+
+  queueMobileViewportMetricsUpdate() {
+    if (this.viewportMetricsRafId) {
+      return;
+    }
+
+    this.viewportMetricsRafId = requestAnimationFrame(() => {
+      this.viewportMetricsRafId = null;
+      this.updateMobileBoardViewportMetrics();
+    });
   }
 
   updateMobileBoardViewportMetrics() {
@@ -1338,6 +1350,11 @@ class BoardManager {
     if (window.visualViewport) {
       window.visualViewport.removeEventListener('resize', this.viewportMetricsHandler);
       window.visualViewport.removeEventListener('scroll', this.viewportMetricsHandler);
+    }
+
+    if (this.viewportMetricsRafId) {
+      cancelAnimationFrame(this.viewportMetricsRafId);
+      this.viewportMetricsRafId = null;
     }
 
     if (this.persistScrollTimeoutId) {
@@ -1944,9 +1961,7 @@ class BoardManager {
 
       this.restoreColumnScrollPositions();
 
-      requestAnimationFrame(() => {
-        this.updateMobileBoardViewportMetrics();
-      });
+      this.queueMobileViewportMetricsUpdate();
       
       // Apply permission-based rendering (if PermissionManager is initialized)
       this.applyPermissionBasedRendering();
@@ -5959,7 +5974,7 @@ class BoardManager {
   }
 
   getCardOriginalPosition(cardId) {
-    const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
+    const cardElement = this.container.querySelector(`.card[data-card-id="${cardId}"]`);
     if (!cardElement) return null;
 
     const oldColumnId = parseInt(cardElement.getAttribute('data-column-id'));

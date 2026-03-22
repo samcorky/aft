@@ -414,6 +414,15 @@ def broadcast_event(event_name, data, board_id, skip_sid=None):
     socketio.start_background_task(do_emit)
 
 
+# Register websocket broadcaster callback for the scheduler without importing app from scheduler.
+try:
+    from card_scheduler import set_broadcast_event_callback
+
+    set_broadcast_event_callback(broadcast_event)
+except Exception as callback_err:
+    logger.warning(f"Failed to register scheduler broadcast callback: {callback_err}")
+
+
 def broadcast_theme_event(event_name, data):
     """Broadcast a WebSocket event to all clients in the theme room.
     
@@ -7260,6 +7269,17 @@ def create_schedule():
         except (ValueError, TypeError) as e:
             return jsonify({"success": False, "message": f"Invalid datetime format: {str(e)}"}), 400
         
+        # Capture board context for websocket broadcasts after commit.
+        board_id = None
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        if column:
+            board_id = column.board_id
+
+        created_template_card = None
+        updated_source_card = None
+        deleted_source_card_id = None
+        deleted_source_column_id = None
+
         # Check if card is already a template (scheduled=True)
         # If so, just create the schedule and link it - don't create a duplicate template
         if card.scheduled:
@@ -7279,6 +7299,7 @@ def create_schedule():
             
             # Update card's schedule reference
             card.schedule = schedule.id
+            updated_source_card = card
         else:
             # Create a NEW card as the template (hidden from task views)
             template_card = Card(
@@ -7319,14 +7340,18 @@ def create_schedule():
             
             # Update template card's schedule reference
             template_card.schedule = schedule.id
+            created_template_card = template_card
             
             # Handle keep_source_card parameter
             keep_source_card = data.get('keep_source_card', True)
             if keep_source_card:
                 # Update ORIGINAL card's schedule reference (but keep scheduled=False so it stays visible)
                 card.schedule = schedule.id
+                updated_source_card = card
             else:
                 # Delete the original card
+                deleted_source_card_id = card.id
+                deleted_source_column_id = card.column_id
                 db.delete(card)
         
         db.commit()
@@ -7341,6 +7366,46 @@ def create_schedule():
             end_datetime=end_datetime,
             max_results=4
         )
+
+        # Broadcast related card changes so other clients update without page refresh.
+        if board_id is not None:
+            if created_template_card is not None:
+                broadcast_event('card_created', {
+                    'board_id': board_id,
+                    'column_id': created_template_card.column_id,
+                    'card_id': created_template_card.id,
+                    'card_data': {
+                        'id': created_template_card.id,
+                        'column_id': created_template_card.column_id,
+                        'title': created_template_card.title,
+                        'description': created_template_card.description,
+                        'order': created_template_card.order,
+                        'scheduled': created_template_card.scheduled,
+                        'schedule': created_template_card.schedule,
+                        'archived': created_template_card.archived,
+                        'done': created_template_card.done,
+                        'created_at': created_template_card.created_at.isoformat() if created_template_card.created_at else None,
+                        'updated_at': created_template_card.updated_at.isoformat() if created_template_card.updated_at else None
+                    }
+                }, board_id)
+
+            if updated_source_card is not None:
+                broadcast_event('card_updated', {
+                    'board_id': board_id,
+                    'card_id': updated_source_card.id,
+                    'updated_fields': {
+                        'schedule': updated_source_card.schedule
+                    }
+                }, board_id)
+
+            if deleted_source_card_id is not None:
+                broadcast_event('card_deleted', {
+                    'board_id': board_id,
+                    'card_id': deleted_source_card_id,
+                'column_id': deleted_source_column_id
+                }, board_id)
+        else:
+            logger.warning(f"Skipping schedule-related broadcasts for schedule {schedule.id}: card {card_id} column has no board_id")
         
         return jsonify({
             "success": True,
@@ -7573,10 +7638,23 @@ def delete_schedule(schedule_id):
             return jsonify({"success": False, "message": "Schedule not found"}), 404
         
         template_card_id = schedule.card_id
+
+        # Gather board context and cards impacted so we can broadcast after commit.
+        impacted_card_ids = []
+        template_card_column_id = None
+        board_id = None
+
+        template_card = db.query(Card).filter(Card.id == template_card_id).first()
+        if template_card:
+            template_card_column_id = template_card.column_id
+            template_column = db.query(BoardColumn).filter(BoardColumn.id == template_card.column_id).first()
+            if template_column:
+                board_id = template_column.board_id
         
         # Clear schedule reference from all cards that reference this schedule
         # (including the original source card and any spawned cards)
         created_cards = db.query(Card).filter(Card.schedule == schedule_id).all()
+        impacted_card_ids = [c.id for c in created_cards if c.id != template_card_id]
         for card in created_cards:
             card.schedule = None
         
@@ -7590,6 +7668,26 @@ def delete_schedule(schedule_id):
             db.delete(template_card)
         
         db.commit()
+
+        # Broadcast card changes so clients in normal/scheduled views stay in sync.
+        if board_id is not None:
+            for impacted_card_id in impacted_card_ids:
+                broadcast_event('card_updated', {
+                    'board_id': board_id,
+                    'card_id': impacted_card_id,
+                    'updated_fields': {
+                        'schedule': None
+                    }
+                }, board_id)
+
+            if template_card_column_id is not None:
+                broadcast_event('card_deleted', {
+                    'board_id': board_id,
+                    'card_id': template_card_id,
+                    'column_id': template_card_column_id
+                }, board_id)
+        else:
+            logger.warning(f"Skipping schedule deletion broadcasts for schedule {schedule_id}: template card board_id not found")
         
         return jsonify({
             "success": True,

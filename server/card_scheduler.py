@@ -10,11 +10,23 @@ import logging
 
 from sqlalchemy import func
 from database import SessionLocal
-from models import Card, ScheduledCard, Comment, ChecklistItem
+from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
 
 logger = logging.getLogger(__name__)
+
+
+_broadcast_event_callback = None
+
+
+def set_broadcast_event_callback(callback):
+    """Register a websocket broadcaster callback.
+
+    The callback must have signature: (event_name, data, board_id, skip_sid=None).
+    """
+    global _broadcast_event_callback
+    _broadcast_event_callback = callback
 
 
 class CardScheduler:
@@ -202,6 +214,7 @@ class CardScheduler:
     def _check_and_create_cards(self):
         """Check all enabled schedules and create cards if needed."""
         db = SessionLocal()
+        pending_broadcasts = []
         try:
             now = datetime.now()
             
@@ -214,12 +227,20 @@ class CardScheduler:
             
             for schedule in schedules:
                 try:
-                    self._process_schedule(db, schedule, now)
+                    self._process_schedule(db, schedule, now, pending_broadcasts)
                 except Exception as e:
                     logger.error(f"Error processing schedule {schedule.id}: {str(e)}")
                     # Continue with other schedules
             
             db.commit()
+
+            # Emit websocket updates only after the transaction commits successfully.
+            for event_data in pending_broadcasts:
+                self._broadcast_event(
+                    event_name='card_created',
+                    data=event_data,
+                    board_id=event_data['board_id']
+                )
             
         except Exception as e:
             logger.error(f"Error checking schedules: {str(e)}")
@@ -227,7 +248,7 @@ class CardScheduler:
         finally:
             db.close()
     
-    def _process_schedule(self, db, schedule: ScheduledCard, now: datetime):
+    def _process_schedule(self, db, schedule: ScheduledCard, now: datetime, pending_broadcasts: list):
         """Process a single schedule and create card if needed.
         
         This method implements a catch-up mechanism to handle missed schedules:
@@ -244,6 +265,7 @@ class CardScheduler:
             db: Database session
             schedule: ScheduledCard instance
             now: Current datetime
+            pending_broadcasts: List of websocket events queued for post-commit publish
         """
         # Check if we're past the start time
         if now < schedule.start_datetime:  # type: ignore
@@ -314,16 +336,27 @@ class CardScheduler:
                         return
                 
                 logger.info(f"Creating card for schedule {schedule.id} (missed by {time_since_run:.0f} seconds)")
-                self._create_scheduled_card(db, schedule)
+                self._create_scheduled_card(db, schedule, pending_broadcasts)
             else:
                 logger.debug(f"Skipping schedule {schedule.id} - next_run too old ({time_since_run:.0f} seconds ago)")
+
+    def _broadcast_event(self, event_name: str, data: dict, board_id: int):
+        """Broadcast websocket event via injected callback when available."""
+        if _broadcast_event_callback is None:
+            logger.warning(
+                f"Skipping scheduler websocket broadcast for {event_name}: no broadcaster callback is registered"
+            )
+            return
+
+        _broadcast_event_callback(event_name, data, board_id)
     
-    def _create_scheduled_card(self, db, schedule: ScheduledCard):
+    def _create_scheduled_card(self, db, schedule: ScheduledCard, pending_broadcasts: list):
         """Create a new card from a schedule template.
         
         Args:
             db: Database session
             schedule: ScheduledCard instance
+            pending_broadcasts: List of websocket events queued for post-commit publish
         """
         try:
             # Get the template card
@@ -397,6 +430,33 @@ class CardScheduler:
                 order=max_comment_order + 1
             )
             db.add(comment)
+
+            # Queue websocket broadcast for post-commit publish.
+            column = db.query(BoardColumn).filter(BoardColumn.id == template.column_id).first()
+            board_id = column.board_id if column else None
+            if board_id is not None:
+                pending_broadcasts.append({
+                    'board_id': board_id,
+                    'column_id': new_card.column_id,
+                    'card_id': new_card.id,
+                    'card_data': {
+                        'id': new_card.id,
+                        'column_id': new_card.column_id,
+                        'title': new_card.title,
+                        'description': new_card.description,
+                        'order': new_card.order,
+                        'scheduled': new_card.scheduled,
+                        'schedule': new_card.schedule,
+                        'archived': new_card.archived,
+                        'done': new_card.done,
+                        'created_at': new_card.created_at.isoformat() if new_card.created_at else None,
+                        'updated_at': new_card.updated_at.isoformat() if new_card.updated_at else None
+                    }
+                })
+            else:
+                logger.warning(
+                    f"Skipping scheduler card_created broadcast for card {new_card.id}: column {template.column_id} has no board_id"
+                )
             
             logger.info(f"Created card {new_card.id} from schedule {schedule.id}")
             

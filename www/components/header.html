@@ -19,6 +19,11 @@
       <div class="nav-board-name" id="nav-board-name"></div>
     </nav>
     <div class="header-right">
+      <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-menu-drawer">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
       <div class="views-dropdown" id="views-dropdown" style="display: none;">
         <button class="views-dropdown-btn" id="views-dropdown-btn" title="Switch View" aria-label="Switch View">
           <span class="views-dropdown-label" id="views-dropdown-label">Task View</span>
@@ -121,5 +126,59 @@
         </div>
       </div>
     </div>
+
+    <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+    <aside class="mobile-menu-drawer" id="mobile-menu-drawer" aria-label="Mobile navigation">
+      <div class="mobile-menu-header">
+        <div class="mobile-menu-title">Menu</div>
+        <button class="mobile-menu-close" id="mobile-menu-close" aria-label="Close menu">&times;</button>
+      </div>
+
+      <nav class="mobile-menu-tree" aria-label="Mobile menu tree">
+        <details class="mobile-tree-group" open>
+          <summary>Boards</summary>
+          <div class="mobile-tree-items">
+            <a href="/?show_boards=1" class="mobile-menu-link">All Boards</a>
+            <div class="mobile-boards-menu" id="mobile-boards-menu">
+              <div class="mobile-menu-loading">Loading boards...</div>
+            </div>
+          </div>
+        </details>
+
+        <details class="mobile-tree-group" id="mobile-views-section" style="display: none;">
+          <summary>Views</summary>
+          <div class="mobile-tree-items">
+            <button class="mobile-view-item" data-view="task">Task View</button>
+            <button class="mobile-view-item" data-view="scheduled">Scheduled View</button>
+            <button class="mobile-view-item" data-view="archived">Archived View</button>
+          </div>
+        </details>
+
+        <details class="mobile-tree-group">
+          <summary>Settings</summary>
+          <div class="mobile-tree-items">
+            <a href="/backup-restore.html" class="mobile-menu-link">Backup & Restore</a>
+            <a href="/theme-builder.html" class="mobile-menu-link">Theme Builder</a>
+            <a href="/user-management.html" class="mobile-menu-link">User Management</a>
+            <a href="/role-management.html" class="mobile-menu-link">Role Management</a>
+          </div>
+        </details>
+
+        <details class="mobile-tree-group">
+          <summary>User</summary>
+          <div class="mobile-tree-items">
+            <div class="mobile-user-name" id="mobile-header-user-name">Guest</div>
+            <a href="/profile.html" class="mobile-menu-link">Profile</a>
+            <a href="/settings.html" class="mobile-menu-link">User Settings</a>
+            <a href="/about.html" class="mobile-menu-link">About</a>
+            <a href="/docs.html" class="mobile-menu-link">Docs</a>
+            <a href="/system-info.html" class="mobile-menu-link">System Info</a>
+            <a href="/api/docs" class="mobile-menu-link" target="_blank" rel="noopener noreferrer">API Docs</a>
+            <a href="/login.html" class="mobile-menu-link" id="mobile-login-menu-item" style="display: none;">Login</a>
+            <button class="mobile-menu-link mobile-logout-btn" id="mobile-logout-menu-item" style="display: none;">Logout</button>
+          </div>
+        </details>
+      </nav>
+    </aside>
   </div>
 </header>

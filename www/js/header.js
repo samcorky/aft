@@ -64,6 +64,7 @@ class Header {
     this.wsConnected = false; // Track WebSocket connection status
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
     this.wsCheckInterval = null; // WebSocket check interval
+    this.mobileBreakpoint = 900;
   }
 
   // Load the header HTML component
@@ -99,6 +100,9 @@ class Header {
     
     // Initialize dropdown pin behavior for settings and user menus
     this.initializeDropdownPin();
+
+    // Initialize mobile drawer behavior
+    this.initializeMobileMenu();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -312,14 +316,111 @@ class Header {
     if (viewsDropdown) {
       viewsDropdown.style.display = show ? 'block' : 'none';
     }
+
+    this.syncMobileViewVisibility(show);
+  }
+
+  // Keep mobile view section visibility aligned with desktop view control state
+  syncMobileViewVisibility(show) {
+    const mobileViewsSection = document.getElementById('mobile-views-section');
+    if (mobileViewsSection) {
+      mobileViewsSection.style.display = show ? '' : 'none';
+    }
+  }
+
+  // Initialize mobile drawer menu interactions
+  initializeMobileMenu() {
+    const header = document.querySelector('.header');
+    const toggleBtn = document.getElementById('mobile-menu-toggle');
+    const closeBtn = document.getElementById('mobile-menu-close');
+    const overlay = document.getElementById('mobile-menu-overlay');
+    const drawer = document.getElementById('mobile-menu-drawer');
+
+    if (!header || !toggleBtn || !closeBtn || !overlay || !drawer) {
+      return;
+    }
+
+    const openMenu = () => {
+      header.classList.add('mobile-menu-open');
+      document.body.classList.add('mobile-menu-open');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+    };
+
+    const closeMenu = () => {
+      header.classList.remove('mobile-menu-open');
+      document.body.classList.remove('mobile-menu-open');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+    };
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (header.classList.contains('mobile-menu-open')) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    closeBtn.addEventListener('click', closeMenu);
+    overlay.addEventListener('click', closeMenu);
+
+    // Auto-close drawer after selecting a menu option
+    drawer.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      if (target.matches('a.mobile-menu-link')) {
+        closeMenu();
+      }
+    });
+
+    // Close on escape and when returning to desktop layout
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && header.classList.contains('mobile-menu-open')) {
+        closeMenu();
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > this.mobileBreakpoint) {
+        closeMenu();
+      }
+    });
+
+    // Handle mobile view actions
+    drawer.querySelectorAll('.mobile-view-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const view = e.currentTarget.dataset.view;
+        if (!view) {
+          return;
+        }
+        this.setView(view);
+        closeMenu();
+      });
+    });
+
+    // Hook mobile logout button into existing logout flow
+    const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
+    if (mobileLogoutItem) {
+      mobileLogoutItem.addEventListener('click', () => {
+        closeMenu();
+        this.handleLogout();
+      });
+    }
   }
 
   // Load current user info
   async loadCurrentUser() {
     try {
       const userNameEl = document.getElementById('header-user-name');
+      const mobileUserNameEl = document.getElementById('mobile-header-user-name');
       const loginItem = document.getElementById('login-menu-item');
+      const mobileLoginItem = document.getElementById('mobile-login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
+      const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
       
       // Check sessionStorage cache first to avoid API calls on every page load
       const cachedUser = sessionStorage.getItem('currentUser');
@@ -331,11 +432,16 @@ class Header {
           
           const displayName = userData.display_name || userData.username || userData.email;
           if (userNameEl) userNameEl.textContent = displayName;
+          if (mobileUserNameEl) mobileUserNameEl.textContent = displayName;
           if (loginItem) loginItem.style.display = 'none';
+          if (mobileLoginItem) mobileLoginItem.style.display = 'none';
           if (logoutItem) {
             logoutItem.style.display = 'block';
             // Add logout handler
             logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          if (mobileLogoutItem) {
+            mobileLogoutItem.style.display = 'block';
           }
           
           // Filter menu items based on permissions
@@ -362,11 +468,16 @@ class Header {
           
           const displayName = data.user.display_name || data.user.username || data.user.email;
           if (userNameEl) userNameEl.textContent = displayName;
+          if (mobileUserNameEl) mobileUserNameEl.textContent = displayName;
           if (loginItem) loginItem.style.display = 'none';
+          if (mobileLoginItem) mobileLoginItem.style.display = 'none';
           if (logoutItem) {
             logoutItem.style.display = 'block';
             // Add logout handler
             logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          if (mobileLogoutItem) {
+            mobileLogoutItem.style.display = 'block';
           }
           
           // Filter menu items based on permissions
@@ -382,8 +493,11 @@ class Header {
       window.currentUser = null;
       sessionStorage.removeItem('currentUser');
       if (userNameEl) userNameEl.textContent = 'Guest';
+      if (mobileUserNameEl) mobileUserNameEl.textContent = 'Guest';
       if (loginItem) loginItem.style.display = 'block';
+      if (mobileLoginItem) mobileLoginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      if (mobileLogoutItem) mobileLogoutItem.style.display = 'none';
       
       // Hide permission-protected menu items
       this.filterMenuByPermissions();
@@ -396,11 +510,17 @@ class Header {
       window.currentUser = null;
       sessionStorage.removeItem('currentUser');
       const userNameEl = document.getElementById('header-user-name');
+      const mobileUserNameEl = document.getElementById('mobile-header-user-name');
       if (userNameEl) userNameEl.textContent = 'Guest';
+      if (mobileUserNameEl) mobileUserNameEl.textContent = 'Guest';
       const loginItem = document.getElementById('login-menu-item');
+      const mobileLoginItem = document.getElementById('mobile-login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
+      const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
       if (loginItem) loginItem.style.display = 'block';
+      if (mobileLoginItem) mobileLoginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      if (mobileLogoutItem) mobileLogoutItem.style.display = 'none';
       
       // Hide permission-protected menu items
       this.filterMenuByPermissions();
@@ -414,14 +534,25 @@ class Header {
   filterMenuByPermissions() {
     // Menu items and their required permissions
     const protectedItems = [
-      { selector: 'a[href="/backup-restore.html"]', permission: 'admin.database' },
-      { selector: 'a[href="/user-management.html"]', permissions: ['user.manage', 'user.role'], requireAny: true },
-      { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
+      {
+        selectors: ['a[href="/backup-restore.html"]'],
+        permission: 'admin.database'
+      },
+      {
+        selectors: ['a[href="/user-management.html"]'],
+        permissions: ['user.manage', 'user.role'],
+        requireAny: true
+      },
+      {
+        selectors: ['a[href="/role-management.html"]'],
+        permission: 'role.manage'
+      }
     ];
     
     protectedItems.forEach(item => {
-      const menuItem = document.querySelector(item.selector);
-      if (menuItem) {
+      const selectors = item.selectors || (item.selector ? [item.selector] : []);
+      const menuItems = selectors.flatMap(selector => Array.from(document.querySelectorAll(selector)));
+      if (menuItems.length > 0) {
         let hasAccess = false;
         
         // Check if user has permission (hasPermission is defined in utils.js)
@@ -435,11 +566,13 @@ class Header {
           hasAccess = typeof hasPermission === 'function' && hasPermission(item.permission);
         }
         
-        if (hasAccess) {
-          menuItem.style.display = '';  // Show
-        } else {
-          menuItem.style.display = 'none';  // Hide
-        }
+        menuItems.forEach(menuItem => {
+          if (hasAccess) {
+            menuItem.style.display = '';  // Show
+          } else {
+            menuItem.style.display = 'none';  // Hide
+          }
+        });
       }
     });
   }
@@ -498,7 +631,7 @@ class Header {
 
     if (this.workingStyle === 'board_task_category') {
       // Check if done view already exists
-      if (!document.querySelector('[data-view="done"]')) {
+      if (!document.querySelector('.views-dropdown-item[data-view="done"]')) {
         // Add done view option
         const doneItem = document.createElement('button');
         doneItem.className = 'views-dropdown-item';
@@ -525,9 +658,38 @@ class Header {
       }
     } else {
       // Remove done view if it exists
-      const doneItem = document.querySelector('[data-view="done"]');
+      const doneItem = document.querySelector('.views-dropdown-item[data-view="done"]');
       if (doneItem) {
         doneItem.remove();
+      }
+    }
+
+    // Keep mobile views in sync with active working style
+    const mobileViewsSection = document.getElementById('mobile-views-section');
+    if (mobileViewsSection) {
+      const mobileDoneItem = mobileViewsSection.querySelector('.mobile-view-item[data-view="done"]');
+      if (this.workingStyle === 'board_task_category') {
+        if (!mobileDoneItem) {
+          const doneBtn = document.createElement('button');
+          doneBtn.className = 'mobile-view-item';
+          doneBtn.setAttribute('data-view', 'done');
+          doneBtn.textContent = 'Done View';
+          doneBtn.addEventListener('click', () => {
+            this.setView('done');
+            const header = document.querySelector('.header');
+            if (header) {
+              header.classList.remove('mobile-menu-open');
+            }
+            document.body.classList.remove('mobile-menu-open');
+            const mobileToggle = document.getElementById('mobile-menu-toggle');
+            if (mobileToggle) {
+              mobileToggle.setAttribute('aria-expanded', 'false');
+            }
+          });
+          mobileViewsSection.querySelector('.mobile-tree-items')?.appendChild(doneBtn);
+        }
+      } else if (mobileDoneItem) {
+        mobileDoneItem.remove();
       }
     }
   }
@@ -658,6 +820,10 @@ class Header {
 
     // Highlight active item
     document.querySelectorAll('.views-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === view);
+    });
+
+    document.querySelectorAll('.mobile-view-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === view);
     });
 
@@ -915,11 +1081,15 @@ class Header {
       const data = await response.json();
       
       const dropdown = document.getElementById('boards-dropdown-menu');
+      const mobileBoardsMenu = document.getElementById('mobile-boards-menu');
       if (!dropdown) return;
       
       if (data.success && data.boards && data.boards.length > 0) {
         // Clear loading message
         dropdown.innerHTML = '';
+        if (mobileBoardsMenu) {
+          mobileBoardsMenu.innerHTML = '';
+        }
         
         // Add each board as a link
         data.boards.forEach(board => {
@@ -928,15 +1098,30 @@ class Header {
           link.className = 'boards-dropdown-item';
           link.textContent = board.name;
           dropdown.appendChild(link);
+
+          if (mobileBoardsMenu) {
+            const mobileLink = document.createElement('a');
+            mobileLink.href = `/board.html?id=${board.id}`;
+            mobileLink.className = 'mobile-menu-link';
+            mobileLink.textContent = board.name;
+            mobileBoardsMenu.appendChild(mobileLink);
+          }
         });
       } else {
         dropdown.innerHTML = '<div class="boards-dropdown-empty">No boards yet</div>';
+        if (mobileBoardsMenu) {
+          mobileBoardsMenu.innerHTML = '<div class="mobile-menu-loading">No boards yet</div>';
+        }
       }
     } catch (error) {
       console.error('Error loading boards dropdown:', error);
       const dropdown = document.getElementById('boards-dropdown-menu');
+      const mobileBoardsMenu = document.getElementById('mobile-boards-menu');
       if (dropdown) {
         dropdown.innerHTML = '<div class="boards-dropdown-empty">Error loading boards</div>';
+      }
+      if (mobileBoardsMenu) {
+        mobileBoardsMenu.innerHTML = '<div class="mobile-menu-loading">Error loading boards</div>';
       }
     }
   }

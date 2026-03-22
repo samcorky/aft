@@ -8882,27 +8882,31 @@ def internal_error(error):
 
 # Initialize backup scheduler on app startup
 def cleanup_stale_scheduler_locks():
-    """Remove all scheduler lock files on application startup.
-    
-    This ensures clean state after container restarts where lock files
-    from previous containers may persist but are no longer valid.
-    Called once before any scheduler initialization.
+    """Remove stale scheduler lock files on application startup.
+
+    Active lock owners are preserved to avoid forcing duplicate schedulers.
     """
     from pathlib import Path
     import tempfile
-    
+    from scheduler_lock import is_scheduler_lock_stale
+
     temp_dir = Path(tempfile.gettempdir())
     lock_files = [
-        temp_dir / "aft_backup_scheduler.lock",
-        temp_dir / "aft_card_scheduler.lock",
-        temp_dir / "aft_housekeeping_scheduler.lock",
+        (temp_dir / "aft_backup_scheduler.lock", "backup"),
+        (temp_dir / "aft_card_scheduler.lock", "card"),
+        (temp_dir / "aft_housekeeping_scheduler.lock", "housekeeping"),
     ]
-    
-    for lock_file in lock_files:
+
+    for lock_file, scheduler_type in lock_files:
         try:
-            if lock_file.exists():
+            if not lock_file.exists():
+                continue
+
+            if is_scheduler_lock_stale(lock_file, scheduler_type, stale_after_seconds=300):
                 lock_file.unlink()
-                logger.info(f"Cleaned up stale lock file: {lock_file}")
+                logger.info("Cleaned up stale scheduler lock file: %s", lock_file)
+            else:
+                logger.info("Keeping active scheduler lock file: %s", lock_file)
         except Exception as e:
             logger.warning(f"Failed to clean lock file {lock_file}: {e}")
 
@@ -8942,39 +8946,31 @@ def init_housekeeping_scheduler():
 # Use file lock to ensure only one worker initializes schedulers
 # This prevents race conditions with Gunicorn multi-worker setup
 
-# Only initialize schedulers in the first worker to start
-# Use a combination of lock file AND worker tracking
+# Only initialize schedulers in the first worker to start.
+# The init lock must use process-aware stale detection to avoid false stale evictions.
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
 
-# Clean up stale init lock files from previous container instances
-# This must happen BEFORE trying to acquire the lock
-# If the init lock is stale (from a dead container process), we want to remove it
-# so this container's worker can acquire it and initialize schedulers
-try:
-    if init_lock_file.exists():
-        # Check if the lock file is stale (older than 5 minutes)
-        # In a container, if no worker has refreshed the lock in 5 minutes, assume the container died
-        from datetime import datetime
-        lock_age = (datetime.now() - datetime.fromtimestamp(init_lock_file.stat().st_mtime)).total_seconds()
-        if lock_age > 300:  # 5 minutes
-            logger.info(f"Init lock file is stale ({lock_age}s old), removing it")
-            init_lock_file.unlink()
-except Exception as e:
-    logger.warning(f"Failed to clean stale init lock file: {e}")
+from scheduler_lock import acquire_scheduler_lock
 
-should_init = False
+acquired_init_lock, init_lock_details = acquire_scheduler_lock(
+    lock_file=init_lock_file,
+    scheduler_type="scheduler_init",
+    stale_after_seconds=300,
+)
+should_init = acquired_init_lock
 
-try:
-    # Try to create lock file exclusively (fails if already exists)
-    fd = os.open(init_lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    os.write(fd, str(os.getpid()).encode())
-    os.close(fd)
-    should_init = True
-    logger.info(f"Worker PID {os.getpid()}: Acquired scheduler init lock")
-except FileExistsError:
-    # Lock already exists - another worker is initializing or already initialized
-    logger.info(f"Worker PID {os.getpid()}: Init lock exists, skipping scheduler initialization")
-    should_init = False
+if should_init:
+    logger.info(
+        "Worker PID %s: Acquired scheduler init lock (%s)",
+        os.getpid(),
+        init_lock_details,
+    )
+else:
+    logger.info(
+        "Worker PID %s: Init lock is held, skipping scheduler initialization (%s)",
+        os.getpid(),
+        init_lock_details,
+    )
 
 if should_init:
     try:

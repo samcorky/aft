@@ -414,6 +414,15 @@ def broadcast_event(event_name, data, board_id, skip_sid=None):
     socketio.start_background_task(do_emit)
 
 
+# Register websocket broadcaster callback for the scheduler without importing app from scheduler.
+try:
+    from card_scheduler import set_broadcast_event_callback
+
+    set_broadcast_event_callback(broadcast_event)
+except Exception as callback_err:
+    logger.warning(f"Failed to register scheduler broadcast callback: {callback_err}")
+
+
 def broadcast_theme_event(event_name, data):
     """Broadcast a WebSocket event to all clients in the theme room.
     
@@ -7269,6 +7278,7 @@ def create_schedule():
         created_template_card = None
         updated_source_card = None
         deleted_source_card_id = None
+        deleted_source_column_id = None
 
         # Check if card is already a template (scheduled=True)
         # If so, just create the schedule and link it - don't create a duplicate template
@@ -7341,6 +7351,7 @@ def create_schedule():
             else:
                 # Delete the original card
                 deleted_source_card_id = card.id
+                deleted_source_column_id = card.column_id
                 db.delete(card)
         
         db.commit()
@@ -7391,7 +7402,7 @@ def create_schedule():
                 broadcast_event('card_deleted', {
                     'board_id': board_id,
                     'card_id': deleted_source_card_id,
-                    'column_id': card.column_id
+                'column_id': deleted_source_column_id
                 }, board_id)
         else:
             logger.warning(f"Skipping schedule-related broadcasts for schedule {schedule.id}: card {card_id} column has no board_id")

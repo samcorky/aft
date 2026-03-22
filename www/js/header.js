@@ -418,7 +418,6 @@ class Header {
   // Initialize mobile notifications section and sync it with notifications.js state
   initializeMobileNotifications() {
     const markAllReadBtn = document.getElementById('mobile-mark-all-read-btn');
-    const mobileMenu = document.getElementById('mobile-notifications-menu');
 
     if (markAllReadBtn) {
       markAllReadBtn.addEventListener('click', async () => {
@@ -436,10 +435,6 @@ class Header {
 
     if (window.notifications) {
       this.renderMobileNotifications(window.notifications.notifications || []);
-      // Refresh once so mobile menu is populated even if event fired before listener was attached
-      if (typeof window.notifications.loadNotifications === 'function') {
-        window.notifications.loadNotifications();
-      }
     }
   }
 

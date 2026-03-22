@@ -2172,10 +2172,12 @@ class BoardManager {
         const oldOrder = parseInt(card.getAttribute('data-order'));
         const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
         const actualNextSibling = card.nextElementSibling;
+        const originalIndex = Array.from(originalColumnContainer?.querySelectorAll('.card') || []).indexOf(card);
         
         originalPosition = {
           columnId: oldColumnId,
           order: oldOrder,
+          index: originalIndex,
           container: originalColumnContainer,
           nextSibling: actualNextSibling
         };
@@ -2241,7 +2243,7 @@ class BoardManager {
         
         // Calculate target order using neighboring order values rather than
         // DOM index because persisted order values can contain gaps.
-        const newOrder = this.getDropOrderValue(columnContainer, draggedCard);
+        const newOrder = this.getDropOrderValue(columnContainer, draggedCard, originalPosition);
         
         // Only update if position or column changed
         const oldOrder = originalPosition.order;
@@ -2273,7 +2275,7 @@ class BoardManager {
     }, { offset: Number.NEGATIVE_INFINITY }).element;
   }
 
-  getDropOrderValue(container, draggedCard) {
+  getDropOrderValue(container, draggedCard, originalPosition = null) {
     const cardsInColumn = Array.from(container.querySelectorAll('.card'));
     const draggedIndex = cardsInColumn.indexOf(draggedCard);
 
@@ -2281,12 +2283,35 @@ class BoardManager {
       return 0;
     }
 
+    const targetColumnId = Number(container.getAttribute('data-column-id'));
+    const oldColumnId = Number(originalPosition?.columnId);
+    const oldOrder = Number(originalPosition?.order);
+    const originalIndex = Number(originalPosition?.index);
+
+    const previousCard = cardsInColumn[draggedIndex - 1] || null;
     const nextCard = cardsInColumn[draggedIndex + 1] || null;
-    if (nextCard) {
-      const nextOrder = Number(nextCard.getAttribute('data-order'));
-      if (Number.isFinite(nextOrder)) {
-        return nextOrder;
+
+    const previousOrder = previousCard ? Number(previousCard.getAttribute('data-order')) : Number.NaN;
+    const nextOrder = nextCard ? Number(nextCard.getAttribute('data-order')) : Number.NaN;
+
+    const isSameColumnMove = Number.isFinite(targetColumnId) && Number.isFinite(oldColumnId) && targetColumnId === oldColumnId;
+
+    if (isSameColumnMove && Number.isFinite(originalIndex)) {
+      if (draggedIndex > originalIndex) {
+        if (Number.isFinite(previousOrder)) {
+          return previousOrder;
+        }
+      } else if (draggedIndex < originalIndex) {
+        if (Number.isFinite(nextOrder)) {
+          return nextOrder;
+        }
+      } else if (Number.isFinite(oldOrder)) {
+        return oldOrder;
       }
+    }
+
+    if (Number.isFinite(nextOrder)) {
+      return nextOrder;
     }
 
     // Appending to end: place after the largest known order value.

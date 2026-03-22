@@ -597,6 +597,7 @@
 }
 
 .card-delete-btn,
+.card-move-btn,
 .card-archive-btn,
 .card-unarchive-btn {
   background: none;
@@ -625,10 +626,26 @@
   font-size: 20px;
 }
 
+.card-move-btn {
+  display: none;
+  color: var(--secondary-color);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  top: -1px;
+}
+
 .card-delete-btn:hover {
   transform: scale(1.2);
   color: var(--error-color);
   opacity: 0.8;
+}
+
+.card-move-btn:hover {
+  transform: scale(1.2);
+  color: var(--text-bold);
 }
 
 .card-archive-btn,
@@ -1702,7 +1719,7 @@ button.readonly-disabled,
 
   .card-title {
     font-size: 11px;
-    padding-right: 44px;
+    padding-right: 58px;
   }
 
   .card-description,
@@ -1725,6 +1742,7 @@ button.readonly-disabled,
   }
 
   .card-delete-btn,
+  .card-move-btn,
   .card-archive-btn,
   .card-unarchive-btn {
     width: 24px;
@@ -1733,7 +1751,16 @@ button.readonly-disabled,
   }
 
   .card-delete-btn {
-    font-size: 18px;
+    font-size: 17px;
+  }
+
+  .card-move-btn {
+    display: flex;
+    font-size: 17px;
+  }
+
+  .card-archive-btn {
+    display: none;
   }
 
   .card-archive-btn svg,

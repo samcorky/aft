@@ -1449,7 +1449,8 @@ class BoardManager {
       const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
       const canDeleteCard = this.canCallPermissionEndpoint('DELETE', '/api/cards/:id');
       const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
-      const canShowCardActions = canArchiveCard || canUnarchiveCard || canDeleteCard ||
+      const canMoveCard = this.canEdit || this.canCallPermissionEndpoint('PATCH', '/api/cards/:id');
+      const canShowCardActions = canArchiveCard || canUnarchiveCard || canDeleteCard || canMoveCard ||
         (this.workingStyle === 'board_task_category' && canToggleDone);
       const canShowColumnMenu = this.canShowColumnMenu();
 
@@ -1553,6 +1554,7 @@ class BoardManager {
                               </button>` : ''}`
                             }`
                         }
+                        ${!card.archived && canMoveCard ? '<button class="card-move-btn" data-card-id="' + card.id + '" title="Move card" draggable="false">↔</button>' : ''}
                         ${canDeleteCard ? '<button class="card-delete-btn" data-card-id="' + card.id + '" title="Delete card" draggable="false">×</button>' : ''}
                       </div>
                       <div class="card-content-wrapper" id="card-content-${card.id}">
@@ -1758,6 +1760,7 @@ class BoardManager {
           // Don't trigger if clicking the delete button, checklist checkbox, or expand button
           // Use closest() to handle clicks on button content (like emoji text nodes)
           if (e.target.closest('.card-delete-btn')) return;
+          if (e.target.closest('.card-move-btn')) return;
           if (e.target.closest('.card-checklist-checkbox')) return;
           if (e.target.closest('.card-expand-btn')) return;
           if (e.target.closest('.card-archive-btn')) return;
@@ -1912,6 +1915,18 @@ class BoardManager {
           await this.updateCardDoneStatus(cardId, !currentDone, cardElement);
         });
       });
+
+      // Add event listeners for card move buttons
+      document.querySelectorAll('.card-move-btn').forEach(btn => {
+        btn.addEventListener('mousedown', (e) => {
+          e.stopPropagation(); // Prevent drag from starting
+        });
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation(); // Prevent card click event
+          const cardId = parseInt(e.currentTarget.getAttribute('data-card-id'));
+          await this.openMoveCardModal(cardId);
+        });
+      });
       
       // Add drag and drop event listeners for cards (only in edit mode)
       if (this.canEdit) {
@@ -1964,6 +1979,7 @@ class BoardManager {
     const canDeleteCard = this.canCallPermissionEndpoint('DELETE', '/api/cards/:id');
     const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
     const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
+    const canMoveCard = this.canEdit || this.canCallPermissionEndpoint('PATCH', '/api/cards/:id');
     
     // Remove "Add Column" buttons if user can't call create-column endpoint.
     if (!canCreateColumn) {
@@ -2039,6 +2055,11 @@ class BoardManager {
     }
     if (!canUnarchiveCard) {
       document.querySelectorAll('.card-unarchive-btn').forEach(btn => btn.remove());
+    }
+
+    // Remove card move buttons if user cannot call card update endpoint.
+    if (!canMoveCard) {
+      document.querySelectorAll('.card-move-btn').forEach(btn => btn.remove());
     }
     
     console.log('Permission-based rendering complete');
@@ -5914,6 +5935,141 @@ class BoardManager {
       console.error('Error deleting comment:', err);
       await showAlert('Error deleting comment', 'Error');
     }
+  }
+
+  computeMoveCardOrder(targetColumnId, position, cardId) {
+    const sourceColumns = Array.isArray(this.originalColumns) && this.originalColumns.length > 0
+      ? this.originalColumns
+      : this.columns;
+    const targetColumn = sourceColumns.find(c => c.id === targetColumnId);
+    const targetCards = (targetColumn?.cards || [])
+      .filter(c => !c.archived && c.id !== cardId)
+      .map(c => Number(c.order))
+      .filter(Number.isFinite);
+
+    if (targetCards.length === 0) {
+      return 0;
+    }
+
+    if (position === 'top') {
+      return Math.min(...targetCards);
+    }
+
+    return Math.max(...targetCards) + 1;
+  }
+
+  getCardOriginalPosition(cardId) {
+    const cardElement = document.querySelector(`[data-card-id="${cardId}"]`);
+    if (!cardElement) return null;
+
+    const oldColumnId = parseInt(cardElement.getAttribute('data-column-id'));
+    const oldOrder = parseInt(cardElement.getAttribute('data-order'));
+    const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
+    const originalIndex = Array.from(originalColumnContainer?.querySelectorAll('.card') || []).indexOf(cardElement);
+
+    return {
+      columnId: oldColumnId,
+      order: oldOrder,
+      index: originalIndex,
+      container: originalColumnContainer,
+      nextSibling: cardElement.nextElementSibling
+    };
+  }
+
+  async openMoveCardModal(cardId) {
+    if (window.header && !window.header.dbConnected) {
+      this.showErrorToast('Cannot move card: Database is not connected. Please wait for the connection to be restored.');
+      return;
+    }
+
+    const sourceColumns = Array.isArray(this.originalColumns) && this.originalColumns.length > 0
+      ? this.originalColumns
+      : this.columns;
+
+    let sourceCard = null;
+    let sourceColumn = null;
+
+    sourceColumns.some((column) => {
+      const card = (column.cards || []).find(c => c.id === cardId);
+      if (card) {
+        sourceCard = card;
+        sourceColumn = column;
+        return true;
+      }
+      return false;
+    });
+
+    if (!sourceCard || !sourceColumn) {
+      await showAlert('Card not found', 'Error');
+      return;
+    }
+
+    const targetColumns = sourceColumns.filter(c => c.id !== sourceColumn.id);
+    if (targetColumns.length === 0) {
+      await showAlert('No other columns available to move this card to', 'Warning');
+      return;
+    }
+
+    const modalHtml = `
+      <div class="modal" id="move-card-modal">
+        <div class="modal-content">
+          <h2>Move Card</h2>
+          <p>Move <strong>${this.escapeHtml(sourceCard.title || 'Untitled card')}</strong> from <strong>${this.escapeHtml(sourceColumn.name)}</strong> to:</p>
+          <form id="move-card-form">
+            <div class="form-group">
+              <label for="move-card-target-column">Target Column:</label>
+              <select id="move-card-target-column" name="target-column" required>
+                <option value="">-- Select Column --</option>
+                ${targetColumns.map(col => `<option value="${col.id}">${this.escapeHtml(col.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="move-card-position">Position:</label>
+              <select id="move-card-position" name="position" required>
+                <option value="top">Top of column</option>
+                <option value="bottom">Bottom of column</option>
+              </select>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="cancel-move-card-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary">Move Card</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('move-card-modal');
+    const form = document.getElementById('move-card-form');
+    const cancelBtn = document.getElementById('cancel-move-card-btn');
+    const targetSelect = document.getElementById('move-card-target-column');
+    const positionSelect = document.getElementById('move-card-position');
+
+    targetSelect.focus();
+
+    cancelBtn.addEventListener('click', () => {
+      modal.remove();
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const targetColumnId = parseInt(targetSelect.value);
+      const position = positionSelect.value;
+
+      if (!targetColumnId || !position) {
+        return;
+      }
+
+      const newOrder = this.computeMoveCardOrder(targetColumnId, position, cardId);
+      const originalPosition = this.getCardOriginalPosition(cardId);
+
+      modal.remove();
+      await this.updateCardPosition(cardId, targetColumnId, newOrder, originalPosition);
+    });
+
+    setupModalBackgroundClose(modal, () => modal.remove());
   }
 }
 

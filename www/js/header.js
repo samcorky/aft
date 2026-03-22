@@ -103,6 +103,9 @@ class Header {
 
     // Initialize mobile drawer behavior
     this.initializeMobileMenu();
+
+    // Initialize mobile notifications panel
+    this.initializeMobileNotifications();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -372,7 +375,7 @@ class Header {
         return;
       }
 
-      if (target.matches('a.mobile-menu-link')) {
+      if (target.matches('a.mobile-menu-link, a.mobile-notification-link')) {
         closeMenu();
       }
     });
@@ -410,6 +413,194 @@ class Header {
         this.handleLogout();
       });
     }
+  }
+
+  // Initialize mobile notifications section and sync it with notifications.js state
+  initializeMobileNotifications() {
+    const markAllReadBtn = document.getElementById('mobile-mark-all-read-btn');
+    const mobileMenu = document.getElementById('mobile-notifications-menu');
+
+    if (markAllReadBtn) {
+      markAllReadBtn.addEventListener('click', async () => {
+        if (window.notifications && typeof window.notifications.markAllAsRead === 'function') {
+          await window.notifications.markAllAsRead();
+          this.renderMobileNotifications(window.notifications.notifications || []);
+        }
+      });
+    }
+
+    window.addEventListener('notificationsUpdated', (e) => {
+      const notifications = e.detail?.notifications || [];
+      this.renderMobileNotifications(notifications);
+    });
+
+    if (window.notifications) {
+      this.renderMobileNotifications(window.notifications.notifications || []);
+      // Refresh once so mobile menu is populated even if event fired before listener was attached
+      if (typeof window.notifications.loadNotifications === 'function') {
+        window.notifications.loadNotifications();
+      }
+    }
+  }
+
+  // Toggle mobile notification card read state using shared notifications component logic
+  toggleMobileNotificationRead(card, notificationId, isCurrentlyUnread) {
+    if (!card || !(card instanceof HTMLElement)) {
+      return;
+    }
+
+    card.classList.toggle('unread', !isCurrentlyUnread);
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-label', isCurrentlyUnread ? 'Mark notification as unread' : 'Mark notification as read');
+
+    if (window.notifications && typeof window.notifications.toggleRead === 'function') {
+      window.notifications.toggleRead(notificationId, isCurrentlyUnread);
+    } else if (isCurrentlyUnread && window.notifications && typeof window.notifications.markAsRead === 'function') {
+      // Fallback for compatibility if toggleRead is unavailable.
+      window.notifications.markAsRead(notificationId, true);
+    }
+  }
+
+  // Build mobile notification cards and unread badge for the drawer
+  renderMobileNotifications(notifications) {
+    const mobileMenu = document.getElementById('mobile-notifications-menu');
+    const badge = document.getElementById('mobile-notification-badge');
+    const toggleDot = document.getElementById('mobile-menu-toggle-dot');
+    const markAllReadBtn = document.getElementById('mobile-mark-all-read-btn');
+
+    if (!mobileMenu || !badge || !markAllReadBtn) {
+      return;
+    }
+
+    const allNotifications = Array.isArray(notifications) ? notifications : [];
+    const unreadCount = allNotifications.filter(n => n.unread).length;
+
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
+      badge.style.display = 'inline-block';
+      if (toggleDot) {
+        toggleDot.style.display = 'inline-block';
+      }
+    } else {
+      badge.style.display = 'none';
+      if (toggleDot) {
+        toggleDot.style.display = 'none';
+      }
+    }
+
+    if (allNotifications.length > 0) {
+      markAllReadBtn.style.display = '';
+      markAllReadBtn.textContent = unreadCount === 0 ? 'Delete all' : 'Mark all read';
+    } else {
+      markAllReadBtn.style.display = 'none';
+    }
+
+    mobileMenu.innerHTML = '';
+
+    if (allNotifications.length === 0) {
+      mobileMenu.innerHTML = '<div class="mobile-menu-loading">No notifications</div>';
+      return;
+    }
+
+    const sortedNotifications = [...allNotifications].sort((a, b) => {
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    sortedNotifications.slice(0, 10).forEach(notification => {
+      const item = document.createElement('div');
+      item.className = `mobile-notification-item${notification.unread ? ' unread' : ''}`;
+      item.dataset.notificationId = String(notification.id);
+
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
+      item.setAttribute('aria-label', notification.unread ? 'Mark notification as read' : 'Mark notification as unread');
+
+      const handleCardActivate = (e) => {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') {
+          return;
+        }
+        if (e.target && e.target.closest('.mobile-notification-link')) {
+          return;
+        }
+        if (e.type === 'keydown') {
+          e.preventDefault();
+        }
+        const isUnread = item.classList.contains('unread');
+        this.toggleMobileNotificationRead(item, notification.id, isUnread);
+      };
+      item.addEventListener('click', handleCardActivate);
+      item.addEventListener('keydown', handleCardActivate);
+
+      const subject = document.createElement('div');
+      subject.className = 'mobile-notification-subject';
+      subject.textContent = notification.subject || '';
+
+      const message = document.createElement('div');
+      message.className = 'mobile-notification-message';
+      message.textContent = notification.message || '';
+
+      const meta = document.createElement('div');
+      meta.className = 'mobile-notification-meta';
+
+      const time = document.createElement('div');
+      time.className = 'mobile-notification-time';
+      time.textContent = this.formatRelativeTime(notification.created_at);
+      meta.appendChild(time);
+
+      const hasAction = notification.action_title && notification.action_url && this.isSafeMobileUrl(notification.action_url);
+      if (hasAction) {
+        const actionLink = document.createElement('a');
+        actionLink.className = 'mobile-notification-link';
+        actionLink.href = notification.action_url;
+        actionLink.textContent = notification.action_title;
+        if (notification.unread && window.notifications && typeof window.notifications.markAsRead === 'function') {
+          actionLink.addEventListener('click', () => {
+            window.notifications.markAsRead(notification.id, true);
+          });
+        }
+        meta.appendChild(actionLink);
+      }
+
+      item.appendChild(subject);
+      item.appendChild(message);
+      item.appendChild(meta);
+      mobileMenu.appendChild(item);
+    });
+  }
+
+  // Restrict actionable notification links to safe protocols
+  isSafeMobileUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+
+    const normalized = url.trim().toLowerCase();
+    return normalized.startsWith('/') || normalized.startsWith('http://') || normalized.startsWith('https://');
+  }
+
+  // Format notification timestamps for compact mobile cards
+  formatRelativeTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return 'Just now';
+    }
+    if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    }
+    if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+    if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
+    return date.toLocaleDateString();
   }
 
   // Load current user info

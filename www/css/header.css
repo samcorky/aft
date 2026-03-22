@@ -883,6 +883,7 @@
     cursor: pointer;
     transition: transform 0.2s ease, background-color 0.2s ease;
     padding: 0;
+    position: relative;
   }
 
   .mobile-menu-toggle:hover {
@@ -890,12 +891,25 @@
     transform: translateY(-1px);
   }
 
-  .mobile-menu-toggle span {
+  .mobile-menu-toggle > span:not(.mobile-menu-toggle-dot) {
     width: 18px;
     height: 2px;
     border-radius: 2px;
     background: currentColor;
     display: block;
+  }
+
+  .mobile-menu-toggle-dot {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--error-color);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    z-index: 1;
+    pointer-events: none;
   }
 
   .mobile-menu-overlay {
@@ -913,13 +927,13 @@
     display: block;
     position: fixed;
     top: 0;
-    right: 0;
+    left: 0;
     width: min(88vw, 360px);
     height: 100vh;
     background: var(--page-panel-background);
-    border-left: 1px solid var(--border-color);
-    box-shadow: -8px 0 28px rgba(0, 0, 0, 0.22);
-    transform: translateX(100%);
+    border-right: 1px solid var(--border-color);
+    box-shadow: 8px 0 28px rgba(0, 0, 0, 0.22);
+    transform: translateX(-100%);
     transition: transform 0.25s ease;
     z-index: 1100;
     overflow-y: auto;
@@ -988,6 +1002,25 @@
     justify-content: space-between;
   }
 
+  .mobile-tree-group summary .mobile-notification-badge {
+    margin-left: auto;
+    margin-right: 8px;
+  }
+
+  .mobile-tree-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .mobile-tree-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    opacity: 0.85;
+  }
+
   .mobile-tree-group summary::-webkit-details-marker {
     display: none;
   }
@@ -996,18 +1029,33 @@
     content: '+';
     font-size: 16px;
     opacity: 0.7;
+    transition: transform 0.2s ease, opacity 0.2s ease;
   }
 
   .mobile-tree-group[open] summary::after {
     content: '-';
+    transform: rotate(180deg);
+    opacity: 1;
   }
 
   .mobile-tree-items {
-    padding: 0 8px 8px;
+    padding: 0 8px;
     border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
     gap: 4px;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: max-height 0.28s ease, opacity 0.22s ease, transform 0.22s ease, padding 0.22s ease;
+  }
+
+  .mobile-tree-group[open] .mobile-tree-items {
+    padding: 0 8px 8px;
+    max-height: 520px;
+    opacity: 1;
+    transform: translateY(0);
   }
 
   .mobile-menu-link,
@@ -1023,6 +1071,99 @@
     padding: 10px;
     cursor: pointer;
     display: block;
+  }
+
+  .mobile-notification-badge {
+    min-width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    padding: 0 6px;
+    background: var(--error-color);
+    color: var(--header-text-color);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    display: inline-block;
+  }
+
+  .mobile-notifications-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .mobile-notification-item {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--page-panel-background);
+  }
+
+  .mobile-notification-item[role="button"] {
+    cursor: pointer;
+  }
+
+  .mobile-notification-item[role="button"]:hover {
+    background: var(--background-light);
+  }
+
+  .mobile-notification-item.unread {
+    border-left: 3px solid var(--primary-color);
+    padding-left: 8px;
+  }
+
+  .mobile-notification-subject {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bold);
+    margin-bottom: 4px;
+    line-height: 1.35;
+  }
+
+  .mobile-notification-message {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.35;
+    margin-bottom: 6px;
+  }
+
+  .mobile-notification-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .mobile-notification-time {
+    font-size: 11px;
+    color: var(--text-muted);
+    opacity: 0.9;
+  }
+
+  .mobile-notification-link {
+    display: inline-block;
+    background: var(--primary-color);
+    color: var(--header-text-color);
+    text-decoration: none;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    max-width: 62%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mobile-notification-link:hover {
+    background: var(--primary-hover);
+  }
+
+  .mobile-notification-action {
+    font-family: inherit;
+    border: 1px solid var(--border-color);
+    margin-bottom: 6px;
   }
 
   .mobile-menu-link:hover,

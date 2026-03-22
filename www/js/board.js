@@ -771,6 +771,7 @@ class BoardManager {
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
     this.beforeUnloadHandler = this.handleBeforeUnload.bind(this);
+    this.viewportMetricsHandler = this.updateMobileBoardViewportMetrics.bind(this);
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
     this.columnScrollPositions = {};
@@ -886,6 +887,39 @@ class BoardManager {
   handleBeforeUnload() {
     this.captureColumnScrollPositions();
     this.persistColumnScrollPositions();
+  }
+
+  setupMobileViewportSync() {
+    this.updateMobileBoardViewportMetrics();
+    window.addEventListener('resize', this.viewportMetricsHandler);
+    window.addEventListener('orientationchange', this.viewportMetricsHandler);
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', this.viewportMetricsHandler);
+      window.visualViewport.addEventListener('scroll', this.viewportMetricsHandler);
+    }
+  }
+
+  updateMobileBoardViewportMetrics() {
+    if (!document.body.classList.contains('board-page')) {
+      return;
+    }
+
+    const columnsContainer = this.container?.querySelector('.columns-container');
+    if (!columnsContainer) {
+      return;
+    }
+
+    const viewportHeight = window.visualViewport?.height || window.innerHeight || document.documentElement.clientHeight;
+    if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
+      return;
+    }
+
+    const containerTop = columnsContainer.getBoundingClientRect().top;
+    const bottomGap = 8;
+    const availableHeight = Math.max(320, Math.floor(viewportHeight - containerTop - bottomGap));
+
+    document.documentElement.style.setProperty('--board-mobile-available-height', `${availableHeight}px`);
   }
 
   /**
@@ -1044,6 +1078,7 @@ class BoardManager {
     await this.loadWorkingStyle();
     
     await this.loadBoard();
+    this.setupMobileViewportSync();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
     this.setupViewListener();
@@ -1297,6 +1332,13 @@ class BoardManager {
     document.removeEventListener('keydown', this.keyboardHandler);
     document.removeEventListener('click', this.closeDropdownHandler);
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+    window.removeEventListener('resize', this.viewportMetricsHandler);
+    window.removeEventListener('orientationchange', this.viewportMetricsHandler);
+
+    if (window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', this.viewportMetricsHandler);
+      window.visualViewport.removeEventListener('scroll', this.viewportMetricsHandler);
+    }
 
     if (this.persistScrollTimeoutId) {
       clearTimeout(this.persistScrollTimeoutId);
@@ -1886,6 +1928,10 @@ class BoardManager {
       });
 
       this.restoreColumnScrollPositions();
+
+      requestAnimationFrame(() => {
+        this.updateMobileBoardViewportMetrics();
+      });
       
       // Apply permission-based rendering (if PermissionManager is initialized)
       this.applyPermissionBasedRendering();

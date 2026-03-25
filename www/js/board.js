@@ -2172,10 +2172,12 @@ class BoardManager {
         const oldOrder = parseInt(card.getAttribute('data-order'));
         const originalColumnContainer = document.querySelector(`[data-column-id="${oldColumnId}"] .column-cards`);
         const actualNextSibling = card.nextElementSibling;
+        const originalIndex = Array.from(originalColumnContainer?.querySelectorAll('.card') || []).indexOf(card);
         
         originalPosition = {
           columnId: oldColumnId,
           order: oldOrder,
+          index: originalIndex,
           container: originalColumnContainer,
           nextSibling: actualNextSibling
         };
@@ -2220,14 +2222,28 @@ class BoardManager {
         this.stopColumnAutoScroll();
         
         if (!draggedCard || !originalPosition) return;
+
+        // Re-evaluate placement at drop time so the final order reflects where
+        // the pointer is when released (important after auto-scroll movement).
+        const finalAfterElement = this.getDragAfterElement(columnContainer, e.clientY);
+        if (!finalAfterElement) {
+          const addCardBtn = columnContainer.querySelector('.add-card-btn');
+          if (addCardBtn) {
+            columnContainer.insertBefore(draggedCard, addCardBtn);
+          } else {
+            columnContainer.appendChild(draggedCard);
+          }
+        } else {
+          columnContainer.insertBefore(draggedCard, finalAfterElement);
+        }
         
         const targetColumnId = parseInt(columnContainer.getAttribute('data-column-id'));
         const cardId = parseInt(draggedCard.getAttribute('data-card-id'));
         const oldColumnId = originalPosition.columnId;
         
-        // Calculate new order based on position in DOM
-        const cardsInColumn = Array.from(columnContainer.querySelectorAll('.card'));
-        const newOrder = cardsInColumn.indexOf(draggedCard);
+        // Calculate target order using neighboring order values rather than
+        // DOM index because persisted order values can contain gaps.
+        const newOrder = this.getDropOrderValue(columnContainer, draggedCard, originalPosition);
         
         // Only update if position or column changed
         const oldOrder = originalPosition.order;
@@ -2257,6 +2273,60 @@ class BoardManager {
         return closest;
       }
     }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  getDropOrderValue(container, draggedCard, originalPosition = null) {
+    const cardsInColumn = Array.from(container.querySelectorAll('.card'));
+    const draggedIndex = cardsInColumn.indexOf(draggedCard);
+
+    if (draggedIndex === -1) {
+      return 0;
+    }
+
+    const targetColumnId = Number(container.getAttribute('data-column-id'));
+    const oldColumnId = Number(originalPosition?.columnId);
+    const oldOrder = Number(originalPosition?.order);
+    const originalIndex = Number(originalPosition?.index);
+
+    const previousCard = cardsInColumn[draggedIndex - 1] || null;
+    const nextCard = cardsInColumn[draggedIndex + 1] || null;
+
+    const previousOrder = previousCard ? Number(previousCard.getAttribute('data-order')) : Number.NaN;
+    const nextOrder = nextCard ? Number(nextCard.getAttribute('data-order')) : Number.NaN;
+
+    const isSameColumnMove = Number.isFinite(targetColumnId) && Number.isFinite(oldColumnId) && targetColumnId === oldColumnId;
+
+    if (isSameColumnMove && Number.isFinite(originalIndex)) {
+      if (draggedIndex > originalIndex) {
+        if (Number.isFinite(previousOrder)) {
+          return previousOrder;
+        }
+      } else if (draggedIndex < originalIndex) {
+        if (Number.isFinite(nextOrder)) {
+          return nextOrder;
+        }
+      } else if (Number.isFinite(oldOrder)) {
+        return oldOrder;
+      }
+    }
+
+    if (Number.isFinite(nextOrder)) {
+      return nextOrder;
+    }
+
+    // Appending to end: place after the largest known order value.
+    const maxOrder = cardsInColumn.reduce((max, card) => {
+      if (card === draggedCard) return max;
+      const order = Number(card.getAttribute('data-order'));
+      if (!Number.isFinite(order)) return max;
+      return Math.max(max, order);
+    }, Number.NEGATIVE_INFINITY);
+
+    if (Number.isFinite(maxOrder)) {
+      return maxOrder + 1;
+    }
+
+    return draggedIndex;
   }
 
   async updateCardPosition(cardId, columnId, order, originalPosition = null) {

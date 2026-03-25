@@ -64,6 +64,7 @@ class Header {
     this.wsConnected = false; // Track WebSocket connection status
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
     this.wsCheckInterval = null; // WebSocket check interval
+    this.mobileBreakpoint = 900;
   }
 
   // Load the header HTML component
@@ -99,6 +100,12 @@ class Header {
     
     // Initialize dropdown pin behavior for settings and user menus
     this.initializeDropdownPin();
+
+    // Initialize mobile drawer behavior
+    this.initializeMobileMenu();
+
+    // Initialize mobile notifications panel
+    this.initializeMobileNotifications();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -312,14 +319,294 @@ class Header {
     if (viewsDropdown) {
       viewsDropdown.style.display = show ? 'block' : 'none';
     }
+
+    this.syncMobileViewVisibility(show);
+  }
+
+  // Keep mobile view section visibility aligned with desktop view control state
+  syncMobileViewVisibility(show) {
+    const mobileViewsSection = document.getElementById('mobile-views-section');
+    if (mobileViewsSection) {
+      mobileViewsSection.style.display = show ? '' : 'none';
+    }
+  }
+
+  // Initialize mobile drawer menu interactions
+  initializeMobileMenu() {
+    const header = document.querySelector('.header');
+    const toggleBtn = document.getElementById('mobile-menu-toggle');
+    const closeBtn = document.getElementById('mobile-menu-close');
+    const overlay = document.getElementById('mobile-menu-overlay');
+    const drawer = document.getElementById('mobile-menu-drawer');
+
+    if (!header || !toggleBtn || !closeBtn || !overlay || !drawer) {
+      return;
+    }
+
+    const openMenu = () => {
+      header.classList.add('mobile-menu-open');
+      document.body.classList.add('mobile-menu-open');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+    };
+
+    const closeMenu = () => {
+      header.classList.remove('mobile-menu-open');
+      document.body.classList.remove('mobile-menu-open');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+    };
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (header.classList.contains('mobile-menu-open')) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    closeBtn.addEventListener('click', closeMenu);
+    overlay.addEventListener('click', closeMenu);
+
+    // Auto-close drawer after selecting a menu option
+    drawer.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      if (target.matches('a.mobile-menu-link, a.mobile-notification-link')) {
+        closeMenu();
+      }
+    });
+
+    // Close on escape and when returning to desktop layout
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && header.classList.contains('mobile-menu-open')) {
+        closeMenu();
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > this.mobileBreakpoint) {
+        closeMenu();
+      }
+    });
+
+    // Handle mobile view actions
+    drawer.querySelectorAll('.mobile-view-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const view = e.currentTarget.dataset.view;
+        if (!view) {
+          return;
+        }
+        this.setView(view);
+        closeMenu();
+      });
+    });
+
+    // Hook mobile logout button into existing logout flow
+    const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
+    if (mobileLogoutItem) {
+      mobileLogoutItem.addEventListener('click', () => {
+        closeMenu();
+        this.handleLogout();
+      });
+    }
+  }
+
+  // Initialize mobile notifications section and sync it with notifications.js state
+  initializeMobileNotifications() {
+    const markAllReadBtn = document.getElementById('mobile-mark-all-read-btn');
+
+    if (markAllReadBtn) {
+      markAllReadBtn.addEventListener('click', async () => {
+        if (window.notifications && typeof window.notifications.markAllAsRead === 'function') {
+          await window.notifications.markAllAsRead();
+          this.renderMobileNotifications(window.notifications.notifications || []);
+        }
+      });
+    }
+
+    window.addEventListener('notificationsUpdated', (e) => {
+      const notifications = e.detail?.notifications || [];
+      this.renderMobileNotifications(notifications);
+    });
+
+    if (window.notifications) {
+      this.renderMobileNotifications(window.notifications.notifications || []);
+    }
+  }
+
+  // Toggle mobile notification card read state using shared notifications component logic
+  toggleMobileNotificationRead(card, notificationId, isCurrentlyUnread) {
+    if (!card || !(card instanceof HTMLElement)) {
+      return;
+    }
+
+    card.classList.toggle('unread', !isCurrentlyUnread);
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-label', isCurrentlyUnread ? 'Mark notification as unread' : 'Mark notification as read');
+
+    if (window.notifications && typeof window.notifications.toggleRead === 'function') {
+      window.notifications.toggleRead(notificationId, isCurrentlyUnread);
+    } else if (isCurrentlyUnread && window.notifications && typeof window.notifications.markAsRead === 'function') {
+      // Fallback for compatibility if toggleRead is unavailable.
+      window.notifications.markAsRead(notificationId, true);
+    }
+  }
+
+  // Build mobile notification cards and unread badge for the drawer
+  renderMobileNotifications(notifications) {
+    const mobileMenu = document.getElementById('mobile-notifications-menu');
+    const badge = document.getElementById('mobile-notification-badge');
+    const toggleDot = document.getElementById('mobile-menu-toggle-dot');
+    const markAllReadBtn = document.getElementById('mobile-mark-all-read-btn');
+
+    if (!mobileMenu || !badge || !markAllReadBtn) {
+      return;
+    }
+
+    const allNotifications = Array.isArray(notifications) ? notifications : [];
+    const unreadCount = allNotifications.filter(n => n.unread).length;
+
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount > 9 ? '9+' : String(unreadCount);
+      badge.style.display = 'inline-block';
+      if (toggleDot) {
+        toggleDot.style.display = 'inline-block';
+      }
+    } else {
+      badge.style.display = 'none';
+      if (toggleDot) {
+        toggleDot.style.display = 'none';
+      }
+    }
+
+    if (allNotifications.length > 0) {
+      markAllReadBtn.style.display = '';
+      markAllReadBtn.textContent = unreadCount === 0 ? 'Delete all' : 'Mark all read';
+    } else {
+      markAllReadBtn.style.display = 'none';
+    }
+
+    mobileMenu.innerHTML = '';
+
+    if (allNotifications.length === 0) {
+      mobileMenu.innerHTML = '<div class="mobile-menu-loading">No notifications</div>';
+      return;
+    }
+
+    const sortedNotifications = [...allNotifications].sort((a, b) => {
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    sortedNotifications.slice(0, 10).forEach(notification => {
+      const item = document.createElement('div');
+      item.className = `mobile-notification-item${notification.unread ? ' unread' : ''}`;
+      item.dataset.notificationId = String(notification.id);
+
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
+      item.setAttribute('aria-label', notification.unread ? 'Mark notification as read' : 'Mark notification as unread');
+
+      const handleCardActivate = (e) => {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') {
+          return;
+        }
+        if (e.target && e.target.closest('.mobile-notification-link')) {
+          return;
+        }
+        if (e.type === 'keydown') {
+          e.preventDefault();
+        }
+        const isUnread = item.classList.contains('unread');
+        this.toggleMobileNotificationRead(item, notification.id, isUnread);
+      };
+      item.addEventListener('click', handleCardActivate);
+      item.addEventListener('keydown', handleCardActivate);
+
+      const subject = document.createElement('div');
+      subject.className = 'mobile-notification-subject';
+      subject.textContent = notification.subject || '';
+
+      const message = document.createElement('div');
+      message.className = 'mobile-notification-message';
+      message.textContent = notification.message || '';
+
+      const meta = document.createElement('div');
+      meta.className = 'mobile-notification-meta';
+
+      const time = document.createElement('div');
+      time.className = 'mobile-notification-time';
+      time.textContent = this.formatRelativeTime(notification.created_at);
+      meta.appendChild(time);
+
+      const hasAction = notification.action_title && notification.action_url && this.isSafeMobileUrl(notification.action_url);
+      if (hasAction) {
+        const actionLink = document.createElement('a');
+        actionLink.className = 'mobile-notification-link';
+        actionLink.href = notification.action_url;
+        actionLink.textContent = notification.action_title;
+        if (notification.unread && window.notifications && typeof window.notifications.markAsRead === 'function') {
+          actionLink.addEventListener('click', () => {
+            window.notifications.markAsRead(notification.id, true);
+          });
+        }
+        meta.appendChild(actionLink);
+      }
+
+      item.appendChild(subject);
+      item.appendChild(message);
+      item.appendChild(meta);
+      mobileMenu.appendChild(item);
+    });
+  }
+
+  // Restrict actionable notification links to safe protocols
+  isSafeMobileUrl(url) {
+    if (!url || typeof url !== 'string') {
+      return false;
+    }
+
+    const normalized = url.trim().toLowerCase();
+    return normalized.startsWith('/') || normalized.startsWith('http://') || normalized.startsWith('https://');
+  }
+
+  // Format notification timestamps for compact mobile cards
+  formatRelativeTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return 'Just now';
+    }
+    if (diffMins < 60) {
+      return `${diffMins}m ago`;
+    }
+    if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    }
+    if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
+    return date.toLocaleDateString();
   }
 
   // Load current user info
   async loadCurrentUser() {
     try {
       const userNameEl = document.getElementById('header-user-name');
+      const mobileUserNameEl = document.getElementById('mobile-header-user-name');
       const loginItem = document.getElementById('login-menu-item');
+      const mobileLoginItem = document.getElementById('mobile-login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
+      const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
       
       // Check sessionStorage cache first to avoid API calls on every page load
       const cachedUser = sessionStorage.getItem('currentUser');
@@ -331,11 +618,16 @@ class Header {
           
           const displayName = userData.display_name || userData.username || userData.email;
           if (userNameEl) userNameEl.textContent = displayName;
+          if (mobileUserNameEl) mobileUserNameEl.textContent = displayName;
           if (loginItem) loginItem.style.display = 'none';
+          if (mobileLoginItem) mobileLoginItem.style.display = 'none';
           if (logoutItem) {
             logoutItem.style.display = 'block';
             // Add logout handler
             logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          if (mobileLogoutItem) {
+            mobileLogoutItem.style.display = 'block';
           }
           
           // Filter menu items based on permissions
@@ -362,11 +654,16 @@ class Header {
           
           const displayName = data.user.display_name || data.user.username || data.user.email;
           if (userNameEl) userNameEl.textContent = displayName;
+          if (mobileUserNameEl) mobileUserNameEl.textContent = displayName;
           if (loginItem) loginItem.style.display = 'none';
+          if (mobileLoginItem) mobileLoginItem.style.display = 'none';
           if (logoutItem) {
             logoutItem.style.display = 'block';
             // Add logout handler
             logoutItem.addEventListener('click', () => this.handleLogout());
+          }
+          if (mobileLogoutItem) {
+            mobileLogoutItem.style.display = 'block';
           }
           
           // Filter menu items based on permissions
@@ -382,8 +679,11 @@ class Header {
       window.currentUser = null;
       sessionStorage.removeItem('currentUser');
       if (userNameEl) userNameEl.textContent = 'Guest';
+      if (mobileUserNameEl) mobileUserNameEl.textContent = 'Guest';
       if (loginItem) loginItem.style.display = 'block';
+      if (mobileLoginItem) mobileLoginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      if (mobileLogoutItem) mobileLogoutItem.style.display = 'none';
       
       // Hide permission-protected menu items
       this.filterMenuByPermissions();
@@ -396,11 +696,17 @@ class Header {
       window.currentUser = null;
       sessionStorage.removeItem('currentUser');
       const userNameEl = document.getElementById('header-user-name');
+      const mobileUserNameEl = document.getElementById('mobile-header-user-name');
       if (userNameEl) userNameEl.textContent = 'Guest';
+      if (mobileUserNameEl) mobileUserNameEl.textContent = 'Guest';
       const loginItem = document.getElementById('login-menu-item');
+      const mobileLoginItem = document.getElementById('mobile-login-menu-item');
       const logoutItem = document.getElementById('logout-menu-item');
+      const mobileLogoutItem = document.getElementById('mobile-logout-menu-item');
       if (loginItem) loginItem.style.display = 'block';
+      if (mobileLoginItem) mobileLoginItem.style.display = 'block';
       if (logoutItem) logoutItem.style.display = 'none';
+      if (mobileLogoutItem) mobileLogoutItem.style.display = 'none';
       
       // Hide permission-protected menu items
       this.filterMenuByPermissions();
@@ -414,14 +720,25 @@ class Header {
   filterMenuByPermissions() {
     // Menu items and their required permissions
     const protectedItems = [
-      { selector: 'a[href="/backup-restore.html"]', permission: 'admin.database' },
-      { selector: 'a[href="/user-management.html"]', permissions: ['user.manage', 'user.role'], requireAny: true },
-      { selector: 'a[href="/role-management.html"]', permission: 'role.manage' }
+      {
+        selectors: ['a[href="/backup-restore.html"]'],
+        permission: 'admin.database'
+      },
+      {
+        selectors: ['a[href="/user-management.html"]'],
+        permissions: ['user.manage', 'user.role'],
+        requireAny: true
+      },
+      {
+        selectors: ['a[href="/role-management.html"]'],
+        permission: 'role.manage'
+      }
     ];
     
     protectedItems.forEach(item => {
-      const menuItem = document.querySelector(item.selector);
-      if (menuItem) {
+      const selectors = item.selectors || (item.selector ? [item.selector] : []);
+      const menuItems = selectors.flatMap(selector => Array.from(document.querySelectorAll(selector)));
+      if (menuItems.length > 0) {
         let hasAccess = false;
         
         // Check if user has permission (hasPermission is defined in utils.js)
@@ -435,11 +752,13 @@ class Header {
           hasAccess = typeof hasPermission === 'function' && hasPermission(item.permission);
         }
         
-        if (hasAccess) {
-          menuItem.style.display = '';  // Show
-        } else {
-          menuItem.style.display = 'none';  // Hide
-        }
+        menuItems.forEach(menuItem => {
+          if (hasAccess) {
+            menuItem.style.display = '';  // Show
+          } else {
+            menuItem.style.display = 'none';  // Hide
+          }
+        });
       }
     });
   }
@@ -498,7 +817,7 @@ class Header {
 
     if (this.workingStyle === 'board_task_category') {
       // Check if done view already exists
-      if (!document.querySelector('[data-view="done"]')) {
+      if (!document.querySelector('.views-dropdown-item[data-view="done"]')) {
         // Add done view option
         const doneItem = document.createElement('button');
         doneItem.className = 'views-dropdown-item';
@@ -525,9 +844,38 @@ class Header {
       }
     } else {
       // Remove done view if it exists
-      const doneItem = document.querySelector('[data-view="done"]');
+      const doneItem = document.querySelector('.views-dropdown-item[data-view="done"]');
       if (doneItem) {
         doneItem.remove();
+      }
+    }
+
+    // Keep mobile views in sync with active working style
+    const mobileViewsSection = document.getElementById('mobile-views-section');
+    if (mobileViewsSection) {
+      const mobileDoneItem = mobileViewsSection.querySelector('.mobile-view-item[data-view="done"]');
+      if (this.workingStyle === 'board_task_category') {
+        if (!mobileDoneItem) {
+          const doneBtn = document.createElement('button');
+          doneBtn.className = 'mobile-view-item';
+          doneBtn.setAttribute('data-view', 'done');
+          doneBtn.textContent = 'Done View';
+          doneBtn.addEventListener('click', () => {
+            this.setView('done');
+            const header = document.querySelector('.header');
+            if (header) {
+              header.classList.remove('mobile-menu-open');
+            }
+            document.body.classList.remove('mobile-menu-open');
+            const mobileToggle = document.getElementById('mobile-menu-toggle');
+            if (mobileToggle) {
+              mobileToggle.setAttribute('aria-expanded', 'false');
+            }
+          });
+          mobileViewsSection.querySelector('.mobile-tree-items')?.appendChild(doneBtn);
+        }
+      } else if (mobileDoneItem) {
+        mobileDoneItem.remove();
       }
     }
   }
@@ -658,6 +1006,10 @@ class Header {
 
     // Highlight active item
     document.querySelectorAll('.views-dropdown-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.view === view);
+    });
+
+    document.querySelectorAll('.mobile-view-item').forEach(item => {
       item.classList.toggle('active', item.dataset.view === view);
     });
 
@@ -915,11 +1267,15 @@ class Header {
       const data = await response.json();
       
       const dropdown = document.getElementById('boards-dropdown-menu');
+      const mobileBoardsMenu = document.getElementById('mobile-boards-menu');
       if (!dropdown) return;
       
       if (data.success && data.boards && data.boards.length > 0) {
         // Clear loading message
         dropdown.innerHTML = '';
+        if (mobileBoardsMenu) {
+          mobileBoardsMenu.innerHTML = '';
+        }
         
         // Add each board as a link
         data.boards.forEach(board => {
@@ -928,15 +1284,30 @@ class Header {
           link.className = 'boards-dropdown-item';
           link.textContent = board.name;
           dropdown.appendChild(link);
+
+          if (mobileBoardsMenu) {
+            const mobileLink = document.createElement('a');
+            mobileLink.href = `/board.html?id=${board.id}`;
+            mobileLink.className = 'mobile-menu-link';
+            mobileLink.textContent = board.name;
+            mobileBoardsMenu.appendChild(mobileLink);
+          }
         });
       } else {
         dropdown.innerHTML = '<div class="boards-dropdown-empty">No boards yet</div>';
+        if (mobileBoardsMenu) {
+          mobileBoardsMenu.innerHTML = '<div class="mobile-menu-loading">No boards yet</div>';
+        }
       }
     } catch (error) {
       console.error('Error loading boards dropdown:', error);
       const dropdown = document.getElementById('boards-dropdown-menu');
+      const mobileBoardsMenu = document.getElementById('mobile-boards-menu');
       if (dropdown) {
         dropdown.innerHTML = '<div class="boards-dropdown-empty">Error loading boards</div>';
+      }
+      if (mobileBoardsMenu) {
+        mobileBoardsMenu.innerHTML = '<div class="mobile-menu-loading">Error loading boards</div>';
       }
     }
   }

@@ -479,6 +479,19 @@ class Notifications {
         this.markAllReadBtn.classList.remove('delete-mode');
       }
     }
+
+    this.emitNotificationsUpdated();
+  }
+
+  /**
+   * Broadcast current notifications so other UI components can render synced state.
+   */
+  emitNotificationsUpdated() {
+    window.dispatchEvent(new CustomEvent('notificationsUpdated', {
+      detail: {
+        notifications: this.notifications
+      }
+    }));
   }
 
   /**

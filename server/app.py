@@ -45,7 +45,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Application version
-APP_VERSION = "2026.3.1"
+APP_VERSION = "2026.3.2"
 
 TEST_USER_EMAIL = "test-admin@localhost"
 TEST_USER_USERNAME = "test-admin"

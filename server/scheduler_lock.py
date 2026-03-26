@@ -9,6 +9,7 @@ These helpers provide a consistent lock acquisition strategy with:
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,8 +27,28 @@ def _is_pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         return True
-    except OSError:
+    except ProcessLookupError:
+        # No such process.
         return False
+    except PermissionError:
+        # Process likely exists but is owned by another user/namespace.
+        return True
+    except OSError:
+        # Conservatively treat other OS errors as not alive.
+        return False
+
+
+def _lock_file_signature(lock_file: Path) -> tuple[int, int, int] | None:
+    """Return a best-effort signature for race-safe lock eviction checks."""
+    try:
+        stat_result = lock_file.stat()
+        return (
+            int(getattr(stat_result, "st_ino", 0)),
+            int(stat_result.st_size),
+            int(stat_result.st_mtime_ns),
+        )
+    except FileNotFoundError:
+        return None
 
 
 def _read_lock_data(lock_file: Path) -> dict[str, Any]:
@@ -37,6 +58,16 @@ def _read_lock_data(lock_file: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Lock data is not a JSON object")
     return value
+
+
+def _lock_owner_identity(lock_data: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
+    """Return the identifying fields used to validate stale-lock ownership."""
+    return (
+        lock_data.get("pid"),
+        lock_data.get("container_id"),
+        lock_data.get("scheduler_type"),
+        lock_data.get("acquired_at"),
+    )
 
 
 def get_lock_diagnostics(lock_file: Path) -> dict[str, Any]:
@@ -156,6 +187,13 @@ def acquire_scheduler_lock(
                 json.dump(metadata, handle, indent=2)
             return True, {"reason": "acquired", **get_lock_diagnostics(lock_file)}
         except FileExistsError:
+            signature_before_check = _lock_file_signature(lock_file)
+            stale_lock_data: dict[str, Any] | None = None
+            try:
+                stale_lock_data = _read_lock_data(lock_file)
+            except Exception:
+                stale_lock_data = None
+
             stale = is_scheduler_lock_stale(
                 lock_file=lock_file,
                 scheduler_type=scheduler_type,
@@ -166,6 +204,32 @@ def acquire_scheduler_lock(
 
             if attempt == 0:
                 try:
+                    # Re-validate the lock file immediately before removal to avoid TOCTOU deletion.
+                    signature_before_unlink = _lock_file_signature(lock_file)
+                    if (
+                        signature_before_check is not None
+                        and signature_before_unlink is not None
+                        and signature_before_unlink != signature_before_check
+                    ):
+                        return False, {
+                            "reason": "stale_lock_changed_before_remove",
+                            **get_lock_diagnostics(lock_file),
+                        }
+
+                    if stale_lock_data is not None and signature_before_unlink is not None:
+                        try:
+                            current_lock_data = _read_lock_data(lock_file)
+                            if _lock_owner_identity(current_lock_data) != _lock_owner_identity(stale_lock_data):
+                                return False, {
+                                    "reason": "stale_lock_owner_changed_before_remove",
+                                    **get_lock_diagnostics(lock_file),
+                                }
+                        except Exception:
+                            return False, {
+                                "reason": "stale_lock_unreadable_before_remove",
+                                **get_lock_diagnostics(lock_file),
+                            }
+
                     lock_file.unlink(missing_ok=False)
                 except FileNotFoundError:
                     pass
@@ -201,7 +265,30 @@ def update_scheduler_heartbeat(lock_file: Path, scheduler_type: str) -> bool:
             data["acquired_at"] = datetime.now().isoformat()
         data["last_heartbeat"] = datetime.now().isoformat()
 
-        lock_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        lock_dir = lock_file.parent
+        temp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=str(lock_dir),
+                delete=False,
+                prefix=f".{lock_file.name}.",
+                suffix=".tmp",
+            ) as temp_handle:
+                json.dump(data, temp_handle, indent=2)
+                temp_handle.flush()
+                os.fsync(temp_handle.fileno())
+                temp_path = temp_handle.name
+
+            os.replace(temp_path, str(lock_file))
+            temp_path = None
+        finally:
+            if temp_path is not None:
+                try:
+                    Path(temp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
         return True
     except Exception as exc:
         logger.warning("Failed to update scheduler heartbeat for %s: %s", lock_file, exc)

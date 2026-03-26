@@ -2,7 +2,6 @@
 import json
 import os
 import subprocess
-import tempfile
 import threading
 import time
 from datetime import datetime, timedelta
@@ -14,6 +13,11 @@ from sqlalchemy import text
 from database import SessionLocal
 from models import Setting, Notification
 from notification_utils import create_notification
+from scheduler_lock import (
+    acquire_scheduler_lock,
+    release_scheduler_lock,
+    update_scheduler_heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,59 +56,9 @@ class BackupScheduler:
         self._last_scheduled_minute_trigger: Optional[tuple] = None  # (hour, minute) tuple to prevent re-triggering in same minute
         self._scheduler_loop_running = False  # Guard against multiple scheduler loop threads
     
-    def _is_lock_stale(self) -> bool:
-        """Check if existing lock file is stale.
-        
-        Returns:
-            True if lock file is stale and should be removed, False otherwise.
-        """
-        try:
-            lock_data = json.loads(self.lock_file.read_text())
-            
-            # Check container ID (hostname in Docker)
-            current_container = os.environ.get('HOSTNAME', 'unknown')
-            lock_container = lock_data.get('container_id', 'unknown')
-            if lock_container != current_container:
-                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
-                return True  # Different container = stale
-            
-            # Check heartbeat age
-            last_heartbeat_str = lock_data.get('last_heartbeat')
-            if last_heartbeat_str:
-                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
-                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
-                
-                if age_seconds > 300:  # 5 minutes without heartbeat = stale
-                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
-                    return True
-                
-                # Lock is fresh and from same container
-                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
-                return False
-            
-            # No heartbeat in lock file = old format or invalid
-            logger.info("Lock file has no heartbeat, considering stale")
-            return True
-            
-        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
-            logger.info(f"Lock file is invalid or corrupted: {e}")
-            return True  # Invalid lock file = stale
-        except Exception as e:
-            logger.warning(f"Error checking lock staleness: {e}")
-            return True  # Error reading = assume stale for safety
-    
     def _update_heartbeat(self):
         """Update lock file with current timestamp to prove thread is alive."""
-        try:
-            lock_data = {
-                "pid": os.getpid(),
-                "container_id": os.environ.get('HOSTNAME', 'unknown'),
-                "last_heartbeat": datetime.now().isoformat(),
-                "scheduler_type": "backup"
-            }
-            self.lock_file.write_text(json.dumps(lock_data, indent=2))
-        except Exception as e:
-            logger.warning(f"Failed to update heartbeat: {e}")
+        update_scheduler_heartbeat(self.lock_file, "backup")
     
     def _check_backup_directory_permissions(self, force_check: bool = False) -> tuple[bool, Optional[str]]:
         """Check if backup directory is writable.
@@ -156,41 +110,16 @@ class BackupScheduler:
             logger.warning("Backup scheduler thread already alive, not starting duplicate")
             return
         
-        # Check if lock file exists and if it's stale
-        if self.lock_file.exists():
-            if self._is_lock_stale():
-                logger.info("Removing stale lock file")
-                try:
-                    self.lock_file.unlink()
-                except Exception as e:
-                    logger.error(f"Failed to remove stale lock file: {e}")
-                    return
-            else:
-                logger.info("Another scheduler instance is active, not starting")
-                return
-        
-        # Try to create lock file with initial heartbeat
-        try:
-            lock_data = {
-                "pid": os.getpid(),
-                "container_id": os.environ.get('HOSTNAME', 'unknown'),
-                "last_heartbeat": datetime.now().isoformat(),
-                "scheduler_type": "backup"
-            }
-            
-            # Atomic write: write to temp file then rename
-            # Use same directory as lock file for atomic rename
-            lock_dir = self.lock_file.parent
-            with tempfile.NamedTemporaryFile(mode='w', dir=str(lock_dir), delete=False) as tf:
-                json.dump(lock_data, tf, indent=2)
-                temp_path = tf.name
-            
-            os.rename(temp_path, str(self.lock_file))
-            logger.info(f"Created lock file: {self.lock_file}")
-            
-        except Exception as e:
-            logger.error(f"Error creating scheduler lock file: {e}")
+        acquired_lock, lock_details = acquire_scheduler_lock(
+            lock_file=self.lock_file,
+            scheduler_type="backup",
+            stale_after_seconds=300,
+        )
+        if not acquired_lock:
+            logger.info("Backup scheduler lock acquisition skipped: %s", lock_details)
             return
+
+        logger.info("Backup scheduler lock acquired: %s", lock_details)
         
         # Check if backup directory is writable (force check on startup)
         is_writable, error_msg = self._check_backup_directory_permissions(force_check=True)
@@ -290,12 +219,8 @@ class BackupScheduler:
             self.thread.join(timeout=5)
         
         # Clean up lock file
-        try:
-            if self.lock_file.exists():
-                self.lock_file.unlink()
-                logger.info("Removed backup scheduler lock file")
-        except Exception as e:
-            logger.error(f"Error removing lock file: {str(e)}")
+        release_scheduler_lock(self.lock_file)
+        logger.info("Removed backup scheduler lock file")
         
         logger.info("Backup scheduler stopped")
         

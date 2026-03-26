@@ -8,11 +8,16 @@ from pathlib import Path
 from typing import Optional
 import logging
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from database import SessionLocal
 from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
+from scheduler_lock import (
+    acquire_scheduler_lock,
+    release_scheduler_lock,
+    update_scheduler_heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,103 +43,27 @@ class CardScheduler:
         self.thread: Optional[threading.Thread] = None
         self.lock_file = Path(tempfile.gettempdir()) / "aft_card_scheduler.lock"
     
-    def _is_lock_stale(self) -> bool:
-        """Check if existing lock file is stale.
-        
-        Returns:
-            True if lock file is stale and should be removed, False otherwise.
-        """
-        try:
-            import json
-            lock_data = json.loads(self.lock_file.read_text())
-            
-            # Check container ID (hostname in Docker)
-            current_container = os.environ.get('HOSTNAME', 'unknown')
-            lock_container = lock_data.get('container_id', 'unknown')
-            if lock_container != current_container:
-                logger.info(f"Lock file from different container: {lock_container} vs {current_container}")
-                return True  # Different container = stale
-            
-            # Check heartbeat age
-            last_heartbeat_str = lock_data.get('last_heartbeat')
-            if last_heartbeat_str:
-                last_heartbeat = datetime.fromisoformat(last_heartbeat_str)
-                age_seconds = (datetime.now() - last_heartbeat).total_seconds()
-                
-                if age_seconds > 300:  # 5 minutes without heartbeat = stale
-                    logger.info(f"Lock file heartbeat is stale: {age_seconds:.0f} seconds old")
-                    return True
-                
-                # Lock is fresh and from same container
-                logger.info(f"Lock file is active (heartbeat {age_seconds:.0f}s ago, container {lock_container})")
-                return False
-            
-            # No heartbeat in lock file = old format or invalid
-            logger.info("Lock file has no heartbeat, considering stale")
-            return True
-            
-        except (json.JSONDecodeError, ValueError, KeyError, FileNotFoundError) as e:
-            logger.info(f"Lock file is invalid or corrupted: {e}")
-            return True  # Invalid lock file = stale
-        except Exception as e:
-            logger.warning(f"Error checking lock staleness: {e}")
-            return True  # Error reading = assume stale for safety
-    
     def _update_heartbeat(self):
         """Update lock file with current timestamp to prove thread is alive."""
-        try:
-            lock_data = {
-                "pid": os.getpid(),
-                "container_id": os.environ.get('HOSTNAME', 'unknown'),
-                "last_heartbeat": datetime.now().isoformat(),
-                "scheduler_type": "card"
-            }
-            self.lock_file.write_text(json.dumps(lock_data, indent=2))
-        except Exception as e:
-            logger.warning(f"Failed to update heartbeat: {e}")
-    
+        update_scheduler_heartbeat(self.lock_file, "card")
+
     def _acquire_lock(self) -> bool:
-        """Attempt to acquire the scheduler lock with heartbeat.
-        
-        Returns:
-            bool: True if lock acquired, False otherwise
-        """
-        try:
-            if self.lock_file.exists():
-                if self._is_lock_stale():
-                    logger.info("Removing stale lock file")
-                    self.lock_file.unlink()
-                else:
-                    return False  # Active lock exists
-            
-            # Create lock file with heartbeat
-            lock_data = {
-                "pid": os.getpid(),
-                "container_id": os.environ.get('HOSTNAME', 'unknown'),
-                "last_heartbeat": datetime.now().isoformat(),
-                "scheduler_type": "card"
-            }
-            
-            # Atomic write: write to temp file then rename
-            import tempfile
-            with tempfile.NamedTemporaryFile(mode='w', dir=tempfile.gettempdir(), delete=False) as tf:
-                json.dump(lock_data, tf, indent=2)
-                temp_path = tf.name
-            
-            os.rename(temp_path, str(self.lock_file))
+        """Attempt to acquire the scheduler lock with diagnostics."""
+        acquired, details = acquire_scheduler_lock(
+            lock_file=self.lock_file,
+            scheduler_type="card",
+            stale_after_seconds=300,
+        )
+        if acquired:
+            logger.info("Card scheduler lock acquired: %s", details)
             return True
-            
-        except Exception as e:
-            logger.error(f"Error acquiring card scheduler lock: {e}")
-            return False
-    
+
+        logger.info("Card scheduler lock acquisition skipped: %s", details)
+        return False
+
     def _release_lock(self):
         """Release the scheduler lock."""
-        try:
-            if self.lock_file.exists():
-                self.lock_file.unlink()
-        except Exception as e:
-            logger.error(f"Error releasing card scheduler lock: {str(e)}")
+        release_scheduler_lock(self.lock_file)
     
     def start(self):
         """Start the card scheduler in a background thread."""
@@ -211,6 +140,29 @@ class CardScheduler:
             logger.error(f"Error checking card_scheduler_enabled setting: {e}")
             return True  # Default to enabled on error
     
+    def _build_schedule_run_lock_key(self, schedule_id: int, run_time: datetime) -> str:
+        """Build a stable lock key per schedule run window."""
+        return f"aft_sched_{schedule_id}_{run_time.strftime('%Y%m%d%H%M')}"
+
+    def _acquire_schedule_run_lock(self, db, lock_key: str) -> bool:
+        """Acquire a DB advisory lock to prevent duplicate card creation across workers."""
+        try:
+            result = db.execute(text("SELECT GET_LOCK(:lock_key, 0)"), {"lock_key": lock_key}).scalar()
+            acquired = bool(result == 1)
+            if not acquired:
+                logger.info("Schedule run lock is already held, skipping duplicate run: lock_key=%s", lock_key)
+            return acquired
+        except Exception as exc:
+            logger.warning("Failed to acquire schedule run lock %s: %s", lock_key, exc)
+            return False
+
+    def _release_schedule_run_lock(self, db, lock_key: str) -> None:
+        """Release a DB advisory lock after schedule processing."""
+        try:
+            db.execute(text("SELECT RELEASE_LOCK(:lock_key)"), {"lock_key": lock_key})
+        except Exception as exc:
+            logger.warning("Failed to release schedule run lock %s: %s", lock_key, exc)
+
     def _check_and_create_cards(self):
         """Check all enabled schedules and create cards if needed."""
         db = SessionLocal()
@@ -301,44 +253,52 @@ class CardScheduler:
         )
         
         # Check if it's time to create a card
-        # We create a card if the calculated next_run is in the past but within our lookback window
-        # This allows catching up on missed schedules while preventing old schedules from triggering
+        # We create a card if the calculated next_run is in the past but within our lookback window.
         if next_run and next_run <= now:
-            # Check how far in the past this run was
             time_since_run = (now - next_run).total_seconds()
-            
-            # Only create if within lookback window (prevents very old schedules from triggering)
-            if time_since_run < lookback_window.total_seconds():
-                # Additional safety when duplicates not allowed: Check if card already exists
-                # This prevents creating duplicate cards if the scheduler runs multiple times
-                # within the lookback window (e.g., after a restart)
+            if time_since_run >= lookback_window.total_seconds():
+                logger.debug(f"Skipping schedule {schedule.id} - next_run too old ({time_since_run:.0f} seconds ago)")
+                return
+
+            run_lock_key = self._build_schedule_run_lock_key(schedule.id, next_run)  # type: ignore[arg-type]
+            if not self._acquire_schedule_run_lock(db, run_lock_key):
+                return
+
+            try:
+                # Additional safety when duplicates are not allowed.
                 if not schedule.allow_duplicates:  # type: ignore
-                    # Get the template card to check its column
                     template = db.query(Card).filter(Card.id == schedule.card_id).first()
                     if not template:
                         logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
                         return
-                    
-                    # For non-duplicate schedules, check if any active cards exist from this schedule IN THE SAME COLUMN
-                    # This is a simple but effective way to prevent duplicates without needing timestamps
+
                     existing_card = (
                         db.query(Card)
-                        .filter(Card.column_id == template.column_id)  # Check same column only
+                        .filter(Card.column_id == template.column_id)
                         .filter(Card.schedule == schedule.id)
-                        .filter(Card.scheduled.is_(False))  # Don't count template cards
-                        .filter(Card.archived.is_(False))  # Only check active cards
+                        .filter(Card.scheduled.is_(False))
+                        .filter(Card.archived.is_(False))
                         .first()
                     )
-                    
+
                     if existing_card:
-                        # Already have an active card for this schedule in this column, skip
-                        logger.debug(f"Skipping schedule {schedule.id} - active card already exists in column {template.column_id}")
+                        logger.debug(
+                            "Skipping schedule %s - active card %s already exists in column %s",
+                            schedule.id,
+                            existing_card.id,
+                            template.column_id,
+                        )
                         return
-                
-                logger.info(f"Creating card for schedule {schedule.id} (missed by {time_since_run:.0f} seconds)")
+
+                logger.info(
+                    "Creating card for schedule %s (missed_by=%.0fs, run_lock=%s)",
+                    schedule.id,
+                    time_since_run,
+                    run_lock_key,
+                )
                 self._create_scheduled_card(db, schedule, pending_broadcasts)
-            else:
-                logger.debug(f"Skipping schedule {schedule.id} - next_run too old ({time_since_run:.0f} seconds ago)")
+            finally:
+                self._release_schedule_run_lock(db, run_lock_key)
 
     def _broadcast_event(self, event_name: str, data: dict, board_id: int):
         """Broadcast websocket event via injected callback when available."""

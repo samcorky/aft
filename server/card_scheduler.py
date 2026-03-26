@@ -10,7 +10,7 @@ import logging
 
 from sqlalchemy import func, text
 from database import SessionLocal
-from models import Card, ScheduledCard, Comment, ChecklistItem
+from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
 from scheduler_lock import (

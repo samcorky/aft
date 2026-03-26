@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import scheduler_lock
 from scheduler_lock import acquire_scheduler_lock, release_scheduler_lock
 
 
@@ -27,6 +28,7 @@ def test_acquire_scheduler_lock_is_exclusive(tmp_path, monkeypatch):
 def test_stale_lock_with_dead_pid_is_reclaimed(tmp_path, monkeypatch):
     """A stale lock from a dead PID should be removed and reacquired."""
     monkeypatch.setenv("HOSTNAME", "test-container")
+    monkeypatch.setattr(scheduler_lock, "_is_pid_alive", lambda _pid: False)
     lock_file = Path(tmp_path) / "scheduler.lock"
 
     stale_data = {

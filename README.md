@@ -94,6 +94,7 @@ The application now includes a multi-user security model with authentication, ro
 - **Controlled Role Assignment** - Role changes require role-management permissions, with backend checks to prevent unauthorized escalation and invalid global vs board-specific assignments.
 - **Registration and Approval Workflow** - New user registrations are created in a pending state and must be approved by an administrator before login access is granted.
 - **First Admin Initial Setup** - A dedicated setup flow creates the first administrator account, auto-approves it, and completes initial bootstrap for the instance.
+- **User Profile Colours** - Each user is assigned a default avatar/profile colour (RGB hex) on account creation and can update it from the Profile page.
 
 For implementation details and extension guidance:
 - [server/AUTHENTICATION.md](server/AUTHENTICATION.md)
@@ -150,6 +151,8 @@ Both styles support the Done button functionality for marking cards as complete 
 - **Create Cards** - Add task cards with titles and descriptions
 - **Move Cards** - Drag cards between columns to track progress
 - **Update Cards** - Edit card details, titles, and descriptions
+- **Assign Responsibility** - Set a primary assignee and optional secondary assignees per card from users with board access
+- **Assignee Avatars** - Cards show the primary assignee initials in a bottom-left avatar circle using the assignee's profile colour
 - **Delete Cards** - Remove completed or cancelled tasks
 - **Archive Cards** - Archive completed cards to declutter your board while preserving history
 - **Unarchive Cards** - Restore archived cards back to active view when needed

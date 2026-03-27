@@ -1545,7 +1545,7 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived && this.canEdit}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''} ${card.assigned_to ? 'card--has-assignee' : ''}" draggable="${!card.archived && this.canEdit}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
                       ${canShowCardActions ? `<div class="card-action-buttons" draggable="false">`  : '<div class="card-action-buttons readonly-hidden" draggable="false">'}
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
@@ -1612,6 +1612,7 @@ class BoardManager {
                         ` : ''}
                       </div>
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
+                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.username || '')}">${this.escapeHtml(this.getInitials(card.assigned_to.username || ''))}</div>` : ''}
                     </div>
                   `).join('') : ''
                 }
@@ -4424,6 +4425,7 @@ class BoardManager {
     const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
     const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
     const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
+    const canManageAssignees = this.canCallPermissionEndpoint('PUT', '/api/cards/:id/assignees');
     const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
     const canEditSchedule = this.canCallPermissionEndpoint('PUT', '/api/schedules/:id');
     const canDeleteSchedule = this.canCallPermissionEndpoint('DELETE', '/api/schedules/:id');
@@ -4460,6 +4462,7 @@ class BoardManager {
                   }
                   ${canArchiveCard ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
               }
+              ${canManageAssignees ? `<button type="button" class="btn btn-secondary" id="assign-assignees-btn" data-card-id="${cardData.id}">👤 Assignees</button>` : ''}
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">${isReadOnly ? 'Close' : 'Cancel'}</button>
               ${!isReadOnly ? '<button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>' : ''}
             </div>
@@ -4537,6 +4540,14 @@ class BoardManager {
                 <span class="card-metadata-label">Updated:</span>
                 <span class="card-metadata-value" ${cardData.updated_at ? `data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated on ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0"` : ''}>${cardData.updated_at ? formatTimeAgoLong(cardData.updated_at) : 'Unknown'}</span>
               </div>
+              <div class="card-metadata-item" id="card-assignee-metadata">
+                <span class="card-metadata-label">Assigned To:</span>
+                <span class="card-metadata-value card-owner-value" id="card-primary-assignee-display">Loading…</span>
+              </div>
+              <div class="card-metadata-item" id="card-secondary-assignees-metadata" style="display:none;">
+                <span class="card-metadata-label">Secondary Assignees:</span>
+                <span class="card-metadata-value card-owner-value" id="card-secondary-assignees-display"></span>
+              </div>
             </div>
             <div class="comments-section">
               <div class="comments-header">
@@ -4565,6 +4576,7 @@ class BoardManager {
     const cancelBtn = document.getElementById('cancel-edit-card-btn');
     const archiveBtn = document.getElementById('archive-card-detail-btn');
     const unarchiveBtn = document.getElementById('unarchive-card-detail-btn');
+    const assignAssigneesBtn = document.getElementById('assign-assignees-btn');
     const titleInput = document.getElementById('edit-card-title');
 
     // Focus on input and select text
@@ -4586,6 +4598,18 @@ class BoardManager {
       const commentInput = document.getElementById('new-comment-input');
       return commentInput && commentInput.value.trim().length > 0;
     };
+
+    // Handle assign assignees button
+    if (assignAssigneesBtn) {
+      assignAssigneesBtn.addEventListener('click', async () => {
+        await this.openAssigneeModal(cardId);
+      });
+    }
+
+    // Load and display assignee data asynchronously
+    if (!isTemplate) {
+      this.loadCardAssigneeDisplay(cardId);
+    }
 
     // Handle archive button
     if (archiveBtn) {
@@ -5864,6 +5888,25 @@ class BoardManager {
     return div.innerHTML;
   }
 
+  getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+
+    let rawInitials;
+    if (parts.length === 1) {
+      rawInitials = parts[0].slice(0, 2);
+    } else {
+      rawInitials = `${parts[0][0]}${parts[parts.length - 1][0]}`;
+    }
+
+    const safeInitials = rawInitials
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+    return safeInitials || '?';
+  }
+
   toggleCommentCollapse(commentText, button) {
     if (commentText.classList.contains('collapsed')) {
       commentText.classList.remove('collapsed');
@@ -5900,6 +5943,217 @@ class BoardManager {
     // Format as date/time for older comments (day/month/year format)
     const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
     return date.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(date);
+  }
+
+  /**
+  * Load and display assignee data in the edit card modal metadata section.
+   * @param {number} cardId
+   */
+  async loadCardAssigneeDisplay(cardId) {
+    const primaryEl = document.getElementById('card-primary-assignee-display');
+    const secondaryRow = document.getElementById('card-secondary-assignees-metadata');
+    const secondaryEl = document.getElementById('card-secondary-assignees-display');
+    if (!primaryEl) return;
+    try {
+      const resp = await fetch(`/api/cards/${cardId}/assignees`);
+      if (!resp.ok) throw new Error('Failed to load assignees');
+      const data = await resp.json();
+      const formatUser = (u) => u.username || 'Unknown user';
+      primaryEl.textContent = data.primary_assignee ? formatUser(data.primary_assignee) : 'Unassigned';
+      if (data.secondary_assignees && data.secondary_assignees.length > 0) {
+        secondaryEl.textContent = data.secondary_assignees.map(formatUser).join(', ');
+        if (secondaryRow) secondaryRow.style.display = '';
+      } else {
+        if (secondaryRow) secondaryRow.style.display = 'none';
+      }
+    } catch (e) {
+      if (primaryEl) primaryEl.textContent = '—';
+    }
+  }
+
+  /**
+  * Open a modal for assigning primary and secondary assignees of a card.
+   * @param {number} cardId
+   */
+  async openAssigneeModal(cardId) {
+    // Remove any existing assignee modal
+    const existing = document.getElementById('assignee-modal');
+    if (existing) existing.remove();
+
+    // Load current assignees and available users
+    let ownersData;
+    try {
+      const resp = await fetch(`/api/cards/${cardId}/assignees`);
+      if (!resp.ok) throw new Error('Failed to load assignees');
+      ownersData = await resp.json();
+    } catch (e) {
+      this.showErrorToast('Failed to load assignee data. Please try again.');
+      return;
+    }
+
+    const { primary_assignee, secondary_assignees, available_users } = ownersData;
+    const primaryId = primary_assignee ? String(primary_assignee.id) : '';
+    const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
+
+    const formatUser = (u) => u.username || 'Unknown user';
+
+    const primaryOptions = `
+      <button
+        type="button"
+        class="primary-assignee-option ${primaryId === '' ? 'selected' : ''}"
+        data-user-id=""
+        aria-pressed="${primaryId === '' ? 'true' : 'false'}"
+      >
+        <span class="user-avatar-chip unassigned-chip">-</span>
+        <span class="primary-assignee-name">Unassigned</span>
+      </button>
+      ${(available_users || []).map(u => `
+        <button
+          type="button"
+          class="primary-assignee-option ${String(u.id) === primaryId ? 'selected' : ''}"
+          data-user-id="${u.id}"
+          aria-pressed="${String(u.id) === primaryId ? 'true' : 'false'}"
+        >
+          <span
+            class="user-avatar-chip"
+            style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
+          >
+            ${this.getInitials(formatUser(u))}
+          </span>
+          <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
+        </button>
+      `).join('')}
+    `;
+
+    const secondaryOptions = (available_users || []).map(u => `
+      <button
+        type="button"
+        class="secondary-assignee-option ${secondaryIds.has(u.id) ? 'selected' : ''}"
+        data-user-id="${u.id}"
+        aria-pressed="${secondaryIds.has(u.id) ? 'true' : 'false'}"
+      >
+        <span
+          class="user-avatar-chip"
+          style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
+        >
+          ${this.getInitials(formatUser(u))}
+        </span>
+        <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
+      </button>
+    `).join('');
+
+    const modalHtml = `
+      <div class="modal" id="assignee-modal">
+        <div class="modal-content" style="max-width:480px;">
+          <div class="modal-header">
+            <div class="modal-header-actions">
+              <button type="button" class="btn btn-secondary" id="owner-modal-cancel-btn">Cancel</button>
+              <button type="button" class="btn btn-primary" id="owner-modal-save-btn">Save</button>
+            </div>
+            <h2>Assign To</h2>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label>Assigned To:</label>
+            <div class="primary-assignee-grid" role="group" aria-label="Select primary assignee">
+              ${primaryOptions}
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label>Secondary Assignees:</label>
+            <div class="secondary-assignee-grid" id="secondary-assignees-list" role="group" aria-label="Toggle secondary assignees">
+              ${secondaryOptions || '<p style="color:var(--secondary-color);font-size:0.9em;">No eligible users found.</p>'}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('assignee-modal');
+    const cancelBtn = document.getElementById('owner-modal-cancel-btn');
+    const saveBtn = document.getElementById('owner-modal-save-btn');
+
+    setupModalBackgroundClose(modal, () => modal.remove());
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    const primaryButtons = modal.querySelectorAll('.primary-assignee-option');
+    const secondaryButtons = modal.querySelectorAll('.secondary-assignee-option');
+
+    const syncSecondaryDisabledState = () => {
+      const selectedPrimary = modal.querySelector('.primary-assignee-option.selected');
+      const selectedPrimaryId = selectedPrimary ? selectedPrimary.dataset.userId : '';
+
+      secondaryButtons.forEach((secondaryButton) => {
+        const shouldDisable = selectedPrimaryId !== '' && secondaryButton.dataset.userId === selectedPrimaryId;
+        secondaryButton.disabled = shouldDisable;
+        secondaryButton.setAttribute('aria-disabled', shouldDisable ? 'true' : 'false');
+
+        if (shouldDisable) {
+          secondaryButton.classList.remove('selected');
+          secondaryButton.setAttribute('aria-pressed', 'false');
+        }
+      });
+    };
+
+    primaryButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        primaryButtons.forEach((candidate) => {
+          const isSelected = candidate === button;
+          candidate.classList.toggle('selected', isSelected);
+          candidate.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        });
+
+        syncSecondaryDisabledState();
+      });
+    });
+
+    secondaryButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        if (button.disabled) {
+          return;
+        }
+
+        const isSelected = !button.classList.contains('selected');
+        button.classList.toggle('selected', isSelected);
+        button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      });
+    });
+
+    syncSecondaryDisabledState();
+
+    saveBtn.addEventListener('click', async () => {
+      const selectedPrimary = modal.querySelector('.primary-assignee-option.selected');
+      const primaryOwnerIdRaw = selectedPrimary ? selectedPrimary.dataset.userId : '';
+      const primaryOwnerId = primaryOwnerIdRaw === '' ? null : parseInt(primaryOwnerIdRaw, 10);
+
+      const selectedSecondary = modal.querySelectorAll('.secondary-assignee-option.selected');
+      const secondaryAssigneeIds = Array.from(selectedSecondary)
+        .map(button => parseInt(button.dataset.userId, 10))
+        .filter(id => !Number.isNaN(id));
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const resp = await fetch(`/api/cards/${cardId}/assignees`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assigned_to_id: primaryOwnerId, secondary_assignee_ids: secondaryAssigneeIds }),
+        });
+        const result = await resp.json();
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || 'Failed to save assignees');
+        }
+        modal.remove();
+        // Refresh owner display in the edit card modal
+        this.loadCardAssigneeDisplay(cardId);
+      } catch (e) {
+        this.showErrorToast(e.message || 'Failed to save assignees. Please try again.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
   }
 
   generateCommentHtml(comment, isReadOnly = false) {

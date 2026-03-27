@@ -10,8 +10,23 @@ This module provides:
 """
 
 import hashlib
+import random
 import secrets
 import json
+
+# Default avatar colours assigned randomly to new users (RGB hex)
+AVATAR_COLOURS = [
+    '#E57373',  # red
+    '#F06292',  # pink
+    '#BA68C8',  # purple
+    '#7986CB',  # indigo
+    '#64B5F6',  # blue
+    '#4DB6AC',  # teal
+    '#81C784',  # green
+    '#FFD54F',  # amber
+    '#FF8A65',  # deep orange
+    '#90A4AE',  # blue-grey
+]
 from flask import Blueprint, request, jsonify, session, g
 from sqlalchemy.sql import func
 from database import SessionLocal
@@ -619,6 +634,7 @@ def get_current_user():
             'display_name': user.display_name,
             'email_verified': user.email_verified,
             'oauth_provider': user.oauth_provider,
+            'profile_colour': user.profile_colour,
             'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
             'permissions': permissions
         }
@@ -894,7 +910,8 @@ def register():
                 password_hash=hash_password(password),
                 is_active=True,
                 is_approved=False,  # Requires admin approval
-                email_verified=False  # TODO: Send verification email
+                email_verified=False,  # TODO: Send verification email
+                profile_colour=random.choice(AVATAR_COLOURS)
             )
             
             db.add(user)
@@ -1221,20 +1238,20 @@ def setup_admin():
             ).first()
 
             def ensure_administrator_role(target_user):
-              """Ensure the target user has the global administrator role."""
-              admin_role = db.query(Role).filter(Role.name == 'administrator').first()
-              if not admin_role:
-                logger.warning("Administrator role not found during setup; role assignment skipped")
-                return
+                """Ensure the target user has the global administrator role."""
+                admin_role = db.query(Role).filter(Role.name == 'administrator').first()
+                if not admin_role:
+                    logger.warning("Administrator role not found during setup; role assignment skipped")
+                    return
 
-              existing_assignment = db.query(UserRole).filter(
-                UserRole.user_id == target_user.id,
-                UserRole.role_id == admin_role.id,
-                UserRole.board_id.is_(None)
-              ).first()
+                existing_assignment = db.query(UserRole).filter(
+                    UserRole.user_id == target_user.id,
+                    UserRole.role_id == admin_role.id,
+                    UserRole.board_id.is_(None)
+                ).first()
 
-              if not existing_assignment:
-                db.add(UserRole(user_id=target_user.id, role_id=admin_role.id, board_id=None))
+                if not existing_assignment:
+                    db.add(UserRole(user_id=target_user.id, role_id=admin_role.id, board_id=None))
             
             if existing_admin and not existing_admin.password_hash:
                 # Update the existing admin user from migration
@@ -1244,6 +1261,8 @@ def setup_admin():
                 existing_admin.password_hash = hash_password(password)
                 existing_admin.email_verified = True
                 existing_admin.is_approved = True  # Admin is auto-approved
+                if not existing_admin.profile_colour:
+                    existing_admin.profile_colour = random.choice(AVATAR_COLOURS)
                 
                 # Create default settings for the admin user if they don't exist
                 from auth_helpers import create_default_user_settings
@@ -1265,7 +1284,8 @@ def setup_admin():
                     password_hash=hash_password(password),
                     is_active=True,
                     is_approved=True,  # Admin is auto-approved
-                    email_verified=True
+                    email_verified=True,
+                    profile_colour=random.choice(AVATAR_COLOURS)
                 )
                 
                 db.add(user)
@@ -1302,6 +1322,7 @@ def setup_admin():
                 'email': user.email,
                 'username': user.username,
                 'display_name': user.display_name,
+                'profile_colour': user.profile_colour,
                 'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
                 'permissions': permissions
             }

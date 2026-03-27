@@ -14,6 +14,7 @@ def _backup_security_env(monkeypatch):
     # These tests validate backup SQL/file security logic and do not depend on
     # server-side session backend mode.
     monkeypatch.setenv('ENABLE_SERVER_SIDE_SESSIONS', 'false')
+    monkeypatch.setenv('AFT_SKIP_SCHEDULER_INIT', 'true')
 
     # Provide a deterministic test secret only when one is not already set.
     current_secret = os.environ.get('SECRET_KEY', 'unit-test-secret-key')

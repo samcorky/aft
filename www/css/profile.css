@@ -204,3 +204,35 @@
     order: -1; /* Show above button on mobile */
   }
 }
+
+/* Colour Swatch Picker */
+.colour-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.colour-swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+  padding: 0;
+}
+
+.colour-swatch:hover {
+  transform: scale(1.15);
+}
+
+.colour-swatch:focus-visible {
+  outline: 2px solid var(--text-bold);
+  outline-offset: 2px;
+}
+
+.colour-swatch.selected {
+  border-color: var(--text-bold);
+  transform: scale(1.15);
+}

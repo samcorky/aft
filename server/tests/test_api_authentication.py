@@ -16,6 +16,7 @@ import requests
 import time
 import os
 import hashlib
+import re
 from pathlib import Path
 from flask import Flask
 from flask.sessions import SecureCookieSessionInterface
@@ -424,6 +425,8 @@ class TestLogin:
         assert 'user' in data
         assert data['user']['email'] == "test-admin@localhost"
         assert 'roles' in data['user']
+        assert 'profile_colour' in data['user']
+        assert re.fullmatch(r'^#[0-9A-Fa-f]{6}$', data['user']['profile_colour'])
     
     def test_logout(self, session):
         """Logout should clear session."""
@@ -558,3 +561,44 @@ class TestAuthenticationFlow:
         # 8. Verify logged out
         response = admin_session.get(f"{API_BASE_URL}/api/auth/check")
         assert response.json()['authenticated'] is False
+
+
+class TestProfileColourAPI:
+    """Test profile colour update endpoint."""
+
+    def test_update_profile_colour_requires_authentication(self):
+        """Profile colour update should require an authenticated user."""
+        response = requests.put(
+            f"{API_BASE_URL}/api/users/me/profile-colour",
+            json={"profile_colour": "#112233"}
+        )
+        assert response.status_code == 401
+        data = response.json()
+        assert data['success'] is False
+
+    def test_update_profile_colour_rejects_invalid_hex(self, authenticated_session):
+        """Profile colour endpoint should reject non-hex colour values."""
+        response = authenticated_session.put(
+            f"{API_BASE_URL}/api/users/me/profile-colour",
+            json={"profile_colour": "112233"}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+
+    def test_update_profile_colour_success(self, authenticated_session):
+        """Profile colour endpoint should update and persist valid RGB hex values."""
+        response = authenticated_session.put(
+            f"{API_BASE_URL}/api/users/me/profile-colour",
+            json={"profile_colour": "#112233"}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['profile_colour'] == '#112233'
+
+        me_response = authenticated_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert me_response.status_code == 200
+        me_data = me_response.json()
+        assert me_data['success'] is True
+        assert me_data['user']['profile_colour'] == '#112233'

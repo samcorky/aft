@@ -5,7 +5,7 @@ at least one representative API action for that permission without needing
 additional permissions.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 import pytest
@@ -87,7 +87,7 @@ def _create_board_context(admin_session, api_base_url, suffix):
     assert scheduled_source_resp.status_code == 201, scheduled_source_resp.text
     scheduled_source_card_id = scheduled_source_resp.json()["card"]["id"]
 
-    future_iso = (datetime.utcnow() + timedelta(days=1)).replace(microsecond=0).isoformat() + "Z"
+    future_iso = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     schedule_resp = admin_session.post(
         f"{api_base_url}/api/schedules",
         json={

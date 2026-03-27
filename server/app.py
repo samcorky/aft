@@ -13,8 +13,9 @@ import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
+from models import Board, BoardColumn, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
@@ -769,6 +770,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'boards',
             'columns',
             'cards',
+        'card_secondary_assignees',
             'checklist_items',
             'comments',
             'settings',
@@ -1205,6 +1207,8 @@ def get_permissions_mapping():
             'PATCH /api/cards/:id/unarchive': {'permission': 'card.archive', 'description': 'Unarchive card'},
             'GET /api/cards/:id/done': {'permission': 'card.view', 'description': 'Get card done status'},
             'PATCH /api/cards/:id/done': {'permission': 'card.update', 'description': 'Update card done status'},
+            'GET /api/cards/:id/assignees': {'permission': 'card.view', 'description': 'Get card assignees'},
+            'PUT /api/cards/:id/assignees': {'permission': 'card.update', 'description': 'Set card assignees'},
             'POST /api/cards/batch/archive': {'permission': 'card.archive', 'description': 'Batch archive cards'},
             'POST /api/cards/batch/unarchive': {'permission': 'card.archive', 'description': 'Batch unarchive cards'},
 
@@ -1248,6 +1252,7 @@ def get_permissions_mapping():
             'PATCH /api/users/:id/active': {'permission': 'user.manage', 'description': 'Toggle user active status'},
             'POST /api/users/:id/roles': {'permission': 'user.role', 'description': 'Assign user role'},
             'DELETE /api/users/:id/roles/:role_id': {'permission': 'user.role', 'description': 'Remove user role'},
+            'PUT /api/users/me/profile-colour': {'mode': 'authenticated', 'description': 'Update current user avatar/profile colour'},
 
             # Role management (from role_management.py blueprint)
             'GET /api/roles': {'permission': 'role.manage', 'description': 'List all roles'},
@@ -4176,6 +4181,7 @@ def get_board_scheduled_cards(board_id):
             # Get only scheduled template cards for this column
             cards = (
                 db.query(Card)
+                .options(selectinload(Card.assigned_to))
                 .filter(Card.column_id == column.id)
                 .filter(Card.scheduled.is_(True))
                 .order_by(Card.order)
@@ -4195,6 +4201,11 @@ def get_board_scheduled_cards(board_id):
                     "schedule": card.schedule,
                     "created_at": card.created_at.isoformat() if card.created_at else None,
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "assigned_to": {
+                        "id": card.assigned_to.id,
+                        "username": card.assigned_to.username,
+                        "profile_colour": card.assigned_to.profile_colour,
+                    } if card.assigned_to else None,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -5276,6 +5287,7 @@ def get_board_cards(board_id):
             # Get cards for this column with archived filter
             # Always filter out scheduled template cards (scheduled=True) from task views
             cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
+            cards_query = cards_query.options(selectinload(Card.assigned_to))
             
             # Apply archived filter
             if archived_param == 'true':
@@ -5299,6 +5311,11 @@ def get_board_cards(board_id):
                     "schedule": card.schedule,
                     "created_at": card.created_at.isoformat() if card.created_at else None,
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "assigned_to": {
+                        "id": card.assigned_to.id,
+                        "username": card.assigned_to.username,
+                        "profile_colour": card.assigned_to.profile_colour,
+                    } if card.assigned_to else None,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -5537,7 +5554,9 @@ def create_card(column_id):
             order=order,
             scheduled=scheduled,
             schedule=schedule,
-            updated_at=now
+            updated_at=now,
+            created_by_id=g.user.id,
+            assigned_to_id=None,
         )
         db.add(card)
         db.commit()
@@ -6307,6 +6326,280 @@ def delete_card(card_id):
         logger.error(f"Error deleting card {card_id}: {str(e)}")
         logger.exception(e)
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/cards/<int:card_id>/assignees", methods=["GET"])
+@require_permission('card.view')
+def get_card_assignees(card_id):
+    """Get primary assignee, secondary assignees, and available users for a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+    responses:
+      200:
+        description: Assignee info retrieved successfully
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card, CardSecondaryAssignee, Board, BoardColumn, User, UserRole, Role
+        import json as _json
+
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found or access denied", 404)
+
+        # Resolve board_id
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
+        def _user_dict(u):
+            return {
+                "id": u.id,
+                "username": u.username,
+            "profile_colour": u.profile_colour,
+            }
+
+        # Primary assignee
+        primary_assignee = _user_dict(card.assigned_to) if card.assigned_to else None
+
+        # Secondary assignees
+        secondary_assignees = [_user_dict(sa.user) for sa in card.secondary_assignees]
+
+        # Build list of users with access to the card's board (for selection)
+        available_users = []
+        if board_id:
+            board = db.query(Board).filter(Board.id == board_id).first()
+            eligible_user_ids = set()
+
+            # Include active board owner.
+            if board and board.owner and getattr(board.owner, "is_active", True):
+                eligible_user_ids.add(board.owner.id)
+
+            # Include users with a board role that grants card access.
+            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
+            board_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id == board_id)
+                .all()
+            )
+            for ur, role in board_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if role_perms & view_perms:
+                    eligible_user_ids.add(ur.user_id)
+
+            # Include global admins (system.admin permission).
+            global_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id.is_(None))
+                .all()
+            )
+            for ur, role in global_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if 'system.admin' in role_perms:
+                    eligible_user_ids.add(ur.user_id)
+
+            if eligible_user_ids:
+                users = (
+                    db.query(User)
+                    .filter(User.id.in_(eligible_user_ids), User.is_active.is_(True))
+                    .order_by(User.username)
+                    .all()
+                )
+                available_users = [_user_dict(u) for u in users]
+
+        return create_success_response({
+            "primary_assignee": primary_assignee,
+            "secondary_assignees": secondary_assignees,
+            "available_users": available_users,
+        })
+    except Exception as e:
+        logger.error(f"Error getting card assignees for card {card_id}: {str(e)}")
+        return create_error_response("Failed to get card assignees", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/assignees", methods=["PUT"])
+@require_permission('card.update')
+def update_card_assignees(card_id):
+    """Set the primary assignee and secondary assignees of a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            assigned_to_id:
+              type: integer
+              nullable: true
+              description: User ID of the primary assignee, or null to clear
+            secondary_assignee_ids:
+              type: array
+              items:
+                type: integer
+              description: Full list of user IDs to set as secondary assignees
+    responses:
+      200:
+        description: Assignees updated successfully
+      400:
+        description: Invalid request data
+      404:
+        description: Card or user not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+        if data is None:
+            return create_error_response("No data provided", 400)
+
+        from models import Card, CardSecondaryAssignee, User, BoardColumn, Board, UserRole, Role
+        import json as _json
+
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found or access denied", 404)
+
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
+        def _get_eligible_assignee_ids(current_board_id):
+            if not current_board_id:
+                return set()
+
+            eligible_ids = set()
+            board = db.query(Board).filter(Board.id == current_board_id).first()
+            if board and board.owner and getattr(board.owner, "is_active", True):
+                eligible_ids.add(board.owner.id)
+
+            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
+            board_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id == current_board_id)
+                .all()
+            )
+            for ur, role in board_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if role_perms & view_perms:
+                    eligible_ids.add(ur.user_id)
+
+            global_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id.is_(None))
+                .all()
+            )
+            for ur, role in global_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if 'system.admin' in role_perms:
+                    eligible_ids.add(ur.user_id)
+
+            return eligible_ids
+
+        eligible_assignee_ids = _get_eligible_assignee_ids(board_id)
+
+        # Validate and set primary assignee
+        if "assigned_to_id" in data:
+            new_assigned_to_id = data["assigned_to_id"]
+            if new_assigned_to_id is not None:
+                if not isinstance(new_assigned_to_id, int) or new_assigned_to_id < 1:
+                    return create_error_response("assigned_to_id must be a positive integer or null", 400)
+                assignee_user = db.query(User).filter(User.id == new_assigned_to_id, User.is_active.is_(True)).first()
+                if not assignee_user:
+                    return create_error_response("Assigned user not found", 404)
+                if new_assigned_to_id not in eligible_assignee_ids:
+                  return create_error_response("Assigned user does not have access to this board", 400)
+            card.assigned_to_id = new_assigned_to_id
+
+        # Validate and replace secondary assignees
+        if "secondary_assignee_ids" in data:
+            secondary_assignee_ids = data["secondary_assignee_ids"]
+            if not isinstance(secondary_assignee_ids, list):
+                return create_error_response("secondary_assignee_ids must be a list", 400)
+            for uid in secondary_assignee_ids:
+                if not isinstance(uid, int) or uid < 1:
+                    return create_error_response("Each secondary_assignee_id must be a positive integer", 400)
+            if secondary_assignee_ids:
+                valid_users = db.query(User.id).filter(
+                    User.id.in_(secondary_assignee_ids),
+                    User.is_active.is_(True)
+                ).all()
+                valid_ids = {row.id for row in valid_users}
+                invalid = set(secondary_assignee_ids) - valid_ids
+                if invalid:
+                    return create_error_response(f"User IDs not found or inactive: {sorted(invalid)}", 400)
+
+            ineligible = set(secondary_assignee_ids) - eligible_assignee_ids
+            if ineligible:
+                return create_error_response(
+                    f"User IDs do not have access to this board: {sorted(ineligible)}",
+                    400,
+                )
+
+            # Remove all existing secondary assignees and replace
+            db.query(CardSecondaryAssignee).filter(CardSecondaryAssignee.card_id == card_id).delete()
+            primary_assignee_id = card.assigned_to_id
+            unique_secondary_ids = {uid for uid in secondary_assignee_ids if uid != primary_assignee_id}
+            for uid in unique_secondary_ids:
+                db.add(CardSecondaryAssignee(card_id=card_id, user_id=uid))
+
+        db.commit()
+        db.refresh(card)
+
+        primary_assignee = None
+        if card.assigned_to:
+            primary_assignee = {
+                "id": card.assigned_to.id,
+                "username": card.assigned_to.username,
+                "profile_colour": card.assigned_to.profile_colour,
+            }
+        secondary_assignees = [
+            {
+                "id": sa.user.id,
+                "username": sa.user.username,
+                "profile_colour": sa.user.profile_colour,
+            }
+            for sa in card.secondary_assignees
+        ]
+
+        return create_success_response({
+          "primary_assignee": primary_assignee,
+          "secondary_assignees": secondary_assignees,
+        })
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card assignees for card {card_id}: {str(e)}")
+        return create_error_response("Failed to update card assignees", 500)
+    finally:
+        db.close()
 
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])
@@ -8946,18 +9239,26 @@ def init_housekeeping_scheduler():
 # Use file lock to ensure only one worker initializes schedulers
 # This prevents race conditions with Gunicorn multi-worker setup
 
+skip_scheduler_init = os.getenv('AFT_SKIP_SCHEDULER_INIT', 'false').lower() == 'true'
+if skip_scheduler_init:
+    logger.info("Skipping scheduler initialization because AFT_SKIP_SCHEDULER_INIT=true")
+
 # Only initialize schedulers in the first worker to start.
 # The init lock must use process-aware stale detection to avoid false stale evictions.
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
 
 from scheduler_lock import acquire_scheduler_lock
 
-acquired_init_lock, init_lock_details = acquire_scheduler_lock(
-    lock_file=init_lock_file,
-    scheduler_type="scheduler_init",
-    stale_after_seconds=300,
-)
-should_init = acquired_init_lock
+if skip_scheduler_init:
+    acquired_init_lock, init_lock_details = False, {"reason": "skipped_by_env"}
+    should_init = False
+else:
+    acquired_init_lock, init_lock_details = acquire_scheduler_lock(
+        lock_file=init_lock_file,
+        scheduler_type="scheduler_init",
+        stale_after_seconds=300,
+    )
+    should_init = acquired_init_lock
 
 if should_init:
     logger.info(
@@ -10106,6 +10407,67 @@ def on_leave_theme():
     leave_room('theme')
     logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
     return {'success': True}
+
+
+import re as _re
+
+_HEX_COLOUR_RE = _re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+
+@app.route("/api/users/me/profile-colour", methods=["PUT"])
+def update_profile_colour():
+    """Update the current user's profile colour.
+    ---
+    tags:
+      - Users
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - profile_colour
+          properties:
+            profile_colour:
+              type: string
+              description: RGB hex colour string e.g. '#E57373'
+    responses:
+      200:
+        description: Profile colour updated successfully
+      400:
+        description: Invalid colour value
+      500:
+        description: Server error
+    """
+    try:
+        data = request.get_json()
+    except Exception:
+        data = None
+    if not g.get('user'):
+      return create_error_response("Not authenticated", 401)
+    if not data:
+        return create_error_response("No data provided", 400)
+
+    colour = data.get('profile_colour')
+    if not colour or not isinstance(colour, str) or not _HEX_COLOUR_RE.match(colour):
+        return create_error_response("profile_colour must be a valid RGB hex string e.g. '#A1B2C3'", 400)
+
+    db = SessionLocal()
+    try:
+        from models import User
+        user = db.query(User).filter(User.id == g.user.id).first()
+        if not user:
+            return create_error_response("User not found", 404)
+        user.profile_colour = colour
+        db.commit()
+        return create_success_response({'profile_colour': colour})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating profile colour for user {g.user.id}: {str(e)}")
+        return create_error_response("Failed to update profile colour", 500)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

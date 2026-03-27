@@ -1545,7 +1545,7 @@ class BoardManager {
               <div class="column-cards" data-column-id="${column.id}">
                 ${column.cards && column.cards.length > 0 ? 
                   column.cards.map(card => `
-                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''}" draggable="${!card.archived && this.canEdit}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
+                    <div class="card ${card.archived ? 'archived-card' : ''} ${this.currentView === 'scheduled' && !card.schedule ? 'no-schedule' : ''} ${card.assigned_to ? 'card--has-assignee' : ''}" draggable="${!card.archived && this.canEdit}" data-card-id="${card.id}" data-column-id="${column.id}" data-order="${card.order}" data-archived="${card.archived}" data-done="${card.done || false}">
                       ${canShowCardActions ? `<div class="card-action-buttons" draggable="false">`  : '<div class="card-action-buttons readonly-hidden" draggable="false">'}
                         ${this.currentView === 'scheduled' ? '' : 
                           card.archived ? 
@@ -1612,7 +1612,7 @@ class BoardManager {
                         ` : ''}
                       </div>
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
-                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}">${this.getInitials(card.assigned_to.display_name || card.assigned_to.username || '')}</div>` : ''}
+                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.username || '')}">${this.escapeHtml(this.getInitials(card.assigned_to.username || ''))}</div>` : ''}
                     </div>
                   `).join('') : ''
                 }
@@ -5890,9 +5890,21 @@ class BoardManager {
 
   getInitials(name) {
     if (!name) return '?';
-    const parts = name.trim().split(/\s+/);
-    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+
+    let rawInitials;
+    if (parts.length === 1) {
+      rawInitials = parts[0].slice(0, 2);
+    } else {
+      rawInitials = `${parts[0][0]}${parts[parts.length - 1][0]}`;
+    }
+
+    const safeInitials = rawInitials
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+    return safeInitials || '?';
   }
 
   toggleCommentCollapse(commentText, button) {
@@ -5946,7 +5958,7 @@ class BoardManager {
       const resp = await fetch(`/api/cards/${cardId}/assignees`);
       if (!resp.ok) throw new Error('Failed to load assignees');
       const data = await resp.json();
-      const formatUser = (u) => u.display_name || u.username || u.email;
+      const formatUser = (u) => u.username || 'Unknown user';
       primaryEl.textContent = data.primary_assignee ? formatUser(data.primary_assignee) : 'Unassigned';
       if (data.secondary_assignees && data.secondary_assignees.length > 0) {
         secondaryEl.textContent = data.secondary_assignees.map(formatUser).join(', ');
@@ -5983,7 +5995,7 @@ class BoardManager {
     const primaryId = primary_assignee ? String(primary_assignee.id) : '';
     const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
 
-    const formatUser = (u) => u.display_name || u.username || u.email;
+    const formatUser = (u) => u.username || 'Unknown user';
 
     const primaryOptions = `
       <button
@@ -6066,6 +6078,24 @@ class BoardManager {
     cancelBtn.addEventListener('click', () => modal.remove());
 
     const primaryButtons = modal.querySelectorAll('.primary-assignee-option');
+    const secondaryButtons = modal.querySelectorAll('.secondary-assignee-option');
+
+    const syncSecondaryDisabledState = () => {
+      const selectedPrimary = modal.querySelector('.primary-assignee-option.selected');
+      const selectedPrimaryId = selectedPrimary ? selectedPrimary.dataset.userId : '';
+
+      secondaryButtons.forEach((secondaryButton) => {
+        const shouldDisable = selectedPrimaryId !== '' && secondaryButton.dataset.userId === selectedPrimaryId;
+        secondaryButton.disabled = shouldDisable;
+        secondaryButton.setAttribute('aria-disabled', shouldDisable ? 'true' : 'false');
+
+        if (shouldDisable) {
+          secondaryButton.classList.remove('selected');
+          secondaryButton.setAttribute('aria-pressed', 'false');
+        }
+      });
+    };
+
     primaryButtons.forEach((button) => {
       button.addEventListener('click', () => {
         primaryButtons.forEach((candidate) => {
@@ -6073,17 +6103,24 @@ class BoardManager {
           candidate.classList.toggle('selected', isSelected);
           candidate.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
         });
+
+        syncSecondaryDisabledState();
       });
     });
 
-    const secondaryButtons = modal.querySelectorAll('.secondary-assignee-option');
     secondaryButtons.forEach((button) => {
       button.addEventListener('click', () => {
+        if (button.disabled) {
+          return;
+        }
+
         const isSelected = !button.classList.contains('selected');
         button.classList.toggle('selected', isSelected);
         button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
       });
     });
+
+    syncSecondaryDisabledState();
 
     saveBtn.addEventListener('click', async () => {
       const selectedPrimary = modal.querySelector('.primary-assignee-option.selected');

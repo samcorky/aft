@@ -66,7 +66,9 @@ class ProfileManager {
     // Highlight the current profile colour swatch
     const currentColour = (this.currentUser.profile_colour || '').toLowerCase();
     document.querySelectorAll('.colour-swatch').forEach(swatch => {
-      swatch.classList.toggle('selected', swatch.dataset.colour.toLowerCase() === currentColour);
+      const isSelected = swatch.dataset.colour.toLowerCase() === currentColour;
+      swatch.classList.toggle('selected', isSelected);
+      swatch.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
     });
 
     // Disable email if OAuth user
@@ -125,7 +127,9 @@ class ProfileManager {
       if (response.ok && data.success) {
         if (this.currentUser) this.currentUser.profile_colour = colour;
         document.querySelectorAll('.colour-swatch').forEach(s => {
-          s.classList.toggle('selected', s.dataset.colour.toLowerCase() === colour.toLowerCase());
+          const isSelected = s.dataset.colour.toLowerCase() === colour.toLowerCase();
+          s.classList.toggle('selected', isSelected);
+          s.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
         });
         this.showMessage('colour-status', 'Colour updated', 'success');
       } else {

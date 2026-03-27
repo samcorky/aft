@@ -1238,20 +1238,20 @@ def setup_admin():
             ).first()
 
             def ensure_administrator_role(target_user):
-              """Ensure the target user has the global administrator role."""
-              admin_role = db.query(Role).filter(Role.name == 'administrator').first()
-              if not admin_role:
-                logger.warning("Administrator role not found during setup; role assignment skipped")
-                return
+                """Ensure the target user has the global administrator role."""
+                admin_role = db.query(Role).filter(Role.name == 'administrator').first()
+                if not admin_role:
+                    logger.warning("Administrator role not found during setup; role assignment skipped")
+                    return
 
-              existing_assignment = db.query(UserRole).filter(
-                UserRole.user_id == target_user.id,
-                UserRole.role_id == admin_role.id,
-                UserRole.board_id.is_(None)
-              ).first()
+                existing_assignment = db.query(UserRole).filter(
+                    UserRole.user_id == target_user.id,
+                    UserRole.role_id == admin_role.id,
+                    UserRole.board_id.is_(None)
+                ).first()
 
-              if not existing_assignment:
-                db.add(UserRole(user_id=target_user.id, role_id=admin_role.id, board_id=None))
+                if not existing_assignment:
+                    db.add(UserRole(user_id=target_user.id, role_id=admin_role.id, board_id=None))
             
             if existing_admin and not existing_admin.password_hash:
                 # Update the existing admin user from migration
@@ -1284,8 +1284,8 @@ def setup_admin():
                     password_hash=hash_password(password),
                     is_active=True,
                     is_approved=True,  # Admin is auto-approved
-                  email_verified=True,
-                  profile_colour=random.choice(AVATAR_COLOURS)
+                    email_verified=True,
+                    profile_colour=random.choice(AVATAR_COLOURS)
                 )
                 
                 db.add(user)
@@ -1322,7 +1322,7 @@ def setup_admin():
                 'email': user.email,
                 'username': user.username,
                 'display_name': user.display_name,
-              'profile_colour': user.profile_colour,
+                'profile_colour': user.profile_colour,
                 'roles': [{'id': r.id, 'name': r.name, 'description': r.description} for r in roles],
                 'permissions': permissions
             }

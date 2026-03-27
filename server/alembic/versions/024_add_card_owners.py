@@ -1,4 +1,4 @@
-"""Add card_secondary_assignees table, clear assigned_to_id values, and add profile_colour to users.
+"""Add card secondary assignees and profile colour defaulting.
 
 Revision ID: 024
 Revises: 023
@@ -17,12 +17,7 @@ depends_on = None
 
 
 def upgrade():
-    """Clear assigned_to_id values, create secondary assignee table, and add profile_colour to users."""
-    op.execute(
-        'UPDATE cards '
-        'SET assigned_to_id = NULL '
-        'WHERE assigned_to_id IS NOT NULL'
-    )
+    """Create secondary assignee table and add non-null profile_colour for users."""
 
     op.create_table(
         'card_secondary_assignees',
@@ -40,7 +35,18 @@ def upgrade():
         unique=True,
     )
 
-    op.add_column('users', sa.Column('profile_colour', sa.String(7), nullable=True))
+    op.add_column(
+        'users',
+        sa.Column('profile_colour', sa.String(7), nullable=True, server_default='#90A4AE')
+    )
+    op.execute("UPDATE users SET profile_colour = '#90A4AE' WHERE profile_colour IS NULL")
+    op.alter_column(
+        'users',
+        'profile_colour',
+        existing_type=sa.String(length=7),
+        nullable=False,
+        server_default='#90A4AE',
+    )
 
 
 def downgrade():

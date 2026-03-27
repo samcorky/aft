@@ -286,7 +286,7 @@ class User(Base):
     email_verified = Column(Boolean, nullable=False, default=False)
     
     # Profile
-    profile_colour = Column(String(7), nullable=True)
+    profile_colour = Column(String(7), nullable=False, server_default='#90A4AE')
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.current_timestamp())

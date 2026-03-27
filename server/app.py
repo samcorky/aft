@@ -15,6 +15,7 @@ from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
 from werkzeug.exceptions import BadRequest
@@ -4180,6 +4181,7 @@ def get_board_scheduled_cards(board_id):
             # Get only scheduled template cards for this column
             cards = (
                 db.query(Card)
+                .options(selectinload(Card.assigned_to))
                 .filter(Card.column_id == column.id)
                 .filter(Card.scheduled.is_(True))
                 .order_by(Card.order)
@@ -4202,7 +4204,6 @@ def get_board_scheduled_cards(board_id):
                     "assigned_to": {
                         "id": card.assigned_to.id,
                         "username": card.assigned_to.username,
-                        "display_name": card.assigned_to.display_name,
                         "profile_colour": card.assigned_to.profile_colour,
                     } if card.assigned_to else None,
                     "checklist_items": [
@@ -5286,6 +5287,7 @@ def get_board_cards(board_id):
             # Get cards for this column with archived filter
             # Always filter out scheduled template cards (scheduled=True) from task views
             cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
+            cards_query = cards_query.options(selectinload(Card.assigned_to))
             
             # Apply archived filter
             if archived_param == 'true':
@@ -5312,7 +5314,6 @@ def get_board_cards(board_id):
                     "assigned_to": {
                         "id": card.assigned_to.id,
                         "username": card.assigned_to.username,
-                        "display_name": card.assigned_to.display_name,
                         "profile_colour": card.assigned_to.profile_colour,
                     } if card.assigned_to else None,
                     "checklist_items": [
@@ -5555,7 +5556,7 @@ def create_card(column_id):
             schedule=schedule,
             updated_at=now,
             created_by_id=g.user.id,
-          assigned_to_id=None,
+            assigned_to_id=None,
         )
         db.add(card)
         db.commit()
@@ -6366,8 +6367,6 @@ def get_card_assignees(card_id):
             return {
                 "id": u.id,
                 "username": u.username,
-                "display_name": u.display_name,
-                "email": u.email,
             "profile_colour": u.profile_colour,
             }
 
@@ -6381,14 +6380,13 @@ def get_card_assignees(card_id):
         available_users = []
         if board_id:
             board = db.query(Board).filter(Board.id == board_id).first()
-            seen_ids = set()
+            eligible_user_ids = set()
 
-            # Board owner always included
-            if board and board.owner:
-                available_users.append(_user_dict(board.owner))
-                seen_ids.add(board.owner.id)
+            # Include active board owner.
+            if board and board.owner and getattr(board.owner, "is_active", True):
+                eligible_user_ids.add(board.owner.id)
 
-            # Users with a board-specific role that grants card.view or card.update
+            # Include users with a board role that grants card access.
             view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
             board_roles = (
                 db.query(UserRole, Role)
@@ -6396,26 +6394,36 @@ def get_card_assignees(card_id):
                 .filter(UserRole.board_id == board_id)
                 .all()
             )
-            eligible_user_ids = set()
             for ur, role in board_roles:
                 role_perms = set(_json.loads(role.permissions))
                 if role_perms & view_perms:
                     eligible_user_ids.add(ur.user_id)
 
+            # Include global admins (system.admin permission).
+            global_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id.is_(None))
+                .all()
+            )
+            for ur, role in global_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if 'system.admin' in role_perms:
+                    eligible_user_ids.add(ur.user_id)
+
             if eligible_user_ids:
-                users = db.query(User).filter(
-                    User.id.in_(eligible_user_ids),
-                    User.is_active.is_(True)
-                ).all()
-                for u in users:
-                    if u.id not in seen_ids:
-                        available_users.append(_user_dict(u))
-                        seen_ids.add(u.id)
+                users = (
+                    db.query(User)
+                    .filter(User.id.in_(eligible_user_ids), User.is_active.is_(True))
+                    .order_by(User.username)
+                    .all()
+                )
+                available_users = [_user_dict(u) for u in users]
 
         return create_success_response({
-          "primary_assignee": primary_assignee,
-          "secondary_assignees": secondary_assignees,
-          "available_users": available_users,
+            "primary_assignee": primary_assignee,
+            "secondary_assignees": secondary_assignees,
+            "available_users": available_users,
         })
     except Exception as e:
         logger.error(f"Error getting card assignees for card {card_id}: {str(e)}")
@@ -6471,12 +6479,52 @@ def update_card_assignees(card_id):
         if data is None:
             return create_error_response("No data provided", 400)
 
-        from models import Card, CardSecondaryAssignee, User
+        from models import Card, CardSecondaryAssignee, User, BoardColumn, Board, UserRole, Role
+        import json as _json
 
         user_id = g.user.id
         card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
         if not card:
             return create_error_response("Card not found or access denied", 404)
+
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
+        def _get_eligible_assignee_ids(current_board_id):
+            if not current_board_id:
+                return set()
+
+            eligible_ids = set()
+            board = db.query(Board).filter(Board.id == current_board_id).first()
+            if board and board.owner and getattr(board.owner, "is_active", True):
+                eligible_ids.add(board.owner.id)
+
+            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
+            board_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id == current_board_id)
+                .all()
+            )
+            for ur, role in board_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if role_perms & view_perms:
+                    eligible_ids.add(ur.user_id)
+
+            global_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id.is_(None))
+                .all()
+            )
+            for ur, role in global_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if 'system.admin' in role_perms:
+                    eligible_ids.add(ur.user_id)
+
+            return eligible_ids
+
+        eligible_assignee_ids = _get_eligible_assignee_ids(board_id)
 
         # Validate and set primary assignee
         if "assigned_to_id" in data:
@@ -6487,6 +6535,8 @@ def update_card_assignees(card_id):
                 assignee_user = db.query(User).filter(User.id == new_assigned_to_id, User.is_active.is_(True)).first()
                 if not assignee_user:
                     return create_error_response("Assigned user not found", 404)
+                if new_assigned_to_id not in eligible_assignee_ids:
+                  return create_error_response("Assigned user does not have access to this board", 400)
             card.assigned_to_id = new_assigned_to_id
 
         # Validate and replace secondary assignees
@@ -6507,9 +6557,18 @@ def update_card_assignees(card_id):
                 if invalid:
                     return create_error_response(f"User IDs not found or inactive: {sorted(invalid)}", 400)
 
+            ineligible = set(secondary_assignee_ids) - eligible_assignee_ids
+            if ineligible:
+                return create_error_response(
+                    f"User IDs do not have access to this board: {sorted(ineligible)}",
+                    400,
+                )
+
             # Remove all existing secondary assignees and replace
             db.query(CardSecondaryAssignee).filter(CardSecondaryAssignee.card_id == card_id).delete()
-            for uid in set(secondary_assignee_ids):
+            primary_assignee_id = card.assigned_to_id
+            unique_secondary_ids = {uid for uid in secondary_assignee_ids if uid != primary_assignee_id}
+            for uid in unique_secondary_ids:
                 db.add(CardSecondaryAssignee(card_id=card_id, user_id=uid))
 
         db.commit()
@@ -6520,17 +6579,13 @@ def update_card_assignees(card_id):
             primary_assignee = {
                 "id": card.assigned_to.id,
                 "username": card.assigned_to.username,
-                "display_name": card.assigned_to.display_name,
-                "email": card.assigned_to.email,
-            "profile_colour": card.assigned_to.profile_colour,
+                "profile_colour": card.assigned_to.profile_colour,
             }
         secondary_assignees = [
             {
                 "id": sa.user.id,
                 "username": sa.user.username,
-                "display_name": sa.user.display_name,
-                "email": sa.user.email,
-            "profile_colour": sa.user.profile_colour,
+                "profile_colour": sa.user.profile_colour,
             }
             for sa in card.secondary_assignees
         ]
@@ -9186,7 +9241,7 @@ def init_housekeeping_scheduler():
 
 skip_scheduler_init = os.getenv('AFT_SKIP_SCHEDULER_INIT', 'false').lower() == 'true'
 if skip_scheduler_init:
-  logger.info("Skipping scheduler initialization because AFT_SKIP_SCHEDULER_INIT=true")
+    logger.info("Skipping scheduler initialization because AFT_SKIP_SCHEDULER_INIT=true")
 
 # Only initialize schedulers in the first worker to start.
 # The init lock must use process-aware stale detection to avoid false stale evictions.
@@ -9195,15 +9250,15 @@ init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
 from scheduler_lock import acquire_scheduler_lock
 
 if skip_scheduler_init:
-  acquired_init_lock, init_lock_details = False, {"reason": "skipped_by_env"}
-  should_init = False
+    acquired_init_lock, init_lock_details = False, {"reason": "skipped_by_env"}
+    should_init = False
 else:
-  acquired_init_lock, init_lock_details = acquire_scheduler_lock(
-    lock_file=init_lock_file,
-    scheduler_type="scheduler_init",
-    stale_after_seconds=300,
-  )
-  should_init = acquired_init_lock
+    acquired_init_lock, init_lock_details = acquire_scheduler_lock(
+        lock_file=init_lock_file,
+        scheduler_type="scheduler_init",
+        stale_after_seconds=300,
+    )
+    should_init = acquired_init_lock
 
 if should_init:
     logger.info(

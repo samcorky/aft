@@ -227,6 +227,11 @@
   transform: scale(1.15);
 }
 
+.colour-swatch:focus-visible {
+  outline: 2px solid var(--text-bold);
+  outline-offset: 2px;
+}
+
 .colour-swatch.selected {
   border-color: var(--text-bold);
   transform: scale(1.15);

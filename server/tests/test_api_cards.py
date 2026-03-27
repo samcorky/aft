@@ -61,6 +61,26 @@ class TestCardsAPI:
         assert me_response.status_code == 200
         assert me_response.json()['user']['id'] in available_user_ids
 
+    def test_get_card_assignees_does_not_expose_email_fields(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+    ):
+        """Assignee endpoint should not leak email addresses for available/assigned users."""
+        response = authenticated_session.get(f'{api_client}/api/cards/{sample_card["id"]}/assignees')
+        assert response.status_code == 200
+        data = response.json()
+
+        for user in data['available_users']:
+            assert 'email' not in user
+
+        if data['primary_assignee'] is not None:
+            assert 'email' not in data['primary_assignee']
+
+        for user in data['secondary_assignees']:
+            assert 'email' not in user
+
     def test_get_card_assignees_denies_inaccessible_card(
         self,
         api_client,
@@ -132,6 +152,52 @@ class TestCardsAPI:
         assert response.status_code == 404
         data = response.json()
         assert data['success'] is False
+
+    def test_update_card_assignees_rejects_user_without_board_access(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_card,
+    ):
+        """Primary assignee must have board access for the card's board."""
+        second_user_me_response = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me_response.status_code == 200
+        second_user_id = second_user_me_response.json()['user']['id']
+
+        response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={
+                'assigned_to_id': second_user_id,
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+
+    def test_update_card_assignees_primary_not_duplicated_in_secondary(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+    ):
+        """Primary assignee should not also be persisted as a secondary assignee."""
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        me_id = me_response.json()['user']['id']
+
+        response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={
+                'assigned_to_id': me_id,
+                'secondary_assignee_ids': [me_id],
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['primary_assignee']['id'] == me_id
+        assert data['secondary_assignees'] == []
 
     def test_update_card_assignees_rejects_invalid_secondary_assignee_ids_type(
         self,

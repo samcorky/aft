@@ -1,4 +1,4 @@
-"""Add card_secondary_assignees table and populate assigned_to_id from creator.
+"""Add card_secondary_assignees table, clear assigned_to_id values, and add profile_colour to users.
 
 Revision ID: 024
 Revises: 023
@@ -17,11 +17,11 @@ depends_on = None
 
 
 def upgrade():
-    """Populate assigned_to_id from created_by_id and create secondary assignee table."""
+    """Clear assigned_to_id values, create secondary assignee table, and add profile_colour to users."""
     op.execute(
         'UPDATE cards '
-        'SET assigned_to_id = created_by_id '
-        'WHERE assigned_to_id IS NULL AND created_by_id IS NOT NULL'
+        'SET assigned_to_id = NULL '
+        'WHERE assigned_to_id IS NOT NULL'
     )
 
     op.create_table(
@@ -40,9 +40,12 @@ def upgrade():
         unique=True,
     )
 
+    op.add_column('users', sa.Column('profile_colour', sa.String(7), nullable=True))
+
 
 def downgrade():
-    """Remove secondary assignee table."""
+    """Remove secondary assignee table and profile_colour column."""
+    op.drop_column('users', 'profile_colour')
     op.drop_index('idx_card_secondary_assignee_unique', table_name='card_secondary_assignees')
     op.drop_index('ix_card_secondary_assignees_user_id', table_name='card_secondary_assignees')
     op.drop_index('ix_card_secondary_assignees_card_id', table_name='card_secondary_assignees')

@@ -1,4 +1,5 @@
 """Tests for card API endpoints."""
+import re
 import pytest
 
 
@@ -38,6 +39,158 @@ def _create_second_user_accessible_card(api_client, authenticated_session, secon
 @pytest.mark.api
 class TestCardsAPI:
     """Test cases for card API endpoints."""
+
+    def test_get_card_assignees_returns_primary_and_available_users(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+    ):
+        """Test assignee endpoint returns primary assignee and available board users."""
+        response = authenticated_session.get(f'{api_client}/api/cards/{sample_card["id"]}/assignees')
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data['success'] is True
+        assert data['primary_assignee'] is None
+        assert isinstance(data['secondary_assignees'], list)
+        assert isinstance(data['available_users'], list)
+
+        available_user_ids = {u['id'] for u in data['available_users']}
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        assert me_response.json()['user']['id'] in available_user_ids
+
+    def test_get_card_assignees_denies_inaccessible_card(
+        self,
+        api_client,
+        second_user_session,
+        sample_card,
+    ):
+        """Test assignee endpoint denies users without board access."""
+        response = second_user_session.get(f'{api_client}/api/cards/{sample_card["id"]}/assignees')
+        assert response.status_code in (403, 404)
+        data = response.json()
+        assert data['success'] is False
+
+    def test_update_card_assignees_sets_primary_and_secondary(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_card,
+        sample_column,
+    ):
+        """Test updating primary and secondary assignees for a card."""
+        admin_me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert admin_me_response.status_code == 200
+        admin_id = admin_me_response.json()['user']['id']
+
+        second_user_me_response = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me_response.status_code == 200
+        second_user_id = second_user_me_response.json()['user']['id']
+
+        role_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user_id}/roles',
+            json={'role_name': 'board_editor', 'board_id': sample_column['board_id']}
+        )
+        assert role_response.status_code == 200, role_response.text
+
+        update_response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={
+                'assigned_to_id': second_user_id,
+                'secondary_assignee_ids': [admin_id],
+            }
+        )
+        assert update_response.status_code == 200
+        update_data = update_response.json()
+
+        assert update_data['success'] is True
+        assert update_data['primary_assignee']['id'] == second_user_id
+        assert {u['id'] for u in update_data['secondary_assignees']} == {admin_id}
+
+        verify_response = authenticated_session.get(f'{api_client}/api/cards/{sample_card["id"]}/assignees')
+        assert verify_response.status_code == 200
+        verify_data = verify_response.json()
+        assert verify_data['primary_assignee']['id'] == second_user_id
+        assert {u['id'] for u in verify_data['secondary_assignees']} == {admin_id}
+
+    def test_update_card_assignees_rejects_unknown_primary_user(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+    ):
+        """Test update assignees rejects unknown assigned_to_id."""
+        response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={
+                'assigned_to_id': 999999,
+            }
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data['success'] is False
+
+    def test_update_card_assignees_rejects_invalid_secondary_assignee_ids_type(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+    ):
+        """Test update assignees validates secondary_assignee_ids type."""
+        response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={
+                'secondary_assignee_ids': '1,2,3',
+            }
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+
+    def test_board_cards_include_assigned_to_profile_colour(
+        self,
+        api_client,
+        authenticated_session,
+        sample_card,
+        sample_column,
+    ):
+        """Board card payload should include assigned user data needed for avatar rendering."""
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        me_data = me_response.json()
+        user_id = me_data['user']['id']
+
+        assign_response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={'assigned_to_id': user_id, 'secondary_assignee_ids': []}
+        )
+        assert assign_response.status_code == 200
+
+        board_response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_column["board_id"]}/cards'
+        )
+        assert board_response.status_code == 200
+        board_data = board_response.json()
+        assert board_data['success'] is True
+
+        columns = board_data['board']['columns']
+        card_entry = None
+        for column in columns:
+            for card in column['cards']:
+                if card['id'] == sample_card['id']:
+                    card_entry = card
+                    break
+            if card_entry:
+                break
+
+        assert card_entry is not None
+        assert card_entry['assigned_to'] is not None
+        assert card_entry['assigned_to']['id'] == user_id
+        assert 'profile_colour' in card_entry['assigned_to']
+        assert re.fullmatch(r'^#[0-9A-Fa-f]{6}$', card_entry['assigned_to']['profile_colour'])
     
     def test_get_column_cards_empty(self, api_client, authenticated_session, sample_column):
         """Test getting cards when column is empty."""

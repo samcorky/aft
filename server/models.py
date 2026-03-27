@@ -285,6 +285,9 @@ class User(Base):
     is_approved = Column(Boolean, nullable=False, default=False, index=True)  # Admin must approve new users
     email_verified = Column(Boolean, nullable=False, default=False)
     
+    # Profile
+    profile_colour = Column(String(7), nullable=True)
+
     # Timestamps
     created_at = Column(DateTime, server_default=func.current_timestamp())
     last_login_at = Column(DateTime, nullable=True)

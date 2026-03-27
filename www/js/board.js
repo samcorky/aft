@@ -1612,6 +1612,7 @@ class BoardManager {
                         ` : ''}
                       </div>
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
+                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}">${this.getInitials(card.assigned_to.display_name || card.assigned_to.username || '')}</div>` : ''}
                     </div>
                   `).join('') : ''
                 }
@@ -5887,6 +5888,13 @@ class BoardManager {
     return div.innerHTML;
   }
 
+  getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
   toggleCommentCollapse(commentText, button) {
     if (commentText.classList.contains('collapsed')) {
       commentText.classList.remove('collapsed');
@@ -5972,20 +5980,54 @@ class BoardManager {
     }
 
     const { primary_assignee, secondary_assignees, available_users } = ownersData;
-    const primaryId = primary_assignee ? primary_assignee.id : '';
+    const primaryId = primary_assignee ? String(primary_assignee.id) : '';
     const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
 
     const formatUser = (u) => u.display_name || u.username || u.email;
 
-    const userOptions = (available_users || []).map(u =>
-      `<option value="${u.id}" ${u.id === (primary_assignee && primary_assignee.id) ? 'selected' : ''}>${this.escapeHtml(formatUser(u))}</option>`
-    ).join('');
+    const primaryOptions = `
+      <button
+        type="button"
+        class="primary-assignee-option ${primaryId === '' ? 'selected' : ''}"
+        data-user-id=""
+        aria-pressed="${primaryId === '' ? 'true' : 'false'}"
+      >
+        <span class="user-avatar-chip unassigned-chip">-</span>
+        <span class="primary-assignee-name">Unassigned</span>
+      </button>
+      ${(available_users || []).map(u => `
+        <button
+          type="button"
+          class="primary-assignee-option ${String(u.id) === primaryId ? 'selected' : ''}"
+          data-user-id="${u.id}"
+          aria-pressed="${String(u.id) === primaryId ? 'true' : 'false'}"
+        >
+          <span
+            class="user-avatar-chip"
+            style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
+          >
+            ${this.getInitials(formatUser(u))}
+          </span>
+          <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
+        </button>
+      `).join('')}
+    `;
 
-    const secondaryCheckboxes = (available_users || []).map(u => `
-      <label class="owner-checkbox-label">
-        <input type="checkbox" class="secondary-owner-checkbox" value="${u.id}" ${secondaryIds.has(u.id) ? 'checked' : ''}>
-        ${this.escapeHtml(formatUser(u))}
-      </label>
+    const secondaryOptions = (available_users || []).map(u => `
+      <button
+        type="button"
+        class="secondary-assignee-option ${secondaryIds.has(u.id) ? 'selected' : ''}"
+        data-user-id="${u.id}"
+        aria-pressed="${secondaryIds.has(u.id) ? 'true' : 'false'}"
+      >
+        <span
+          class="user-avatar-chip"
+          style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
+        >
+          ${this.getInitials(formatUser(u))}
+        </span>
+        <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
+      </button>
     `).join('');
 
     const modalHtml = `
@@ -5999,16 +6041,15 @@ class BoardManager {
             <h2>Assign To</h2>
           </div>
           <div class="form-group" style="margin-top:16px;">
-            <label for="primary-assignee-select">Assigned To:</label>
-            <select id="primary-assignee-select" class="form-control" style="width:100%;padding:6px;margin-top:4px;">
-              <option value="">— Unassigned —</option>
-              ${userOptions}
-            </select>
+            <label>Assigned To:</label>
+            <div class="primary-assignee-grid" role="group" aria-label="Select primary assignee">
+              ${primaryOptions}
+            </div>
           </div>
           <div class="form-group" style="margin-top:16px;">
             <label>Secondary Assignees:</label>
-            <div id="secondary-assignees-list" style="margin-top:8px;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
-              ${secondaryCheckboxes || '<p style="color:var(--secondary-color);font-size:0.9em;">No eligible users found.</p>'}
+            <div class="secondary-assignee-grid" id="secondary-assignees-list" role="group" aria-label="Toggle secondary assignees">
+              ${secondaryOptions || '<p style="color:var(--secondary-color);font-size:0.9em;">No eligible users found.</p>'}
             </div>
           </div>
         </div>
@@ -6024,13 +6065,35 @@ class BoardManager {
     setupModalBackgroundClose(modal, () => modal.remove());
     cancelBtn.addEventListener('click', () => modal.remove());
 
+    const primaryButtons = modal.querySelectorAll('.primary-assignee-option');
+    primaryButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        primaryButtons.forEach((candidate) => {
+          const isSelected = candidate === button;
+          candidate.classList.toggle('selected', isSelected);
+          candidate.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        });
+      });
+    });
+
+    const secondaryButtons = modal.querySelectorAll('.secondary-assignee-option');
+    secondaryButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const isSelected = !button.classList.contains('selected');
+        button.classList.toggle('selected', isSelected);
+        button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      });
+    });
+
     saveBtn.addEventListener('click', async () => {
-      const primarySelect = document.getElementById('primary-assignee-select');
-      const primaryOwnerIdRaw = primarySelect.value;
+      const selectedPrimary = modal.querySelector('.primary-assignee-option.selected');
+      const primaryOwnerIdRaw = selectedPrimary ? selectedPrimary.dataset.userId : '';
       const primaryOwnerId = primaryOwnerIdRaw === '' ? null : parseInt(primaryOwnerIdRaw, 10);
 
-      const checkedBoxes = document.querySelectorAll('.secondary-owner-checkbox:checked');
-      const secondaryAssigneeIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value, 10));
+      const selectedSecondary = modal.querySelectorAll('.secondary-assignee-option.selected');
+      const secondaryAssigneeIds = Array.from(selectedSecondary)
+        .map(button => parseInt(button.dataset.userId, 10))
+        .filter(id => !Number.isNaN(id));
 
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';

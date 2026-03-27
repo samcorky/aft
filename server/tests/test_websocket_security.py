@@ -1,6 +1,7 @@
 """Security regression tests for Socket.IO authentication and authorization."""
 
 import os
+import importlib
 from types import SimpleNamespace
 
 import pytest
@@ -9,14 +10,24 @@ import pytest
 # exist before import-time configuration is evaluated.
 os.environ.setdefault('ENABLE_SERVER_SIDE_SESSIONS', 'false')
 os.environ.setdefault('SECRET_KEY', 'unit-test-secret-key')
+os.environ.setdefault('AFT_SKIP_SCHEDULER_INIT', 'true')
 
-import app as app_module
+
+_APP_MODULE = None
+
+
+def _get_app_module():
+    """Import app lazily to avoid module-import side effects during test collection."""
+    global _APP_MODULE
+    if _APP_MODULE is None:
+        _APP_MODULE = importlib.import_module('app')
+    return _APP_MODULE
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 
-def _make_socket_client():
+def _make_socket_client(app_module):
     """Create a Flask-SocketIO test client."""
     flask_client = app_module.app.test_client()
     return app_module.socketio.test_client(app_module.app, flask_test_client=flask_client)
@@ -37,13 +48,15 @@ class TestWebSocketSecurity:
 
     def test_unauthenticated_socket_connect_is_rejected(self, monkeypatch):
         """Critical #2 regression: unauthenticated Socket.IO connect must fail."""
+        app_module = _get_app_module()
         monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: None)
 
-        client = _make_socket_client()
+        client = _make_socket_client(app_module)
         assert client.is_connected() is False
 
     def test_authenticated_join_board_requires_authorized_access(self, monkeypatch):
         """join_board must enforce server-side board authorization."""
+        app_module = _get_app_module()
         user = SimpleNamespace(id=1)
         monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: user)
 
@@ -52,7 +65,7 @@ class TestWebSocketSecurity:
 
         monkeypatch.setattr(app_module, 'can_access_board', _mock_can_access_board)
 
-        client = _make_socket_client()
+        client = _make_socket_client(app_module)
         try:
             assert client.is_connected() is True
 
@@ -68,12 +81,13 @@ class TestWebSocketSecurity:
 
     def test_client_mutation_event_is_rejected_and_not_rebroadcast(self, monkeypatch):
         """Client-emitted mutation events must be rejected by the server."""
+        app_module = _get_app_module()
         user = SimpleNamespace(id=1)
         monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: user)
         monkeypatch.setattr(app_module, 'can_access_board', lambda user_id, board_id: (True, False))
 
-        sender = _make_socket_client()
-        receiver = _make_socket_client()
+        sender = _make_socket_client(app_module)
+        receiver = _make_socket_client(app_module)
         try:
             assert sender.is_connected() is True
             assert receiver.is_connected() is True

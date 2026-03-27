@@ -769,6 +769,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'boards',
             'columns',
             'cards',
+        'card_secondary_assignees',
             'checklist_items',
             'comments',
             'settings',
@@ -1250,6 +1251,7 @@ def get_permissions_mapping():
             'PATCH /api/users/:id/active': {'permission': 'user.manage', 'description': 'Toggle user active status'},
             'POST /api/users/:id/roles': {'permission': 'user.role', 'description': 'Assign user role'},
             'DELETE /api/users/:id/roles/:role_id': {'permission': 'user.role', 'description': 'Remove user role'},
+            'PUT /api/users/me/profile-colour': {'mode': 'authenticated', 'description': 'Update current user avatar/profile colour'},
 
             # Role management (from role_management.py blueprint)
             'GET /api/roles': {'permission': 'role.manage', 'description': 'List all roles'},
@@ -4197,6 +4199,12 @@ def get_board_scheduled_cards(board_id):
                     "schedule": card.schedule,
                     "created_at": card.created_at.isoformat() if card.created_at else None,
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "assigned_to": {
+                        "id": card.assigned_to.id,
+                        "username": card.assigned_to.username,
+                        "display_name": card.assigned_to.display_name,
+                        "profile_colour": card.assigned_to.profile_colour,
+                    } if card.assigned_to else None,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -5301,6 +5309,12 @@ def get_board_cards(board_id):
                     "schedule": card.schedule,
                     "created_at": card.created_at.isoformat() if card.created_at else None,
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "assigned_to": {
+                        "id": card.assigned_to.id,
+                        "username": card.assigned_to.username,
+                        "display_name": card.assigned_to.display_name,
+                        "profile_colour": card.assigned_to.profile_colour,
+                    } if card.assigned_to else None,
                     "checklist_items": [
                         {
                             "id": item.id,
@@ -5541,7 +5555,7 @@ def create_card(column_id):
             schedule=schedule,
             updated_at=now,
             created_by_id=g.user.id,
-            assigned_to_id=g.user.id,
+          assigned_to_id=None,
         )
         db.add(card)
         db.commit()
@@ -6354,6 +6368,7 @@ def get_card_assignees(card_id):
                 "username": u.username,
                 "display_name": u.display_name,
                 "email": u.email,
+            "profile_colour": u.profile_colour,
             }
 
         # Primary assignee
@@ -6507,6 +6522,7 @@ def update_card_assignees(card_id):
                 "username": card.assigned_to.username,
                 "display_name": card.assigned_to.display_name,
                 "email": card.assigned_to.email,
+            "profile_colour": card.assigned_to.profile_colour,
             }
         secondary_assignees = [
             {
@@ -6514,6 +6530,7 @@ def update_card_assignees(card_id):
                 "username": sa.user.username,
                 "display_name": sa.user.display_name,
                 "email": sa.user.email,
+            "profile_colour": sa.user.profile_colour,
             }
             for sa in card.secondary_assignees
         ]
@@ -9167,18 +9184,26 @@ def init_housekeeping_scheduler():
 # Use file lock to ensure only one worker initializes schedulers
 # This prevents race conditions with Gunicorn multi-worker setup
 
+skip_scheduler_init = os.getenv('AFT_SKIP_SCHEDULER_INIT', 'false').lower() == 'true'
+if skip_scheduler_init:
+  logger.info("Skipping scheduler initialization because AFT_SKIP_SCHEDULER_INIT=true")
+
 # Only initialize schedulers in the first worker to start.
 # The init lock must use process-aware stale detection to avoid false stale evictions.
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
 
 from scheduler_lock import acquire_scheduler_lock
 
-acquired_init_lock, init_lock_details = acquire_scheduler_lock(
+if skip_scheduler_init:
+  acquired_init_lock, init_lock_details = False, {"reason": "skipped_by_env"}
+  should_init = False
+else:
+  acquired_init_lock, init_lock_details = acquire_scheduler_lock(
     lock_file=init_lock_file,
     scheduler_type="scheduler_init",
     stale_after_seconds=300,
-)
-should_init = acquired_init_lock
+  )
+  should_init = acquired_init_lock
 
 if should_init:
     logger.info(
@@ -10327,6 +10352,67 @@ def on_leave_theme():
     leave_room('theme')
     logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
     return {'success': True}
+
+
+import re as _re
+
+_HEX_COLOUR_RE = _re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+
+@app.route("/api/users/me/profile-colour", methods=["PUT"])
+def update_profile_colour():
+    """Update the current user's profile colour.
+    ---
+    tags:
+      - Users
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - profile_colour
+          properties:
+            profile_colour:
+              type: string
+              description: RGB hex colour string e.g. '#E57373'
+    responses:
+      200:
+        description: Profile colour updated successfully
+      400:
+        description: Invalid colour value
+      500:
+        description: Server error
+    """
+    try:
+        data = request.get_json()
+    except Exception:
+        data = None
+    if not g.get('user'):
+      return create_error_response("Not authenticated", 401)
+    if not data:
+        return create_error_response("No data provided", 400)
+
+    colour = data.get('profile_colour')
+    if not colour or not isinstance(colour, str) or not _HEX_COLOUR_RE.match(colour):
+        return create_error_response("profile_colour must be a valid RGB hex string e.g. '#A1B2C3'", 400)
+
+    db = SessionLocal()
+    try:
+        from models import User
+        user = db.query(User).filter(User.id == g.user.id).first()
+        if not user:
+            return create_error_response("User not found", 404)
+        user.profile_colour = colour
+        db.commit()
+        return create_success_response({'profile_colour': colour})
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating profile colour for user {g.user.id}: {str(e)}")
+        return create_error_response("Failed to update profile colour", 500)
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":

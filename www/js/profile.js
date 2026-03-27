@@ -63,6 +63,12 @@ class ProfileManager {
     document.getElementById('username').value = this.currentUser.username || '';
     document.getElementById('email').value = this.currentUser.email || '';
 
+    // Highlight the current profile colour swatch
+    const currentColour = (this.currentUser.profile_colour || '').toLowerCase();
+    document.querySelectorAll('.colour-swatch').forEach(swatch => {
+      swatch.classList.toggle('selected', swatch.dataset.colour.toLowerCase() === currentColour);
+    });
+
     // Disable email if OAuth user
     if (this.currentUser.oauth_provider) {
       const emailInput = document.getElementById('email');
@@ -99,7 +105,38 @@ class ProfileManager {
       e.preventDefault();
       await this.handlePasswordChange();
     });
+
+    // Colour swatch selection
+    document.querySelectorAll('.colour-swatch').forEach(swatch => {
+      swatch.addEventListener('click', async () => {
+        await this.handleColourSelection(swatch.dataset.colour);
+      });
+    });
   }
+
+  async handleColourSelection(colour) {
+    try {
+      const response = await fetch('/api/users/me/profile-colour', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_colour: colour })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        if (this.currentUser) this.currentUser.profile_colour = colour;
+        document.querySelectorAll('.colour-swatch').forEach(s => {
+          s.classList.toggle('selected', s.dataset.colour.toLowerCase() === colour.toLowerCase());
+        });
+        this.showMessage('colour-status', 'Colour updated', 'success');
+      } else {
+        this.showMessage('colour-status', data.error || 'Failed to update colour', 'error');
+      }
+    } catch (error) {
+      console.error('Error updating profile colour:', error);
+      this.showMessage('colour-status', 'Error updating colour', 'error');
+    }
+  }
+
 
   async handleProfileUpdate() {
     const saveBtn = document.getElementById('save-profile-btn');

@@ -111,7 +111,6 @@ class Card(Base):
     
     # Optional: assign card to specific user
     assigned_to_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
-    
     created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
     updated_at = Column(DateTime, nullable=True)
     
@@ -131,8 +130,33 @@ class Card(Base):
     # Relationship to the schedule this card was created from (many cards can be created from one schedule)
     created_from_schedule = relationship("ScheduledCard", foreign_keys=[schedule], back_populates="created_cards")
     
+    # Relationships to assignees
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    secondary_assignees = relationship("CardSecondaryAssignee", back_populates="card", cascade="all, delete-orphan")
+    
     def __repr__(self):
         return f"<Card(id={self.id}, column_id={self.column_id}, title='{self.title}', order={self.order}, scheduled={self.scheduled})>"
+
+
+class CardSecondaryAssignee(Base):
+    """Maps secondary assignees to a card."""
+    
+    __tablename__ = "card_secondary_assignees"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    card_id = Column(Integer, ForeignKey('cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.current_timestamp(), nullable=True)
+    
+    card = relationship("Card", back_populates="secondary_assignees")
+    user = relationship("User")
+    
+    __table_args__ = (
+        Index('idx_card_secondary_assignee_unique', 'card_id', 'user_id', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<CardSecondaryAssignee(card_id={self.card_id}, user_id={self.user_id})>"
 
 
 class ChecklistItem(Base):

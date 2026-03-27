@@ -4424,6 +4424,7 @@ class BoardManager {
     const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
     const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
     const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
+    const canManageAssignees = this.canCallPermissionEndpoint('PUT', '/api/cards/:id/assignees');
     const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
     const canEditSchedule = this.canCallPermissionEndpoint('PUT', '/api/schedules/:id');
     const canDeleteSchedule = this.canCallPermissionEndpoint('DELETE', '/api/schedules/:id');
@@ -4460,6 +4461,7 @@ class BoardManager {
                   }
                   ${canArchiveCard ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
               }
+              ${canManageAssignees ? `<button type="button" class="btn btn-secondary" id="assign-assignees-btn" data-card-id="${cardData.id}">👤 Assignees</button>` : ''}
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">${isReadOnly ? 'Close' : 'Cancel'}</button>
               ${!isReadOnly ? '<button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>' : ''}
             </div>
@@ -4537,6 +4539,14 @@ class BoardManager {
                 <span class="card-metadata-label">Updated:</span>
                 <span class="card-metadata-value" ${cardData.updated_at ? `data-tooltip="${formatTooltipDateTime(cardData.updated_at)}" aria-label="Last updated on ${formatTooltipDateTime(cardData.updated_at)}" tabindex="0"` : ''}>${cardData.updated_at ? formatTimeAgoLong(cardData.updated_at) : 'Unknown'}</span>
               </div>
+              <div class="card-metadata-item" id="card-assignee-metadata">
+                <span class="card-metadata-label">Assigned To:</span>
+                <span class="card-metadata-value card-owner-value" id="card-primary-assignee-display">Loading…</span>
+              </div>
+              <div class="card-metadata-item" id="card-secondary-assignees-metadata" style="display:none;">
+                <span class="card-metadata-label">Secondary Assignees:</span>
+                <span class="card-metadata-value card-owner-value" id="card-secondary-assignees-display"></span>
+              </div>
             </div>
             <div class="comments-section">
               <div class="comments-header">
@@ -4565,6 +4575,7 @@ class BoardManager {
     const cancelBtn = document.getElementById('cancel-edit-card-btn');
     const archiveBtn = document.getElementById('archive-card-detail-btn');
     const unarchiveBtn = document.getElementById('unarchive-card-detail-btn');
+    const assignAssigneesBtn = document.getElementById('assign-assignees-btn');
     const titleInput = document.getElementById('edit-card-title');
 
     // Focus on input and select text
@@ -4586,6 +4597,18 @@ class BoardManager {
       const commentInput = document.getElementById('new-comment-input');
       return commentInput && commentInput.value.trim().length > 0;
     };
+
+    // Handle assign assignees button
+    if (assignAssigneesBtn) {
+      assignAssigneesBtn.addEventListener('click', async () => {
+        await this.openAssigneeModal(cardId);
+      });
+    }
+
+    // Load and display assignee data asynchronously
+    if (!isTemplate) {
+      this.loadCardAssigneeDisplay(cardId);
+    }
 
     // Handle archive button
     if (archiveBtn) {
@@ -5900,6 +5923,137 @@ class BoardManager {
     // Format as date/time for older comments (day/month/year format)
     const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
     return date.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(date);
+  }
+
+  /**
+  * Load and display assignee data in the edit card modal metadata section.
+   * @param {number} cardId
+   */
+  async loadCardAssigneeDisplay(cardId) {
+    const primaryEl = document.getElementById('card-primary-assignee-display');
+    const secondaryRow = document.getElementById('card-secondary-assignees-metadata');
+    const secondaryEl = document.getElementById('card-secondary-assignees-display');
+    if (!primaryEl) return;
+    try {
+      const resp = await fetch(`/api/cards/${cardId}/assignees`);
+      if (!resp.ok) throw new Error('Failed to load assignees');
+      const data = await resp.json();
+      const formatUser = (u) => u.display_name || u.username || u.email;
+      primaryEl.textContent = data.primary_assignee ? formatUser(data.primary_assignee) : 'Unassigned';
+      if (data.secondary_assignees && data.secondary_assignees.length > 0) {
+        secondaryEl.textContent = data.secondary_assignees.map(formatUser).join(', ');
+        if (secondaryRow) secondaryRow.style.display = '';
+      } else {
+        if (secondaryRow) secondaryRow.style.display = 'none';
+      }
+    } catch (e) {
+      if (primaryEl) primaryEl.textContent = '—';
+    }
+  }
+
+  /**
+  * Open a modal for assigning primary and secondary assignees of a card.
+   * @param {number} cardId
+   */
+  async openAssigneeModal(cardId) {
+    // Remove any existing assignee modal
+    const existing = document.getElementById('assignee-modal');
+    if (existing) existing.remove();
+
+    // Load current assignees and available users
+    let ownersData;
+    try {
+      const resp = await fetch(`/api/cards/${cardId}/assignees`);
+      if (!resp.ok) throw new Error('Failed to load assignees');
+      ownersData = await resp.json();
+    } catch (e) {
+      this.showErrorToast('Failed to load assignee data. Please try again.');
+      return;
+    }
+
+    const { primary_assignee, secondary_assignees, available_users } = ownersData;
+    const primaryId = primary_assignee ? primary_assignee.id : '';
+    const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
+
+    const formatUser = (u) => u.display_name || u.username || u.email;
+
+    const userOptions = (available_users || []).map(u =>
+      `<option value="${u.id}" ${u.id === (primary_assignee && primary_assignee.id) ? 'selected' : ''}>${this.escapeHtml(formatUser(u))}</option>`
+    ).join('');
+
+    const secondaryCheckboxes = (available_users || []).map(u => `
+      <label class="owner-checkbox-label">
+        <input type="checkbox" class="secondary-owner-checkbox" value="${u.id}" ${secondaryIds.has(u.id) ? 'checked' : ''}>
+        ${this.escapeHtml(formatUser(u))}
+      </label>
+    `).join('');
+
+    const modalHtml = `
+      <div class="modal" id="assignee-modal">
+        <div class="modal-content" style="max-width:480px;">
+          <div class="modal-header">
+            <div class="modal-header-actions">
+              <button type="button" class="btn btn-secondary" id="owner-modal-cancel-btn">Cancel</button>
+              <button type="button" class="btn btn-primary" id="owner-modal-save-btn">Save</button>
+            </div>
+            <h2>Assign To</h2>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label for="primary-assignee-select">Assigned To:</label>
+            <select id="primary-assignee-select" class="form-control" style="width:100%;padding:6px;margin-top:4px;">
+              <option value="">— Unassigned —</option>
+              ${userOptions}
+            </select>
+          </div>
+          <div class="form-group" style="margin-top:16px;">
+            <label>Secondary Assignees:</label>
+            <div id="secondary-assignees-list" style="margin-top:8px;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+              ${secondaryCheckboxes || '<p style="color:var(--secondary-color);font-size:0.9em;">No eligible users found.</p>'}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('assignee-modal');
+    const cancelBtn = document.getElementById('owner-modal-cancel-btn');
+    const saveBtn = document.getElementById('owner-modal-save-btn');
+
+    setupModalBackgroundClose(modal, () => modal.remove());
+    cancelBtn.addEventListener('click', () => modal.remove());
+
+    saveBtn.addEventListener('click', async () => {
+      const primarySelect = document.getElementById('primary-assignee-select');
+      const primaryOwnerIdRaw = primarySelect.value;
+      const primaryOwnerId = primaryOwnerIdRaw === '' ? null : parseInt(primaryOwnerIdRaw, 10);
+
+      const checkedBoxes = document.querySelectorAll('.secondary-owner-checkbox:checked');
+      const secondaryAssigneeIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value, 10));
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const resp = await fetch(`/api/cards/${cardId}/assignees`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assigned_to_id: primaryOwnerId, secondary_assignee_ids: secondaryAssigneeIds }),
+        });
+        const result = await resp.json();
+        if (!resp.ok || !result.success) {
+          throw new Error(result.message || 'Failed to save assignees');
+        }
+        modal.remove();
+        // Refresh owner display in the edit card modal
+        this.loadCardAssigneeDisplay(cardId);
+      } catch (e) {
+        this.showErrorToast(e.message || 'Failed to save assignees. Please try again.');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
   }
 
   generateCommentHtml(comment, isReadOnly = false) {

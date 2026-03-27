@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
+from models import Board, BoardColumn, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
@@ -1205,6 +1205,8 @@ def get_permissions_mapping():
             'PATCH /api/cards/:id/unarchive': {'permission': 'card.archive', 'description': 'Unarchive card'},
             'GET /api/cards/:id/done': {'permission': 'card.view', 'description': 'Get card done status'},
             'PATCH /api/cards/:id/done': {'permission': 'card.update', 'description': 'Update card done status'},
+            'GET /api/cards/:id/assignees': {'permission': 'card.view', 'description': 'Get card assignees'},
+            'PUT /api/cards/:id/assignees': {'permission': 'card.update', 'description': 'Set card assignees'},
             'POST /api/cards/batch/archive': {'permission': 'card.archive', 'description': 'Batch archive cards'},
             'POST /api/cards/batch/unarchive': {'permission': 'card.archive', 'description': 'Batch unarchive cards'},
 
@@ -5537,7 +5539,9 @@ def create_card(column_id):
             order=order,
             scheduled=scheduled,
             schedule=schedule,
-            updated_at=now
+            updated_at=now,
+            created_by_id=g.user.id,
+            assigned_to_id=g.user.id,
         )
         db.add(card)
         db.commit()
@@ -6307,6 +6311,223 @@ def delete_card(card_id):
         logger.error(f"Error deleting card {card_id}: {str(e)}")
         logger.exception(e)
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/cards/<int:card_id>/assignees", methods=["GET"])
+@require_permission('card.view')
+def get_card_assignees(card_id):
+    """Get primary assignee, secondary assignees, and available users for a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+    responses:
+      200:
+        description: Assignee info retrieved successfully
+      404:
+        description: Card not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        from models import Card, CardSecondaryAssignee, Board, BoardColumn, User, UserRole, Role
+        import json as _json
+
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found or access denied", 404)
+
+        # Resolve board_id
+        column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
+        board_id = column.board_id if column else None
+
+        def _user_dict(u):
+            return {
+                "id": u.id,
+                "username": u.username,
+                "display_name": u.display_name,
+                "email": u.email,
+            }
+
+        # Primary assignee
+        primary_assignee = _user_dict(card.assigned_to) if card.assigned_to else None
+
+        # Secondary assignees
+        secondary_assignees = [_user_dict(sa.user) for sa in card.secondary_assignees]
+
+        # Build list of users with access to the card's board (for selection)
+        available_users = []
+        if board_id:
+            board = db.query(Board).filter(Board.id == board_id).first()
+            seen_ids = set()
+
+            # Board owner always included
+            if board and board.owner:
+                available_users.append(_user_dict(board.owner))
+                seen_ids.add(board.owner.id)
+
+            # Users with a board-specific role that grants card.view or card.update
+            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
+            board_roles = (
+                db.query(UserRole, Role)
+                .join(Role, UserRole.role_id == Role.id)
+                .filter(UserRole.board_id == board_id)
+                .all()
+            )
+            eligible_user_ids = set()
+            for ur, role in board_roles:
+                role_perms = set(_json.loads(role.permissions))
+                if role_perms & view_perms:
+                    eligible_user_ids.add(ur.user_id)
+
+            if eligible_user_ids:
+                users = db.query(User).filter(
+                    User.id.in_(eligible_user_ids),
+                    User.is_active.is_(True)
+                ).all()
+                for u in users:
+                    if u.id not in seen_ids:
+                        available_users.append(_user_dict(u))
+                        seen_ids.add(u.id)
+
+        return create_success_response({
+          "primary_assignee": primary_assignee,
+          "secondary_assignees": secondary_assignees,
+          "available_users": available_users,
+        })
+    except Exception as e:
+        logger.error(f"Error getting card assignees for card {card_id}: {str(e)}")
+        return create_error_response("Failed to get card assignees", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/cards/<int:card_id>/assignees", methods=["PUT"])
+@require_permission('card.update')
+def update_card_assignees(card_id):
+    """Set the primary assignee and secondary assignees of a card.
+    ---
+    tags:
+      - Cards
+    parameters:
+      - name: card_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the card
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            assigned_to_id:
+              type: integer
+              nullable: true
+              description: User ID of the primary assignee, or null to clear
+            secondary_assignee_ids:
+              type: array
+              items:
+                type: integer
+              description: Full list of user IDs to set as secondary assignees
+    responses:
+      200:
+        description: Assignees updated successfully
+      400:
+        description: Invalid request data
+      404:
+        description: Card or user not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        try:
+            data = request.get_json()
+        except Exception:
+            data = None
+        if data is None:
+            return create_error_response("No data provided", 400)
+
+        from models import Card, CardSecondaryAssignee, User
+
+        user_id = g.user.id
+        card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
+        if not card:
+            return create_error_response("Card not found or access denied", 404)
+
+        # Validate and set primary assignee
+        if "assigned_to_id" in data:
+            new_assigned_to_id = data["assigned_to_id"]
+            if new_assigned_to_id is not None:
+                if not isinstance(new_assigned_to_id, int) or new_assigned_to_id < 1:
+                    return create_error_response("assigned_to_id must be a positive integer or null", 400)
+                assignee_user = db.query(User).filter(User.id == new_assigned_to_id, User.is_active.is_(True)).first()
+                if not assignee_user:
+                    return create_error_response("Assigned user not found", 404)
+            card.assigned_to_id = new_assigned_to_id
+
+        # Validate and replace secondary assignees
+        if "secondary_assignee_ids" in data:
+            secondary_assignee_ids = data["secondary_assignee_ids"]
+            if not isinstance(secondary_assignee_ids, list):
+                return create_error_response("secondary_assignee_ids must be a list", 400)
+            for uid in secondary_assignee_ids:
+                if not isinstance(uid, int) or uid < 1:
+                    return create_error_response("Each secondary_assignee_id must be a positive integer", 400)
+            if secondary_assignee_ids:
+                valid_users = db.query(User.id).filter(
+                    User.id.in_(secondary_assignee_ids),
+                    User.is_active.is_(True)
+                ).all()
+                valid_ids = {row.id for row in valid_users}
+                invalid = set(secondary_assignee_ids) - valid_ids
+                if invalid:
+                    return create_error_response(f"User IDs not found or inactive: {sorted(invalid)}", 400)
+
+            # Remove all existing secondary assignees and replace
+            db.query(CardSecondaryAssignee).filter(CardSecondaryAssignee.card_id == card_id).delete()
+            for uid in set(secondary_assignee_ids):
+                db.add(CardSecondaryAssignee(card_id=card_id, user_id=uid))
+
+        db.commit()
+        db.refresh(card)
+
+        primary_assignee = None
+        if card.assigned_to:
+            primary_assignee = {
+                "id": card.assigned_to.id,
+                "username": card.assigned_to.username,
+                "display_name": card.assigned_to.display_name,
+                "email": card.assigned_to.email,
+            }
+        secondary_assignees = [
+            {
+                "id": sa.user.id,
+                "username": sa.user.username,
+                "display_name": sa.user.display_name,
+                "email": sa.user.email,
+            }
+            for sa in card.secondary_assignees
+        ]
+
+        return create_success_response({
+          "primary_assignee": primary_assignee,
+          "secondary_assignees": secondary_assignees,
+        })
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating card assignees for card {card_id}: {str(e)}")
+        return create_error_response("Failed to update card assignees", 500)
+    finally:
+        db.close()
 
 
 @app.route("/api/cards/<int:card_id>/archive", methods=["PATCH"])

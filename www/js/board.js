@@ -4809,6 +4809,9 @@ class BoardManager {
       deleteButtonClass: 'checklist-delete-btn-temp',
       onItemCommitted: () => {
         hasUnsavedChanges = true;
+      },
+      onItemChanged: () => {
+        hasUnsavedChanges = true;
       }
     });
 

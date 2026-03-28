@@ -4203,6 +4203,7 @@ def get_board_scheduled_cards(board_id):
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "assigned_to": {
                         "id": card.assigned_to.id,
+                        "display_name": card.assigned_to.display_name,
                         "username": card.assigned_to.username,
                         "profile_colour": card.assigned_to.profile_colour,
                     } if card.assigned_to else None,
@@ -5313,6 +5314,7 @@ def get_board_cards(board_id):
                     "updated_at": card.updated_at.isoformat() if card.updated_at else None,
                     "assigned_to": {
                         "id": card.assigned_to.id,
+                        "display_name": card.assigned_to.display_name,
                         "username": card.assigned_to.username,
                         "profile_colour": card.assigned_to.profile_colour,
                     } if card.assigned_to else None,
@@ -6366,8 +6368,9 @@ def get_card_assignees(card_id):
         def _user_dict(u):
             return {
                 "id": u.id,
+                "display_name": u.display_name,
                 "username": u.username,
-            "profile_colour": u.profile_colour,
+                "profile_colour": u.profile_colour,
             }
 
         # Primary assignee
@@ -6578,12 +6581,14 @@ def update_card_assignees(card_id):
         if card.assigned_to:
             primary_assignee = {
                 "id": card.assigned_to.id,
+                "display_name": card.assigned_to.display_name,
                 "username": card.assigned_to.username,
                 "profile_colour": card.assigned_to.profile_colour,
             }
         secondary_assignees = [
             {
                 "id": sa.user.id,
+                "display_name": sa.user.display_name,
                 "username": sa.user.username,
                 "profile_colour": sa.user.profile_colour,
             }

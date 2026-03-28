@@ -1612,7 +1612,7 @@ class BoardManager {
                         ` : ''}
                       </div>
                       <button class="card-expand-btn" data-card-id="${card.id}" role="button" aria-expanded="false" aria-controls="card-content-${card.id}">Show more...</button>
-                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.username || '')}">${this.escapeHtml(this.getInitials(card.assigned_to.username || ''))}</div>` : ''}
+                      ${card.assigned_to ? `<div class="card-assignee-avatar" style="background-color:${this.escapeHtml(card.assigned_to.profile_colour || '#90A4AE')}" title="${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}" aria-label="Assigned to ${this.escapeHtml(card.assigned_to.display_name || card.assigned_to.username || '')}">${this.escapeHtml(this.getInitials(card.assigned_to.display_name || card.assigned_to.username || ''))}</div>` : ''}
                     </div>
                   `).join('') : ''
                 }
@@ -5958,7 +5958,7 @@ class BoardManager {
       const resp = await fetch(`/api/cards/${cardId}/assignees`);
       if (!resp.ok) throw new Error('Failed to load assignees');
       const data = await resp.json();
-      const formatUser = (u) => u.username || 'Unknown user';
+      const formatUser = (u) => u.display_name || u.username || 'Unknown user';
       primaryEl.textContent = data.primary_assignee ? formatUser(data.primary_assignee) : 'Unassigned';
       if (data.secondary_assignees && data.secondary_assignees.length > 0) {
         secondaryEl.textContent = data.secondary_assignees.map(formatUser).join(', ');
@@ -5995,7 +5995,7 @@ class BoardManager {
     const primaryId = primary_assignee ? String(primary_assignee.id) : '';
     const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
 
-    const formatUser = (u) => u.username || 'Unknown user';
+    const formatUser = (u) => u.display_name || u.username || 'Unknown user';
 
     const primaryOptions = `
       <button

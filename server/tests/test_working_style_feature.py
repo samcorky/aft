@@ -174,8 +174,8 @@ class TestWorkingStyleSetting:
         schema = response.json()['schema']
         assert 'working_style' in schema
         assert schema['working_style']['type'] == 'string'
-         assert 'kanban' in schema['working_style']['description'] or \
-             'agile' in schema['working_style']['description']
+        assert 'kanban' in schema['working_style']['description'] or \
+            'agile' in schema['working_style']['description']
     
     def test_set_working_style_to_kanban(self, api_client, authenticated_session):
         """Test setting working_style to kanban."""

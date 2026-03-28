@@ -109,15 +109,18 @@ Use at your own risk.
 ## Features
 
 ### Working Style Configuration
-The application supports different working styles to accommodate various team preferences. Configure your preferred working style through the General Settings page:
+The application supports different working styles to accommodate various team preferences.
+
+- The Working Style option in General Settings sets the default for new boards you create.
+- Existing boards keep their own working style and can be changed from each board's settings menu.
 
 ![Working Style Options](images/working_style_options.png)
 
 **Available Options:**
 - **Kanban** - Traditional column-based workflow where cards move through stages (To Do, In Progress, Done, etc.)
-- **Agile** - Boards represent work categories, and columns represent task statuses or subcategories within those boards
+- **Agile** - Enables done tracking and a dedicated Done View on the board
 
-Both styles support the Done button functionality for marking cards as complete without moving them, and access to a dedicated Done View for reviewing completed work. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
+In Agile mode, cards use Done/Not Done status and the Archived View is hidden. In Kanban mode, archive workflows remain available. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
 
 ### 📋 Board Management
 - **Create Multiple Boards** - Organize different projects with separate Kanban boards
@@ -203,11 +206,13 @@ Both styles support the Done button functionality for marking cards as complete 
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
 - **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
-- **Working Style** - Choose between Kanban and Agile workflow styles
+- **Working Style Default (New Boards)** - Set your default board style for boards created in the future
   - **Kanban**: Traditional column-based workflow where cards move through stages
-  - **Agile**: Boards represent work categories, columns represent task statuses
-  - **Done Button**: Mark cards as complete without moving them between columns
-  - **Done View**: Dedicated view to see only completed cards across all columns
+  - **Agile**: Board-level done tracking with Done/Not Done workflow
+  - **Board-Level Override**: Existing board style is managed from that board's settings menu
+  - **Done Button**: Mark cards as complete without moving them between columns in Agile mode
+  - **Done View**: Dedicated view to see completed cards in Agile mode
+  - **Archived View**: Available in Kanban mode; hidden in Agile mode
   - **Smart Column Counts**: See total and done counts in column headers (e.g., "To Do (2/5)")
 
 ![Settings](images/settings.png)

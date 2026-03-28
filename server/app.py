@@ -832,6 +832,7 @@ def validate_schema_integrity(file_path, expected_tables=None):
             'columns',
             'cards',
         'card_secondary_assignees',
+        'board_settings',
             'checklist_items',
             'comments',
             'settings',

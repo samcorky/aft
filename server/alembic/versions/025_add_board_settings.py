@@ -18,16 +18,27 @@ depends_on = None
 
 def upgrade():
     """Create board_settings and normalize legacy working style value."""
-    op.create_table(
-        'board_settings',
-        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column('board_id', sa.Integer(), sa.ForeignKey('boards.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('key', sa.String(length=255), nullable=False),
-        sa.Column('value', sa.Text(), nullable=True),
-    )
-    op.create_index('ix_board_settings_board_id', 'board_settings', ['board_id'])
-    op.create_index('ix_board_settings_key', 'board_settings', ['key'])
-    op.create_index('idx_board_setting_key', 'board_settings', ['board_id', 'key'], unique=True)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if not inspector.has_table('board_settings'):
+        op.create_table(
+            'board_settings',
+            sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column('board_id', sa.Integer(), sa.ForeignKey('boards.id', ondelete='CASCADE'), nullable=False),
+            sa.Column('key', sa.String(length=255), nullable=False),
+            sa.Column('value', sa.Text(), nullable=True),
+        )
+
+    inspector = sa.inspect(bind)
+
+    index_names = {index['name'] for index in inspector.get_indexes('board_settings')}
+    if 'ix_board_settings_board_id' not in index_names:
+        op.create_index('ix_board_settings_board_id', 'board_settings', ['board_id'])
+    if 'ix_board_settings_key' not in index_names:
+        op.create_index('ix_board_settings_key', 'board_settings', ['key'])
+    if 'idx_board_setting_key' not in index_names:
+        op.create_index('idx_board_setting_key', 'board_settings', ['board_id', 'key'], unique=True)
 
     # Normalize legacy working style naming in user settings.
     op.execute(
@@ -42,20 +53,20 @@ def upgrade():
     # For each board, insert a working_style setting based on the board owner's user setting.
     op.execute(
         """
-        INSERT INTO board_settings (board_id, key, value)
+        INSERT INTO board_settings (board_id, `key`, `value`)
         SELECT 
             b.id,
             'working_style',
             COALESCE(
                 (SELECT s.value 
                  FROM settings s 
-                 WHERE s.user_id = b.owner_id AND s.key = 'working_style' 
+                 WHERE s.user_id = b.owner_id AND s.`key` = 'working_style' 
                  LIMIT 1),
                 '"agile"'
             )
         FROM boards b
         WHERE b.id NOT IN (
-            SELECT DISTINCT board_id FROM board_settings WHERE key = 'working_style'
+            SELECT DISTINCT board_id FROM board_settings WHERE `key` = 'working_style'
         )
         """
     )
@@ -71,7 +82,15 @@ def downgrade():
         """
     )
 
-    op.drop_index('idx_board_setting_key', table_name='board_settings')
-    op.drop_index('ix_board_settings_key', table_name='board_settings')
-    op.drop_index('ix_board_settings_board_id', table_name='board_settings')
-    op.drop_table('board_settings')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if inspector.has_table('board_settings'):
+        index_names = {index['name'] for index in inspector.get_indexes('board_settings')}
+        if 'idx_board_setting_key' in index_names:
+            op.drop_index('idx_board_setting_key', table_name='board_settings')
+        if 'ix_board_settings_key' in index_names:
+            op.drop_index('ix_board_settings_key', table_name='board_settings')
+        if 'ix_board_settings_board_id' in index_names:
+            op.drop_index('ix_board_settings_board_id', table_name='board_settings')
+        op.drop_table('board_settings')

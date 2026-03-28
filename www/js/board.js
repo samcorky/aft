@@ -215,9 +215,8 @@ class ChecklistManager {
           e.preventDefault();
           
           if (isEditing) {
-            // For edited items, save and remove the flag
-            e.target.removeAttribute('data-editing');
-            e.target.blur(); // Trigger blur which will handle saving
+            // For edited items, keep edit mode so blur uses update path.
+            e.target.blur();
           } else {
             // For new items, use existing logic
             const inputValue = e.target.value.trim();
@@ -265,6 +264,12 @@ class ChecklistManager {
   addEditButtonToItem(itemElement, tempId) {
     const actionsContainer = itemElement.querySelector('.checklist-item-actions');
     if (actionsContainer) {
+      // Prevent duplicate edit buttons when an item is edited repeatedly.
+      const existingEditBtn = actionsContainer.querySelector(`.checklist-edit-btn[data-temp-id="${tempId}"]`);
+      if (existingEditBtn) {
+        return;
+      }
+
       const editBtn = document.createElement('button');
       editBtn.type = 'button';
       editBtn.className = 'checklist-edit-btn';

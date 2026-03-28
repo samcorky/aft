@@ -158,6 +158,145 @@ class TestBoardsAPI:
         response = authenticated_session.get(f'{api_client}/api/boards/9999/cards/scheduled')
         assert response.status_code == 403
 
+    def test_get_board_scheduled_cards_includes_assignee_filter_users(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+        sample_column,
+    ):
+        """Scheduled board payload should include assignee filter users for filter UI population."""
+        # Create one scheduled template card so endpoint has normal content.
+        card_response = authenticated_session.post(
+            f'{api_client}/api/columns/{sample_column["id"]}/cards',
+            json={'title': 'Scheduled Filter Users Card', 'description': 'Template source'}
+        )
+        assert card_response.status_code == 201
+
+        from datetime import datetime, timedelta
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        schedule_response = authenticated_session.post(
+            f'{api_client}/api/schedules',
+            json={
+                'card_id': card_response.json()['card']['id'],
+                'run_every': 1,
+                'unit': 'day',
+                'start_datetime': tomorrow,
+                'end_datetime': None,
+                'schedule_enabled': True,
+                'allow_duplicates': False,
+                'keep_source_card': True,
+            }
+        )
+        assert schedule_response.status_code == 201
+
+        response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+
+        filter_users = data['board'].get('assignee_filter_users', [])
+        assert isinstance(filter_users, list)
+
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        my_id = me_response.json()['user']['id']
+        assert my_id in {u['id'] for u in filter_users}
+        assert all('email' not in u for u in filter_users)
+
+    def test_get_board_scheduled_cards_filter_includes_secondary_assignees_when_enabled(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_board,
+        sample_column,
+    ):
+        """Scheduled board filtering should include secondary matches only when explicitly enabled."""
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        my_id = me_response.json()['user']['id']
+
+        second_user_me_response = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me_response.status_code == 200
+        second_user_id = second_user_me_response.json()['user']['id']
+
+        role_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user_id}/roles',
+            json={'role_name': 'board_editor', 'board_id': sample_board['id']}
+        )
+        assert role_response.status_code == 200, role_response.text
+
+        # Create template source card and schedule it.
+        source_card_response = authenticated_session.post(
+            f'{api_client}/api/columns/{sample_column["id"]}/cards',
+            json={'title': 'Scheduled Secondary Filter Card', 'description': 'Template source'}
+        )
+        assert source_card_response.status_code == 201
+
+        from datetime import datetime, timedelta
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        schedule_response = authenticated_session.post(
+            f'{api_client}/api/schedules',
+            json={
+                'card_id': source_card_response.json()['card']['id'],
+                'run_every': 1,
+                'unit': 'day',
+                'start_datetime': tomorrow,
+                'end_datetime': None,
+                'schedule_enabled': True,
+                'allow_duplicates': False,
+                'keep_source_card': True,
+            }
+        )
+        assert schedule_response.status_code == 201
+
+        scheduled_response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled')
+        assert scheduled_response.status_code == 200
+        scheduled_data = scheduled_response.json()
+
+        template_card_id = None
+        for column in scheduled_data['board']['columns']:
+            for card in column['cards']:
+                if card['title'] == 'Scheduled Secondary Filter Card' and card['scheduled'] is True:
+                    template_card_id = card['id']
+                    break
+            if template_card_id:
+                break
+
+        assert template_card_id is not None
+
+        # Set primary assignee to current user and secondary to second user.
+        assignee_update_response = authenticated_session.put(
+            f'{api_client}/api/cards/{template_card_id}/assignees',
+            json={'assigned_to_id': my_id, 'secondary_assignee_ids': [second_user_id]}
+        )
+        assert assignee_update_response.status_code == 200
+
+        without_secondary_response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled?assignee_ids={second_user_id}'
+        )
+        assert without_secondary_response.status_code == 200
+        without_secondary_data = without_secondary_response.json()
+        without_secondary_ids = {
+            card['id']
+            for column in without_secondary_data['board']['columns']
+            for card in column['cards']
+        }
+        assert template_card_id not in without_secondary_ids
+
+        with_secondary_response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/cards/scheduled?assignee_ids={second_user_id}&include_secondary_assignees=true'
+        )
+        assert with_secondary_response.status_code == 200
+        with_secondary_data = with_secondary_response.json()
+        with_secondary_ids = {
+            card['id']
+            for column in with_secondary_data['board']['columns']
+            for card in column['cards']
+        }
+        assert template_card_id in with_secondary_ids
+
 
 @pytest.mark.api
 class TestBoardColumnsAPI:

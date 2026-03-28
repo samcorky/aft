@@ -789,10 +789,159 @@ class BoardManager {
     this.autoScrollPointerY = 0;
     this.autoScrollPendingContainer = null;
     this.autoScrollPendingDirection = 0;
+    this.assigneeFilterUsers = [];
+    this.assigneeFilterVisible = false;
+    this.assigneeFilterSelectedUserIds = new Set();
+    this.assigneeFilterIncludeUnassigned = false;
+    this.assigneeFilterIncludeSecondaryAssignees = false;
+    this.boardFiltersToggleRequestHandler = this.handleBoardFiltersToggleRequest.bind(this);
+    this.boardFiltersStateRequestHandler = this.handleBoardFiltersStateRequest.bind(this);
+    this.assigneeFilterVisibilityLoadedForUserId = null;
+    this.assigneeFilterVisibilityWatcherId = null;
   }
 
   getColumnScrollStorageKey() {
     return this.boardId ? `aft:board:${this.boardId}:column-scroll` : null;
+  }
+
+  getAssigneeFilterVisibilityStorageKey() {
+    if (!this.boardId) {
+      return null;
+    }
+
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return null;
+    }
+
+    return `aft:board:${this.boardId}:assignee-filter-visible:user:${userId}`;
+  }
+
+  getCurrentUserIdForFilterStorage() {
+    if (window.currentUser && window.currentUser.id) {
+      return String(window.currentUser.id);
+    }
+
+    try {
+      const cached = sessionStorage.getItem('currentUser');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.id) {
+          return String(parsed.id);
+        }
+      }
+    } catch (error) {
+      return null;
+    }
+
+    return null;
+  }
+
+  loadPersistedAssigneeFilterVisibility() {
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return false;
+    }
+
+    if (this.assigneeFilterVisibilityLoadedForUserId === userId) {
+      return true;
+    }
+
+    const storageKey = this.getAssigneeFilterVisibilityStorageKey();
+    if (!storageKey) {
+      return false;
+    }
+
+    try {
+      this.assigneeFilterVisible = sessionStorage.getItem(storageKey) === 'true';
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
+      return true;
+    } catch (error) {
+      this.assigneeFilterVisible = false;
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
+      return false;
+    }
+  }
+
+  persistAssigneeFilterVisibility() {
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return;
+    }
+
+    const storageKey = this.getAssigneeFilterVisibilityStorageKey();
+    if (!storageKey) {
+      return;
+    }
+
+    try {
+      sessionStorage.setItem(storageKey, this.assigneeFilterVisible ? 'true' : 'false');
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
+    } catch (error) {
+      // Ignore storage errors (private mode/quota exceeded).
+    }
+  }
+
+  watchForAssigneeFilterVisibilityUser() {
+    if (this.assigneeFilterVisibilityWatcherId) {
+      clearInterval(this.assigneeFilterVisibilityWatcherId);
+      this.assigneeFilterVisibilityWatcherId = null;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 50;
+    this.assigneeFilterVisibilityWatcherId = setInterval(() => {
+      attempts += 1;
+      const loaded = this.loadPersistedAssigneeFilterVisibility();
+      if (loaded) {
+        this.notifyBoardFilterVisibilityChanged();
+        this.renderBoard();
+        clearInterval(this.assigneeFilterVisibilityWatcherId);
+        this.assigneeFilterVisibilityWatcherId = null;
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(this.assigneeFilterVisibilityWatcherId);
+        this.assigneeFilterVisibilityWatcherId = null;
+      }
+    }, 100);
+  }
+
+  notifyBoardFilterVisibilityChanged() {
+    window.dispatchEvent(new CustomEvent('boardFiltersVisibilityChanged', {
+      detail: { visible: this.assigneeFilterVisible }
+    }));
+  }
+
+  buildAssigneeFilterQueryParams() {
+    const params = new URLSearchParams();
+
+    if (this.assigneeFilterSelectedUserIds.size > 0) {
+      params.set('assignee_ids', Array.from(this.assigneeFilterSelectedUserIds).join(','));
+    }
+
+    if (this.assigneeFilterIncludeUnassigned) {
+      params.set('include_unassigned', 'true');
+    }
+
+    if (this.assigneeFilterIncludeSecondaryAssignees) {
+      params.set('include_secondary_assignees', 'true');
+    }
+
+    return params;
+  }
+
+  handleBoardFiltersToggleRequest() {
+    this.assigneeFilterVisible = !this.assigneeFilterVisible;
+    this.persistAssigneeFilterVisibility();
+    this.notifyBoardFilterVisibilityChanged();
+    this.renderBoard();
+    this.queueMobileViewportMetricsUpdate();
+  }
+
+  handleBoardFiltersStateRequest() {
+    this.notifyBoardFilterVisibilityChanged();
   }
 
   sanitizeColumnScrollPositions(value) {
@@ -1086,7 +1235,12 @@ class BoardManager {
 
     this.render();
     this.loadPersistedColumnScrollPositions();
+    this.loadPersistedAssigneeFilterVisibility();
+    this.watchForAssigneeFilterVisibilityUser();
+    this.notifyBoardFilterVisibilityChanged();
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
+    window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+    window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
     
     // Initialize WebSocket for real-time updates
     this.wsManager = new WebSocketManager(this.boardId, this);
@@ -1186,14 +1340,21 @@ class BoardManager {
       
       if (this.currentView === 'scheduled') {
         // Load board with all scheduled cards in a single request
-        response = await fetch(`/api/boards/${this.boardId}/cards/scheduled`, {
+        const scheduledParams = this.buildAssigneeFilterQueryParams();
+        const scheduledQuery = scheduledParams.toString();
+        const scheduledUrl = scheduledQuery
+          ? `/api/boards/${this.boardId}/cards/scheduled?${scheduledQuery}`
+          : `/api/boards/${this.boardId}/cards/scheduled`;
+
+        response = await fetch(scheduledUrl, {
           signal: controller.signal
         });
       } else {
         // Load board with nested structure (board -> columns -> cards)
         // Add archived parameter to filter cards based on showArchived state
-        const archivedParam = this.showArchived ? 'true' : 'false';
-        response = await fetch(`/api/boards/${this.boardId}/cards?archived=${archivedParam}`, {
+        const queryParams = this.buildAssigneeFilterQueryParams();
+        queryParams.set('archived', this.showArchived ? 'true' : 'false');
+        response = await fetch(`/api/boards/${this.boardId}/cards?${queryParams.toString()}`, {
           signal: controller.signal
         });
       }
@@ -1256,6 +1417,13 @@ class BoardManager {
   processBoard(board) {
     try {
       this.boardName = board.name;
+      this.assigneeFilterUsers = Array.isArray(board.assignee_filter_users) ? board.assignee_filter_users : [];
+
+      const eligibleUserIds = new Set(this.assigneeFilterUsers.map((u) => u.id));
+      this.assigneeFilterSelectedUserIds = new Set(
+        Array.from(this.assigneeFilterSelectedUserIds).filter((userId) => eligibleUserIds.has(userId))
+      );
+
       // Store the original unfiltered columns for counting purposes
       this.originalColumns = JSON.parse(JSON.stringify(board.columns));
       this.columns = board.columns;
@@ -1349,8 +1517,15 @@ class BoardManager {
     document.removeEventListener('keydown', this.keyboardHandler);
     document.removeEventListener('click', this.closeDropdownHandler);
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+    window.removeEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+    window.removeEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
     window.removeEventListener('resize', this.viewportMetricsHandler);
     window.removeEventListener('orientationchange', this.viewportMetricsHandler);
+
+    if (this.assigneeFilterVisibilityWatcherId) {
+      clearInterval(this.assigneeFilterVisibilityWatcherId);
+      this.assigneeFilterVisibilityWatcherId = null;
+    }
 
     if (window.visualViewport) {
       window.visualViewport.removeEventListener('resize', this.viewportMetricsHandler);
@@ -1425,6 +1600,96 @@ class BoardManager {
     return column.cards.length.toString();
   }
 
+  renderAssigneeFilterBar() {
+    if (!this.assigneeFilterVisible) {
+      return '';
+    }
+
+    const userButtons = (this.assigneeFilterUsers || []).map((user) => {
+      const displayName = user.display_name || user.username || 'Unknown';
+      const selected = this.assigneeFilterSelectedUserIds.has(user.id);
+      return `
+        <button
+          type="button"
+          class="assignee-filter-avatar-btn ${selected ? 'selected' : ''}"
+          data-assignee-id="${user.id}"
+          title="${this.escapeHtml(displayName)}"
+          aria-label="Filter ${this.escapeHtml(displayName)}"
+          aria-pressed="${selected ? 'true' : 'false'}"
+        >
+          <span class="assignee-filter-avatar" style="background-color:${this.escapeHtml(user.profile_colour || '#90A4AE')}">
+            ${this.escapeHtml(this.getInitials(displayName))}
+          </span>
+        </button>
+      `;
+    }).join('');
+
+    const unassignedSelected = this.assigneeFilterIncludeUnassigned;
+    return `
+      <div class="board-assignee-filter-row">
+        <div class="board-assignee-filter-bar" role="region" aria-label="Board assignee filters">
+          <div class="board-assignee-filter-users" role="group" aria-label="Filter by assignee">
+            ${userButtons}
+            <button
+              type="button"
+              class="assignee-filter-avatar-btn assignee-filter-unassigned-btn ${unassignedSelected ? 'selected' : ''}"
+              data-assignee-unassigned="true"
+              title="Unassigned"
+              aria-label="Filter unassigned cards"
+              aria-pressed="${unassignedSelected ? 'true' : 'false'}"
+            >
+              <span class="assignee-filter-avatar assignee-filter-avatar-unassigned">U</span>
+            </button>
+            <label class="assignee-filter-secondary-toggle">
+              <input
+                type="checkbox"
+                id="include-secondary-assignees-toggle"
+                ${this.assigneeFilterIncludeSecondaryAssignees ? 'checked' : ''}
+              >
+              <span>Include secondary assignees</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  setupAssigneeFilterBarListeners() {
+    if (!this.assigneeFilterVisible) {
+      return;
+    }
+
+    const assigneeButtons = this.container.querySelectorAll('.assignee-filter-avatar-btn');
+    assigneeButtons.forEach((button) => {
+      button.addEventListener('click', async () => {
+        const isUnassigned = button.getAttribute('data-assignee-unassigned') === 'true';
+        if (isUnassigned) {
+          this.assigneeFilterIncludeUnassigned = !this.assigneeFilterIncludeUnassigned;
+        } else {
+          const rawUserId = button.getAttribute('data-assignee-id');
+          const parsedUserId = parseInt(rawUserId, 10);
+          if (!Number.isNaN(parsedUserId)) {
+            if (this.assigneeFilterSelectedUserIds.has(parsedUserId)) {
+              this.assigneeFilterSelectedUserIds.delete(parsedUserId);
+            } else {
+              this.assigneeFilterSelectedUserIds.add(parsedUserId);
+            }
+          }
+        }
+
+        await this.loadBoard();
+      });
+    });
+
+    const includeSecondaryToggle = this.container.querySelector('#include-secondary-assignees-toggle');
+    if (includeSecondaryToggle) {
+      includeSecondaryToggle.addEventListener('change', async (event) => {
+        this.assigneeFilterIncludeSecondaryAssignees = !!event.target.checked;
+        await this.loadBoard();
+      });
+    }
+  }
+
   renderBoard() {
     this.stopColumnAutoScroll();
 
@@ -1443,6 +1708,7 @@ class BoardManager {
     if (this.columns.length === 0) {
       
       this.container.innerHTML = `
+        ${this.renderAssigneeFilterBar()}
         <div class="empty-board-panel">
           <div class="empty-board">
             <div class="empty-board-icon">📋</div>
@@ -1460,6 +1726,8 @@ class BoardManager {
           addColumnEmptyBtn.addEventListener('click', () => this.openAddColumnModal());
         }
       }
+
+      this.setupAssigneeFilterBarListeners();
     } else {
       const canCreateCardsInTaskView = this.canEdit || this.canCallPermissionEndpoint('POST', '/api/columns/:id/cards');
       const canCreateSchedules = this.canCallPermissionEndpoint('POST', '/api/schedules');
@@ -1478,6 +1746,7 @@ class BoardManager {
 
       this.container.innerHTML = `
         ${!this.canEdit ? '<div class="board-readonly-indicator">Read Only</div>' : ''}
+        ${this.renderAssigneeFilterBar()}
         <div class="columns-container">
           ${this.columns.map((column, index) => `
             <div class="column" data-column-id="${column.id}" data-board-id="${this.escapeHtml(String(this.boardId))}" data-order="${column.order}">
@@ -1677,6 +1946,8 @@ class BoardManager {
           this.openEditColumnModal(columnId, columnName);
         });
       });
+
+      this.setupAssigneeFilterBarListeners();
       
       // Add event listeners for add card buttons (header and empty state)
       document.querySelectorAll('.column-add-card-btn').forEach(btn => {

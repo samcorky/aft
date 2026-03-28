@@ -14,7 +14,7 @@ from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
 from models import Board, BoardColumn, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
-from sqlalchemy import text, func
+from sqlalchemy import text, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
@@ -4174,8 +4174,15 @@ def get_board_scheduled_cards(board_id):
             .all()
         )
         
+        selected_assignee_ids = _parse_assignee_ids_query_param(request.args.get('assignee_ids'))
+        include_unassigned = request.args.get('include_unassigned', 'false').lower() == 'true'
+        include_secondary_assignees = request.args.get('include_secondary_assignees', 'false').lower() == 'true'
+
         # Build nested structure with scheduled cards
         result = {"id": board.id, "name": board.name, "columns": []}
+
+        eligible_users = _get_board_assignee_users(db, board_id)
+        result["assignee_filter_users"] = [_user_summary(u) for u in eligible_users]
 
         for column in columns:
             # Get only scheduled template cards for this column
@@ -4184,9 +4191,14 @@ def get_board_scheduled_cards(board_id):
                 .options(selectinload(Card.assigned_to))
                 .filter(Card.column_id == column.id)
                 .filter(Card.scheduled.is_(True))
-                .order_by(Card.order)
-                .all()
             )
+
+            cards = _apply_assignee_card_filters(
+              cards,
+              selected_assignee_ids,
+              include_unassigned,
+              include_secondary_assignees,
+            ).order_by(Card.order).all()
 
             # Serialize cards with checklist items and comments
             cards_data = [
@@ -5267,6 +5279,10 @@ def get_board_cards(board_id):
         # Get archived filter from query parameter (default to false - unarchived only)
         archived_param = request.args.get('archived', 'false').lower()
 
+        selected_assignee_ids = _parse_assignee_ids_query_param(request.args.get('assignee_ids'))
+        include_unassigned = request.args.get('include_unassigned', 'false').lower() == 'true'
+        include_secondary_assignees = request.args.get('include_secondary_assignees', 'false').lower() == 'true'
+
         # Get board
         board = db.query(Board).filter(Board.id == board_id).first()
         if not board:
@@ -5283,12 +5299,21 @@ def get_board_cards(board_id):
 
         # Build nested structure
         result = {"id": board.id, "name": board.name, "columns": []}
+        eligible_users = _get_board_assignee_users(db, board_id)
+        result["assignee_filter_users"] = [_user_summary(u) for u in eligible_users]
 
         for column in columns:
             # Get cards for this column with archived filter
             # Always filter out scheduled template cards (scheduled=True) from task views
             cards_query = db.query(Card).filter(Card.column_id == column.id).filter(Card.scheduled.is_(False))
             cards_query = cards_query.options(selectinload(Card.assigned_to))
+
+            cards_query = _apply_assignee_card_filters(
+              cards_query,
+              selected_assignee_ids,
+              include_unassigned,
+              include_secondary_assignees,
+            )
             
             # Apply archived filter
             if archived_param == 'true':
@@ -5364,6 +5389,108 @@ def get_board_cards(board_id):
         return jsonify({"success": True, "board": result})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)}), 500
+
+
+def _user_summary(user):
+    return {
+        "id": user.id,
+        "display_name": user.display_name,
+        "username": user.username,
+        "profile_colour": user.profile_colour,
+    }
+
+
+def _parse_assignee_ids_query_param(raw_value):
+    if not raw_value:
+        return []
+
+    selected_ids = []
+    for part in str(raw_value).split(','):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        if not candidate.isdigit():
+            continue
+        parsed = int(candidate)
+        if parsed > 0:
+            selected_ids.append(parsed)
+
+    # Preserve order while deduplicating
+    return list(dict.fromkeys(selected_ids))
+
+
+def _get_board_eligible_assignee_ids(db, board_id, board=None):
+    if not board_id:
+        return set()
+
+    eligible_ids = set()
+    if board is None:
+        board = db.query(Board).filter(Board.id == board_id).first()
+    if board and board.owner and getattr(board.owner, "is_active", True):
+        eligible_ids.add(board.owner.id)
+
+    view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
+
+    board_roles = (
+        db.query(UserRole, Role)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.board_id == board_id)
+        .all()
+    )
+    for ur, role in board_roles:
+        role_perms = set(json.loads(role.permissions))
+        if role_perms & view_perms:
+            eligible_ids.add(ur.user_id)
+
+    global_roles = (
+        db.query(UserRole, Role)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.board_id.is_(None))
+        .all()
+    )
+    for ur, role in global_roles:
+        role_perms = set(json.loads(role.permissions))
+        if 'system.admin' in role_perms:
+            eligible_ids.add(ur.user_id)
+
+    return eligible_ids
+
+
+def _get_board_assignee_users(db, board_id, board=None):
+    eligible_ids = _get_board_eligible_assignee_ids(db, board_id, board=board)
+    if not eligible_ids:
+        return []
+
+    return (
+        db.query(User)
+        .filter(User.id.in_(eligible_ids), User.is_active.is_(True))
+        .order_by(User.username)
+        .all()
+    )
+
+
+def _apply_assignee_card_filters(cards_query, selected_assignee_ids, include_unassigned, include_secondary_assignees):
+    selected_ids = [int(uid) for uid in selected_assignee_ids if isinstance(uid, int) and uid > 0]
+    has_selected_users = len(selected_ids) > 0
+
+    if not has_selected_users and not include_unassigned:
+        return cards_query
+
+    filters = []
+
+    if has_selected_users:
+        filters.append(Card.assigned_to_id.in_(selected_ids))
+        if include_secondary_assignees:
+            secondary_card_ids = (
+                cards_query.session.query(CardSecondaryAssignee.card_id)
+                .filter(CardSecondaryAssignee.user_id.in_(selected_ids))
+            )
+            filters.append(Card.id.in_(secondary_card_ids))
+
+    if include_unassigned:
+        filters.append(Card.assigned_to_id.is_(None))
+
+    return cards_query.filter(or_(*filters))
 
 
 @app.route("/api/columns/<int:column_id>/cards", methods=["POST"])
@@ -6353,8 +6480,7 @@ def get_card_assignees(card_id):
     """
     db = SessionLocal()
     try:
-        from models import Card, CardSecondaryAssignee, Board, BoardColumn, User, UserRole, Role
-        import json as _json
+        from models import Card, BoardColumn
 
         user_id = g.user.id
         card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
@@ -6365,63 +6491,14 @@ def get_card_assignees(card_id):
         column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
         board_id = column.board_id if column else None
 
-        def _user_dict(u):
-            return {
-                "id": u.id,
-                "display_name": u.display_name,
-                "username": u.username,
-                "profile_colour": u.profile_colour,
-            }
-
         # Primary assignee
-        primary_assignee = _user_dict(card.assigned_to) if card.assigned_to else None
+        primary_assignee = _user_summary(card.assigned_to) if card.assigned_to else None
 
         # Secondary assignees
-        secondary_assignees = [_user_dict(sa.user) for sa in card.secondary_assignees]
+        secondary_assignees = [_user_summary(sa.user) for sa in card.secondary_assignees]
 
         # Build list of users with access to the card's board (for selection)
-        available_users = []
-        if board_id:
-            board = db.query(Board).filter(Board.id == board_id).first()
-            eligible_user_ids = set()
-
-            # Include active board owner.
-            if board and board.owner and getattr(board.owner, "is_active", True):
-                eligible_user_ids.add(board.owner.id)
-
-            # Include users with a board role that grants card access.
-            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
-            board_roles = (
-                db.query(UserRole, Role)
-                .join(Role, UserRole.role_id == Role.id)
-                .filter(UserRole.board_id == board_id)
-                .all()
-            )
-            for ur, role in board_roles:
-                role_perms = set(_json.loads(role.permissions))
-                if role_perms & view_perms:
-                    eligible_user_ids.add(ur.user_id)
-
-            # Include global admins (system.admin permission).
-            global_roles = (
-                db.query(UserRole, Role)
-                .join(Role, UserRole.role_id == Role.id)
-                .filter(UserRole.board_id.is_(None))
-                .all()
-            )
-            for ur, role in global_roles:
-                role_perms = set(_json.loads(role.permissions))
-                if 'system.admin' in role_perms:
-                    eligible_user_ids.add(ur.user_id)
-
-            if eligible_user_ids:
-                users = (
-                    db.query(User)
-                    .filter(User.id.in_(eligible_user_ids), User.is_active.is_(True))
-                    .order_by(User.username)
-                    .all()
-                )
-                available_users = [_user_dict(u) for u in users]
+        available_users = [_user_summary(u) for u in _get_board_assignee_users(db, board_id)]
 
         return create_success_response({
             "primary_assignee": primary_assignee,
@@ -6482,8 +6559,7 @@ def update_card_assignees(card_id):
         if data is None:
             return create_error_response("No data provided", 400)
 
-        from models import Card, CardSecondaryAssignee, User, BoardColumn, Board, UserRole, Role
-        import json as _json
+        from models import Card, CardSecondaryAssignee, User, BoardColumn
 
         user_id = g.user.id
         card = get_user_scoped_query(db, Card, user_id).filter(Card.id == card_id).first()
@@ -6493,41 +6569,7 @@ def update_card_assignees(card_id):
         column = db.query(BoardColumn).filter(BoardColumn.id == card.column_id).first()
         board_id = column.board_id if column else None
 
-        def _get_eligible_assignee_ids(current_board_id):
-            if not current_board_id:
-                return set()
-
-            eligible_ids = set()
-            board = db.query(Board).filter(Board.id == current_board_id).first()
-            if board and board.owner and getattr(board.owner, "is_active", True):
-                eligible_ids.add(board.owner.id)
-
-            view_perms = {'card.view', 'card.update', 'card.edit', 'card.create'}
-            board_roles = (
-                db.query(UserRole, Role)
-                .join(Role, UserRole.role_id == Role.id)
-                .filter(UserRole.board_id == current_board_id)
-                .all()
-            )
-            for ur, role in board_roles:
-                role_perms = set(_json.loads(role.permissions))
-                if role_perms & view_perms:
-                    eligible_ids.add(ur.user_id)
-
-            global_roles = (
-                db.query(UserRole, Role)
-                .join(Role, UserRole.role_id == Role.id)
-                .filter(UserRole.board_id.is_(None))
-                .all()
-            )
-            for ur, role in global_roles:
-                role_perms = set(_json.loads(role.permissions))
-                if 'system.admin' in role_perms:
-                    eligible_ids.add(ur.user_id)
-
-            return eligible_ids
-
-        eligible_assignee_ids = _get_eligible_assignee_ids(board_id)
+        eligible_assignee_ids = _get_board_eligible_assignee_ids(db, board_id)
 
         # Validate and set primary assignee
         if "assigned_to_id" in data:

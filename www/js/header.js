@@ -65,6 +65,8 @@ class Header {
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
     this.wsCheckInterval = null; // WebSocket check interval
     this.mobileBreakpoint = 900;
+    this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
+    this.boardFilterStateWatchInterval = null;
   }
 
   // Load the header HTML component
@@ -106,6 +108,9 @@ class Header {
 
     // Initialize mobile notifications panel
     this.initializeMobileNotifications();
+
+    // Initialize board-only filter toggle in settings menu
+    this.initializeBoardFilterToggleMenu();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -810,6 +815,83 @@ class Header {
     }
   }
 
+  initializeBoardFilterToggleMenu() {
+    const menuItem = document.getElementById('toggle-board-filters-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    const isBoardPage = document.body.classList.contains('board-page');
+    menuItem.style.display = isBoardPage ? '' : 'none';
+    if (!isBoardPage) {
+      return;
+    }
+
+    if (!menuItem.dataset.boundToggleHandler) {
+      menuItem.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        window.dispatchEvent(new CustomEvent('boardFiltersToggleRequested'));
+
+        closeAllMenusExcept(null);
+        updateMenuHoverState();
+      });
+      menuItem.dataset.boundToggleHandler = 'true';
+    }
+
+    // Initialize label from current board manager state when possible.
+    let initialVisible = false;
+    if (window.boardManager && typeof window.boardManager.assigneeFilterVisible === 'boolean') {
+      initialVisible = window.boardManager.assigneeFilterVisible;
+    }
+    this.updateBoardFilterMenuLabel(initialVisible);
+    window.addEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
+
+    // Request current state in case the initial board event happened before this listener was attached.
+    window.dispatchEvent(new CustomEvent('boardFiltersStateRequest'));
+    this.watchForBoardFilterState();
+  }
+
+  watchForBoardFilterState() {
+    if (this.boardFilterStateWatchInterval) {
+      clearInterval(this.boardFilterStateWatchInterval);
+      this.boardFilterStateWatchInterval = null;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 50;
+    this.boardFilterStateWatchInterval = setInterval(() => {
+      attempts += 1;
+
+      if (window.boardManager && typeof window.boardManager.assigneeFilterVisible === 'boolean') {
+        this.updateBoardFilterMenuLabel(window.boardManager.assigneeFilterVisible);
+        window.dispatchEvent(new CustomEvent('boardFiltersStateRequest'));
+        clearInterval(this.boardFilterStateWatchInterval);
+        this.boardFilterStateWatchInterval = null;
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(this.boardFilterStateWatchInterval);
+        this.boardFilterStateWatchInterval = null;
+      }
+    }, 100);
+  }
+
+  handleBoardFiltersVisibilityChanged(event) {
+    const visible = !!event?.detail?.visible;
+    this.updateBoardFilterMenuLabel(visible);
+  }
+
+  updateBoardFilterMenuLabel(visible) {
+    const menuItem = document.getElementById('toggle-board-filters-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    menuItem.textContent = visible ? 'Hide filters' : 'Show filters';
+  }
+
   // Update views dropdown to show/hide done view based on working style
   updateViewsDropdown() {
     const dropdownMenu = document.getElementById('views-dropdown-menu');
@@ -1321,6 +1403,12 @@ class Header {
     if (this.wsCheckInterval) {
       clearInterval(this.wsCheckInterval);
       this.wsCheckInterval = null;
+    }
+
+    window.removeEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
+    if (this.boardFilterStateWatchInterval) {
+      clearInterval(this.boardFilterStateWatchInterval);
+      this.boardFilterStateWatchInterval = null;
     }
   }
 }

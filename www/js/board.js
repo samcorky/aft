@@ -795,6 +795,9 @@ class BoardManager {
     this.assigneeFilterIncludeUnassigned = false;
     this.assigneeFilterIncludeSecondaryAssignees = false;
     this.boardFiltersToggleRequestHandler = this.handleBoardFiltersToggleRequest.bind(this);
+    this.boardFiltersStateRequestHandler = this.handleBoardFiltersStateRequest.bind(this);
+    this.assigneeFilterVisibilityLoadedForUserId = null;
+    this.assigneeFilterVisibilityWatcherId = null;
   }
 
   getColumnScrollStorageKey() {
@@ -806,40 +809,66 @@ class BoardManager {
       return null;
     }
 
-    let userId = 'unknown';
-    if (window.currentUser && window.currentUser.id) {
-      userId = String(window.currentUser.id);
-    } else {
-      try {
-        const cached = sessionStorage.getItem('currentUser');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.id) {
-            userId = String(parsed.id);
-          }
-        }
-      } catch (error) {
-        // Fall through to unknown user bucket.
-      }
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return null;
     }
 
     return `aft:board:${this.boardId}:assignee-filter-visible:user:${userId}`;
   }
 
+  getCurrentUserIdForFilterStorage() {
+    if (window.currentUser && window.currentUser.id) {
+      return String(window.currentUser.id);
+    }
+
+    try {
+      const cached = sessionStorage.getItem('currentUser');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.id) {
+          return String(parsed.id);
+        }
+      }
+    } catch (error) {
+      return null;
+    }
+
+    return null;
+  }
+
   loadPersistedAssigneeFilterVisibility() {
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return false;
+    }
+
+    if (this.assigneeFilterVisibilityLoadedForUserId === userId) {
+      return true;
+    }
+
     const storageKey = this.getAssigneeFilterVisibilityStorageKey();
     if (!storageKey) {
-      return;
+      return false;
     }
 
     try {
       this.assigneeFilterVisible = sessionStorage.getItem(storageKey) === 'true';
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
+      return true;
     } catch (error) {
       this.assigneeFilterVisible = false;
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
+      return false;
     }
   }
 
   persistAssigneeFilterVisibility() {
+    const userId = this.getCurrentUserIdForFilterStorage();
+    if (!userId) {
+      return;
+    }
+
     const storageKey = this.getAssigneeFilterVisibilityStorageKey();
     if (!storageKey) {
       return;
@@ -847,9 +876,36 @@ class BoardManager {
 
     try {
       sessionStorage.setItem(storageKey, this.assigneeFilterVisible ? 'true' : 'false');
+      this.assigneeFilterVisibilityLoadedForUserId = userId;
     } catch (error) {
       // Ignore storage errors (private mode/quota exceeded).
     }
+  }
+
+  watchForAssigneeFilterVisibilityUser() {
+    if (this.assigneeFilterVisibilityWatcherId) {
+      clearInterval(this.assigneeFilterVisibilityWatcherId);
+      this.assigneeFilterVisibilityWatcherId = null;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 50;
+    this.assigneeFilterVisibilityWatcherId = setInterval(() => {
+      attempts += 1;
+      const loaded = this.loadPersistedAssigneeFilterVisibility();
+      if (loaded) {
+        this.notifyBoardFilterVisibilityChanged();
+        this.renderBoard();
+        clearInterval(this.assigneeFilterVisibilityWatcherId);
+        this.assigneeFilterVisibilityWatcherId = null;
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(this.assigneeFilterVisibilityWatcherId);
+        this.assigneeFilterVisibilityWatcherId = null;
+      }
+    }, 100);
   }
 
   notifyBoardFilterVisibilityChanged() {
@@ -882,6 +938,10 @@ class BoardManager {
     this.notifyBoardFilterVisibilityChanged();
     this.renderBoard();
     this.queueMobileViewportMetricsUpdate();
+  }
+
+  handleBoardFiltersStateRequest() {
+    this.notifyBoardFilterVisibilityChanged();
   }
 
   sanitizeColumnScrollPositions(value) {
@@ -1176,9 +1236,11 @@ class BoardManager {
     this.render();
     this.loadPersistedColumnScrollPositions();
     this.loadPersistedAssigneeFilterVisibility();
+    this.watchForAssigneeFilterVisibilityUser();
     this.notifyBoardFilterVisibilityChanged();
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
     window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+    window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
     
     // Initialize WebSocket for real-time updates
     this.wsManager = new WebSocketManager(this.boardId, this);
@@ -1456,8 +1518,14 @@ class BoardManager {
     document.removeEventListener('click', this.closeDropdownHandler);
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
     window.removeEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+    window.removeEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
     window.removeEventListener('resize', this.viewportMetricsHandler);
     window.removeEventListener('orientationchange', this.viewportMetricsHandler);
+
+    if (this.assigneeFilterVisibilityWatcherId) {
+      clearInterval(this.assigneeFilterVisibilityWatcherId);
+      this.assigneeFilterVisibilityWatcherId = null;
+    }
 
     if (window.visualViewport) {
       window.visualViewport.removeEventListener('resize', this.viewportMetricsHandler);

@@ -66,6 +66,7 @@ class Header {
     this.wsCheckInterval = null; // WebSocket check interval
     this.mobileBreakpoint = 900;
     this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
+    this.boardFilterStateWatchInterval = null;
   }
 
   // Load the header HTML component
@@ -838,9 +839,43 @@ class Header {
       menuItem.dataset.boundToggleHandler = 'true';
     }
 
-    // Default label until board manager publishes current state.
-    this.updateBoardFilterMenuLabel(false);
+    // Initialize label from current board manager state when possible.
+    let initialVisible = false;
+    if (window.boardManager && typeof window.boardManager.assigneeFilterVisible === 'boolean') {
+      initialVisible = window.boardManager.assigneeFilterVisible;
+    }
+    this.updateBoardFilterMenuLabel(initialVisible);
     window.addEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
+
+    // Request current state in case the initial board event happened before this listener was attached.
+    window.dispatchEvent(new CustomEvent('boardFiltersStateRequest'));
+    this.watchForBoardFilterState();
+  }
+
+  watchForBoardFilterState() {
+    if (this.boardFilterStateWatchInterval) {
+      clearInterval(this.boardFilterStateWatchInterval);
+      this.boardFilterStateWatchInterval = null;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 50;
+    this.boardFilterStateWatchInterval = setInterval(() => {
+      attempts += 1;
+
+      if (window.boardManager && typeof window.boardManager.assigneeFilterVisible === 'boolean') {
+        this.updateBoardFilterMenuLabel(window.boardManager.assigneeFilterVisible);
+        window.dispatchEvent(new CustomEvent('boardFiltersStateRequest'));
+        clearInterval(this.boardFilterStateWatchInterval);
+        this.boardFilterStateWatchInterval = null;
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(this.boardFilterStateWatchInterval);
+        this.boardFilterStateWatchInterval = null;
+      }
+    }, 100);
   }
 
   handleBoardFiltersVisibilityChanged(event) {
@@ -1371,6 +1406,10 @@ class Header {
     }
 
     window.removeEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
+    if (this.boardFilterStateWatchInterval) {
+      clearInterval(this.boardFilterStateWatchInterval);
+      this.boardFilterStateWatchInterval = null;
+    }
   }
 }
 

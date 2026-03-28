@@ -153,6 +153,7 @@ Both styles support the Done button functionality for marking cards as complete 
 - **Update Cards** - Edit card details, titles, and descriptions
 - **Assign Responsibility** - Set a primary assignee and optional secondary assignees per card from users with board access
 - **Assignee Avatars** - Cards show the primary assignee initials in a bottom-left avatar circle using the assignee's profile colour
+- **Board Assignee Filters** - Toggle a compact assignee filter bar from the header settings menu to show cards for selected assignees, include unassigned cards, and optionally match secondary assignees
 - **Delete Cards** - Remove completed or cancelled tasks
 - **Archive Cards** - Archive completed cards to declutter your board while preserving history
 - **Unarchive Cards** - Restore archived cards back to active view when needed

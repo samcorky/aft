@@ -51,6 +51,7 @@ def upgrade():
 
     # Populate board_settings for all existing boards using their owner's working style.
     # For each board, insert a working_style setting based on the board owner's user setting.
+    # Default to 'kanban' (historical default) if owner has no setting.
     op.execute(
         """
         INSERT INTO board_settings (board_id, `key`, `value`)
@@ -62,7 +63,7 @@ def upgrade():
                  FROM settings s 
                  WHERE s.user_id = b.owner_id AND s.`key` = 'working_style' 
                  LIMIT 1),
-                '"agile"'
+                '"kanban"'
             )
         FROM boards b
         WHERE b.id NOT IN (

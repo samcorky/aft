@@ -822,7 +822,12 @@ class Header {
           }
         }
 
+        // Board endpoint failed; default to kanban for board-scoped UI
+        // (do not fall back to user default as that can misconfigure the board UI)
+        this.workingStyle = 'kanban';
         this.boardStyleEditable = false;
+        this.updateViewsDropdown();
+        return;
       }
 
       const response = await fetch('/api/settings/working-style');

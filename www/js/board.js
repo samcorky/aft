@@ -1287,14 +1287,56 @@ class BoardManager {
 
   // Hide/show archived view option based on working style
   updateArchivedViewVisibility() {
-    const archivedViewItem = document.querySelector('.views-dropdown-item[data-view="archived"]');
-    const mobileArchivedViewItem = document.querySelector('.mobile-view-item[data-view="archived"]');
-    
-    if (archivedViewItem) {
-      archivedViewItem.style.display = this.workingStyle === 'agile' ? 'none' : '';
+    // Try to apply visibility immediately; if elements are not yet in the DOM,
+    // wait for them to be inserted (header HTML is loaded asynchronously).
+    const applyVisibility = () => {
+      const archivedViewItem = document.querySelector('.views-dropdown-item[data-view="archived"]');
+      const mobileArchivedViewItem = document.querySelector('.mobile-view-item[data-view="archived"]');
+
+      // If neither element exists yet, signal that we need to retry later
+      if (!archivedViewItem && !mobileArchivedViewItem) {
+        return false;
+      }
+
+      const displayValue = this.workingStyle === 'agile' ? 'none' : '';
+
+      if (archivedViewItem) {
+        archivedViewItem.style.display = displayValue;
+      }
+      if (mobileArchivedViewItem) {
+        mobileArchivedViewItem.style.display = displayValue;
+      }
+
+      return true;
+    };
+
+    // If we can apply immediately, no need to observe for changes.
+    if (applyVisibility()) {
+      return;
     }
-    if (mobileArchivedViewItem) {
-      mobileArchivedViewItem.style.display = this.workingStyle === 'agile' ? 'none' : '';
+
+    // Fallback: observe DOM mutations until the archived view items appear.
+    if (typeof MutationObserver === 'function' && document.body) {
+      const observer = new MutationObserver(() => {
+        if (applyVisibility()) {
+          observer.disconnect();
+        }
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    } else {
+      // Very old environments: use a short polling loop as a last resort.
+      let attempts = 0;
+      const maxAttempts = 20;
+      const intervalId = window.setInterval(() => {
+        attempts += 1;
+        if (applyVisibility() || attempts >= maxAttempts) {
+          window.clearInterval(intervalId);
+        }
+      }, 250);
     }
   }
 
@@ -1335,7 +1377,16 @@ class BoardManager {
 
     this.workingStyle = nextStyle;
 
-    if (this.workingStyle !== 'agile' && this.showDone) {
+    // When switching to Agile, reset to task view (agile has done view instead of archived)
+    // When switching from Agile to Kanban, also reset (agile features no longer apply)
+    if (this.workingStyle === 'agile' && (this.showArchived || this.showDone)) {
+      this.showArchived = false;
+      this.showDone = false;
+      this.currentView = 'task';
+      if (window.header && typeof window.header.setView === 'function') {
+        window.header.setView('task');
+      }
+    } else if (this.workingStyle !== 'agile' && this.showDone) {
       this.showDone = false;
       this.currentView = 'task';
       this.showArchived = false;

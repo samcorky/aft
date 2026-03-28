@@ -155,7 +155,7 @@ class Settings {
       
       const options = [
         { value: 'kanban', label: 'Kanban' },
-        { value: 'board_task_category', label: 'Board is Task Category' }
+        { value: 'agile', label: 'Agile' }
       ];
       
       options.forEach(opt => {

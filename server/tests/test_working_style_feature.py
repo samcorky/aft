@@ -159,13 +159,13 @@ class TestWorkingStyleSetting:
     
     def test_get_working_style_setting(self, api_client, authenticated_session):
         """Test getting the working_style setting."""
-        response = authenticated_session.get(f'{api_client}/api/settings/working_style')
+        response = authenticated_session.get(f'{api_client}/api/settings/working-style')
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
         assert 'value' in data
         # Default should be 'kanban'
-        assert data['value'] in ['kanban', 'board_task_category']
+        assert data['value'] in ['kanban', 'agile']
     
     def test_working_style_schema_defined(self, api_client, authenticated_session):
         """Test that working_style is defined in settings schema."""
@@ -174,12 +174,12 @@ class TestWorkingStyleSetting:
         schema = response.json()['schema']
         assert 'working_style' in schema
         assert schema['working_style']['type'] == 'string'
-        assert 'kanban' in schema['working_style']['description'] or \
-               'board_task_category' in schema['working_style']['description']
+         assert 'kanban' in schema['working_style']['description'] or \
+             'agile' in schema['working_style']['description']
     
     def test_set_working_style_to_kanban(self, api_client, authenticated_session):
         """Test setting working_style to kanban."""
-        response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={
+        response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
             'value': 'kanban'
         })
         assert response.status_code == 200
@@ -187,31 +187,31 @@ class TestWorkingStyleSetting:
         assert data['success'] is True
         assert data['value'] == 'kanban'
     
-    def test_set_working_style_to_board_task_category(self, api_client, authenticated_session):
-        """Test setting working_style to board_task_category."""
-        response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={
-            'value': 'board_task_category'
+    def test_set_working_style_to_agile(self, api_client, authenticated_session):
+        """Test setting working_style to agile."""
+        response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
+            'value': 'agile'
         })
         assert response.status_code == 200
         data = response.json()
         assert data['success'] is True
-        assert data['value'] == 'board_task_category'
+        assert data['value'] == 'agile'
     
     def test_set_working_style_persist(self, api_client, authenticated_session):
         """Test that working_style setting persists."""
-        # Set to board_task_category
-        authenticated_session.put(f'{api_client}/api/settings/working_style', json={
-            'value': 'board_task_category'
+        # Set to agile
+        authenticated_session.put(f'{api_client}/api/settings/working-style', json={
+            'value': 'agile'
         })
         
         # Verify it persists
-        response = authenticated_session.get(f'{api_client}/api/settings/working_style')
+        response = authenticated_session.get(f'{api_client}/api/settings/working-style')
         assert response.status_code == 200
-        assert response.json()['value'] == 'board_task_category'
+        assert response.json()['value'] == 'agile'
     
     def test_set_working_style_invalid_value(self, api_client, authenticated_session):
         """Test setting working_style with invalid value."""
-        response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={
+        response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
             'value': 'invalid_style'
         })
         assert response.status_code == 400
@@ -221,7 +221,7 @@ class TestWorkingStyleSetting:
     
     def test_set_working_style_null_value(self, api_client, authenticated_session):
         """Test setting working_style to null."""
-        response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={
+        response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
             'value': None
         })
         # May be rejected or allowed depending on schema
@@ -230,18 +230,90 @@ class TestWorkingStyleSetting:
     
     def test_set_working_style_missing_value(self, api_client, authenticated_session):
         """Test setting working_style without value field."""
-        response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={})
+        response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={})
         assert response.status_code == 400
     
     def test_switch_working_style_back_and_forth(self, api_client, authenticated_session):
         """Test switching working style back and forth."""
         for i in range(3):
-            style = 'board_task_category' if (i % 2) == 0 else 'kanban'
-            response = authenticated_session.put(f'{api_client}/api/settings/working_style', json={
+            style = 'agile' if (i % 2) == 0 else 'kanban'
+            response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
                 'value': style
             })
             assert response.status_code == 200
             assert response.json()['value'] == style
+
+
+@pytest.mark.api
+class TestBoardWorkingStyleSetting:
+    """Test board-level working style endpoints and defaults."""
+
+    def test_new_board_inherits_user_working_style_default(self, api_client, authenticated_session):
+        """New boards should inherit the current user's working style default."""
+        set_response = authenticated_session.put(f'{api_client}/api/settings/working-style', json={
+            'value': 'agile'
+        })
+        assert set_response.status_code == 200
+
+        create_response = authenticated_session.post(f'{api_client}/api/boards', json={
+            'name': 'Inherited Style Board',
+            'description': 'Should default to agile'
+        })
+        assert create_response.status_code == 201
+        board_id = create_response.json()['board']['id']
+
+        board_style_response = authenticated_session.get(
+            f'{api_client}/api/boards/{board_id}/settings/working-style'
+        )
+        assert board_style_response.status_code == 200
+        data = board_style_response.json()
+        assert data['success'] is True
+        assert data['value'] == 'agile'
+
+    def test_board_working_style_can_be_updated(self, api_client, authenticated_session, sample_board):
+        """Board editors should be able to change board working style."""
+        update_response = authenticated_session.put(
+            f'{api_client}/api/boards/{sample_board["id"]}/settings/working-style',
+            json={'value': 'agile'}
+        )
+        assert update_response.status_code == 200
+        assert update_response.json()['value'] == 'agile'
+
+        get_response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/settings/working-style'
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()['value'] == 'agile'
+
+    def test_board_viewer_can_get_but_not_set_working_style(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_board,
+    ):
+        """Board viewers should be allowed to read but not update board style."""
+        second_user_me = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me.status_code == 200
+        second_user_id = second_user_me.json()['user']['id']
+
+        role_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user_id}/roles',
+            json={'role_name': 'board_viewer', 'board_id': sample_board['id']}
+        )
+        assert role_response.status_code == 200
+
+        get_response = second_user_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/settings/working-style'
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()['success'] is True
+
+        set_response = second_user_session.put(
+            f'{api_client}/api/boards/{sample_board["id"]}/settings/working-style',
+            json={'value': 'agile'}
+        )
+        assert set_response.status_code == 403
 
 
 @pytest.mark.api

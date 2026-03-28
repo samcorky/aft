@@ -115,7 +115,7 @@ The application supports different working styles to accommodate various team pr
 
 **Available Options:**
 - **Kanban** - Traditional column-based workflow where cards move through stages (To Do, In Progress, Done, etc.)
-- **Board as Task Category** - Boards represent work categories, and columns represent task statuses or subcategories within those boards
+- **Agile** - Boards represent work categories, and columns represent task statuses or subcategories within those boards
 
 Both styles support the Done button functionality for marking cards as complete without moving them, and access to a dedicated Done View for reviewing completed work. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
 
@@ -203,9 +203,9 @@ Both styles support the Done button functionality for marking cards as complete 
 ### ⚙️ Settings & Configuration
 - **Customizable Settings** - Configure application preferences including default board
 - **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
-- **Working Style** - Choose between Kanban and Board as Task Category workflow styles
+- **Working Style** - Choose between Kanban and Agile workflow styles
   - **Kanban**: Traditional column-based workflow where cards move through stages
-  - **Board as Task Category**: Boards represent work categories, columns represent task statuses
+  - **Agile**: Boards represent work categories, columns represent task statuses
   - **Done Button**: Mark cards as complete without moving them between columns
   - **Done View**: Dedicated view to see only completed cards across all columns
   - **Smart Column Counts**: See total and done counts in column headers (e.g., "To Do (2/5)")

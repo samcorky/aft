@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
+from models import Board, BoardColumn, BoardSetting, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
 from sqlalchemy import text, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -53,6 +53,11 @@ TEST_USER_USERNAME = "test-admin"
 TEST_USER_DISPLAY_NAME = "Test Admin"
 
 # Settings schema - defines allowed settings and their validation rules
+WORKING_STYLE_KANBAN = "kanban"
+WORKING_STYLE_AGILE = "agile"
+WORKING_STYLE_LEGACY_BOARD_TASK_CATEGORY = "board_task_category"
+WORKING_STYLE_ALLOWED_VALUES = [WORKING_STYLE_KANBAN, WORKING_STYLE_AGILE]
+
 SETTINGS_SCHEMA = {
     "default_board": {
         "type": "integer",
@@ -118,8 +123,8 @@ SETTINGS_SCHEMA = {
     "working_style": {
         "type": "string",
         "nullable": False,
-        "description": "Working style preference: 'kanban' for traditional kanban board or 'board_task_category' for board as task category with done status",
-        "validate": lambda value: isinstance(value, str) and value in ["kanban", "board_task_category"],
+      "description": "Working style preference: 'kanban' for traditional kanban board or 'agile' for board-level done tracking",
+      "validate": lambda value: isinstance(value, str) and value in WORKING_STYLE_ALLOWED_VALUES,
     },
 }
 
@@ -175,6 +180,62 @@ def validate_setting(key, value):
             )
 
     return True, None
+
+
+def normalize_working_style(value):
+    """Normalize legacy working style value names to current values."""
+    if value == WORKING_STYLE_LEGACY_BOARD_TASK_CATEGORY:
+        return WORKING_STYLE_AGILE
+    return value
+
+
+def parse_json_setting_value(raw_value):
+    """Parse a JSON-encoded setting value with safe fallback."""
+    try:
+        return json.loads(raw_value) if raw_value is not None else None
+    except (TypeError, json.JSONDecodeError):
+        return raw_value
+
+
+def get_user_default_working_style(db, user_id):
+    """Resolve the user's default working style, normalized and validated."""
+    setting = get_user_scoped_query(db, Setting, user_id).filter(Setting.key == 'working_style').first()
+    if not setting:
+        return WORKING_STYLE_KANBAN
+
+    value = normalize_working_style(parse_json_setting_value(setting.value))
+    if value not in WORKING_STYLE_ALLOWED_VALUES:
+        return WORKING_STYLE_KANBAN
+    return value
+
+
+def get_board_working_style(db, board_id, fallback_user_id=None):
+    """Resolve board working style from board-level setting only.
+    
+    Once a board is created with a working style, that setting is stored
+    at the board level and should not change when the owner's user preference
+    changes. This ensures boards maintain their style independently.
+    
+    Args:
+        db: Database session
+        board_id: Board ID to look up
+        fallback_user_id: Unused; kept for API compatibility
+    
+    Returns:
+        Working style string ('agile' or 'kanban')
+    """
+    board_setting = db.query(BoardSetting).filter(
+        BoardSetting.board_id == board_id,
+        BoardSetting.key == 'working_style'
+    ).first()
+    if board_setting:
+        value = normalize_working_style(parse_json_setting_value(board_setting.value))
+        if value in WORKING_STYLE_ALLOWED_VALUES:
+            return value
+
+    # If no board-level setting exists (should not happen for boards created
+    # after migration), default to kanban to avoid unexpected behavior changes.
+    return WORKING_STYLE_KANBAN
 
 
 def validate_safe_url(url):
@@ -1186,6 +1247,8 @@ def get_permissions_mapping():
             'PATCH /api/boards/:id': {'permission': 'board.edit', 'description': 'Edit board'},
             'GET /api/boards/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards'},
             'GET /api/boards/:id/cards': {'permission': 'card.view', 'description': 'View board cards'},
+            'GET /api/boards/:id/settings/working-style': {'permission': 'board.view', 'description': 'View board working style'},
+            'PUT /api/boards/:id/settings/working-style': {'permission': 'board.edit', 'description': 'Update board working style'},
 
             # Column management
             'GET /api/boards/:id/columns': {'permission': 'board.view', 'description': 'View board columns'},
@@ -4111,6 +4174,18 @@ def create_board():
         user_id = get_current_user_id()
         board = Board(name=name, description=description, owner_id=user_id, updated_at=now)
         db.add(board)
+
+        # Create a board-level working style using the user's current default.
+        db.flush()
+        working_style = get_user_default_working_style(db, user_id)
+        db.add(
+          BoardSetting(
+            board_id=board.id,
+            key='working_style',
+            value=json.dumps(working_style),
+          )
+        )
+
         db.commit()
         db.refresh(board)
 
@@ -4127,6 +4202,91 @@ def create_board():
         db.rollback()
         logger.error(f"Error creating board: {str(e)}")
         return create_error_response("Failed to create board", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/boards/<int:board_id>/settings/working-style", methods=["GET"])
+@require_board_access()
+@require_permission('board.view')
+def get_board_working_style_setting(board_id):
+    """Get the working style for a specific board."""
+    db = SessionLocal()
+    try:
+        value = get_board_working_style(db, board_id)
+        board_permissions = get_user_permissions(g.user.id, board_id)
+
+        from permissions import has_permission
+        can_edit = has_permission(board_permissions, 'board.edit')
+
+        return jsonify(
+            {
+                "success": True,
+                "board_id": board_id,
+                "key": "working_style",
+                "value": value,
+                "can_edit": can_edit,
+            }
+        ), 200
+    except Exception as e:
+        logger.error(f"Error getting board working style for board {board_id}: {str(e)}")
+        return create_error_response("Failed to get board working style", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/boards/<int:board_id>/settings/working-style", methods=["PUT"])
+@require_board_access()
+@require_permission('board.edit')
+def set_board_working_style_setting(board_id):
+    """Set the working style for a specific board."""
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "value" not in data:
+            return create_error_response("value is required", 400)
+
+        working_style = normalize_working_style(data.get("value"))
+        if working_style not in WORKING_STYLE_ALLOWED_VALUES:
+            return create_error_response(
+                f"Invalid working_style. Must be one of: {', '.join(WORKING_STYLE_ALLOWED_VALUES)}",
+                400,
+            )
+
+        setting = db.query(BoardSetting).filter(
+            BoardSetting.board_id == board_id,
+            BoardSetting.key == 'working_style'
+        ).first()
+
+        value = json.dumps(working_style)
+        if setting:
+            setting.value = value
+            message = "Board working style updated"
+        else:
+            db.add(
+                BoardSetting(
+                    board_id=board_id,
+                    key='working_style',
+                    value=value,
+                )
+            )
+            message = "Board working style created"
+
+        db.commit()
+
+        return jsonify(
+            {
+                "success": True,
+                "message": message,
+                "board_id": board_id,
+                "key": "working_style",
+                "value": working_style,
+            }
+        ), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error setting board working style for board {board_id}: {str(e)}")
+        return create_error_response("Failed to set board working style", 500)
     finally:
         db.close()
 
@@ -10084,7 +10244,7 @@ def get_working_style():
     """Retrieve the current working style preference for the logged-in user.
     
     Looks up the 'working_style' setting to determine which working style
-    is currently active for this user ('kanban' or 'board_task_category'). 
+    is currently active for this user ('kanban' or 'agile').
     Returns the working style value with validation.
     
     Returns:
@@ -10101,18 +10261,7 @@ def get_working_style():
     try:
         user_id = g.user.id
         
-        # Get user's working_style setting using user-scoped query
-        from utils import get_user_scoped_query
-        setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
-        
-        if not setting:
-            return create_error_response("Working style setting not found", 404)
-        
-        # Parse the JSON-encoded value
-        try:
-            value = json.loads(setting.value)
-        except (json.JSONDecodeError, TypeError):
-            value = setting.value
+        value = get_user_default_working_style(session, user_id)
         
         return jsonify({
             "success": True,
@@ -10131,12 +10280,12 @@ def set_working_style():
     """Set the working style preference for the logged-in user.
     
     Updates the 'working_style' setting to change the working style preference
-    for the current user. Valid values are 'kanban' (traditional kanban board) 
-    or 'board_task_category' (board as task category with done status). 
+    for the current user. Valid values are 'kanban' (traditional kanban board)
+    or 'agile' (board-level done tracking).
     Creates the setting if it doesn't exist.
     
     Request Body:
-        value (str, required): 'kanban' or 'board_task_category'
+        value (str, required): 'kanban' or 'agile'
     
     Returns:
         tuple: (JSON response, HTTP status code)
@@ -10146,7 +10295,7 @@ def set_working_style():
     
     Example:
         PUT /api/settings/working-style
-        Body: {"value": "board_task_category"}
+        Body: {"value": "agile"}
         Response: {"success": true, "message": "Working style updated"}
     """
     session = SessionLocal()
@@ -10157,12 +10306,12 @@ def set_working_style():
         if not data or "value" not in data:
             return create_error_response("value is required", 400)
         
-        working_style = data.get("value")
+        working_style = normalize_working_style(data.get("value"))
         
         # Validate working_style value
-        if working_style not in ["kanban", "board_task_category"]:
+        if working_style not in WORKING_STYLE_ALLOWED_VALUES:
             return create_error_response(
-                "Invalid working_style. Must be 'kanban' or 'board_task_category'",
+            f"Invalid working_style. Must be one of: {', '.join(WORKING_STYLE_ALLOWED_VALUES)}",
                 400
             )
         
@@ -10171,11 +10320,11 @@ def set_working_style():
         setting = get_user_scoped_query(session, Setting, user_id).filter(Setting.key == 'working_style').first()
         
         if setting:
-            setting.value = f'"{working_style}"'  # JSON-encode the value
+            setting.value = json.dumps(working_style)
         else:
             setting = Setting(
                 key='working_style',
-                value=f'"{working_style}"',
+              value=json.dumps(working_style),
                 user_id=user_id
             )
             session.add(setting)

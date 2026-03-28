@@ -59,7 +59,9 @@ class Header {
     this.statusText = null;
     this.versionInfo = null;
     this.currentView = 'task'; // Default view
-    this.workingStyle = 'kanban'; // Working style: 'kanban' or 'board_task_category'
+    this.workingStyle = 'kanban'; // Working style: 'kanban' or 'agile'
+    this.boardStyleEditable = false;
+    this.currentBoardId = null;
     this.dbConnected = false; // Track database connection status
     this.wsConnected = false; // Track WebSocket connection status
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
@@ -117,6 +119,9 @@ class Header {
     
     // Load working style preference
     await this.loadWorkingStyle();
+
+    // Initialize board style toggle in settings menu
+    this.initializeBoardStyleToggleMenu();
     
     // Initialize views dropdown
     this.initializeViewsDropdown();
@@ -794,24 +799,134 @@ class Header {
 
   // Load working style preference
   async loadWorkingStyle() {
+    const normalize = (value) => {
+      if (value === 'board_task_category') {
+        return 'agile';
+      }
+      return value === 'agile' ? 'agile' : 'kanban';
+    };
+
+    const boardId = this.getCurrentBoardId();
+    this.currentBoardId = boardId;
+
     try {
+      if (boardId) {
+        const response = await fetch(`/api/boards/${boardId}/settings/working-style`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            this.workingStyle = normalize(data.value);
+            this.boardStyleEditable = !!data.can_edit;
+            this.updateViewsDropdown();
+            return;
+          }
+        }
+
+        // Board endpoint failed; default to kanban for board-scoped UI
+        // (do not fall back to user default as that can misconfigure the board UI)
+        this.workingStyle = 'kanban';
+        this.boardStyleEditable = false;
+        this.updateViewsDropdown();
+        return;
+      }
+
       const response = await fetch('/api/settings/working-style');
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          this.workingStyle = data.value || 'kanban';
-          // Update views dropdown based on working style
+          this.workingStyle = normalize(data.value);
           this.updateViewsDropdown();
         }
-      } else if (response.status === 404) {
-        // Setting doesn't exist, default to kanban
-        this.workingStyle = 'kanban';
-        this.updateViewsDropdown();
       }
     } catch (error) {
       console.error('Error loading working style:', error);
       this.workingStyle = 'kanban';
+      this.boardStyleEditable = false;
       this.updateViewsDropdown();
+    }
+  }
+
+  getCurrentBoardId() {
+    const isBoardPage = document.body.classList.contains('board-page');
+    if (!isBoardPage) {
+      return null;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const rawBoardId = params.get('id');
+    const parsedBoardId = rawBoardId ? parseInt(rawBoardId, 10) : NaN;
+    if (!Number.isFinite(parsedBoardId) || parsedBoardId <= 0) {
+      return null;
+    }
+
+    return parsedBoardId;
+  }
+
+  initializeBoardStyleToggleMenu() {
+    const menuItem = document.getElementById('toggle-board-style-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    if (!this.currentBoardId || !this.boardStyleEditable) {
+      menuItem.style.display = 'none';
+      return;
+    }
+
+    menuItem.style.display = '';
+    this.updateBoardStyleMenuLabel();
+
+    if (!menuItem.dataset.boundStyleToggleHandler) {
+      menuItem.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await this.toggleBoardStyle();
+        closeAllMenusExcept(null);
+        updateMenuHoverState();
+      });
+      menuItem.dataset.boundStyleToggleHandler = 'true';
+    }
+  }
+
+  updateBoardStyleMenuLabel() {
+    const menuItem = document.getElementById('toggle-board-style-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    const label = this.workingStyle === 'agile' ? 'Agile' : 'Kanban';
+    menuItem.textContent = `Style: ${label}`;
+  }
+
+  async toggleBoardStyle() {
+    if (!this.currentBoardId || !this.boardStyleEditable) {
+      return;
+    }
+
+    const nextStyle = this.workingStyle === 'agile' ? 'kanban' : 'agile';
+
+    try {
+      const response = await fetch(`/api/boards/${this.currentBoardId}/settings/working-style`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value: nextStyle })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || `HTTP error ${response.status}`);
+      }
+
+      this.workingStyle = nextStyle;
+      this.updateBoardStyleMenuLabel();
+      this.updateViewsDropdown();
+
+      window.dispatchEvent(new CustomEvent('boardWorkingStyleChanged', {
+        detail: { workingStyle: this.workingStyle }
+      }));
+    } catch (error) {
+      console.error('Error toggling board style:', error);
     }
   }
 
@@ -897,7 +1012,7 @@ class Header {
     const dropdownMenu = document.getElementById('views-dropdown-menu');
     if (!dropdownMenu) return;
 
-    if (this.workingStyle === 'board_task_category') {
+    if (this.workingStyle === 'agile') {
       // Check if done view already exists
       if (!document.querySelector('.views-dropdown-item[data-view="done"]')) {
         // Add done view option
@@ -936,7 +1051,7 @@ class Header {
     const mobileViewsSection = document.getElementById('mobile-views-section');
     if (mobileViewsSection) {
       const mobileDoneItem = mobileViewsSection.querySelector('.mobile-view-item[data-view="done"]');
-      if (this.workingStyle === 'board_task_category') {
+      if (this.workingStyle === 'agile') {
         if (!mobileDoneItem) {
           const doneBtn = document.createElement('button');
           doneBtn.className = 'mobile-view-item';

@@ -64,6 +64,7 @@ class Board(Base):
     # Relationships
     owner = relationship("User", back_populates="owned_boards", foreign_keys=[owner_id])
     columns = relationship("BoardColumn", back_populates="board", cascade="all, delete-orphan")
+    settings = relationship("BoardSetting", back_populates="board", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Board(id={self.id}, name='{self.name}')>"
@@ -198,6 +199,26 @@ class Setting(Base):
     
     def __repr__(self):
         return f"<Setting(id={self.id}, key='{self.key}')>"
+
+
+class BoardSetting(Base):
+    """BoardSetting model for storing board-specific configuration."""
+
+    __tablename__ = "board_settings"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    board_id = Column(Integer, ForeignKey('boards.id', ondelete='CASCADE'), nullable=False, index=True)
+    key = Column("key", String(255), nullable=False, index=True)
+    value = Column("value", Text, nullable=True)
+
+    board = relationship("Board", back_populates="settings")
+
+    __table_args__ = (
+        Index('idx_board_setting_key', 'board_id', 'key', unique=True),
+    )
+
+    def __repr__(self):
+        return f"<BoardSetting(id={self.id}, board_id={self.board_id}, key='{self.key}')>"
 
 
 class Comment(Base):

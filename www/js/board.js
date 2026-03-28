@@ -769,9 +769,9 @@ class BoardManager {
     this.hoveredColumnId = null;
     this.lastUsedColumnId = null;
     this.showArchived = false; // Track whether to show archived or active cards
-    this.showDone = false; // Track whether to show done cards (for board_task_category style)
+    this.showDone = false; // Track whether to show done cards (for agile style)
     this.currentView = 'task'; // Track current view: 'task', 'scheduled', or 'archived'
-    this.workingStyle = 'kanban'; // Track working style: 'kanban' or 'board_task_category'
+    this.workingStyle = 'kanban'; // Track working style: 'kanban' or 'agile'
     this.canEdit = true; // Track if user has edit permissions for this board
     this.keyboardHandler = this.handleKeydown.bind(this);
     this.closeDropdownHandler = this.handleCloseDropdown.bind(this);
@@ -796,6 +796,7 @@ class BoardManager {
     this.assigneeFilterIncludeSecondaryAssignees = false;
     this.boardFiltersToggleRequestHandler = this.handleBoardFiltersToggleRequest.bind(this);
     this.boardFiltersStateRequestHandler = this.handleBoardFiltersStateRequest.bind(this);
+    this.boardWorkingStyleChangedHandler = this.handleBoardWorkingStyleChanged.bind(this);
     this.assigneeFilterVisibilityLoadedForUserId = null;
     this.assigneeFilterVisibilityWatcherId = null;
   }
@@ -1241,6 +1242,7 @@ class BoardManager {
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
     window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
     window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+    window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
     
     // Initialize WebSocket for real-time updates
     this.wsManager = new WebSocketManager(this.boardId, this);
@@ -1256,12 +1258,19 @@ class BoardManager {
   }
 
   async loadWorkingStyle() {
+    const normalize = (value) => {
+      if (value === 'board_task_category') {
+        return 'agile';
+      }
+      return value === 'agile' ? 'agile' : 'kanban';
+    };
+
     try {
-      const response = await fetch('/api/settings/working-style');
+      const response = await fetch(`/api/boards/${this.boardId}/settings/working-style`);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          this.workingStyle = data.value || 'kanban';
+          this.workingStyle = normalize(data.value);
         }
       } else if (response.status === 404) {
         // Setting doesn't exist, default to kanban
@@ -1270,6 +1279,64 @@ class BoardManager {
     } catch (error) {
       console.error('Error loading working style:', error);
       this.workingStyle = 'kanban';
+    }
+
+    // Update archived view visibility based on working style
+    this.updateArchivedViewVisibility();
+  }
+
+  // Hide/show archived view option based on working style
+  updateArchivedViewVisibility() {
+    // Try to apply visibility immediately; if elements are not yet in the DOM,
+    // wait for them to be inserted (header HTML is loaded asynchronously).
+    const applyVisibility = () => {
+      const archivedViewItem = document.querySelector('.views-dropdown-item[data-view="archived"]');
+      const mobileArchivedViewItem = document.querySelector('.mobile-view-item[data-view="archived"]');
+
+      // If neither element exists yet, signal that we need to retry later
+      if (!archivedViewItem && !mobileArchivedViewItem) {
+        return false;
+      }
+
+      const displayValue = this.workingStyle === 'agile' ? 'none' : '';
+
+      if (archivedViewItem) {
+        archivedViewItem.style.display = displayValue;
+      }
+      if (mobileArchivedViewItem) {
+        mobileArchivedViewItem.style.display = displayValue;
+      }
+
+      return true;
+    };
+
+    // If we can apply immediately, no need to observe for changes.
+    if (applyVisibility()) {
+      return;
+    }
+
+    // Fallback: observe DOM mutations until the archived view items appear.
+    if (typeof MutationObserver === 'function' && document.body) {
+      const observer = new MutationObserver(() => {
+        if (applyVisibility()) {
+          observer.disconnect();
+        }
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    } else {
+      // Very old environments: use a short polling loop as a last resort.
+      let attempts = 0;
+      const maxAttempts = 20;
+      const intervalId = window.setInterval(() => {
+        attempts += 1;
+        if (applyVisibility() || attempts >= maxAttempts) {
+          window.clearInterval(intervalId);
+        }
+      }, 250);
     }
   }
 
@@ -1300,6 +1367,38 @@ class BoardManager {
       
       await this.loadBoard();
     });
+  }
+
+  async handleBoardWorkingStyleChanged(event) {
+    const nextStyle = event?.detail?.workingStyle;
+    if (!nextStyle) {
+      return;
+    }
+
+    this.workingStyle = nextStyle;
+
+    // When switching to Agile, reset to task view (agile has done view instead of archived)
+    // When switching from Agile to Kanban, also reset (agile features no longer apply)
+    if (this.workingStyle === 'agile' && (this.showArchived || this.showDone)) {
+      this.showArchived = false;
+      this.showDone = false;
+      this.currentView = 'task';
+      if (window.header && typeof window.header.setView === 'function') {
+        window.header.setView('task');
+      }
+    } else if (this.workingStyle !== 'agile' && this.showDone) {
+      this.showDone = false;
+      this.currentView = 'task';
+      this.showArchived = false;
+      if (window.header && typeof window.header.setView === 'function') {
+        window.header.setView('task');
+      }
+    }
+
+    // Update archived view visibility based on new working style
+    this.updateArchivedViewVisibility();
+
+    await this.loadBoard();
   }
 
   setupDropdownClickOutside() {
@@ -1432,7 +1531,7 @@ class BoardManager {
       this.canEdit = board.can_edit !== undefined ? board.can_edit : true;
       
       // Filter cards based on done status and view
-      if (this.workingStyle === 'board_task_category') {
+      if (this.workingStyle === 'agile') {
         if (this.showDone) {
           // In done view, show only cards where done=true
           this.columns = this.columns.map(column => ({
@@ -1519,6 +1618,7 @@ class BoardManager {
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
     window.removeEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
     window.removeEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+    window.removeEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
     window.removeEventListener('resize', this.viewportMetricsHandler);
     window.removeEventListener('orientationchange', this.viewportMetricsHandler);
 
@@ -1564,7 +1664,7 @@ class BoardManager {
 
   /**
    * Get the card count display for a column.
-   * In board_task_category mode:
+  * In agile mode:
    *   - Task view: shows "done/total" format using original unfiltered data
    *   - Done view: shows only count of done cards
    * Otherwise, shows just the total count.
@@ -1578,7 +1678,7 @@ class BoardManager {
   getColumnCardCount(column, columnIndex) {
     if (!column.cards) return '0';
     
-    if (this.workingStyle === 'board_task_category') {
+    if (this.workingStyle === 'agile') {
       // Use original unfiltered column data for accurate counts
       const originalColumn = this.originalColumns[columnIndex];
       if (!originalColumn || !originalColumn.cards) return '0';
@@ -1741,7 +1841,7 @@ class BoardManager {
       const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
       const canMoveCard = this.canEdit || this.canCallPermissionEndpoint('PATCH', '/api/cards/:id');
       const canShowCardActions = canArchiveCard || canUnarchiveCard || canDeleteCard || canMoveCard ||
-        (this.workingStyle === 'board_task_category' && canToggleDone);
+        (this.workingStyle === 'agile' && canToggleDone);
       const canShowColumnMenu = this.canShowColumnMenu();
 
       this.container.innerHTML = `
@@ -1831,7 +1931,7 @@ class BoardManager {
                                 <path d="M9 14l3 2 3-2"></path>
                               </svg>
                             </button>` : ''}` :
-                            `${this.workingStyle === 'board_task_category' ? 
+                            `${this.workingStyle === 'agile' ? 
                               `${canToggleDone ? `<button class="card-done-btn" data-card-id="${card.id}" title="${card.done ? 'Mark as not done' : 'Mark as done'}" draggable="false">
                                 ${card.done ? '○' : '✓'}
                               </button>` : ''}` :
@@ -4730,13 +4830,13 @@ class BoardManager {
                 </button>` : (!isReadOnly || canArchiveCard || canUnarchiveCard || canToggleDone) ?
                 cardData.archived ? 
                   `${canUnarchiveCard ? `<button type="button" class="btn btn-secondary" id="unarchive-card-detail-btn" data-card-id="${cardData.id}">📂 Unarchive</button>` : ''}` :
-                  `${this.workingStyle === 'board_task_category' ? 
+                  `${this.workingStyle === 'agile' ? 
                     `${canToggleDone ? `<button type="button" class="btn btn-secondary" id="done-card-detail-btn" data-card-id="${cardData.id}" title="${cardData.done ? 'Mark as not done' : 'Mark as done'}">
                       ${cardData.done ? '○ Mark Not Done' : '✓ Mark Done'}
                     </button>` : ''}` :
                     ''
                   }
-                  ${canArchiveCard ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
+                  ${canArchiveCard && this.workingStyle !== 'agile' ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
               }
               ${canManageAssignees ? `<button type="button" class="btn btn-secondary" id="assign-assignees-btn" data-card-id="${cardData.id}">👤 Assignees</button>` : ''}
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">${isReadOnly ? 'Close' : 'Cancel'}</button>
@@ -4907,7 +5007,7 @@ class BoardManager {
       });
     }
 
-    // Handle done button (for board_task_category working style)
+    // Handle done button (for agile working style)
     const doneBtn = document.getElementById('done-card-detail-btn');
     if (doneBtn) {
       doneBtn.addEventListener('click', async () => {
@@ -5999,8 +6099,8 @@ class BoardManager {
         const statusText = done ? 'Card marked as done' : 'Card marked as not done';
         this.showSuccessToast(statusText, 2000);
         
-        // If in board_task_category mode, reload the board so the card appears/disappears based on done status
-        if (this.workingStyle === 'board_task_category') {
+        // If in agile mode, reload the board so the card appears/disappears based on done status
+        if (this.workingStyle === 'agile') {
           await this.loadBoard();
         } else {
           // For kanban mode, just update the button

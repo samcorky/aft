@@ -257,6 +257,166 @@ class TestCardsAPI:
         assert card_entry['assigned_to']['id'] == user_id
         assert 'profile_colour' in card_entry['assigned_to']
         assert re.fullmatch(r'^#[0-9A-Fa-f]{6}$', card_entry['assigned_to']['profile_colour'])
+
+    def test_board_cards_include_assignee_filter_users(
+        self,
+        api_client,
+        authenticated_session,
+        sample_column,
+    ):
+        """Board card payload includes assignee filter users and does not expose email data."""
+        board_response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_column["board_id"]}/cards'
+        )
+        assert board_response.status_code == 200
+        board_data = board_response.json()
+        assert board_data['success'] is True
+
+        filter_users = board_data['board'].get('assignee_filter_users', [])
+        assert isinstance(filter_users, list)
+
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        my_id = me_response.json()['user']['id']
+        assert my_id in {u['id'] for u in filter_users}
+        assert all('email' not in u for u in filter_users)
+
+    def test_get_board_cards_filter_by_assignees_and_unassigned(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_card,
+        sample_column,
+    ):
+        """Board cards endpoint filters by selected primary assignees and unassigned toggle."""
+        board_id = sample_column['board_id']
+        column_id = sample_column['id']
+
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        my_id = me_response.json()['user']['id']
+
+        second_user_me_response = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me_response.status_code == 200
+        second_user_id = second_user_me_response.json()['user']['id']
+
+        role_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user_id}/roles',
+            json={'role_name': 'board_editor', 'board_id': board_id}
+        )
+        assert role_response.status_code == 200, role_response.text
+
+        assign_sample_response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={'assigned_to_id': my_id, 'secondary_assignee_ids': []}
+        )
+        assert assign_sample_response.status_code == 200
+
+        unassigned_card_response = authenticated_session.post(
+            f'{api_client}/api/columns/{column_id}/cards',
+            json={'title': 'Unassigned Card'}
+        )
+        assert unassigned_card_response.status_code == 201
+        unassigned_card_id = unassigned_card_response.json()['card']['id']
+
+        second_user_card_response = authenticated_session.post(
+            f'{api_client}/api/columns/{column_id}/cards',
+            json={'title': 'Second User Card'}
+        )
+        assert second_user_card_response.status_code == 201
+        second_user_card_id = second_user_card_response.json()['card']['id']
+
+        assign_second_user_response = authenticated_session.put(
+            f'{api_client}/api/cards/{second_user_card_id}/assignees',
+            json={'assigned_to_id': second_user_id, 'secondary_assignee_ids': []}
+        )
+        assert assign_second_user_response.status_code == 200
+
+        filtered_response = authenticated_session.get(
+            f'{api_client}/api/boards/{board_id}/cards?assignee_ids={my_id}'
+        )
+        assert filtered_response.status_code == 200
+        filtered_data = filtered_response.json()
+
+        filtered_ids = {
+            card['id']
+            for column in filtered_data['board']['columns']
+            for card in column['cards']
+        }
+        assert sample_card['id'] in filtered_ids
+        assert unassigned_card_id not in filtered_ids
+        assert second_user_card_id not in filtered_ids
+
+        filtered_with_unassigned_response = authenticated_session.get(
+            f'{api_client}/api/boards/{board_id}/cards?assignee_ids={my_id}&include_unassigned=true'
+        )
+        assert filtered_with_unassigned_response.status_code == 200
+        filtered_with_unassigned_data = filtered_with_unassigned_response.json()
+
+        filtered_with_unassigned_ids = {
+            card['id']
+            for column in filtered_with_unassigned_data['board']['columns']
+            for card in column['cards']
+        }
+        assert sample_card['id'] in filtered_with_unassigned_ids
+        assert unassigned_card_id in filtered_with_unassigned_ids
+        assert second_user_card_id not in filtered_with_unassigned_ids
+
+    def test_get_board_cards_filter_includes_secondary_assignees_when_enabled(
+        self,
+        api_client,
+        authenticated_session,
+        second_user_session,
+        sample_card,
+        sample_column,
+    ):
+        """Secondary assignee matches are only included when requested."""
+        board_id = sample_column['board_id']
+
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        my_id = me_response.json()['user']['id']
+
+        second_user_me_response = second_user_session.get(f'{api_client}/api/auth/me')
+        assert second_user_me_response.status_code == 200
+        second_user_id = second_user_me_response.json()['user']['id']
+
+        role_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user_id}/roles',
+            json={'role_name': 'board_editor', 'board_id': board_id}
+        )
+        assert role_response.status_code == 200, role_response.text
+
+        update_assignees_response = authenticated_session.put(
+            f'{api_client}/api/cards/{sample_card["id"]}/assignees',
+            json={'assigned_to_id': my_id, 'secondary_assignee_ids': [second_user_id]}
+        )
+        assert update_assignees_response.status_code == 200
+
+        without_secondary_response = authenticated_session.get(
+            f'{api_client}/api/boards/{board_id}/cards?assignee_ids={second_user_id}'
+        )
+        assert without_secondary_response.status_code == 200
+        without_secondary_data = without_secondary_response.json()
+        without_secondary_ids = {
+            card['id']
+            for column in without_secondary_data['board']['columns']
+            for card in column['cards']
+        }
+        assert sample_card['id'] not in without_secondary_ids
+
+        with_secondary_response = authenticated_session.get(
+            f'{api_client}/api/boards/{board_id}/cards?assignee_ids={second_user_id}&include_secondary_assignees=true'
+        )
+        assert with_secondary_response.status_code == 200
+        with_secondary_data = with_secondary_response.json()
+        with_secondary_ids = {
+            card['id']
+            for column in with_secondary_data['board']['columns']
+            for card in column['cards']
+        }
+        assert sample_card['id'] in with_secondary_ids
     
     def test_get_column_cards_empty(self, api_client, authenticated_session, sample_column):
         """Test getting cards when column is empty."""

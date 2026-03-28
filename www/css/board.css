@@ -24,6 +24,95 @@
   gap: 10px;
 }
 
+.board-assignee-filter-row {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.board-assignee-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: auto;
+  max-width: 100%;
+  padding: 8px 10px;
+  min-height: 44px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--background-light);
+}
+
+.board-assignee-filter-users {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 2px 0;
+  padding-bottom: 2px;
+}
+
+.assignee-filter-avatar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.assignee-filter-avatar-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-color);
+}
+
+.assignee-filter-avatar-btn.selected {
+  border: 2px solid var(--primary-color);
+  box-shadow: none;
+}
+
+.assignee-filter-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.assignee-filter-avatar-unassigned {
+  background: var(--secondary-color);
+}
+
+.assignee-filter-secondary-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.assignee-filter-secondary-toggle input[type="checkbox"] {
+  margin: 0;
+}
+
 /* Button Styles */
 .btn {
   padding: 10px 20px;
@@ -62,6 +151,17 @@
   min-height: calc(100vh - 190px);
   justify-content: safe center;
   color-scheme: light;
+}
+
+@media (max-width: 900px) {
+  .board-assignee-filter-bar {
+    gap: 8px;
+    padding: 6px 8px;
+  }
+
+  .assignee-filter-secondary-toggle {
+    font-size: 11px;
+  }
 }
 
 .add-column-placeholder {

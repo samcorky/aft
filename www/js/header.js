@@ -65,6 +65,7 @@ class Header {
     this.wsConnectionStartTime = null; // Track when WebSocket connection attempt started (for timeout detection)
     this.wsCheckInterval = null; // WebSocket check interval
     this.mobileBreakpoint = 900;
+    this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
   }
 
   // Load the header HTML component
@@ -106,6 +107,9 @@ class Header {
 
     // Initialize mobile notifications panel
     this.initializeMobileNotifications();
+
+    // Initialize board-only filter toggle in settings menu
+    this.initializeBoardFilterToggleMenu();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -810,6 +814,49 @@ class Header {
     }
   }
 
+  initializeBoardFilterToggleMenu() {
+    const menuItem = document.getElementById('toggle-board-filters-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    const isBoardPage = document.body.classList.contains('board-page');
+    menuItem.style.display = isBoardPage ? '' : 'none';
+    if (!isBoardPage) {
+      return;
+    }
+
+    if (!menuItem.dataset.boundToggleHandler) {
+      menuItem.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        window.dispatchEvent(new CustomEvent('boardFiltersToggleRequested'));
+
+        closeAllMenusExcept(null);
+        updateMenuHoverState();
+      });
+      menuItem.dataset.boundToggleHandler = 'true';
+    }
+
+    // Default label until board manager publishes current state.
+    this.updateBoardFilterMenuLabel(false);
+    window.addEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
+  }
+
+  handleBoardFiltersVisibilityChanged(event) {
+    const visible = !!event?.detail?.visible;
+    this.updateBoardFilterMenuLabel(visible);
+  }
+
+  updateBoardFilterMenuLabel(visible) {
+    const menuItem = document.getElementById('toggle-board-filters-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    menuItem.textContent = visible ? 'Hide filters' : 'Show filters';
+  }
+
   // Update views dropdown to show/hide done view based on working style
   updateViewsDropdown() {
     const dropdownMenu = document.getElementById('views-dropdown-menu');
@@ -1322,6 +1369,8 @@ class Header {
       clearInterval(this.wsCheckInterval);
       this.wsCheckInterval = null;
     }
+
+    window.removeEventListener('boardFiltersVisibilityChanged', this.boardFiltersVisibilityHandler);
   }
 }
 

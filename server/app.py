@@ -3,17 +3,20 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import logging
 import json
+import io
 import os
+import re
 import secrets
 import time
 import tempfile
 import subprocess
 import uuid
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from flasgger import Swagger
 from database import SessionLocal, engine
-from models import Board, BoardColumn, BoardSetting, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Theme, User, Role, UserRole
+from models import Board, BoardColumn, BoardSetting, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Comment, Theme, User, Role, UserRole
 from sqlalchemy import text, func, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import OperationalError, ProgrammingError
@@ -40,6 +43,7 @@ from utils import (
 from auth import auth_bp, load_user_from_session, get_authenticated_socket_user
 from user_management import user_mgmt_bp
 from role_management import role_mgmt_bp
+from board_import_handlers import ImportHandlerFactory
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -517,6 +521,10 @@ app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
 
 # Maximum backup file size for validation (MB) - actual content size limit
 MAX_BACKUP_FILE_SIZE_MB = 100
+MAX_BOARD_IMPORT_FILE_SIZE_MB = 25
+
+# Allowed value for board import file metadata
+BOARD_EXPORT_FORMAT = "aft-board"
 
 # Configure Swagger
 swagger_config = {
@@ -910,6 +918,144 @@ def validate_backup_file_size(file_path, max_size_mb=100):
         return False, f"Error checking file size: {str(e)}"
 
 
+def validate_json_import_payload_size(payload_text, max_size_mb=25):
+    """Validate JSON import payload size before parsing.
+
+    Args:
+        payload_text: Raw JSON text content
+        max_size_mb: Maximum file size in MB
+
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    try:
+        payload_size = len(payload_text.encode("utf-8"))
+        max_size_bytes = max_size_mb * 1024 * 1024
+        if payload_size > max_size_bytes:
+            size_mb = payload_size / (1024 * 1024)
+            return (
+                False,
+                f"Import file size ({size_mb:.1f}MB) exceeds maximum allowed size ({max_size_mb}MB)",
+            )
+        return True, None
+    except Exception as e:
+        return False, f"Error checking import size: {str(e)}"
+
+
+def parse_iso_datetime(value):
+    """Parse an ISO-8601 datetime string into a datetime object."""
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        return value
+
+    if not isinstance(value, str):
+        return None
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    if candidate.endswith("Z"):
+        candidate = f"{candidate[:-1]}+00:00"
+
+    try:
+        return datetime.fromisoformat(candidate)
+    except ValueError:
+        return None
+
+
+def serialize_datetime(value):
+    """Serialize datetime to ISO string with timezone when available."""
+    if not value:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc).isoformat()
+    return value.isoformat()
+
+
+def sanitize_import_text(value, field_name, max_length, allow_none=False):
+    """Sanitize and validate imported text fields for safe persistence."""
+    if value is None:
+        if allow_none:
+            return None
+        raise ValueError(f"{field_name} is required")
+
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+
+    cleaned = sanitize_string(value)
+    if "\x00" in cleaned:
+        raise ValueError(f"{field_name} contains invalid null characters")
+
+    is_valid, error = validate_string_length(cleaned, max_length, field_name)
+    if not is_valid:
+        raise ValueError(error)
+
+    return cleaned
+
+
+def coerce_bool(value, default=False):
+    """Coerce value to boolean with a safe default."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+    return default
+
+
+def user_can_import_boards(user_id, db):
+    """Check whether a user can import boards.
+
+    Import is allowed for users with global board.create/board.edit permissions,
+    or users who hold at least one board-scoped role that grants board.edit.
+    """
+    user_permissions = get_user_permissions(user_id)
+    if "system.admin" in user_permissions or "board.create" in user_permissions or "board.edit" in user_permissions:
+        return True
+
+    board_roles = (
+        db.query(UserRole, Role)
+        .join(Role, UserRole.role_id == Role.id)
+        .filter(UserRole.user_id == user_id, UserRole.board_id.isnot(None))
+        .all()
+    )
+    for _, role in board_roles:
+        try:
+            role_permissions = set(json.loads(role.permissions))
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if "board.edit" in role_permissions:
+            return True
+    return False
+
+
+def build_import_name(db, source_name, strategy):
+    """Resolve imported board name according to duplicate handling strategy."""
+    existing = db.query(Board.id).filter(func.lower(Board.name) == source_name.lower()).first()
+    if not existing:
+        return source_name, False
+
+    if strategy != "append_suffix":
+        return source_name, True
+
+    base_name = f"{source_name} (imported)"
+    candidate = base_name
+    counter = 2
+    while db.query(Board.id).filter(func.lower(Board.name) == candidate.lower()).first():
+        candidate = f"{base_name} {counter}"
+        counter += 1
+
+    return candidate, True
+
+
 def create_database_with_retry(db_host, db_root_password, db_name, max_retries=5, retry_delay_seconds=2):
     """Create database with retry for transient MySQL schema-directory race conditions.
 
@@ -1234,6 +1380,26 @@ def get_permissions_mapping():
             UserRole.board_id.isnot(None)
         ).first() is not None
 
+        has_board_edit_assignment = False
+        if has_board_assignment:
+          board_role_assignments = (
+            db.query(UserRole, Role)
+            .join(Role, UserRole.role_id == Role.id)
+            .filter(
+              UserRole.user_id == g.user.id,
+              UserRole.board_id.isnot(None),
+            )
+            .all()
+          )
+          for _, role in board_role_assignments:
+            try:
+              role_permissions = set(json.loads(role.permissions))
+            except (TypeError, json.JSONDecodeError):
+              continue
+            if 'board.edit' in role_permissions:
+              has_board_edit_assignment = True
+              break
+
         # Comprehensive mapping of API endpoints to required permissions.
         endpoint_mapping = {
             # Board management
@@ -1244,8 +1410,15 @@ def get_permissions_mapping():
                 'description': 'View boards list (global board permission OR board assignment)'
             },
             'POST /api/boards': {'permission': 'board.create', 'description': 'Create new board'},
+            'POST /api/boards/import': {
+              'mode': 'composite',
+              'any_permissions': ['board.create', 'board.edit'],
+              'allow_board_edit_assignment': True,
+              'description': 'Import board from AFT JSON export'
+            },
             'DELETE /api/boards/:id': {'permission': 'board.delete', 'description': 'Delete board'},
             'PATCH /api/boards/:id': {'permission': 'board.edit', 'description': 'Edit board'},
+            'GET /api/boards/:id/export': {'permission': 'board.view', 'description': 'Export board as JSON'},
             'GET /api/boards/:id/cards/scheduled': {'permission': 'schedule.view', 'description': 'View scheduled cards'},
             'GET /api/boards/:id/cards': {'permission': 'card.view', 'description': 'View board cards'},
             'GET /api/boards/:id/settings/working-style': {'permission': 'board.view', 'description': 'View board working style'},
@@ -1345,7 +1518,8 @@ def get_permissions_mapping():
             'endpoint_permissions': endpoint_mapping,
             'user_permissions': sorted(list(user_perms)),
             'user_context': {
-                'has_board_assignment': has_board_assignment
+              'has_board_assignment': has_board_assignment,
+              'has_board_edit_assignment': has_board_edit_assignment,
             },
             'board_id': board_id
         })
@@ -4042,6 +4216,7 @@ def get_boards():
             board_permissions = get_user_permissions(user_id, board_id=b.id)
             can_delete = 'board.delete' in board_permissions
             can_edit = 'board.edit' in board_permissions
+            can_export = 'board.view' in board_permissions
             
             boards_data.append({
                 "id": b.id, 
@@ -4050,7 +4225,8 @@ def get_boards():
                 "created_at": b.created_at.isoformat() if b.created_at else None,
                 "updated_at": b.updated_at.isoformat() if b.updated_at else None,
                 "can_delete": can_delete,
-                "can_edit": can_edit
+                "can_edit": can_edit,
+                "can_export": can_export,
             })
         
         return jsonify(
@@ -4203,6 +4379,585 @@ def create_board():
         db.rollback()
         logger.error(f"Error creating board: {str(e)}")
         return create_error_response("Failed to create board", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/boards/<int:board_id>/export", methods=["GET"])
+@require_board_access()
+@require_permission('board.view')
+def export_board(board_id):
+    """Export a single board and all board-related data as JSON."""
+    db = SessionLocal()
+    try:
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return create_error_response("Board not found", 404)
+
+        columns = (
+            db.query(BoardColumn)
+            .filter(BoardColumn.board_id == board_id)
+            .order_by(BoardColumn.order)
+            .all()
+        )
+        column_ids = [column.id for column in columns]
+
+        cards = []
+        if column_ids:
+            cards = (
+                db.query(Card)
+                .options(
+                    selectinload(Card.checklist_items),
+                    selectinload(Card.comments),
+                    selectinload(Card.secondary_assignees),
+                )
+                .filter(Card.column_id.in_(column_ids))
+                .order_by(Card.column_id, Card.order, Card.id)
+                .all()
+            )
+
+        card_ids = [card.id for card in cards]
+        board_settings = (
+            db.query(BoardSetting)
+            .filter(BoardSetting.board_id == board_id)
+            .order_by(BoardSetting.id)
+            .all()
+        )
+
+        scheduled_cards = []
+        if card_ids:
+            scheduled_cards = (
+                db.query(ScheduledCard)
+                .filter(ScheduledCard.card_id.in_(card_ids))
+                .order_by(ScheduledCard.id)
+                .all()
+            )
+
+        export_payload = {
+            "export": {
+                "format": BOARD_EXPORT_FORMAT,
+                "format_version": "1.0",
+                "app_version": APP_VERSION,
+                "exported_at": serialize_datetime(datetime.utcnow()),
+                "exported_by_user_id": g.user.id,
+                "source_board_id": board.id,
+                "features_exported": [
+                    "board",
+                    "board_settings",
+                    "columns",
+                    "cards",
+                    "card_secondary_assignees",
+                    "checklists",
+                    "comments",
+                    "scheduled_cards",
+                ],
+            },
+            "board": {
+                "id": board.id,
+                "name": board.name,
+                "description": board.description,
+                "owner_id": board.owner_id,
+                "created_at": serialize_datetime(board.created_at),
+                "updated_at": serialize_datetime(board.updated_at),
+            },
+            "board_settings": [
+                {
+                    "id": setting.id,
+                    "board_id": setting.board_id,
+                    "key": setting.key,
+                    "value": setting.value,
+                }
+                for setting in board_settings
+            ],
+            "columns": [
+                {
+                    "id": column.id,
+                    "board_id": column.board_id,
+                    "name": column.name,
+                    "order": column.order,
+                    "created_at": serialize_datetime(column.created_at),
+                    "updated_at": serialize_datetime(column.updated_at),
+                }
+                for column in columns
+            ],
+            "cards": [
+                {
+                    "id": card.id,
+                    "column_id": card.column_id,
+                    "title": card.title,
+                    "description": card.description,
+                    "order": card.order,
+                    "archived": card.archived,
+                    "scheduled": card.scheduled,
+                    "schedule": card.schedule,
+                    "done": card.done,
+                    "created_by_id": card.created_by_id,
+                    "assigned_to_id": card.assigned_to_id,
+                    "created_at": serialize_datetime(card.created_at),
+                    "updated_at": serialize_datetime(card.updated_at),
+                }
+                for card in cards
+            ],
+            "card_secondary_assignees": [
+                {
+                    "id": secondary.id,
+                    "card_id": secondary.card_id,
+                    "user_id": secondary.user_id,
+                    "created_at": serialize_datetime(secondary.created_at),
+                }
+                for card in cards
+                for secondary in card.secondary_assignees
+            ],
+            "checklists": [
+                {
+                    "id": item.id,
+                    "card_id": item.card_id,
+                    "name": item.name,
+                    "checked": item.checked,
+                    "order": item.order,
+                    "created_at": serialize_datetime(item.created_at),
+                    "updated_at": serialize_datetime(item.updated_at),
+                }
+                for card in cards
+                for item in card.checklist_items
+            ],
+            "comments": [
+                {
+                    "id": comment.id,
+                    "card_id": comment.card_id,
+                    "comment": comment.comment,
+                    "order": comment.order,
+                    "created_at": serialize_datetime(comment.created_at),
+                }
+                for card in cards
+                for comment in card.comments
+            ],
+            "scheduled_cards": [
+                {
+                    "id": schedule.id,
+                    "card_id": schedule.card_id,
+                    "run_every": schedule.run_every,
+                    "unit": schedule.unit,
+                    "start_datetime": serialize_datetime(schedule.start_datetime),
+                    "end_datetime": serialize_datetime(schedule.end_datetime),
+                    "schedule_enabled": schedule.schedule_enabled,
+                    "allow_duplicates": schedule.allow_duplicates,
+                }
+                for schedule in scheduled_cards
+            ],
+        }
+
+        board_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", board.name or "board").strip("_") or "board"
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        filename = f"aft_board_{board_slug}_{timestamp}.json"
+        file_content = json.dumps(export_payload, ensure_ascii=True, indent=2)
+
+        return send_file(
+            io.BytesIO(file_content.encode("utf-8")),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=filename,
+        )
+    except Exception as e:
+        logger.error(f"Error exporting board {board_id}: {str(e)}")
+        return create_error_response("Failed to export board", 500)
+    finally:
+        db.close()
+
+
+@app.route("/api/boards/import", methods=["POST"])
+@require_authentication
+def import_board_from_export():
+    """Import a board from an AFT JSON export file."""
+    db = SessionLocal()
+    try:
+        user_id = g.user.id
+        if not user_can_import_boards(user_id, db):
+            return create_error_response(
+                "Permission denied: importing boards requires board editor access",
+                403,
+            )
+
+        if "file" not in request.files:
+            return create_error_response("No file uploaded", 400)
+
+        file_obj = request.files["file"]
+        if file_obj.filename == "":
+            return create_error_response("No file selected", 400)
+
+        payload_bytes = file_obj.read()
+        if not payload_bytes:
+            return create_error_response("Import file is empty", 400)
+
+        try:
+            payload_text = payload_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return create_error_response("Import file must be valid UTF-8 JSON", 400)
+
+        is_valid_size, size_error = validate_json_import_payload_size(
+            payload_text,
+            max_size_mb=MAX_BOARD_IMPORT_FILE_SIZE_MB,
+        )
+        if not is_valid_size:
+            return create_error_response(size_error, 400)
+
+        try:
+            payload = json.loads(payload_text)
+        except json.JSONDecodeError:
+            return create_error_response("Import file is not valid JSON", 400)
+
+        handler = ImportHandlerFactory.get_handler(payload)
+        if not handler:
+            return create_error_response(
+                "Unsupported import format. Only AFT-formatted JSON exports are currently supported.",
+                400,
+            )
+
+        validation_result = handler.validate(payload)
+        if not validation_result.is_valid:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": "Import validation failed",
+                        "errors": validation_result.errors,
+                    }
+                ),
+                400,
+            )
+
+        import_data = handler.parse(payload)
+        board_data = import_data["board"]
+
+        duplicate_strategy = (request.form.get("duplicate_strategy") or "cancel").strip().lower()
+        if duplicate_strategy not in {"cancel", "append_suffix"}:
+            return create_error_response(
+                "duplicate_strategy must be one of: cancel, append_suffix",
+                400,
+            )
+
+        source_board_name = sanitize_import_text(
+            board_data.get("name"),
+            "Board name",
+            MAX_TITLE_LENGTH,
+            allow_none=False,
+        )
+        resolved_board_name, had_name_conflict = build_import_name(
+            db,
+            source_board_name,
+            duplicate_strategy,
+        )
+
+        if had_name_conflict and duplicate_strategy == "cancel":
+            suggested_name, _ = build_import_name(db, source_board_name, "append_suffix")
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "message": (
+                            "A board with this name already exists. Overwriting is not supported. "
+                            "Delete the existing board first, or import with an automatic suffix."
+                        ),
+                        "requires_confirmation": True,
+                        "conflict_type": "board_name_exists",
+                        "board_name": source_board_name,
+                        "suggested_board_name": suggested_name,
+                    }
+                ),
+                409,
+            )
+
+        board_description = sanitize_import_text(
+            board_data.get("description"),
+            "Board description",
+            MAX_DESCRIPTION_LENGTH,
+            allow_none=True,
+        )
+
+        # User identity differs between instances. For safety, assignee mapping is
+        # intentionally disabled until explicit user-mapping support is added.
+        ignored_primary_assignees_count = sum(
+            1
+            for card in import_data["cards"]
+            if isinstance(card.get("assigned_to_id"), int) and card.get("assigned_to_id") > 0
+        )
+        ignored_secondary_assignees_count = sum(
+            1
+            for assignee in import_data["card_secondary_assignees"]
+            if isinstance(assignee.get("user_id"), int) and assignee.get("user_id") > 0
+        )
+
+        new_board = Board(
+            name=resolved_board_name,
+            description=board_description,
+            owner_id=user_id,
+            updated_at=datetime.utcnow(),
+        )
+        db.add(new_board)
+        db.flush()
+
+        old_to_new_column_id = {}
+        old_to_new_card_id = {}
+        old_to_new_schedule_id = {}
+        pending_schedule_references = {}
+
+        for setting in import_data["board_settings"]:
+            setting_key = sanitize_import_text(
+                setting.get("key"),
+                "Board setting key",
+                255,
+                allow_none=False,
+            )
+            setting_value = setting.get("value")
+            if setting_value is not None and not isinstance(setting_value, str):
+                setting_value = json.dumps(setting_value)
+
+            db.add(
+                BoardSetting(
+                    board_id=new_board.id,
+                    key=setting_key,
+                    value=setting_value,
+                )
+            )
+
+        sorted_columns = sorted(
+            import_data["columns"],
+            key=lambda col: (int(col.get("order") or 0), int(col.get("id") or 0)),
+        )
+        for column in sorted_columns:
+            source_column_id = column.get("id")
+            if not isinstance(source_column_id, int):
+                continue
+
+            column_name = sanitize_import_text(
+                column.get("name"),
+                "Column name",
+                MAX_TITLE_LENGTH,
+                allow_none=False,
+            )
+
+            raw_order = column.get("order", 0)
+            if isinstance(raw_order, bool):
+                raw_order = 0
+            if not isinstance(raw_order, int):
+                raw_order = 0
+            column_order = raw_order if raw_order >= 0 else 0
+
+            new_column = BoardColumn(
+                board_id=new_board.id,
+                name=column_name,
+                order=column_order,
+                updated_at=datetime.utcnow(),
+            )
+            db.add(new_column)
+            db.flush()
+            old_to_new_column_id[source_column_id] = new_column.id
+
+        sorted_cards = sorted(
+            import_data["cards"],
+            key=lambda card: (
+                int(card.get("column_id") or 0),
+                int(card.get("order") or 0),
+                int(card.get("id") or 0),
+            ),
+        )
+        for card in sorted_cards:
+            source_card_id = card.get("id")
+            source_column_id = card.get("column_id")
+            if not isinstance(source_card_id, int) or source_column_id not in old_to_new_column_id:
+                continue
+
+            title = sanitize_import_text(
+                card.get("title"),
+                "Card title",
+                MAX_TITLE_LENGTH,
+                allow_none=False,
+            )
+            description = sanitize_import_text(
+                card.get("description"),
+                "Card description",
+                MAX_DESCRIPTION_LENGTH,
+                allow_none=True,
+            )
+
+            raw_order = card.get("order", 0)
+            if isinstance(raw_order, bool):
+                raw_order = 0
+            if not isinstance(raw_order, int):
+                raw_order = 0
+            card_order = raw_order if raw_order >= 0 else 0
+
+            # Preserve import attribution to the importing user, and leave assignees
+            # unassigned until explicit mapping support is available.
+            created_by_id = user_id
+            assigned_to_id = None
+
+            new_card = Card(
+                column_id=old_to_new_column_id[source_column_id],
+                title=title,
+                description=description,
+                order=card_order,
+                archived=coerce_bool(card.get("archived"), default=False),
+                scheduled=coerce_bool(card.get("scheduled"), default=False),
+                done=coerce_bool(card.get("done"), default=False),
+                schedule=None,
+                created_by_id=created_by_id,
+                assigned_to_id=assigned_to_id,
+                updated_at=datetime.utcnow(),
+            )
+            db.add(new_card)
+            db.flush()
+
+            old_to_new_card_id[source_card_id] = new_card.id
+
+            source_schedule_id = card.get("schedule")
+            if isinstance(source_schedule_id, int) and source_schedule_id > 0:
+                pending_schedule_references[new_card.id] = source_schedule_id
+
+        sorted_checklists = sorted(
+            import_data["checklists"],
+            key=lambda item: (
+                int(item.get("card_id") or 0),
+                int(item.get("order") or 0),
+                int(item.get("id") or 0),
+            ),
+        )
+        for item in sorted_checklists:
+            source_card_id = item.get("card_id")
+            if source_card_id not in old_to_new_card_id:
+                continue
+
+            item_name = sanitize_import_text(
+                item.get("name"),
+                "Checklist item name",
+                500,
+                allow_none=False,
+            )
+
+            raw_order = item.get("order", 0)
+            if isinstance(raw_order, bool):
+                raw_order = 0
+            if not isinstance(raw_order, int):
+                raw_order = 0
+
+            db.add(
+                ChecklistItem(
+                    card_id=old_to_new_card_id[source_card_id],
+                    name=item_name,
+                    checked=coerce_bool(item.get("checked"), default=False),
+                    order=raw_order if raw_order >= 0 else 0,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+
+        sorted_comments = sorted(
+            import_data["comments"],
+            key=lambda comment: (
+                int(comment.get("card_id") or 0),
+                int(comment.get("order") or 0),
+                int(comment.get("id") or 0),
+            ),
+        )
+        for comment in sorted_comments:
+            source_card_id = comment.get("card_id")
+            if source_card_id not in old_to_new_card_id:
+                continue
+
+            comment_text = sanitize_import_text(
+                comment.get("comment"),
+                "Comment",
+                MAX_COMMENT_LENGTH,
+                allow_none=False,
+            )
+            raw_order = comment.get("order", 0)
+            if isinstance(raw_order, bool):
+                raw_order = 0
+            if not isinstance(raw_order, int):
+                raw_order = 0
+
+            db.add(
+                Comment(
+                    card_id=old_to_new_card_id[source_card_id],
+                    comment=comment_text,
+                    order=raw_order if raw_order >= 0 else 0,
+                )
+            )
+
+        sorted_schedules = sorted(
+            import_data["scheduled_cards"],
+            key=lambda schedule: int(schedule.get("id") or 0),
+        )
+        for schedule in sorted_schedules:
+            source_schedule_id = schedule.get("id")
+            source_template_card_id = schedule.get("card_id")
+            if source_template_card_id not in old_to_new_card_id:
+                continue
+
+            run_every = schedule.get("run_every")
+            if isinstance(run_every, bool) or not isinstance(run_every, int) or run_every < 1:
+                run_every = 1
+
+            unit = schedule.get("unit")
+            allowed_units = {"minute", "hour", "day", "week", "month", "year"}
+            if not isinstance(unit, str) or unit not in allowed_units:
+                unit = "day"
+
+            start_datetime = parse_iso_datetime(schedule.get("start_datetime")) or datetime.utcnow()
+            end_datetime = parse_iso_datetime(schedule.get("end_datetime"))
+
+            new_schedule = ScheduledCard(
+                card_id=old_to_new_card_id[source_template_card_id],
+                run_every=run_every,
+                unit=unit,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                schedule_enabled=coerce_bool(schedule.get("schedule_enabled"), default=True),
+                allow_duplicates=coerce_bool(schedule.get("allow_duplicates"), default=False),
+            )
+            db.add(new_schedule)
+            db.flush()
+
+            if isinstance(source_schedule_id, int):
+                old_to_new_schedule_id[source_schedule_id] = new_schedule.id
+
+        for imported_card_id, imported_schedule_id in pending_schedule_references.items():
+            mapped_schedule_id = old_to_new_schedule_id.get(imported_schedule_id)
+            if not mapped_schedule_id:
+                continue
+
+            db.query(Card).filter(Card.id == imported_card_id).update({"schedule": mapped_schedule_id})
+
+        # Secondary assignees are currently not imported by user ID.
+
+        db.commit()
+
+        return jsonify(
+            {
+                "success": True,
+                "message": "Board imported successfully",
+                "board": {
+                    "id": new_board.id,
+                    "name": new_board.name,
+                    "description": new_board.description,
+                },
+                "import_meta": {
+                    "source_board_name": source_board_name,
+                    "name_conflict_resolved": had_name_conflict,
+                    "import_format": import_data.get("import_format", BOARD_EXPORT_FORMAT),
+                    "import_format_version": import_data.get("import_format_version", "1.0"),
+                    "assignee_mapping": "not_mapped",
+                    "ignored_primary_assignees_count": ignored_primary_assignees_count,
+                    "ignored_secondary_assignees_count": ignored_secondary_assignees_count,
+                },
+            }
+        ), 201
+    except ValueError as validation_error:
+        db.rollback()
+        return create_error_response(str(validation_error), 400)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error importing board: {str(e)}")
+        return create_error_response("Failed to import board", 500)
     finally:
         db.close()
 

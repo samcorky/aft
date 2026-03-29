@@ -191,6 +191,10 @@ class PermissionManagerClass {
         return true;
       }
 
+      if (endpointInfo.allow_board_edit_assignment && this.userContext.has_board_edit_assignment === true) {
+        return true;
+      }
+
       return false;
     }
 

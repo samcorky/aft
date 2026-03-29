@@ -3,6 +3,10 @@ class BoardsManager {
   constructor() {
     this.container = document.getElementById('boards-container');
     this.boards = [];
+    this.pendingImportFile = null;
+    this.activeModalState = null;
+    this.previousBodyOverflow = '';
+    this.boundModalKeydownHandler = (event) => this.handleModalKeydown(event);
   }
 
   async init() {
@@ -67,12 +71,13 @@ class BoardsManager {
       </div>
       
       <!-- New Board Modal -->
-      <div id="new-board-modal" class="modal">
+      <div id="new-board-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="new-board-modal-title" aria-describedby="new-board-modal-description">
         <div class="modal-content">
           <div class="modal-header">
-            <h3>Create New Board</h3>
+            <h3 id="new-board-modal-title">Create New Board</h3>
             <button class="modal-close" id="modal-close">&times;</button>
           </div>
+          <p id="new-board-modal-description" class="visually-hidden">Create a new board by entering a name and optional description.</p>
           <form id="new-board-form">
             <div class="form-group">
               <label for="board-name">Board Name</label>
@@ -91,12 +96,13 @@ class BoardsManager {
       </div>
       
       <!-- Edit Board Modal -->
-      <div id="edit-board-modal" class="modal">
+      <div id="edit-board-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-board-modal-title" aria-describedby="edit-board-modal-description">
         <div class="modal-content">
           <div class="modal-header">
-            <h3>Edit Board</h3>
+            <h3 id="edit-board-modal-title">Edit Board</h3>
             <button class="modal-close" id="edit-modal-close">&times;</button>
           </div>
+          <p id="edit-board-modal-description" class="visually-hidden">Update the selected board name and description.</p>
           <form id="edit-board-form">
             <input type="hidden" id="edit-board-id">
             <div class="form-group">
@@ -114,6 +120,46 @@ class BoardsManager {
           </form>
         </div>
       </div>
+
+      <!-- Import Board Modal -->
+      <div id="import-board-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="import-board-modal-title" aria-describedby="import-board-modal-description">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="import-board-modal-title">Import Board</h3>
+            <button class="modal-close" id="import-modal-close">&times;</button>
+          </div>
+          <p id="import-board-modal-description" class="visually-hidden">Import a board from an AFT JSON file. This action validates file structure before importing.</p>
+          <form id="import-board-form">
+            <div class="form-group">
+              <label for="import-board-file">Source File</label>
+              <input type="file" id="import-board-file" name="file" accept=".json,application/json" required>
+              <small class="form-hint">Only AFT formatted JSON exports are supported.</small>
+            </div>
+            <div class="import-security-note">
+              Import checks file structure, relationship integrity, and security constraints before data is written. User assignees are not mapped yet and imported cards will be unassigned.
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="btn btn-secondary" id="import-cancel-btn">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="import-submit-btn">Import Board</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Import Name Conflict Modal -->
+      <div id="import-conflict-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="import-conflict-modal-title" aria-describedby="import-conflict-message">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="import-conflict-modal-title">Board Name Already Exists</h3>
+            <button class="modal-close" id="import-conflict-close">&times;</button>
+          </div>
+          <p id="import-conflict-message">A board with this name already exists.</p>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="import-conflict-cancel-btn">Cancel Import</button>
+            <button type="button" class="btn btn-primary" id="import-conflict-append-btn">Import With Suffix</button>
+          </div>
+        </div>
+      </div>
     `;
 
     // Attach event listeners for new board modal
@@ -125,6 +171,18 @@ class BoardsManager {
     document.getElementById('edit-modal-close').addEventListener('click', () => this.closeEditModal());
     document.getElementById('edit-cancel-btn').addEventListener('click', () => this.closeEditModal());
     document.getElementById('edit-board-form').addEventListener('submit', (e) => this.handleEditBoard(e));
+
+    // Import board modal handlers
+    document.getElementById('import-modal-close').addEventListener('click', () => this.closeImportModal());
+    document.getElementById('import-cancel-btn').addEventListener('click', () => this.closeImportModal());
+    document.getElementById('import-board-form').addEventListener('submit', (e) => this.handleImportBoard(e));
+
+    // Import conflict modal handlers
+    document.getElementById('import-conflict-close').addEventListener('click', () => this.closeImportConflictModal());
+    document.getElementById('import-conflict-cancel-btn').addEventListener('click', () => this.closeImportConflictModal());
+    document.getElementById('import-conflict-append-btn').addEventListener('click', async () => {
+      await this.retryImportWithSuffix();
+    });
     
     // Close modals on backdrop click
     document.getElementById('new-board-modal').addEventListener('click', (e) => {
@@ -136,6 +194,18 @@ class BoardsManager {
     document.getElementById('edit-board-modal').addEventListener('click', (e) => {
       if (e.target.id === 'edit-board-modal') {
         this.closeEditModal();
+      }
+    });
+
+    document.getElementById('import-board-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'import-board-modal') {
+        this.closeImportModal();
+      }
+    });
+
+    document.getElementById('import-conflict-modal').addEventListener('click', (e) => {
+      if (e.target.id === 'import-conflict-modal') {
+        this.closeImportConflictModal();
       }
     });
   }
@@ -198,7 +268,10 @@ class BoardsManager {
             <div class="empty-state-icon">📋</div>
             <h3>No boards yet</h3>
             <p>Create your first board to get started!</p>
-            <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+            <div class="empty-state-actions">
+              <button class="btn btn-primary" id="empty-state-new-board-btn">+ New Board</button>
+              <button class="btn btn-secondary" id="empty-state-import-board-btn">Import Board</button>
+            </div>
           </div>
         </div>
       `;
@@ -208,22 +281,82 @@ class BoardsManager {
       if (emptyStateNewBoardBtn) {
         emptyStateNewBoardBtn.addEventListener('click', () => this.openModal());
       }
+
+      const emptyStateImportBoardBtn = document.getElementById('empty-state-import-board-btn');
+      if (emptyStateImportBoardBtn) {
+        emptyStateImportBoardBtn.addEventListener('click', () => this.openImportModal());
+      }
     } else {
       listContainer.className = 'boards-grid';
-      
-      // Render board cards (always include edit/delete buttons, will filter by permissions after)
-      listContainer.innerHTML = this.boards.map(board => `
-        <div class="board-card" data-board-id="${this.escapeHtml(String(board.id))}" data-can-edit="${this.escapeHtml(String(board.can_edit))}" data-can-delete="${this.escapeHtml(String(board.can_delete))}">
-          <button class="board-edit-btn" data-board-id="${board.id}" data-board-name="${this.escapeHtml(board.name)}" data-board-description="${this.escapeHtml(board.description || '')}" title="Edit board">✎</button>
-          <button class="board-delete-btn" data-board-id="${board.id}" title="Delete board">×</button>
-          <h4>${this.escapeHtml(board.name)}</h4>
-          ${board.description ? `<p class="board-description">${this.escapeHtml(board.description)}</p>` : ''}
-        </div>
-      `).join('') + `
-        <div class="add-board-placeholder">
-          <button class="btn btn-primary" id="add-board-inline-btn">+ New Board</button>
-        </div>
-      `;
+
+      // Render board cards using explicit DOM APIs to avoid HTML injection risks.
+      listContainer.innerHTML = '';
+      this.boards.forEach(board => {
+        const card = document.createElement('div');
+        card.className = 'board-card';
+        card.dataset.boardId = String(board.id);
+        card.dataset.canEdit = String(!!board.can_edit);
+        card.dataset.canDelete = String(!!board.can_delete);
+        card.dataset.canExport = String(!!board.can_export);
+
+        const exportBtn = document.createElement('button');
+        exportBtn.className = 'board-export-btn';
+        exportBtn.dataset.boardId = String(board.id);
+        exportBtn.dataset.boardName = String(board.name || '');
+        exportBtn.title = 'Export board';
+        exportBtn.setAttribute('aria-label', 'Export board');
+        exportBtn.textContent = '⭳';
+        card.appendChild(exportBtn);
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'board-edit-btn';
+        editBtn.dataset.boardId = String(board.id);
+        editBtn.dataset.boardName = String(board.name || '');
+        editBtn.dataset.boardDescription = String(board.description || '');
+        editBtn.title = 'Edit board';
+        editBtn.setAttribute('aria-label', 'Edit board');
+        editBtn.textContent = '✎';
+        card.appendChild(editBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'board-delete-btn';
+        deleteBtn.dataset.boardId = String(board.id);
+        deleteBtn.title = 'Delete board';
+        deleteBtn.setAttribute('aria-label', 'Delete board');
+        deleteBtn.textContent = '×';
+        card.appendChild(deleteBtn);
+
+        const title = document.createElement('h4');
+        title.textContent = String(board.name || 'Untitled Board');
+        card.appendChild(title);
+
+        if (board.description) {
+          const description = document.createElement('p');
+          description.className = 'board-description';
+          description.textContent = String(board.description);
+          card.appendChild(description);
+        }
+
+        listContainer.appendChild(card);
+      });
+
+      const addBoardPlaceholder = document.createElement('div');
+      addBoardPlaceholder.className = 'add-board-placeholder';
+      const addBoardBtn = document.createElement('button');
+      addBoardBtn.className = 'btn btn-primary';
+      addBoardBtn.id = 'add-board-inline-btn';
+      addBoardBtn.textContent = '+ New Board';
+      addBoardPlaceholder.appendChild(addBoardBtn);
+      listContainer.appendChild(addBoardPlaceholder);
+
+      const importBoardPlaceholder = document.createElement('div');
+      importBoardPlaceholder.className = 'add-board-placeholder import-board-placeholder';
+      const importBoardBtn = document.createElement('button');
+      importBoardBtn.className = 'btn btn-secondary';
+      importBoardBtn.id = 'add-board-import-btn';
+      importBoardBtn.textContent = '⇪ Import Board';
+      importBoardPlaceholder.appendChild(importBoardBtn);
+      listContainer.appendChild(importBoardPlaceholder);
       
       // Apply permission-based rendering to board action buttons
       this.applyPermissionBasedRendering();
@@ -233,6 +366,21 @@ class BoardsManager {
       if (addBoardInlineBtn) {
         addBoardInlineBtn.addEventListener('click', () => this.openModal());
       }
+
+      const addBoardImportBtn = document.getElementById('add-board-import-btn');
+      if (addBoardImportBtn) {
+        addBoardImportBtn.addEventListener('click', () => this.openImportModal());
+      }
+
+      // Add event listeners for export buttons
+      listContainer.querySelectorAll('.board-export-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const boardId = parseInt(e.target.dataset.boardId, 10);
+          const boardName = e.target.dataset.boardName || 'board';
+          await this.handleBoardExport(boardId, boardName);
+        });
+      });
       
       // Add event listeners for edit buttons
       listContainer.querySelectorAll('.board-edit-btn').forEach(btn => {
@@ -281,9 +429,11 @@ class BoardsManager {
     document.querySelectorAll('.board-card').forEach(card => {
       const canEdit = card.getAttribute('data-can-edit') === 'true';
       const canDelete = card.getAttribute('data-can-delete') === 'true';
+      const canExport = card.getAttribute('data-can-export') === 'true';
       
       const editBtn = card.querySelector('.board-edit-btn');
       const deleteBtn = card.querySelector('.board-delete-btn');
+      const exportBtn = card.querySelector('.board-export-btn');
       
       // Remove edit button if user doesn't have permission
       // Backend has already calculated board-specific permissions (ownership + roles)
@@ -295,12 +445,21 @@ class BoardsManager {
       if (!canDelete) {
         deleteBtn?.remove();
       }
+
+      if (!canExport || !PermissionManager.canCallEndpoint('GET', '/api/boards/:id/export')) {
+        exportBtn?.remove();
+      }
     });
     
     // Check if user can create boards - if not, remove "New Board" button
     if (!PermissionManager.hasPermission('board.create')) {
       document.getElementById('add-board-inline-btn')?.remove();
       document.getElementById('empty-state-new-board-btn')?.remove();
+    }
+
+    if (!PermissionManager.canCallEndpoint('POST', '/api/boards/import')) {
+      document.getElementById('add-board-import-btn')?.remove();
+      document.getElementById('empty-state-import-board-btn')?.remove();
     }
     
     console.log('Permission-based rendering complete');
@@ -314,9 +473,11 @@ class BoardsManager {
     document.querySelectorAll('.board-card').forEach(card => {
       const canEdit = card.getAttribute('data-can-edit') === 'true';
       const canDelete = card.getAttribute('data-can-delete') === 'true';
+      const canExport = card.getAttribute('data-can-export') === 'true';
       
       const editBtn = card.querySelector('.board-edit-btn');
       const deleteBtn = card.querySelector('.board-delete-btn');
+      const exportBtn = card.querySelector('.board-export-btn');
       
       if (!canEdit) {
         editBtn?.remove();
@@ -325,18 +486,19 @@ class BoardsManager {
       if (!canDelete) {
         deleteBtn?.remove();
       }
+
+      if (!canExport) {
+        exportBtn?.remove();
+      }
     });
   }
 
   openModal() {
-    const modal = document.getElementById('new-board-modal');
-    modal.classList.add('active');
-    document.getElementById('board-name').focus();
+    this.openModalDialog('new-board-modal', 'board-name');
   }
 
   closeModal() {
-    const modal = document.getElementById('new-board-modal');
-    modal.classList.remove('active');
+    this.closeModalDialog('new-board-modal');
     document.getElementById('new-board-form').reset();
   }
 
@@ -409,18 +571,310 @@ class BoardsManager {
   }
 
   openEditModal(boardId, boardName, boardDescription) {
-    const modal = document.getElementById('edit-board-modal');
     document.getElementById('edit-board-id').value = boardId;
     document.getElementById('edit-board-name').value = boardName;
     document.getElementById('edit-board-description').value = boardDescription || '';
-    modal.classList.add('active');
-    document.getElementById('edit-board-name').focus();
+    this.openModalDialog('edit-board-modal', 'edit-board-name');
   }
 
   closeEditModal() {
-    const modal = document.getElementById('edit-board-modal');
-    modal.classList.remove('active');
+    this.closeModalDialog('edit-board-modal');
     document.getElementById('edit-board-form').reset();
+  }
+
+  openImportModal() {
+    this.openModalDialog('import-board-modal', 'import-board-file');
+  }
+
+  closeImportModal() {
+    this.closeModalDialog('import-board-modal');
+    this.pendingImportFile = null;
+    document.getElementById('import-board-form').reset();
+    const submitBtn = document.getElementById('import-submit-btn');
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Import Board';
+    }
+  }
+
+  openImportConflictModal(message) {
+    const messageElement = document.getElementById('import-conflict-message');
+    if (messageElement) {
+      messageElement.textContent = message;
+    }
+    this.openModalDialog('import-conflict-modal', 'import-conflict-cancel-btn');
+  }
+
+  closeImportConflictModal() {
+    this.closeModalDialog('import-conflict-modal');
+    this.pendingImportFile = null;
+  }
+
+  openModalDialog(modalId, initialFocusElementId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      return;
+    }
+
+    const triggerElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.activeModalState = {
+      id: modalId,
+      triggerElement,
+    };
+
+    if (!this.previousBodyOverflow) {
+      this.previousBodyOverflow = document.body.style.overflow || '';
+    }
+
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', this.boundModalKeydownHandler);
+
+    const initialElement = initialFocusElementId
+      ? document.getElementById(initialFocusElementId)
+      : null;
+    if (initialElement && typeof initialElement.focus === 'function') {
+      initialElement.focus();
+    }
+  }
+
+  closeModalDialog(modalId) {
+    const modal = document.getElementById(modalId);
+    if (!modal) {
+      return;
+    }
+
+    modal.classList.remove('active');
+
+    if (this.activeModalState && this.activeModalState.id === modalId) {
+      const { triggerElement } = this.activeModalState;
+      this.activeModalState = null;
+      document.removeEventListener('keydown', this.boundModalKeydownHandler);
+      document.body.style.overflow = this.previousBodyOverflow;
+      this.previousBodyOverflow = '';
+
+      if (triggerElement && document.body.contains(triggerElement) && typeof triggerElement.focus === 'function') {
+        triggerElement.focus();
+      }
+    }
+  }
+
+  handleModalKeydown(event) {
+    if (!this.activeModalState) {
+      return;
+    }
+
+    const modal = document.getElementById(this.activeModalState.id);
+    if (!modal || !modal.classList.contains('active')) {
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (this.activeModalState.id === 'new-board-modal') {
+        this.closeModal();
+      } else if (this.activeModalState.id === 'edit-board-modal') {
+        this.closeEditModal();
+      } else if (this.activeModalState.id === 'import-board-modal') {
+        this.closeImportModal();
+      } else if (this.activeModalState.id === 'import-conflict-modal') {
+        this.closeImportConflictModal();
+      }
+      return;
+    }
+
+    if (event.key === 'Tab') {
+      this.trapModalFocus(event, modal);
+    }
+  }
+
+  trapModalFocus(event, modal) {
+    const focusableSelectors = [
+      'a[href]',
+      'button:not([disabled])',
+      'textarea:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])'
+    ];
+    const focusableElements = Array.from(
+      modal.querySelectorAll(focusableSelectors.join(','))
+    ).filter((element) => element.offsetParent !== null);
+
+    if (focusableElements.length === 0) {
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+      return;
+    }
+
+    if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
+
+  validateAftImportStructure(payload) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return 'Import file must contain a JSON object';
+    }
+
+    const requiredKeys = [
+      'export',
+      'board',
+      'board_settings',
+      'columns',
+      'cards',
+      'card_secondary_assignees',
+      'checklists',
+      'comments',
+      'scheduled_cards'
+    ];
+
+    for (const key of requiredKeys) {
+      if (!(key in payload)) {
+        return `Missing required key: ${key}`;
+      }
+    }
+
+    if (!payload.export || payload.export.format !== 'aft-board') {
+      return 'Only AFT formatted JSON exports are supported';
+    }
+
+    if (!payload.board || typeof payload.board.name !== 'string' || !payload.board.name.trim()) {
+      return 'Board name is required in import payload';
+    }
+
+    return null;
+  }
+
+  async handleImportBoard(e) {
+    e.preventDefault();
+
+    const fileInput = document.getElementById('import-board-file');
+    const submitBtn = document.getElementById('import-submit-btn');
+    const file = fileInput?.files?.[0];
+
+    if (!file) {
+      this.showErrorToast('Please choose a JSON export file to import');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Validating...';
+
+    try {
+      const fileText = await file.text();
+      let parsedPayload = null;
+      try {
+        parsedPayload = JSON.parse(fileText);
+      } catch (error) {
+        this.showErrorToast('Import file is not valid JSON');
+        return;
+      }
+
+      const integrityError = this.validateAftImportStructure(parsedPayload);
+      if (integrityError) {
+        this.showErrorToast(`Import integrity check failed: ${integrityError}`);
+        return;
+      }
+
+      submitBtn.textContent = 'Importing...';
+      await this.submitImportFile(file, 'cancel');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Import Board';
+    }
+  }
+
+  async submitImportFile(file, duplicateStrategy) {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    formData.append('duplicate_strategy', duplicateStrategy);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    let response = null;
+    let data = null;
+
+    try {
+      response = await fetch('/api/boards/import', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      data = await this.parseJsonResponse(response);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        this.showErrorToast('Import timed out after 5 seconds. Please try again.');
+        return;
+      }
+      throw error;
+    }
+
+    if (response.status === 409 && data?.requires_confirmation) {
+      this.pendingImportFile = file;
+      const conflictMessage = data.message || 'A board with this name already exists.';
+      this.closeModalDialog('import-board-modal');
+      this.openImportConflictModal(conflictMessage);
+      return;
+    }
+
+    if (!response.ok || !data?.success) {
+      const message = data?.message || `Import failed with status ${response.status}`;
+      this.showErrorToast(message);
+      return;
+    }
+
+    this.closeImportModal();
+    this.closeImportConflictModal();
+    await this.loadBoards();
+
+    if (window.header) {
+      window.header.checkDatabaseStatus();
+      window.header.loadBoardsDropdown();
+    }
+
+    this.showSuccessToast(`Board imported successfully: ${data.board?.name || 'Imported board'}`, 4000);
+  }
+
+  async parseJsonResponse(response) {
+    try {
+      return await response.json();
+    } catch (error) {
+      return { success: false, message: 'Unexpected server response' };
+    }
+  }
+
+  async retryImportWithSuffix() {
+    if (!this.pendingImportFile) {
+      this.showErrorToast('No pending import found. Please select a file again.');
+      this.closeImportConflictModal();
+      return;
+    }
+
+    await this.submitImportFile(this.pendingImportFile, 'append_suffix');
+  }
+
+  async handleBoardExport(boardId, boardName) {
+    try {
+      // Use direct browser navigation so Content-Disposition download handling
+      // is performed by the browser without injecting untrusted data into the DOM.
+      window.location.assign(`/api/boards/${boardId}/export`);
+    } catch (error) {
+      console.error('Error exporting board:', error, boardName);
+      this.showErrorToast('Error exporting board');
+    }
   }
 
   async handleEditBoard(e) {
@@ -466,16 +920,26 @@ class BoardsManager {
 
   showError(message) {
     const listContainer = document.getElementById('boards-list');
-    // Message should already be escaped before calling this function,
-    // but we double-escape for defense in depth
-    const safeMessage = typeof message === 'string' ? message : String(message);
-    listContainer.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-icon">⚠️</div>
-        <h3>Error</h3>
-        <p>${safeMessage}</p>
-      </div>
-    `;
+    console.error('Boards page error:', message);
+    listContainer.innerHTML = '';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'empty-state';
+
+    const icon = document.createElement('div');
+    icon.className = 'empty-state-icon';
+    icon.textContent = '⚠️';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Error';
+
+    const paragraph = document.createElement('p');
+    paragraph.textContent = 'Unable to load boards right now.';
+
+    wrapper.appendChild(icon);
+    wrapper.appendChild(title);
+    wrapper.appendChild(paragraph);
+    listContainer.appendChild(wrapper);
   }
 
   /**
@@ -484,9 +948,13 @@ class BoardsManager {
    * @param {number} duration - How long to show the toast in milliseconds (default 3000)
    */
   showErrorToast(message, duration = 3000) {
+    if (message) {
+      console.error(message);
+    }
+
     const toast = document.createElement('div');
     toast.className = 'error-toast';
-    toast.textContent = message;
+    toast.textContent = 'Operation failed. Please try again.';
     toast.setAttribute('role', 'alert');
     toast.setAttribute('aria-live', 'assertive');
     toast.setAttribute('aria-atomic', 'true');
@@ -513,10 +981,49 @@ class BoardsManager {
     }, duration);
   }
 
+  showSuccessToast(message, duration = 3000) {
+    if (message) {
+      console.log(message);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'success-toast';
+    toast.textContent = 'Operation completed successfully.';
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #27ae60;
+      color: white;
+      padding: 12px 20px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      max-width: 400px;
+      word-wrap: break-word;
+    `;
+
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, duration);
+  }
+
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  sanitizePlainText(text) {
+    const raw = typeof text === 'string' ? text : String(text ?? '');
+    return raw.replace(/[\u0000-\u001F\u007F]/g, '').slice(0, 2000);
   }
 }
 

@@ -188,13 +188,18 @@
   opacity: 0;
 }
 
-.board-card:hover .board-export-btn {
+.board-card:hover .board-export-btn,
+.board-card:focus-within .board-export-btn,
+.board-export-btn:focus-visible {
   opacity: 1;
 }
 
-.board-export-btn:hover {
+.board-export-btn:hover,
+.board-export-btn:focus-visible {
   background-color: var(--primary-color);
   color: white;
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 .board-delete-btn {

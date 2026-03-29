@@ -33,6 +33,14 @@ API_WAIT_INTERVAL_SECONDS = _env_float("PYTEST_API_WAIT_INTERVAL_SECONDS", 0.5)
 API_REQUEST_TIMEOUT_SECONDS = _env_float("PYTEST_API_REQUEST_TIMEOUT_SECONDS", 1.0)
 API_READY_ENDPOINT = os.getenv("PYTEST_API_READY_ENDPOINT", "/api/auth/setup/status")
 
+# Authentication candidates for test admin recovery across auth-flow tests.
+# Some auth tests intentionally change test-admin password and later tests
+# still need fixture-driven reauthentication to succeed.
+TEST_ADMIN_LOGIN_CANDIDATES = [
+    ("test-admin@localhost", "TestAdmin123!"),
+    ("admin@localhost", "AdminPass123!"),
+]
+
 # Cleanup timing constants (in seconds)
 # These delays ensure async operations complete before proceeding
 CLEANUP_DELAY_SHORT = 0.1    # Standard delay after test cleanup
@@ -112,14 +120,15 @@ def _is_setup_already_complete_response(response):
 
 def _login_test_admin(session):
     """Attempt login using the canonical test-admin credentials."""
-    login_response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-        "email": "test-admin@localhost",
-        "password": "TestAdmin123!",
-    })
+    for email, password in TEST_ADMIN_LOGIN_CANDIDATES:
+        login_response = session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": email,
+            "password": password,
+        })
 
-    if login_response.status_code == 200:
-        _mirror_secure_session_cookies_for_http(session)
-        return True
+        if login_response.status_code == 200:
+            _mirror_secure_session_cookies_for_http(session)
+            return True
 
     return False
 
@@ -239,13 +248,10 @@ def test_admin_session(request, wait_for_api):
         else:
             # Users exist - try to login as test admin
             print("\n[Test Setup] Users exist - logging in as test admin...")
-            login_response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-                "email": "test-admin@localhost",
-                "password": "TestAdmin123!"
-            })
+            login_ok = _login_test_admin(session)
             
             # If login fails, test admin doesn't exist - can't proceed
-            if login_response.status_code != 200:
+            if not login_ok:
                 # Cannot create test admin when other users exist - would require approval
                 pytest.exit(
                     f"\n{'='*70}\n"
@@ -365,15 +371,11 @@ def authenticated_session(test_admin_session):
                     time.sleep(0.2)
                     continue
             else:
-                login_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
-                    "email": "test-admin@localhost",
-                    "password": "TestAdmin123!"
-                })
-                if login_response.status_code == 200:
+                if _login_test_admin(test_admin_session):
                     print("[Test Setup] Logged in as test admin successfully")
                     _mirror_secure_session_cookies_for_http(test_admin_session)
                 else:
-                    last_error = f"login HTTP {login_response.status_code}"
+                    last_error = "login HTTP 401"
                     time.sleep(0.2)
                     continue
 
@@ -469,12 +471,7 @@ def _delete_all_data(session=None):
 
             session.cookies.clear()
 
-            login_candidates = [
-                ("test-admin@localhost", "TestAdmin123!"),
-                ("admin@localhost", "AdminPass123!"),
-            ]
-
-            for email, password in login_candidates:
+            for email, password in TEST_ADMIN_LOGIN_CANDIDATES:
                 login_response = session.post(
                     f"{API_BASE_URL}/api/auth/login",
                     json={"email": email, "password": password},

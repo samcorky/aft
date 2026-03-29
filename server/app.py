@@ -943,27 +943,36 @@ def validate_json_import_payload_size(payload_text, max_size_mb=25):
 
 
 def parse_iso_datetime(value):
-    """Parse an ISO-8601 datetime string into a datetime object."""
+    """Parse an ISO-8601 datetime string into a naive UTC datetime object."""
     if value is None:
         return None
 
+    # If already a datetime, normalize it to naive UTC.
     if isinstance(value, datetime):
-        return value
+        dt = value
+    else:
+        if not isinstance(value, str):
+            return None
 
-    if not isinstance(value, str):
-        return None
+        candidate = value.strip()
+        if not candidate:
+            return None
 
-    candidate = value.strip()
-    if not candidate:
-        return None
+        # Normalize trailing Z to +00:00 so fromisoformat can parse it.
+        if candidate.endswith("Z"):
+            candidate = f"{candidate[:-1]}+00:00"
 
-    if candidate.endswith("Z"):
-        candidate = f"{candidate[:-1]}+00:00"
+        try:
+            dt = datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
 
-    try:
-        return datetime.fromisoformat(candidate)
-    except ValueError:
-        return None
+    # At this point, dt is a datetime. If it is timezone-aware,
+    # convert to UTC and drop tzinfo so we store naive UTC in the DB.
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return dt
 
 
 def serialize_datetime(value):

@@ -799,7 +799,7 @@ class BoardsManager {
     formData.append('duplicate_strategy', duplicateStrategy);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     let response = null;
     let data = null;
@@ -954,7 +954,12 @@ class BoardsManager {
 
     const toast = document.createElement('div');
     toast.className = 'error-toast';
-    toast.textContent = 'Operation failed. Please try again.';
+    const fallbackMessage = 'Operation failed. Please try again.';
+    const safeMessage =
+      typeof message === 'string' && message.trim().length > 0
+        ? message.trim()
+        : fallbackMessage;
+    toast.textContent = safeMessage;
     toast.setAttribute('role', 'alert');
     toast.setAttribute('aria-live', 'assertive');
     toast.setAttribute('aria-atomic', 'true');
@@ -988,7 +993,10 @@ class BoardsManager {
 
     const toast = document.createElement('div');
     toast.className = 'success-toast';
-    toast.textContent = 'Operation completed successfully.';
+    const safeMessage = message
+      ? this.sanitizePlainText(message)
+      : 'Operation completed successfully.';
+    toast.textContent = safeMessage;
     toast.setAttribute('role', 'alert');
     toast.setAttribute('aria-live', 'assertive');
     toast.setAttribute('aria-atomic', 'true');

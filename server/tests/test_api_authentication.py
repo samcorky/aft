@@ -511,6 +511,13 @@ class TestPasswordChange:
         })
         assert response.status_code == 200
 
+        # Restore canonical test-admin password so tests remain independent.
+        reset_response = new_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
+            "current_password": "NewAdminPass456!",
+            "new_password": "TestAdmin123!"
+        })
+        assert reset_response.status_code == 200
+
 
 class TestAuthenticationFlow:
     """Test complete authentication flow."""
@@ -545,7 +552,7 @@ class TestAuthenticationFlow:
         admin_session = requests.Session()
         response = admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
             "email": "test-admin@localhost",
-            "password": "NewAdminPass456!"
+            "password": "TestAdmin123!"
         })
         assert response.status_code == 200
         

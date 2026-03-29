@@ -1,4 +1,5 @@
 """Pytest configuration and fixtures."""
+import os
 import pytest
 import requests
 import time
@@ -8,8 +9,37 @@ from urllib.parse import urlparse
 
 # API base URL - tests hit through nginx like external API clients would
 # This mimics how external tools/UIs would access the API (via 80/443, not internal 5000)
-API_BASE_URL = "http://localhost"
+# Override with PYTEST_API_BASE_URL for local debugging if needed.
+API_BASE_URL = os.getenv("PYTEST_API_BASE_URL", "http://localhost")
 TEST_API_HOST = urlparse(API_BASE_URL).hostname or "localhost"
+
+
+def _env_float(name, default):
+    """Parse float env vars safely with a fallback."""
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return default
+
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+
+    return value if value > 0 else default
+
+
+API_WAIT_TIMEOUT_SECONDS = _env_float("PYTEST_API_WAIT_TIMEOUT_SECONDS", 8.0)
+API_WAIT_INTERVAL_SECONDS = _env_float("PYTEST_API_WAIT_INTERVAL_SECONDS", 0.5)
+API_REQUEST_TIMEOUT_SECONDS = _env_float("PYTEST_API_REQUEST_TIMEOUT_SECONDS", 1.0)
+API_READY_ENDPOINT = os.getenv("PYTEST_API_READY_ENDPOINT", "/api/auth/setup/status")
+
+# Authentication candidates for test admin recovery across auth-flow tests.
+# Some auth tests intentionally change test-admin password and later tests
+# still need fixture-driven reauthentication to succeed.
+TEST_ADMIN_LOGIN_CANDIDATES = [
+    ("test-admin@localhost", "TestAdmin123!"),
+    ("admin@localhost", "AdminPass123!"),
+]
 
 # Cleanup timing constants (in seconds)
 # These delays ensure async operations complete before proceeding
@@ -74,24 +104,67 @@ def _patched_session_request(self, method, url, *args, **kwargs):
 requests.Session.request = _patched_session_request
 
 
+def _is_setup_already_complete_response(response):
+    """Return True when setup/admin endpoint indicates setup already completed."""
+    if response is None or response.status_code != 403:
+        return False
+
+    try:
+        data = response.json()
+    except ValueError:
+        return False
+
+    message = str(data.get("message", "")).lower()
+    return "setup is already complete" in message
+
+
+def _login_test_admin(session):
+    """Attempt login using the canonical test-admin credentials."""
+    for email, password in TEST_ADMIN_LOGIN_CANDIDATES:
+        login_response = session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": email,
+            "password": password,
+        })
+
+        if login_response.status_code == 200:
+            _mirror_secure_session_cookies_for_http(session)
+            return True
+
+    return False
+
+
 @pytest.fixture(scope='session')
 def wait_for_api(request):
     """Wait for API to be ready before running tests (API tests only)."""
     # Only run for API tests
     if 'unit' in request.keywords:
         return
-    
-    max_retries = 30
-    for i in range(max_retries):
+
+    deadline = time.time() + API_WAIT_TIMEOUT_SECONDS
+    last_error = None
+
+    while time.time() < deadline:
         try:
-            response = requests.get(f"{API_BASE_URL}/api/version", timeout=1)
-            if response.status_code == 200:
+            response = requests.get(
+                f"{API_BASE_URL}{API_READY_ENDPOINT}",
+                timeout=API_REQUEST_TIMEOUT_SECONDS,
+            )
+            # Any non-5xx response indicates the API process is reachable.
+            if response.status_code < 500:
                 return
-        except requests.exceptions.RequestException:
-            if i < max_retries - 1:
-                time.sleep(1)
-            else:
-                raise Exception("API not available after 30 seconds")
+            last_error = f"unexpected status {response.status_code}"
+        except requests.exceptions.RequestException as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+        time.sleep(API_WAIT_INTERVAL_SECONDS)
+
+    raise Exception(
+        "API not available for API tests. "
+        f"Tried {API_BASE_URL}{API_READY_ENDPOINT} for {API_WAIT_TIMEOUT_SECONDS:.1f}s; "
+        f"last error: {last_error}. "
+        "Start the integration stack first (e.g. `docker compose up -d nginx`) "
+        "or increase PYTEST_API_WAIT_TIMEOUT_SECONDS."
+    )
 
 
 @pytest.fixture(scope='session')
@@ -139,7 +212,20 @@ def test_admin_session(request, wait_for_api):
                 "password": "TestAdmin123!",
                 "display_name": "Test Admin"
             })
-            if admin_response.status_code not in (200, 201):
+            if _is_setup_already_complete_response(admin_response):
+                if _login_test_admin(session):
+                    print("[Test Setup] Setup completed during init; logged in as test admin")
+                else:
+                    raise Exception(
+                        f"\n{'='*70}\n"
+                        f"AUTHENTICATION SETUP FAILED\n"
+                        f"{'='*70}\n"
+                        f"Setup completed during initialization, but test admin login failed.\n"
+                        f"HTTP Status: {admin_response.status_code}\n"
+                        f"Response: {admin_response.text}\n"
+                        f"{'='*70}\n"
+                    )
+            elif admin_response.status_code not in (200, 201):
                 raise Exception(
                     f"\n{'='*70}\n"
                     f"AUTHENTICATION SETUP FAILED\n"
@@ -157,17 +243,15 @@ def test_admin_session(request, wait_for_api):
                     f"  docker compose up -d\n"
                     f"{'='*70}\n"
                 )
-            print("[Test Setup] Test admin user created successfully")
+            else:
+                print("[Test Setup] Test admin user created successfully")
         else:
             # Users exist - try to login as test admin
             print("\n[Test Setup] Users exist - logging in as test admin...")
-            login_response = session.post(f"{API_BASE_URL}/api/auth/login", json={
-                "email": "test-admin@localhost",
-                "password": "TestAdmin123!"
-            })
+            login_ok = _login_test_admin(session)
             
             # If login fails, test admin doesn't exist - can't proceed
-            if login_response.status_code != 200:
+            if not login_ok:
                 # Cannot create test admin when other users exist - would require approval
                 pytest.exit(
                     f"\n{'='*70}\n"
@@ -280,20 +364,18 @@ def authenticated_session(test_admin_session):
                 if admin_response.status_code in (200, 201):
                     print("[Test Setup] Test admin recreated successfully")
                     _mirror_secure_session_cookies_for_http(test_admin_session)
+                elif _is_setup_already_complete_response(admin_response) and _login_test_admin(test_admin_session):
+                    print("[Test Setup] Setup completed during recreate; logged in as test admin")
                 else:
                     last_error = f"setup admin HTTP {admin_response.status_code}"
                     time.sleep(0.2)
                     continue
             else:
-                login_response = test_admin_session.post(f"{API_BASE_URL}/api/auth/login", json={
-                    "email": "test-admin@localhost",
-                    "password": "TestAdmin123!"
-                })
-                if login_response.status_code == 200:
+                if _login_test_admin(test_admin_session):
                     print("[Test Setup] Logged in as test admin successfully")
                     _mirror_secure_session_cookies_for_http(test_admin_session)
                 else:
-                    last_error = f"login HTTP {login_response.status_code}"
+                    last_error = "login HTTP 401"
                     time.sleep(0.2)
                     continue
 
@@ -389,12 +471,7 @@ def _delete_all_data(session=None):
 
             session.cookies.clear()
 
-            login_candidates = [
-                ("test-admin@localhost", "TestAdmin123!"),
-                ("admin@localhost", "AdminPass123!"),
-            ]
-
-            for email, password in login_candidates:
+            for email, password in TEST_ADMIN_LOGIN_CANDIDATES:
                 login_response = session.post(
                     f"{API_BASE_URL}/api/auth/login",
                     json={"email": email, "password": password},
@@ -441,7 +518,8 @@ def _delete_all_data(session=None):
                     f"{API_BASE_URL}/api/boards/{board['id']}",
                     timeout=5,
                 )
-                if delete_response.status_code != 200:
+                # 404 means the board was already removed between list and delete.
+                if delete_response.status_code not in (200, 404):
                     failed_deletes.append({
                         'id': board['id'],
                         'name': board['name'],
@@ -479,10 +557,27 @@ def _delete_all_data(session=None):
         if verify_response.status_code == 200:
             remaining = verify_response.json().get('boards', [])
             if remaining:
-                raise Exception(
-                    f"Cleanup verification failed: {len(remaining)} board(s) still exist after cleanup. "
-                    f"Database may be in an inconsistent state."
-                )
+                # Handle eventual consistency/race windows by retrying cleanup briefly.
+                for _ in range(3):
+                    time.sleep(CLEANUP_DELAY_SHORT)
+                    for board in remaining:
+                        _request_with_reauth(
+                            http.delete,
+                            f"{API_BASE_URL}/api/boards/{board['id']}",
+                            timeout=5,
+                        )
+                    verify_response = _request_with_reauth(http.get, f"{API_BASE_URL}/api/boards", timeout=5)
+                    if verify_response.status_code != 200:
+                        break
+                    remaining = verify_response.json().get('boards', [])
+                    if not remaining:
+                        break
+
+                if verify_response.status_code == 200 and remaining:
+                    raise Exception(
+                        f"Cleanup verification failed: {len(remaining)} board(s) still exist after cleanup. "
+                        f"Database may be in an inconsistent state."
+                    )
         elif verify_response.status_code == 503 and _setup_is_incomplete():
             return
         

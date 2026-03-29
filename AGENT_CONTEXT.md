@@ -14,6 +14,8 @@ Current high-value context
 - Notification action URLs are validated server-side by validate_safe_url in server/app.py and include protocol restrictions plus unsafe-character checks.
 - Focused notification URL security tests live in server/tests/test_api_notifications.py.
 - Integration pytest calls in server/tests hit the running Docker stack. Rebuild containers after app.py/runtime changes before retesting.
+- Board import API at /api/boards/import enforces JSON size caps, strict format/schema validation, and relationship integrity checks before writes.
+- Imported card assignees are intentionally not mapped by user id across instances; imported cards are created by the importing user and left unassigned.
 
 Security workflow
 - Run Snyk Code after modifying first-party code in supported languages.

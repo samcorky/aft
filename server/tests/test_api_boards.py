@@ -1,5 +1,78 @@
 """Tests for board API endpoints."""
+import json
+
 import pytest
+
+
+def build_minimal_board_import_payload(board_name="Imported Board"):
+    """Build a minimal valid AFT board import payload for API tests."""
+    return {
+        "export": {
+            "format": "aft-board",
+            "format_version": "1.0",
+            "app_version": "test",
+            "exported_at": "2026-03-28T00:00:00Z",
+            "exported_by_user_id": 1,
+            "source_board_id": 1,
+            "features_exported": [
+                "board",
+                "board_settings",
+                "columns",
+                "cards",
+                "card_secondary_assignees",
+                "checklists",
+                "comments",
+                "scheduled_cards",
+            ],
+        },
+        "board": {
+            "id": 1,
+            "name": board_name,
+            "description": "Imported description",
+            "owner_id": 1,
+            "created_at": "2026-03-28T00:00:00Z",
+            "updated_at": "2026-03-28T00:00:00Z",
+        },
+        "board_settings": [],
+        "columns": [
+            {
+                "id": 10,
+                "board_id": 1,
+                "name": "Imported Column",
+                "order": 0,
+                "created_at": "2026-03-28T00:00:00Z",
+                "updated_at": "2026-03-28T00:00:00Z",
+            }
+        ],
+        "cards": [
+            {
+                "id": 100,
+                "column_id": 10,
+                "title": "Imported Card",
+                "description": "Imported card description",
+                "order": 0,
+                "archived": False,
+                "scheduled": False,
+                "schedule": None,
+                "done": False,
+                "created_by_id": 999,
+                "assigned_to_id": 999,
+                "created_at": "2026-03-28T00:00:00Z",
+                "updated_at": "2026-03-28T00:00:00Z",
+            }
+        ],
+        "card_secondary_assignees": [
+            {
+                "id": 1,
+                "card_id": 100,
+                "user_id": 998,
+                "created_at": "2026-03-28T00:00:00Z",
+            }
+        ],
+        "checklists": [],
+        "comments": [],
+        "scheduled_cards": [],
+    }
 
 
 @pytest.mark.api
@@ -296,6 +369,119 @@ class TestBoardsAPI:
             for card in column['cards']
         }
         assert template_card_id in with_secondary_ids
+
+    def test_export_board_success(self, api_client, authenticated_session, sample_board):
+        """Board export returns AFT JSON payload and attachment headers."""
+        response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/export')
+
+        assert response.status_code == 200
+        assert response.headers.get('Content-Type', '').startswith('application/json')
+        content_disposition = response.headers.get('Content-Disposition', '')
+        assert 'attachment;' in content_disposition
+        assert 'aft_board_' in content_disposition
+
+        export_data = response.json()
+        assert export_data['export']['format'] == 'aft-board'
+        assert export_data['board']['id'] == sample_board['id']
+        assert isinstance(export_data['columns'], list)
+        assert isinstance(export_data['cards'], list)
+        assert isinstance(export_data['checklists'], list)
+        assert isinstance(export_data['comments'], list)
+        assert isinstance(export_data['scheduled_cards'], list)
+
+    def test_export_board_permission_denied(self, api_client, second_user_session, sample_board):
+        """Users without board access cannot export another user's board."""
+        response = second_user_session.get(f'{api_client}/api/boards/{sample_board["id"]}/export')
+        assert response.status_code == 403
+
+    def test_import_board_success_and_assignees_not_mapped(self, api_client, authenticated_session):
+        """Import succeeds and imported assignees are intentionally not mapped."""
+        payload = build_minimal_board_import_payload('Imported Board Success')
+
+        import_response = authenticated_session.post(
+            f'{api_client}/api/boards/import',
+            data={'duplicate_strategy': 'cancel'},
+            files={'file': ('board-import.json', json.dumps(payload), 'application/json')},
+        )
+        assert import_response.status_code == 201, import_response.text
+
+        data = import_response.json()
+        assert data['success'] is True
+        assert data['board']['name'] == 'Imported Board Success'
+        assert data['import_meta']['assignee_mapping'] == 'not_mapped'
+        assert data['import_meta']['ignored_primary_assignees_count'] == 1
+        assert data['import_meta']['ignored_secondary_assignees_count'] == 1
+
+        imported_board_id = data['board']['id']
+        export_response = authenticated_session.get(f'{api_client}/api/boards/{imported_board_id}/export')
+        assert export_response.status_code == 200
+        exported_data = export_response.json()
+        assert len(exported_data['cards']) == 1
+        assert exported_data['cards'][0]['assigned_to_id'] is None
+
+        me_response = authenticated_session.get(f'{api_client}/api/auth/me')
+        assert me_response.status_code == 200
+        current_user_id = me_response.json()['user']['id']
+        assert exported_data['cards'][0]['created_by_id'] == current_user_id
+
+    def test_import_board_invalid_structure(self, api_client, authenticated_session):
+        """Import rejects payloads missing required top-level keys."""
+        payload = build_minimal_board_import_payload('Invalid Structure Board')
+        payload.pop('columns')
+
+        response = authenticated_session.post(
+            f'{api_client}/api/boards/import',
+            data={'duplicate_strategy': 'cancel'},
+            files={'file': ('board-import-invalid.json', json.dumps(payload), 'application/json')},
+        )
+        assert response.status_code == 400
+
+        data = response.json()
+        assert data['success'] is False
+        assert data['message'] == 'Import validation failed'
+        assert any('Missing required top-level keys' in error for error in data.get('errors', []))
+
+    def test_import_board_duplicate_name_conflict_and_suffix_retry(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Import returns 409 on duplicate name and succeeds with append_suffix."""
+        payload = build_minimal_board_import_payload(sample_board['name'])
+
+        first_attempt = authenticated_session.post(
+            f'{api_client}/api/boards/import',
+            data={'duplicate_strategy': 'cancel'},
+            files={'file': ('board-import-duplicate.json', json.dumps(payload), 'application/json')},
+        )
+        assert first_attempt.status_code == 409
+        conflict_data = first_attempt.json()
+        assert conflict_data['success'] is False
+        assert conflict_data['requires_confirmation'] is True
+        assert conflict_data['conflict_type'] == 'board_name_exists'
+
+        second_attempt = authenticated_session.post(
+            f'{api_client}/api/boards/import',
+            data={'duplicate_strategy': 'append_suffix'},
+            files={'file': ('board-import-duplicate.json', json.dumps(payload), 'application/json')},
+        )
+        assert second_attempt.status_code == 201
+        imported_data = second_attempt.json()
+        assert imported_data['success'] is True
+        assert imported_data['board']['name'] != sample_board['name']
+        assert imported_data['board']['name'].startswith(f"{sample_board['name']} (imported)")
+
+    def test_import_board_permission_denied(self, api_client, second_user_session):
+        """Import requires editor-level capability and is denied otherwise."""
+        payload = build_minimal_board_import_payload('Import Denied Board')
+
+        response = second_user_session.post(
+            f'{api_client}/api/boards/import',
+            data={'duplicate_strategy': 'cancel'},
+            files={'file': ('board-import-denied.json', json.dumps(payload), 'application/json')},
+        )
+        assert response.status_code == 403
 
 
 @pytest.mark.api

@@ -107,6 +107,17 @@
   box-shadow: none;
 }
 
+.import-board-placeholder .btn {
+  background-color: rgba(46, 204, 113, 0.12);
+  color: #1f8a4d;
+  border-color: #1f8a4d;
+}
+
+.import-board-placeholder .btn:hover {
+  background-color: #1f8a4d;
+  color: #ffffff;
+}
+
 .board-card h4 {
   margin: 0;
   font-size: 18px;
@@ -155,6 +166,40 @@
 .board-edit-btn:hover {
   background-color: var(--primary-color);
   color: white;
+}
+
+.board-export-btn {
+  position: absolute;
+  top: 10px;
+  right: 70px;
+  background: none;
+  border: none;
+  color: var(--secondary-color);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 5px;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0;
+}
+
+.board-card:hover .board-export-btn,
+.board-card:focus-within .board-export-btn,
+.board-export-btn:focus-visible {
+  opacity: 1;
+}
+
+.board-export-btn:hover,
+.board-export-btn:focus-visible {
+  background-color: var(--primary-color);
+  color: white;
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }
 
 .board-delete-btn {
@@ -212,6 +257,13 @@
 
 .empty-state p {
   margin-bottom: 20px;
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 /* Modal Styles */
@@ -322,6 +374,24 @@
 .form-group textarea:focus {
   outline: none;
   border-color: var(--primary-color);
+}
+
+.form-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.import-security-note {
+  margin-bottom: 20px;
+  background: rgba(46, 204, 113, 0.08);
+  border: 1px solid rgba(31, 138, 77, 0.35);
+  color: var(--text-color);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .modal-actions {

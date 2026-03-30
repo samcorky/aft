@@ -940,10 +940,18 @@ class BoardManager {
     return params;
   }
 
+  /**
+   * Check if any assignee filters are currently active
+   * @returns {boolean} True if specific assignees are selected or unassigned filter is active
+   */
   hasActiveFilters() {
     return this.assigneeFilterSelectedUserIds.size > 0 || this.assigneeFilterIncludeUnassigned;
   }
 
+  /**
+   * Clear all active filters and reload the board
+   * Resets selected assignees, unassigned toggle, and secondary assignees toggle
+   */
   clearFilters() {
     this.assigneeFilterSelectedUserIds.clear();
     this.assigneeFilterIncludeUnassigned = false;

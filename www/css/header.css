@@ -126,6 +126,13 @@
   }
 }
 
+/* Respect user's motion preferences for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .filter-active-indicator {
+    animation: none;
+  }
+}
+
 .boards-dropdown {
   position: relative;
 }

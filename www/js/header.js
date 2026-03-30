@@ -1011,6 +1011,10 @@ class Header {
     menuItem.textContent = visible ? 'Hide filters' : 'Show filters';
   }
 
+  /**
+   * Initialize the clear filters menu item
+   * Sets up event listener for clearing filters and manages visibility based on filter state
+   */
   initializeBoardFilterClearMenu() {
     const menuItem = document.getElementById('clear-board-filters-menu-item');
     if (!menuItem) {
@@ -1039,12 +1043,21 @@ class Header {
     window.addEventListener('boardFiltersActiveStateChanged', this.boardFiltersActiveStateHandler);
   }
 
+  /**
+   * Handle board filters active state change event
+   * Updates the visual indicator and clear filters menu visibility
+   * @param {CustomEvent} event - Event containing filter active state in detail.active
+   */
   handleBoardFiltersActiveStateChanged(event) {
     const active = !!event?.detail?.active;
     this.updateFilterActiveIndicator(active);
     this.updateClearFiltersMenuVisibility(active);
   }
 
+  /**
+   * Update the visual filter active indicator in the header
+   * @param {boolean} active - Whether filters are currently active
+   */
   updateFilterActiveIndicator(active) {
     const indicator = document.getElementById('filter-active-indicator');
     if (indicator) {
@@ -1052,6 +1065,10 @@ class Header {
     }
   }
 
+  /**
+   * Update the visibility of the clear filters menu item
+   * @param {boolean} active - Whether filters are currently active
+   */
   updateClearFiltersMenuVisibility(active) {
     const menuItem = document.getElementById('clear-board-filters-menu-item');
     if (menuItem) {

@@ -9670,6 +9670,9 @@ from notification_utils import create_notification as create_notification_intern
 @require_authentication
 def create_notification():
     """Create a new notification.
+    
+    Regular users can create notifications for themselves only.
+    Administrators can create notifications for themselves or for all users.
     ---
     tags:
       - Notifications
@@ -9699,6 +9702,11 @@ def create_notification():
               type: string
               description: Optional action button URL (max 500 chars)
               example: "/settings"
+            for_all_users:
+              type: boolean
+              description: If true, create notification for all users (requires admin permission). If false or omitted, create for current user only.
+              default: false
+              example: false
     responses:
       201:
         description: Notification created successfully
@@ -9708,32 +9716,34 @@ def create_notification():
             success:
               type: boolean
               example: true
-            notification:
-              type: object
-              properties:
-                id:
-                  type: integer
-                subject:
-                  type: string
-                message:
-                  type: string
-                unread:
-                  type: boolean
-                created_at:
-                  type: string
-                  format: date-time
-                action_title:
-                  type: string
-                action_url:
-                  type: string
+            message:
+              type: string
+              example: "Notification created for 1 user(s)"
+            count:
+              type: integer
+              description: Number of users the notification was created for
+              example: 1
+            notification_id:
+              type: integer
+              description: ID of the created notification (only for single-user creates)
+              example: 123
+            notification_ids:
+              type: array
+              items:
+                type: integer
+              description: List of created notification IDs (only for multi-user creates with for_all_users=true)
+              example: [123, 124, 125]
       400:
-        description: Invalid request
+        description: Invalid request (missing fields, invalid types, or exceeding length limits)
+      403:
+        description: Insufficient permissions (for_all_users requires admin)
       500:
         description: Server error
     """
     db = SessionLocal()
     try:
-        from models import Notification
+        from models import Notification, User
+        from permissions import has_permission
 
         data = request.get_json()
         
@@ -9743,6 +9753,11 @@ def create_notification():
         
         subject = data.get('subject', '').strip()
         message = data.get('message', '').strip()
+        for_all_users = data.get('for_all_users', False)
+        
+        # Validate for_all_users is a boolean
+        if not isinstance(for_all_users, bool):
+            return jsonify({"success": False, "message": "for_all_users must be a boolean"}), 400
         
         # Validate required fields
         if not subject or not message:
@@ -9775,34 +9790,67 @@ def create_notification():
             if not is_valid:
                 return jsonify({"success": False, "message": f"Invalid action URL: {error_msg}"}), 400
 
-        # Create notification
-        notification = Notification(
-            subject=subject,
-            message=message,
-            unread=True,
-            action_title=action_title,
-            action_url=action_url,
-            user_id=get_current_user_id()  # Associate with authenticated user
-        )
-        
-        db.add(notification)
-        db.commit()
-        db.refresh(notification)
+        # Determine target users
+        if for_all_users:
+            # Check if user has admin permission
+            user_permissions = get_user_permissions(g.user.id)
+            if not has_permission(user_permissions, 'system.admin'):
+                return jsonify({
+                    "success": False, 
+                    "message": "Only administrators can create notifications for all users"
+                }), 403
+            
+            # Get all active/approved users
+            target_user_ids = [
+                user_id for (user_id,) in db.query(User.id)
+                .filter(User.is_active.is_(True), User.is_approved.is_(True))
+                .all()
+            ]
+            
+            if not target_user_ids:
+                return jsonify({
+                    "success": False, 
+                    "message": "No eligible users found to receive notification"
+                }), 400
+        else:
+            # Create notification for current user only
+            current_user_id = get_current_user_id()
+            logger.info(f"Creating notification for current user only: user_id={current_user_id}, subject='{subject}'")
+            target_user_ids = [current_user_id]
 
-        logger.info(f"Created notification: {notification.id}")
+        # Create notifications for each target user
+        created_ids = []
+        for user_id in target_user_ids:
+            notification = Notification(
+                subject=subject,
+                message=message,
+                unread=True,
+                action_title=action_title,
+                action_url=action_url,
+                user_id=user_id
+            )
+            db.add(notification)
+            db.flush()  # Get the ID before commit
+            created_ids.append(notification.id)
         
-        return jsonify({
+        db.commit()
+
+        logger.info(f"Created notification for {len(created_ids)} user(s): {subject}")
+        
+        response_data = {
             "success": True,
-            "notification": {
-                "id": notification.id,
-                "subject": notification.subject,
-                "message": notification.message,
-                "unread": notification.unread,
-                "created_at": notification.created_at.isoformat() if notification.created_at else None,
-                "action_title": notification.action_title,
-                "action_url": notification.action_url,
-            }
-        }), 201
+            "message": f"Notification created for {len(created_ids)} user(s)",
+            "count": len(created_ids)
+        }
+        
+        # For single-user creates, return the notification_id for easy follow-up actions
+        if len(created_ids) == 1:
+            response_data["notification_id"] = created_ids[0]
+        else:
+            # For multi-user creates, return the list of IDs
+            response_data["notification_ids"] = created_ids
+        
+        return jsonify(response_data), 201
 
     except Exception as e:
         db.rollback()

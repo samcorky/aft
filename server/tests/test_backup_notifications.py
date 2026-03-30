@@ -273,7 +273,14 @@ class TestOverdueNotificationResolution:
             json=notification_data
         )
         assert response.status_code == 201
-        overdue_id = response.json()['notification']['id']
+        assert response.json()['count'] == 1
+        
+        # Get the notification ID by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        assert get_response.status_code == 200
+        notifications = get_response.json()['notifications']
+        overdue_id = next((n['id'] for n in notifications if 'Backup Overdue' in n['subject']), None)
+        assert overdue_id is not None
         
         # Verify it's unread
         response = authenticated_session.get(f'{api_client}/api/notifications')

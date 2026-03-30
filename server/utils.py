@@ -273,6 +273,11 @@ def get_user_scoped_query(db, model, user_id):
 
     from permissions import has_permission
 
+    # Notifications are ALWAYS user-scoped, even for admins
+    # (admins shouldn't see other users' personal notifications)
+    if model.__name__ == 'Notification':
+        return query.filter(model.user_id == user_id)
+    
     if has_permission(get_user_permissions(user_id), 'system.admin'):
         return query
     
@@ -282,7 +287,7 @@ def get_user_scoped_query(db, model, user_id):
         # Include both user's items AND global items (where user_id IS NULL)
         if model.__name__ in ['Setting', 'Theme']:
             return query.filter((model.user_id == user_id) | (model.user_id.is_(None)))
-        # For notifications, only show user's own
+        # For notifications, only show user's own (already handled above)
         return query.filter(model.user_id == user_id)
     
     # Models with owner_id (like Board) - include owned boards AND boards where user has a role

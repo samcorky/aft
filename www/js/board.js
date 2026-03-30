@@ -796,6 +796,7 @@ class BoardManager {
     this.assigneeFilterIncludeSecondaryAssignees = false;
     this.boardFiltersToggleRequestHandler = this.handleBoardFiltersToggleRequest.bind(this);
     this.boardFiltersStateRequestHandler = this.handleBoardFiltersStateRequest.bind(this);
+    this.boardFiltersClearRequestHandler = this.handleBoardFiltersClearRequest.bind(this);
     this.boardWorkingStyleChangedHandler = this.handleBoardWorkingStyleChanged.bind(this);
     this.assigneeFilterVisibilityLoadedForUserId = null;
     this.assigneeFilterVisibilityWatcherId = null;
@@ -915,6 +916,12 @@ class BoardManager {
     }));
   }
 
+  notifyBoardFilterActiveStateChanged() {
+    window.dispatchEvent(new CustomEvent('boardFiltersActiveStateChanged', {
+      detail: { active: this.hasActiveFilters() }
+    }));
+  }
+
   buildAssigneeFilterQueryParams() {
     const params = new URLSearchParams();
 
@@ -933,6 +940,26 @@ class BoardManager {
     return params;
   }
 
+  /**
+   * Check if any assignee filters are currently active
+   * @returns {boolean} True if specific assignees are selected or unassigned filter is active
+   */
+  hasActiveFilters() {
+    return this.assigneeFilterSelectedUserIds.size > 0 || this.assigneeFilterIncludeUnassigned;
+  }
+
+  /**
+   * Clear all active filters and reload the board
+   * Resets selected assignees, unassigned toggle, and secondary assignees toggle
+   */
+  clearFilters() {
+    this.assigneeFilterSelectedUserIds.clear();
+    this.assigneeFilterIncludeUnassigned = false;
+    this.assigneeFilterIncludeSecondaryAssignees = false;
+    this.notifyBoardFilterActiveStateChanged();
+    this.loadBoard();
+  }
+
   handleBoardFiltersToggleRequest() {
     this.assigneeFilterVisible = !this.assigneeFilterVisible;
     this.persistAssigneeFilterVisibility();
@@ -943,6 +970,11 @@ class BoardManager {
 
   handleBoardFiltersStateRequest() {
     this.notifyBoardFilterVisibilityChanged();
+    this.notifyBoardFilterActiveStateChanged();
+  }
+
+  handleBoardFiltersClearRequest() {
+    this.clearFilters();
   }
 
   sanitizeColumnScrollPositions(value) {
@@ -1242,6 +1274,7 @@ class BoardManager {
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
     window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
     window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+    window.addEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
     window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
     
     // Initialize WebSocket for real-time updates
@@ -1251,6 +1284,7 @@ class BoardManager {
     await this.loadWorkingStyle();
     
     await this.loadBoard();
+    this.notifyBoardFilterActiveStateChanged();
     this.setupMobileViewportSync();
     this.setupKeyboardShortcuts();
     this.setupDropdownClickOutside();
@@ -1618,6 +1652,7 @@ class BoardManager {
     window.removeEventListener('beforeunload', this.beforeUnloadHandler);
     window.removeEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
     window.removeEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+    window.removeEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
     window.removeEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
     window.removeEventListener('resize', this.viewportMetricsHandler);
     window.removeEventListener('orientationchange', this.viewportMetricsHandler);
@@ -1777,6 +1812,7 @@ class BoardManager {
           }
         }
 
+        this.notifyBoardFilterActiveStateChanged();
         await this.loadBoard();
       });
     });

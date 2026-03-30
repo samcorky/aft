@@ -86,12 +86,51 @@
   color: var(--header-text-color);
   font-size: 24px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   padding: 0 20px;
   opacity: 0.9;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+#nav-board-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.filter-active-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--header-text-color);
+  cursor: help;
+  animation: pulse-glow 2s ease-in-out infinite;
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+
+.filter-active-indicator svg {
+  display: block;
+  filter: drop-shadow(0 0 2px currentColor);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* Respect user's motion preferences for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .filter-active-indicator {
+    animation: none;
+  }
 }
 
 .boards-dropdown {

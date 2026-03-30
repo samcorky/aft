@@ -68,6 +68,7 @@ class Header {
     this.wsCheckInterval = null; // WebSocket check interval
     this.mobileBreakpoint = 900;
     this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
+    this.boardFiltersActiveStateHandler = this.handleBoardFiltersActiveStateChanged.bind(this);
     this.boardFilterStateWatchInterval = null;
   }
 
@@ -113,6 +114,9 @@ class Header {
 
     // Initialize board-only filter toggle in settings menu
     this.initializeBoardFilterToggleMenu();
+    
+    // Initialize clear filters menu item
+    this.initializeBoardFilterClearMenu();
     
     // Load current user info
     await this.loadCurrentUser();
@@ -311,13 +315,13 @@ class Header {
 
   // Set the board name in the header
   setBoardName(boardName) {
-    const navBoardName = document.getElementById('nav-board-name');
-    if (navBoardName) {
+    const navBoardNameText = document.getElementById('nav-board-name-text');
+    if (navBoardNameText) {
       if (boardName) {
-        navBoardName.textContent = boardName;
+        navBoardNameText.textContent = boardName;
         document.title = `AFT - ${boardName}`;
       } else {
-        navBoardName.textContent = '';
+        navBoardNameText.textContent = '';
         document.title = 'AFT';
       }
     }
@@ -1005,6 +1009,55 @@ class Header {
     }
 
     menuItem.textContent = visible ? 'Hide filters' : 'Show filters';
+  }
+
+  initializeBoardFilterClearMenu() {
+    const menuItem = document.getElementById('clear-board-filters-menu-item');
+    if (!menuItem) {
+      return;
+    }
+
+    const isBoardPage = document.body.classList.contains('board-page');
+    menuItem.style.display = isBoardPage ? 'none' : 'none'; // Initially hidden
+    if (!isBoardPage) {
+      return;
+    }
+
+    if (!menuItem.dataset.boundClearHandler) {
+      menuItem.addEventListener('click', (e) => {
+        e.preventDefault();
+
+        window.dispatchEvent(new CustomEvent('boardFiltersClearRequest'));
+
+        closeAllMenusExcept(null);
+        updateMenuHoverState();
+      });
+      menuItem.dataset.boundClearHandler = 'true';
+    }
+
+    // Listen for filter active state changes
+    window.addEventListener('boardFiltersActiveStateChanged', this.boardFiltersActiveStateHandler);
+  }
+
+  handleBoardFiltersActiveStateChanged(event) {
+    const active = !!event?.detail?.active;
+    this.updateFilterActiveIndicator(active);
+    this.updateClearFiltersMenuVisibility(active);
+  }
+
+  updateFilterActiveIndicator(active) {
+    const indicator = document.getElementById('filter-active-indicator');
+    if (indicator) {
+      indicator.style.display = active ? 'inline-block' : 'none';
+    }
+  }
+
+  updateClearFiltersMenuVisibility(active) {
+    const menuItem = document.getElementById('clear-board-filters-menu-item');
+    if (menuItem) {
+      const isBoardPage = document.body.classList.contains('board-page');
+      menuItem.style.display = (isBoardPage && active) ? '' : 'none';
+    }
   }
 
   // Update views dropdown to show/hide done view based on working style

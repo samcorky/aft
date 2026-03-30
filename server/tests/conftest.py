@@ -690,7 +690,11 @@ def sample_notification(api_client, authenticated_session):
     assert get_response.status_code == 200
     notifications = get_response.json()['notifications']
     # Find the notification we just created
-    notification = next((n for n in notifications if n['subject'] == 'Test Notification'), notifications[0])
+    notification = next((n for n in notifications if n['subject'] == 'Test Notification'), None)
+    assert notification is not None, (
+        f"Expected to find notification with subject 'Test Notification', "
+        f"but found subjects: {[n.get('subject') for n in notifications]}"
+    )
     return notification
 
 

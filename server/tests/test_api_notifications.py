@@ -1287,10 +1287,6 @@ class TestNotificationMultiUserCreation:
         assert data['success'] is True
         assert data['count'] == 1
         
-        # Small delay to ensure DB consistency
-        import time
-        time.sleep(0.1)
-        
         # Verify User B sees it
         b_get_resp = second_user_session.get(f'{api_client}/api/notifications')
         assert b_get_resp.status_code == 200
@@ -1395,3 +1391,45 @@ class TestNotificationMultiUserCreation:
             assert notif is not None
             assert notif['action_title'] == 'View Details'
             assert notif['action_url'] == '/updates'
+    
+    def test_for_all_users_invalid_type(self, api_client, authenticated_session):
+        """Test that for_all_users with invalid type (e.g., string) is rejected."""
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Test',
+            'message': 'Test message',
+            'for_all_users': 'false'  # String instead of boolean
+        })
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+        assert 'boolean' in data['message'].lower()
+    
+    def test_single_user_create_returns_notification_id(self, api_client, authenticated_session):
+        """Test that creating notification for single user returns notification_id."""
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Single user test',
+            'message': 'Should return notification_id',
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] == 1
+        assert 'notification_id' in data
+        assert isinstance(data['notification_id'], int)
+        assert 'notification_ids' not in data  # Should not have the array form
+    
+    def test_multi_user_create_returns_notification_ids(self, api_client, authenticated_session):
+        """Test that creating notification for all users returns notification_ids array."""
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Multi user test',
+            'message': 'Should return notification_ids',
+            'for_all_users': True
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] >= 1
+        assert 'notification_ids' in data
+        assert isinstance(data['notification_ids'], list)
+        assert len(data['notification_ids']) == data['count']
+        assert 'notification_id' not in data  # Should not have the single form

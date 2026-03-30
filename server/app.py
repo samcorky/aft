@@ -9723,8 +9723,18 @@ def create_notification():
               type: integer
               description: Number of users the notification was created for
               example: 1
+            notification_id:
+              type: integer
+              description: ID of the created notification (only for single-user creates)
+              example: 123
+            notification_ids:
+              type: array
+              items:
+                type: integer
+              description: List of created notification IDs (only for multi-user creates with for_all_users=true)
+              example: [123, 124, 125]
       400:
-        description: Invalid request
+        description: Invalid request (missing fields, invalid types, or exceeding length limits)
       403:
         description: Insufficient permissions (for_all_users requires admin)
       500:
@@ -9732,7 +9742,7 @@ def create_notification():
     """
     db = SessionLocal()
     try:
-        from models import Notification, User, UserRole, Role
+        from models import Notification, User
         from permissions import has_permission
 
         data = request.get_json()
@@ -9744,6 +9754,10 @@ def create_notification():
         subject = data.get('subject', '').strip()
         message = data.get('message', '').strip()
         for_all_users = data.get('for_all_users', False)
+        
+        # Validate for_all_users is a boolean
+        if not isinstance(for_all_users, bool):
+            return jsonify({"success": False, "message": "for_all_users must be a boolean"}), 400
         
         # Validate required fields
         if not subject or not message:
@@ -9805,7 +9819,7 @@ def create_notification():
             target_user_ids = [current_user_id]
 
         # Create notifications for each target user
-        created_count = 0
+        created_ids = []
         for user_id in target_user_ids:
             notification = Notification(
                 subject=subject,
@@ -9816,17 +9830,27 @@ def create_notification():
                 user_id=user_id
             )
             db.add(notification)
-            created_count += 1
+            db.flush()  # Get the ID before commit
+            created_ids.append(notification.id)
         
         db.commit()
 
-        logger.info(f"Created notification for {created_count} user(s): {subject}")
+        logger.info(f"Created notification for {len(created_ids)} user(s): {subject}")
         
-        return jsonify({
+        response_data = {
             "success": True,
-            "message": f"Notification created for {created_count} user(s)",
-            "count": created_count
-        }), 201
+            "message": f"Notification created for {len(created_ids)} user(s)",
+            "count": len(created_ids)
+        }
+        
+        # For single-user creates, return the notification_id for easy follow-up actions
+        if len(created_ids) == 1:
+            response_data["notification_id"] = created_ids[0]
+        else:
+            # For multi-user creates, return the list of IDs
+            response_data["notification_ids"] = created_ids
+        
+        return jsonify(response_data), 201
 
     except Exception as e:
         db.rollback()

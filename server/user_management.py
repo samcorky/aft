@@ -508,7 +508,17 @@ def assign_role(user_id):
     
     db = SessionLocal()
     try:
-        # Check if user has role.manage permission (full access) or only user.role (restricted)
+        # Check if role exists first (before any permission checks)
+        role = db.query(Role).filter(Role.name == role_name).first()
+        if not role:
+            return create_error_response(f"Role '{role_name}' not found", 404)
+        
+        # Check if user exists
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return create_error_response("User not found", 404)
+        
+        # Now check permissions
         from utils import get_user_permissions, get_user_role_ids
         from permissions import has_permission
         
@@ -521,14 +531,6 @@ def assign_role(user_id):
                 "You cannot modify your own roles. Please ask another administrator for assistance.",
                 403
             )
-        
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return create_error_response("User not found", 404)
-        
-        role = db.query(Role).filter(Role.name == role_name).first()
-        if not role:
-            return create_error_response(f"Role '{role_name}' not found", 404)
         
         # If user has only user.role permission (not role.manage), they can only assign roles they have
         if not has_role_manage:

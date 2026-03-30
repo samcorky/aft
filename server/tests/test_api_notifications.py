@@ -75,11 +75,16 @@ class TestNotificationsAPI:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['subject'] == "Test Subject"
-        assert data['notification']['message'] == "Test message content"
-        assert data['notification']['unread'] is True
-        assert 'id' in data['notification']
-        assert 'created_at' in data['notification']
+        assert data['count'] == 1
+        assert 'Notification created' in data['message']
+        
+        # Verify notification was created by fetching it
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        assert get_response.status_code == 200
+        notifications = get_response.json()['notifications']
+        notification = next(n for n in notifications if n['subject'] == "Test Subject")
+        assert notification['message'] == "Test message content"
+        assert notification['unread'] is True
     
     def test_create_notification_missing_subject(self, api_client, authenticated_session):
         """Test creating a notification without subject."""
@@ -178,7 +183,7 @@ class TestNotificationsAPI:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['subject'] == max_subject
+        assert data['count'] == 1
     
     def test_create_notification_strips_whitespace(self, api_client, authenticated_session):
         """Test that subject and message have leading/trailing whitespace stripped."""
@@ -192,8 +197,13 @@ class TestNotificationsAPI:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['subject'] == "Test Subject"
-        assert data['notification']['message'] == "Test message"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next(n for n in notifications if n['subject'] == "Test Subject")
+        assert notification['message'] == "Test message"
     
     def test_mark_notification_as_read(self, api_client, authenticated_session, sample_notification):
         """Test marking a notification as read."""
@@ -299,7 +309,14 @@ class TestNotificationsAPI:
             "subject": "Test Subject",
             "message": "Test message"
         })
-        notification_id = create_response.json()['notification']['id']
+        assert create_response.status_code == 201
+        
+        # Get the notification ID by fetching all notifications
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        assert get_response.status_code == 200
+        notifications = get_response.json()['notifications']
+        notification_id = notifications[0]['id']
+        
         authenticated_session.put(f'{api_client}/api/notifications/{notification_id}/read')
         
         response = authenticated_session.put(f'{api_client}/api/notifications/mark-all-read')
@@ -359,9 +376,12 @@ class TestNotificationsEdgeCases:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        # Values should be stored as-is (escaping happens on frontend)
-        assert "<script>" in data['notification']['subject']
-        assert "'" in data['notification']['message']
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next(n for n in notifications if "<script>" in n['subject'])
+        assert "'" in notification['message']
     
     def test_create_notification_with_unicode(self, api_client, authenticated_session):
         """Test creating a notification with unicode characters."""
@@ -375,8 +395,12 @@ class TestNotificationsEdgeCases:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert "😀" in data['notification']['subject']
-        assert "中文" in data['notification']['message']
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next(n for n in notifications if "😀" in n['subject'])
+        assert "中文" in notification['message']
     
     def test_create_notification_with_newlines(self, api_client, authenticated_session):
         """Test creating a notification with newline characters."""
@@ -390,7 +414,12 @@ class TestNotificationsEdgeCases:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert "\n" in data['notification']['message']
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next(n for n in notifications if n['message'].startswith("Line 1"))
+        assert "\n" in notification['message']
     
     def test_concurrent_mark_as_read(self, api_client, authenticated_session, sample_notification):
         """Test marking the same notification as read concurrently."""
@@ -434,8 +463,7 @@ class TestNotificationsEdgeCases:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert len(data['notification']['subject']) == 255
-        assert len(data['notification']['message']) == 65535
+        assert data['count'] == 1
 
 
 @pytest.mark.api
@@ -558,10 +586,13 @@ class TestNotificationsSecurity:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert 'notification' in data
+        assert data['count'] == 1
         
-        # Verify no truncation occurred
-        notification = data['notification']
+        # Verify no truncation occurred by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if len(n['subject']) == 255), None)
+        assert notification is not None
         assert len(notification['subject']) == 255
         assert len(notification['message']) == 65535
         assert notification['subject'] == subject
@@ -586,8 +617,15 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_title'] == "Learn More"
-        assert data['notification']['action_url'] == "/features"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n['subject'] == 'New Feature'), None)
+        assert notification is not None
+        assert notification['action_title'] == "Learn More"
+        assert notification['action_url'] == "/features"
     
     def test_create_notification_without_action(self, api_client, authenticated_session):
         """Test creating a notification without action fields."""
@@ -601,8 +639,15 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_title'] is None
-        assert data['notification']['action_url'] is None
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n['subject'] == 'Simple Notification'), None)
+        assert notification is not None
+        assert notification['action_title'] is None
+        assert notification['action_url'] is None
     
     def test_create_notification_action_title_too_long(self, api_client, authenticated_session):
         """Test creating a notification with action title exceeding 100 characters."""
@@ -653,7 +698,14 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_title'] == max_title
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if len(n.get('action_title', '')) == 100), None)
+        assert notification is not None
+        assert notification['action_title'] == max_title
     
     def test_create_notification_action_url_max_length(self, api_client, authenticated_session):
         """Test creating a notification with action URL at max length (500 chars)."""
@@ -671,8 +723,15 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_url'] == max_url
-        assert len(data['notification']['action_url']) == 500
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if len(n.get('action_url', '')) == 500), None)
+        assert notification is not None
+        assert notification['action_url'] == max_url
+        assert len(notification['action_url']) == 500
     
     def test_create_notification_action_title_strips_whitespace(self, api_client, authenticated_session):
         """Test that action title has whitespace stripped."""
@@ -688,7 +747,14 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_title'] == "Click Here"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n.get('action_title') == 'Click Here'), None)
+        assert notification is not None
+        assert notification['action_title'] == "Click Here"
     
     def test_create_notification_empty_action_title(self, api_client, authenticated_session):
         """Test creating a notification with empty action title after stripping."""
@@ -704,8 +770,14 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        # Empty after stripping should be treated as None
-        assert data['notification']['action_title'] is None
+        assert data['count'] == 1
+        
+        # Verify by fetching - empty action_title should be None
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n['action_url'] == '/test'), None)
+        assert notification is not None
+        assert notification['action_title'] is None
     
     def test_create_notification_empty_action_url(self, api_client, authenticated_session):
         """Test creating a notification with empty action URL after stripping."""
@@ -721,8 +793,14 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        # Empty after stripping should be treated as None
-        assert data['notification']['action_url'] is None
+        assert data['count'] == 1
+        
+        # Verify by fetching - empty action_url should be None
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n.get('action_title') == 'Click' and n.get('action_url') is None), None)
+        assert notification is not None
+        assert notification['action_url'] is None
     
     def test_get_notifications_includes_action_fields(self, api_client, authenticated_session):
         """Test that GET /api/notifications includes action fields."""
@@ -769,7 +847,14 @@ class TestNotificationActions:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_title'] == title
+        assert data['count'] ==1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if len(n.get('action_title', '')) == 51), None)
+        assert notification is not None
+        assert notification['action_title'] == title
 
 
 @pytest.mark.api
@@ -884,7 +969,14 @@ class TestNotificationSecurityURLValidation:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_url'] == "/settings"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n.get('action_url') == '/settings'), None)
+        assert notification is not None
+        assert notification['action_url'] == "/settings"
     
     def test_create_notification_with_http_url(self, api_client, authenticated_session):
         """Test that http:// URLs are accepted."""
@@ -900,7 +992,14 @@ class TestNotificationSecurityURLValidation:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_url'] == "http://example.com"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n.get('action_url') == 'http://example.com'), None)
+        assert notification is not None
+        assert notification['action_url'] == "http://example.com"
     
     def test_create_notification_with_https_url(self, api_client, authenticated_session):
         """Test that https:// URLs are accepted."""
@@ -916,7 +1015,14 @@ class TestNotificationSecurityURLValidation:
         assert response.status_code == 201
         data = response.json()
         assert data['success'] is True
-        assert data['notification']['action_url'] == "https://example.com"
+        assert data['count'] == 1
+        
+        # Verify by fetching
+        get_response = authenticated_session.get(f'{api_client}/api/notifications')
+        notifications = get_response.json()['notifications']
+        notification = next((n for n in notifications if n.get('action_url') == 'https://example.com'), None)
+        assert notification is not None
+        assert notification['action_url'] == "https://example.com"
     
     def test_create_notification_with_uppercase_javascript_protocol(self, api_client, authenticated_session):
         """Test that JavaScript: URLs (case variation) are rejected."""
@@ -1013,7 +1119,13 @@ class TestNotificationIDORSecurity:
             'message': 'Belongs to user A',
         })
         assert create_resp.status_code == 201
-        notif_id = create_resp.json()['notification']['id']
+        
+        # Get user A's notifications to find the ID
+        a_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert a_get_resp.status_code == 200
+        a_notifs = a_get_resp.json()['notifications']
+        notif_id = next((n['id'] for n in a_notifs if n['subject'] == 'User A private'), None)
+        assert notif_id is not None
 
         response = second_user_session.put(f'{api_client}/api/notifications/{notif_id}/read')
         assert response.status_code == 404, (
@@ -1035,7 +1147,14 @@ class TestNotificationIDORSecurity:
             'message': 'Already read',
         })
         assert create_resp.status_code == 201
-        notif_id = create_resp.json()['notification']['id']
+        
+        # Get user A's notifications to find the ID
+        a_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert a_get_resp.status_code == 200
+        a_notifs = a_get_resp.json()['notifications']
+        notif_id = next((n['id'] for n in a_notifs if n['subject'] == 'User A read notif'), None)
+        assert notif_id is not None
+        
         authenticated_session.put(f'{api_client}/api/notifications/{notif_id}/read')
 
         response = second_user_session.put(f'{api_client}/api/notifications/{notif_id}/unread')
@@ -1058,7 +1177,13 @@ class TestNotificationIDORSecurity:
             'message': 'Belongs to user A',
         })
         assert create_resp.status_code == 201
-        notif_id = create_resp.json()['notification']['id']
+        
+        # Get user A's notifications to find the ID
+        a_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert a_get_resp.status_code == 200
+        a_notifs = a_get_resp.json()['notifications']
+        notif_id = next((n['id'] for n in a_notifs if n['subject'] == 'Do not delete'), None)
+        assert notif_id is not None
 
         response = second_user_session.delete(f'{api_client}/api/notifications/{notif_id}')
         assert response.status_code == 404, (
@@ -1080,7 +1205,13 @@ class TestNotificationIDORSecurity:
             'message': 'Should stay unread',
         })
         assert create_resp.status_code == 201
-        a_notif_id = create_resp.json()['notification']['id']
+        
+        # Get user A's notifications to find the ID
+        a_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert a_get_resp.status_code == 200
+        a_notifs = a_get_resp.json()['notifications']
+        a_notif_id = next((n['id'] for n in a_notifs if n['subject'] == 'User A unread'), None)
+        assert a_notif_id is not None
 
         b_create = second_user_session.post(f'{api_client}/api/notifications', json={
             'subject': 'User B unread',
@@ -1107,7 +1238,13 @@ class TestNotificationIDORSecurity:
             'message': 'Should not be deleted',
         })
         assert create_resp.status_code == 201
-        a_notif_id = create_resp.json()['notification']['id']
+        
+        # Get user A's notifications to find the ID
+        a_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert a_get_resp.status_code == 200
+        a_notifs = a_get_resp.json()['notifications']
+        a_notif_id = next((n['id'] for n in a_notifs if n['subject'] == 'User A must survive'), None)
+        assert a_notif_id is not None
 
         second_user_session.post(f'{api_client}/api/notifications', json={
             'subject': 'User B to delete',
@@ -1122,3 +1259,139 @@ class TestNotificationIDORSecurity:
         assert any(n['id'] == a_notif_id for n in notifs), (
             "User A's notification was deleted by User B's delete-all"
         )
+
+
+@pytest.mark.api
+class TestNotificationMultiUserCreation:
+    """Test cases for admin creating notifications for all users."""
+    
+    def test_regular_user_creates_notification_for_self_only(
+        self, api_client, second_user_session, authenticated_session
+    ):
+        """Regular user creating notification should only affect themselves."""
+        # Clear all notifications first to ensure clean state
+        authenticated_session.delete(f'{api_client}/api/notifications/delete-all')
+        second_user_session.delete(f'{api_client}/api/notifications/delete-all')
+        
+        # Use unique timestamp-based subject to avoid collisions with other tests
+        import time
+        unique_subject = f'User B notification {int(time.time() * 1000)}'
+        
+        # Second user creates notification without for_all_users flag
+        response = second_user_session.post(f'{api_client}/api/notifications', json={
+            'subject': unique_subject,
+            'message': 'Should only be for User B',
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] == 1
+        
+        # Small delay to ensure DB consistency
+        import time
+        time.sleep(0.1)
+        
+        # Verify User B sees it
+        b_get_resp = second_user_session.get(f'{api_client}/api/notifications')
+        assert b_get_resp.status_code == 200
+        b_notifs = b_get_resp.json()['notifications']
+        assert any(n['subject'] == unique_subject for n in b_notifs), f"User B should see their notification"
+        
+        # Verify admin does NOT see it
+        admin_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert admin_get_resp.status_code == 200
+        admin_notifs = admin_get_resp.json()['notifications']
+        assert not any(n['subject'] == unique_subject for n in admin_notifs), f"Admin should NOT see User B's notification"
+    
+    def test_regular_user_cannot_create_for_all_users(
+        self, api_client, second_user_session
+    ):
+        """Regular user should not be able to create notifications for all users."""
+        response = second_user_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Attempted broadcast',
+            'message': 'Should fail',
+            'for_all_users': True
+        })
+        assert response.status_code == 403
+        data = response.json()
+        assert data['success'] is False
+        assert 'administrator' in data['message'].lower() or 'permission' in data['message'].lower()
+    
+    def test_admin_creates_notification_for_all_users(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """Admin should be able to create notification for all users."""
+        # Admin creates notification for all users
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'System announcement',
+            'message': 'All users should see this',
+            'for_all_users': True
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] >= 2  # At least admin and second user
+        
+        # Verify admin sees it
+        admin_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert admin_get_resp.status_code == 200
+        admin_notifs = admin_get_resp.json()['notifications']
+        assert any(n['subject'] == 'System announcement' for n in admin_notifs)
+        
+        # Verify second user sees it
+        user_get_resp = second_user_session.get(f'{api_client}/api/notifications')
+        assert user_get_resp.status_code == 200
+        user_notifs = user_get_resp.json()['notifications']
+        assert any(n['subject'] == 'System announcement' for n in user_notifs)
+    
+    def test_admin_creates_notification_for_self_only(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """Admin can create notification for themselves only."""
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Admin only note',
+            'message': 'Just for me',
+            'for_all_users': False
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] == 1
+        
+        # Verify admin sees it
+        admin_get_resp = authenticated_session.get(f'{api_client}/api/notifications')
+        assert admin_get_resp.status_code == 200
+        admin_notifs = admin_get_resp.json()['notifications']
+        assert any(n['subject'] == 'Admin only note' for n in admin_notifs)
+        
+        # Verify second user does NOT see it
+        user_get_resp = second_user_session.get(f'{api_client}/api/notifications')
+        assert user_get_resp.status_code == 200
+        user_notifs = user_get_resp.json()['notifications']
+        assert not any(n['subject'] == 'Admin only note' for n in user_notifs)
+    
+    def test_for_all_users_with_action_fields(
+        self, api_client, authenticated_session, second_user_session
+    ):
+        """Admin creating notification for all users with action fields."""
+        response = authenticated_session.post(f'{api_client}/api/notifications', json={
+            'subject': 'Update available',
+            'message': 'New version released',
+            'for_all_users': True,
+            'action_title': 'View Details',
+            'action_url': '/updates'
+        })
+        assert response.status_code == 201
+        data = response.json()
+        assert data['success'] is True
+        assert data['count'] >= 2
+        
+        # Verify both users see it with action fields
+        for session in [authenticated_session, second_user_session]:
+            get_resp = session.get(f'{api_client}/api/notifications')
+            assert get_resp.status_code == 200
+            notifs = get_resp.json()['notifications']
+            notif = next((n for n in notifs if n['subject'] == 'Update available'), None)
+            assert notif is not None
+            assert notif['action_title'] == 'View Details'
+            assert notif['action_url'] == '/updates'

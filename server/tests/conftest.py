@@ -685,7 +685,12 @@ def sample_notification(api_client, authenticated_session):
         'message': 'This is a test notification'
     })
     assert response.status_code == 201
-    notification = response.json()['notification']
+    # New API returns count, need to fetch the notification
+    get_response = authenticated_session.get(f"{api_client}/api/notifications")
+    assert get_response.status_code == 200
+    notifications = get_response.json()['notifications']
+    # Find the notification we just created
+    notification = next((n for n in notifications if n['subject'] == 'Test Notification'), notifications[0])
     return notification
 
 

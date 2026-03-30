@@ -1022,7 +1022,7 @@ class Header {
     }
 
     const isBoardPage = document.body.classList.contains('board-page');
-    menuItem.style.display = isBoardPage ? 'none' : 'none'; // Initially hidden
+    menuItem.style.display = 'none'; // Initially hidden
     if (!isBoardPage) {
       return;
     }
@@ -1061,7 +1061,8 @@ class Header {
   updateFilterActiveIndicator(active) {
     const indicator = document.getElementById('filter-active-indicator');
     if (indicator) {
-      indicator.style.display = active ? 'inline-block' : 'none';
+      // When active, clear inline style so CSS class (inline-flex) can apply
+      indicator.style.display = active ? '' : 'none';
     }
   }
 

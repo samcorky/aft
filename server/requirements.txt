@@ -7,7 +7,7 @@ sqlalchemy==2.0.48
 redis==7.4.0
 alembic==1.18.4
 pymysql==1.1.2
-cryptography==46.0.6
+cryptography==46.0.7
 gunicorn==25.3.0
 flask-swagger-ui==5.32.1.post2
 flasgger==0.9.7.1

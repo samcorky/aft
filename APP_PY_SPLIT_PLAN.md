@@ -142,12 +142,10 @@ Status: completed on 2026-04-14, commit still pending.
 ---
 
 ### Phase 2 — Extract low-risk endpoints to prove the pattern
-Status: partially completed on 2026-04-15.
+Status: completed on 2026-04-27, commit still pending.
 
-Completed in this chunk:
+Completed in this phase:
 - `server/health_routes.py`
-
-Still pending in this phase:
 - `server/theme_routes.py`
 
 **Move:**
@@ -157,9 +155,10 @@ Still pending in this phase:
 
 **Verification**
 - [x] Run: `pytest tests/test_api_health.py -q`
-- [ ] Run: `pytest tests/test_api_themes.py -q`
-- [ ] Run: `pytest tests/test_websocket_theme_sync.py -q`
+- [x] Run: `pytest tests/test_api_themes.py -q`
+- [x] Run: `pytest tests/test_websocket_theme_sync.py -q`
 - [x] Additional verification for the extracted health/admin routes: `pytest tests/test_api_authentication.py -q` → 43 passed total with health tests
+- [x] Additional verification for the extracted theme routes: `pytest tests/test_api_themes.py -q` → 84 passed; `pytest tests/test_websocket_theme_sync.py -q` → 30 passed
 - [x] Live endpoint check via dev instance: `/api/version`, `/api/test`, `/api/stats`, `/api/scheduler/health`, and `/api/health/live`
 - [ ] Smoke test theme switch in browser
 - [ ] Smoke test theme image upload/list/load

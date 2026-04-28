@@ -169,6 +169,8 @@ Completed in this phase:
 ---
 
 ### Phase 3 — Extract notifications
+Status: completed on 2026-04-28, commit pending with prior completed phases.
+
 **Files to create:**
 - `server/notification_routes.py`
 
@@ -176,7 +178,10 @@ Completed in this phase:
 - notification list/create/read/unread/delete endpoints
 
 **Verification**
-- [ ] Run: `pytest tests/test_api_notifications.py -q`
+- [x] Run: `pytest tests/test_api_notifications.py -q` (72 passed)
+- [x] Additional verification during extraction debugging:
+  - `pytest tests/test_api_notifications.py::TestNotificationsAPI -v -s` (22 passed)
+  - `pytest tests/test_api_notifications.py -v` (72 passed)
 - [ ] Smoke test notification creation and mark-read flow
 
 **Commit**

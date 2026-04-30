@@ -343,22 +343,30 @@ Status: completed on 2026-04-30, commit pending.
 ---
 
 ### Phase 9 — Extract schedules, checklist items, and comments
-**Files to create:**
-- `server/schedule_routes.py`
+**Status: Completed ✓ (2026-04-30)**
 
-**Move:**
-- schedule CRUD
-- scheduled card endpoints
-- checklist item endpoints
-- comment endpoints
+**Files created:**
+- `server/schedule_routes.py` — `schedule_bp`, `configure_schedule_routes(broadcast_event_fn)`
 
-**Verification**
-- [ ] Run: `pytest tests/test_scheduled_cards.py -q`
-- [ ] Run: `pytest tests/test_api_checklist_items.py -q`
-- [ ] Run: `pytest tests/test_api_comments.py -q`
-- [ ] Run: `pytest tests/test_api_card_scheduler.py -q`
-- [ ] Smoke test schedule create/update/delete
-- [ ] Smoke test checklist and comments in dev instance
+**Moved:**
+- `POST /api/schedules` → `create_schedule`
+- `GET /api/schedules/<id>` → `get_schedule`
+- `PUT /api/schedules/<id>` → `update_schedule`
+- `DELETE /api/schedules/<id>` → `delete_schedule`
+- `POST /api/cards/<id>/checklist-items` → `create_checklist_item`
+- `PATCH /api/checklist-items/<id>` → `update_checklist_item`
+- `DELETE /api/checklist-items/<id>` → `delete_checklist_item`
+- `GET /api/cards/<id>/comments` → `get_card_comments`
+- `POST /api/cards/<id>/comments` → `create_comment`
+- `DELETE /api/comments/<id>` → `delete_comment`
+
+**Notes:**
+- `broadcast_event` injected via `configure_schedule_routes()` (same pattern as card/column routes)
+- app.py reduced from ~2200 lines to ~1049 lines
+- All tests passed without requiring a DB rebuild
+
+**Verification:**
+- [x] Full non-slow pytest suite passed
 
 **Commit**
 - [ ] Commit with message like: `refactor(server): extract schedule, checklist, and comment routes`

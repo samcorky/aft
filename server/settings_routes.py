@@ -396,8 +396,8 @@ def update_backup_config():
               maximum: 99
             frequency_unit:
               type: string
-              example: "days"
-              enum: ["minutes", "hours", "days"]
+              example: "daily"
+              enum: ["minutes", "hours", "daily"]
             start_time:
               type: string
               example: "02:00"

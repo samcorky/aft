@@ -14,6 +14,7 @@ os.environ.setdefault('AFT_SKIP_SCHEDULER_INIT', 'true')
 
 
 _APP_MODULE = None
+_WS_MODULE = None
 
 
 def _get_app_module():
@@ -22,6 +23,14 @@ def _get_app_module():
     if _APP_MODULE is None:
         _APP_MODULE = importlib.import_module('app')
     return _APP_MODULE
+
+
+def _get_ws_module():
+    """Import websocket_handlers lazily."""
+    global _WS_MODULE
+    if _WS_MODULE is None:
+        _WS_MODULE = importlib.import_module('websocket_handlers')
+    return _WS_MODULE
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
@@ -49,7 +58,8 @@ class TestWebSocketSecurity:
     def test_unauthenticated_socket_connect_is_rejected(self, monkeypatch):
         """Critical #2 regression: unauthenticated Socket.IO connect must fail."""
         app_module = _get_app_module()
-        monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: None)
+        ws_module = _get_ws_module()
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: None)
 
         client = _make_socket_client(app_module)
         assert client.is_connected() is False
@@ -57,13 +67,14 @@ class TestWebSocketSecurity:
     def test_authenticated_join_board_requires_authorized_access(self, monkeypatch):
         """join_board must enforce server-side board authorization."""
         app_module = _get_app_module()
+        ws_module = _get_ws_module()
         user = SimpleNamespace(id=1)
-        monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: user)
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
 
         def _mock_can_access_board(user_id, board_id):
             return board_id == 123, False
 
-        monkeypatch.setattr(app_module, 'can_access_board', _mock_can_access_board)
+        monkeypatch.setattr(ws_module, 'can_access_board', _mock_can_access_board)
 
         client = _make_socket_client(app_module)
         try:
@@ -82,9 +93,10 @@ class TestWebSocketSecurity:
     def test_client_mutation_event_is_rejected_and_not_rebroadcast(self, monkeypatch):
         """Client-emitted mutation events must be rejected by the server."""
         app_module = _get_app_module()
+        ws_module = _get_ws_module()
         user = SimpleNamespace(id=1)
-        monkeypatch.setattr(app_module, 'get_authenticated_socket_user', lambda: user)
-        monkeypatch.setattr(app_module, 'can_access_board', lambda user_id, board_id: (True, False))
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
+        monkeypatch.setattr(ws_module, 'can_access_board', lambda user_id, board_id: (True, False))
 
         sender = _make_socket_client(app_module)
         receiver = _make_socket_client(app_module)

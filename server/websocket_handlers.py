@@ -192,7 +192,7 @@ def register_websocket_handlers(socketio, reject_connections: bool = False):
                     logger.info(f"📢 Sending current theme {theme_id} to client {request.sid}")
                     emit('theme_changed', {'theme_id': theme_id})
                     logger.info(f"✓ Emitted theme_changed to client {request.sid}")
-                except (ValueError, json.JSONDecodeError) as e:
+                except ValueError as e:
                     logger.error(f"✗ Error parsing theme_id: {str(e)}")
             else:
                 logger.info("ℹ No selected_theme setting found")

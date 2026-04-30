@@ -112,7 +112,7 @@ def update_theme(theme_id):
         _emit_theme_event('theme_updated', {
             'theme_id': theme_id,
             'theme_name': theme.name,
-        })
+        }, user_id=user_id)
 
         return jsonify(theme.to_dict()), 200
     except Exception as e:
@@ -364,6 +364,11 @@ def get_theme_image(filename):
             logger.warning(f"Paths on different drives: {filepath.resolve()}")
             return create_error_response("Invalid file path", 400)
 
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+        if filepath.suffix.lower() not in allowed_extensions:
+            logger.warning(f"Blocked request for non-image file: {filepath}")
+            return create_error_response("Invalid file type", 400)
+
         if not filepath.exists():
             logger.info(f"Image file not found: {filepath}")
             return create_error_response("Image not found", 404)
@@ -389,7 +394,16 @@ def get_current_theme():
         if not setting:
             return create_error_response("No theme selected", 404)
 
-        theme_id = int(setting.value)
+        try:
+            theme_id = int(setting.value)
+            if theme_id <= 0:
+                raise ValueError("theme_id must be a positive integer")
+        except (ValueError, TypeError):
+            logger.warning(f"Corrupted selected_theme value for user {user_id}: {setting.value!r}, resetting")
+            setting.value = None
+            session.commit()
+            return create_error_response("No theme selected", 404)
+
         theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:
             return create_error_response("Selected theme not found", 404)
@@ -416,10 +430,13 @@ def update_current_theme():
         if not data or not isinstance(data, dict):
             return create_error_response("Request body must contain valid JSON object", 400)
 
-        theme_id = data.get('theme_id')
-
-        if not theme_id:
-            return create_error_response("theme_id is required", 400)
+        raw_theme_id = data.get('theme_id')
+        try:
+            theme_id = int(raw_theme_id)
+            if theme_id <= 0:
+                raise ValueError("theme_id must be a positive integer")
+        except (ValueError, TypeError):
+            return create_error_response("theme_id must be a valid positive integer", 400)
 
         theme = _get_user_accessible_theme(session, user_id, theme_id)
         if not theme:

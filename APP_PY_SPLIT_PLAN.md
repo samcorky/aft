@@ -190,20 +190,24 @@ Status: completed on 2026-04-28, commit pending with prior completed phases.
 ---
 
 ### Phase 4 — Extract settings and scheduler configuration endpoints
-**Files to create:**
+Status: completed on 2026-04-30, commit pending.
+
+**Files created/updated:**
 - `server/settings_routes.py`
 
-**Move:**
-- settings schema endpoint
-- generic setting get/set
-- backup/housekeeping/card-scheduler config/status endpoints
-- working style setting endpoints if not already moved with helper code
+**Moved:**
+- settings schema endpoint (GET /api/settings/schema)
+- generic setting get/set endpoints (GET/PUT /api/settings/<key>)
+- backup config/status endpoints (GET/PUT /api/settings/backup/config, GET /api/settings/backup/status)
+- housekeeping config/status endpoints (GET /api/settings/housekeeping/status, PUT /api/settings/housekeeping/config)
+- card-scheduler config/status endpoints (GET/PUT /api/settings/card-scheduler/config, GET /api/settings/card-scheduler/status)
+- working style setting endpoints for users and boards (GET/PUT /api/settings/working-style and /api/boards/<id>/settings/working-style)
 
 **Verification**
 - [ ] Run: `pytest tests/test_api_settings.py -q`
-- [ ] Run: `pytest tests/test_api_backup_settings.py -q`
-- [ ] Run: `pytest tests/test_api_housekeeping.py -q`
-- [ ] Run: `pytest tests/test_api_card_scheduler.py -q`
+- [ ] Run: `pytest tests/test_api_backup_settings.py -q` (if exists)
+- [ ] Run: `pytest tests/test_api_housekeeping.py -q` (if exists)
+- [ ] Run: `pytest tests/test_api_card_scheduler.py -q` (if exists)
 - [ ] Smoke test settings page in dev instance
 
 **Commit**

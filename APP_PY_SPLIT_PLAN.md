@@ -216,10 +216,13 @@ Status: completed on 2026-04-30, commit pending.
 ---
 
 ### Phase 5 — Extract backup and restore flows
-**Files to create:**
-- `server/backup_routes.py`
+Status: completed on 2026-04-30, commit pending.
 
-**Move:**
+**Files created/updated:**
+- `server/backup_routes.py`
+- `server/app.py`
+
+**Moved:**
 - manual backup
 - backup listing and deletion
 - restore flows
@@ -227,16 +230,18 @@ Status: completed on 2026-04-30, commit pending.
 
 **Notes**
 - This is one of the highest-risk chunks.
-- Keep subprocess behavior and existing validation intact.
-- Avoid cleanup refactors until after parity is proven.
+- Subprocess behavior and existing validation logic were preserved during extraction.
+- Added compatibility re-exports in `server/app.py` for `validate_backup_file_security`, `validate_backup_file_size`, and `validate_schema_integrity` to preserve existing test imports.
 
 **Verification**
-- [ ] Run: `pytest tests/test_api_database_backups.py -q`
-- [ ] Run: `pytest tests/test_api_database_backups_extended.py -q`
-- [ ] Run: `pytest tests/test_backup_security.py -q`
-- [ ] Run: `pytest tests/test_backup_notifications.py -q`
-- [ ] Smoke test manual backup creation from UI
-- [ ] Smoke test backup list/delete flow
+- [x] Run: `pytest tests/test_api_database_backups.py -q`
+- [x] Run: `pytest tests/test_api_database_backups_extended.py -q`
+- [x] Run: `pytest tests/test_backup_security.py -q`
+- [x] Run: `pytest tests/test_backup_notifications.py -q`
+- [x] Smoke test manual backup creation from UI
+- [x] Smoke test backup list/delete flow
+- [x] Regression subset re-run after fix:
+  - `pytest tests/test_backup_security.py tests/test_api_checklist_items.py tests/test_api_comments.py tests/test_api_authentication.py::TestSetupFlow::test_setup_status_no_users -q` (67 passed)
 
 **Commit**
 - [ ] Commit with message like: `refactor(server): extract backup and restore routes`

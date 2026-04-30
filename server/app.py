@@ -60,6 +60,12 @@ from backup_routes import backup_bp, configure_backup_routes
 from column_routes import column_bp, configure_column_routes
 from card_routes import card_bp, configure_card_routes
 from schedule_routes import schedule_bp, configure_schedule_routes
+from broadcasting import (
+    broadcast_failures,
+    broadcast_failures_lock,
+    configure_broadcasting,
+)
+from websocket_handlers import register_websocket_handlers
 from settings_schema import (
     SETTINGS_SCHEMA,
     WORKING_STYLE_ALLOWED_VALUES,
@@ -189,87 +195,14 @@ socketio = SocketIO(
     message_queue=redis_url  # Connect to Redis for message queue (None if not configured)
 )
 
-# Thread-safe dictionary to track recent broadcast failures
-# Format: {room_name: {event_name: error_message, timestamp: datetime}}
-# Used for debugging and monitoring WebSocket broadcast issues
-# Protected by lock for concurrent access in multi-worker/multi-threaded environment
-# IMPORTANT: All access to broadcast_failures must occur within a "with broadcast_failures_lock:" block
-# to prevent race conditions in multi-threaded environments
-broadcast_failures = {}
-broadcast_failures_lock = threading.Lock()
+# Broadcast helpers and failure tracking (moved to broadcasting.py)
 configure_health_routes(APP_VERSION, broadcast_failures, broadcast_failures_lock)
 
-def record_broadcast_failure(room_name, event_name, error_message):
-    """Thread-safe helper to record a broadcast failure.
-    
-    Args:
-        room_name: Name of the room where broadcast failed
-        event_name: Name of the event that failed
-        error_message: Error message to record
-    """
-    with broadcast_failures_lock:
-        if room_name not in broadcast_failures:
-            broadcast_failures[room_name] = {}
-        broadcast_failures[room_name][event_name] = error_message
+broadcast_event, broadcast_theme_event = configure_broadcasting(socketio)
 
-def clear_broadcast_failure(room_name, event_name):
-    """Thread-safe helper to clear a broadcast failure record.
-    
-    Args:
-        room_name: Name of the room
-        event_name: Name of the event
-    """
-    with broadcast_failures_lock:
-        if room_name in broadcast_failures:
-            broadcast_failures[room_name].pop(event_name, None)
-
-# ============================================================================
-# TESTING FLAG: WebSocket Connection Rejection
-# ============================================================================
-# Set to True to test WebSocket disconnection scenarios (header shows "WebSocket Disconnected")
-# All Socket.IO connection attempts will be rejected, forcing clients to reconnect
-#
-# WARNING: This must NEVER be enabled (True) in production deployments.
-# To use for local/testing purposes, set the environment variable
-# REJECT_SOCKETIO_CONNECTIONS=true. It defaults to False when unset.
+# TESTING FLAG: When True, all new Socket.IO connections are rejected.
+# Set via REJECT_SOCKETIO_CONNECTIONS=true env var. Never enable in production.
 REJECT_SOCKETIO_CONNECTIONS = os.getenv("REJECT_SOCKETIO_CONNECTIONS", "false").lower() == "true"
-
-# Helper function to broadcast WebSocket events from route handlers
-def broadcast_event(event_name, data, board_id, skip_sid=None):
-    """Broadcast a WebSocket event to all clients in a board room.
-    
-    Args:
-        event_name: Name of the event to broadcast
-        data: Event data to send
-        board_id: Board ID to broadcast to (determines the room)
-        skip_sid: Optional Socket.IO session ID to exclude from broadcast (usually request.sid)
-    
-    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
-    do not affect the API response. The calling route should implement client-side
-    refresh logic as a fallback (e.g., client reloads board on reconnection).
-    """
-    room_name = f'board_{board_id}'
-    
-    def do_emit():
-        try:
-            logger.info(f"Broadcasting {event_name} to room {room_name} with data: {data}")
-            # Use socketio.emit to broadcast to all clients in the room
-            # skip_sid prevents the originating client from receiving a duplicate update
-            socketio.emit(event_name, data, room=room_name, skip_sid=skip_sid, namespace='/')
-            logger.info(f"✓ Successfully emitted {event_name}")
-            # Clear any previous failure for this event
-            clear_broadcast_failure(room_name, event_name)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"❌ Error broadcasting {event_name} to {room_name}: {error_msg}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            # Track the failure for debugging
-            record_broadcast_failure(room_name, event_name, error_msg)
-    
-    # Use background task to ensure proper context
-    socketio.start_background_task(do_emit)
-
 
 # Register websocket broadcaster callback for the scheduler without importing app from scheduler.
 try:
@@ -279,45 +212,17 @@ try:
 except Exception as callback_err:
     logger.warning(f"Failed to register scheduler broadcast callback: {callback_err}")
 
-
-# Configure settings routes with APP_VERSION
+# Configure route blueprints
 configure_settings_routes(app, APP_VERSION)
 configure_backup_routes(APP_VERSION)
 configure_board_routes(APP_VERSION)
 configure_column_routes(broadcast_event)
 configure_card_routes(broadcast_event)
 configure_schedule_routes(broadcast_event)
-
-
-def broadcast_theme_event(event_name, data):
-    """Broadcast a WebSocket event to all clients in the theme room.
-    
-    Note: Broadcasts happen asynchronously in background tasks. Failures are logged but
-    do not affect the API response. Clients should implement refresh logic as fallback.
-    """
-    room_name = 'theme'
-    
-    def do_emit():
-        try:
-            logger.info(f"📢 Broadcasting {event_name} to theme room with data: {data}")
-            # Use socketio.emit to broadcast to all clients in the theme room
-            socketio.emit(event_name, data, room=room_name, namespace='/')
-            logger.info(f"✓ Successfully emitted {event_name} to theme room")
-            # Clear any previous failure for this event
-            clear_broadcast_failure(room_name, event_name)
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            # Track the failure for debugging
-            record_broadcast_failure(room_name, event_name, error_msg)
-    
-    # Use background task to ensure proper context
-    socketio.start_background_task(do_emit)
-
-
 configure_theme_routes(broadcast_theme_event)
+
+# Register Socket.IO event handlers
+register_websocket_handlers(socketio, reject_connections=REJECT_SOCKETIO_CONNECTIONS)
 
 # Configure maximum upload size (110MB)
 app.config["MAX_CONTENT_LENGTH"] = 110 * 1024 * 1024
@@ -722,265 +627,7 @@ else:
 
 
 # ============================================================================
-# WebSocket Event Handlers for Real-Time Board Updates
-# ============================================================================
-
-def _reject_client_originated_mutation(event_name):
-    """Reject client-originated mutation events.
-
-    Mutations must flow through authenticated/authorized API endpoints so the
-    server remains the single source of truth for realtime broadcasts.
-    """
-    user = get_authenticated_socket_user()
-    user_id = user.id if user else None
-    logger.warning(
-        "Rejected client-originated websocket mutation: event=%s sid=%s user_id=%s",
-        event_name,
-        request.sid,
-        user_id,
-    )
-    return {
-        'success': False,
-        'message': 'Client-originated mutation events are disabled. Use REST API endpoints.',
-        'event': event_name,
-    }
-
-
-def _extract_board_id(payload):
-    """Safely extract and validate board_id from socket event payload."""
-    if not isinstance(payload, dict):
-        return None
-
-    raw_board_id = payload.get('board_id')
-    if raw_board_id is None:
-        return None
-
-    try:
-        board_id = int(raw_board_id)
-    except (TypeError, ValueError):
-        return None
-
-    if board_id <= 0:
-        return None
-
-    return board_id
-
-@socketio.on('connect')
-def handle_connect(auth=None):
-    """Handle client connection to WebSocket.
-    
-    When REJECT_SOCKETIO_CONNECTIONS is True, immediately reject connections
-    to simulate WebSocket failure for testing purposes.
-    """
-    if REJECT_SOCKETIO_CONNECTIONS:
-        logger.info(f"Testing: Rejecting Socket.IO connection from {request.sid}")
-        return False  # Reject the connection
-
-    user = get_authenticated_socket_user()
-    if not user:
-        logger.warning("Rejecting unauthenticated Socket.IO connection from %s", request.sid)
-        return False
-    
-    logger.info("Authenticated client connected: sid=%s user_id=%s", request.sid, user.id)
-    emit('connected', {'data': 'Connected to board server'})
-
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnection from WebSocket."""
-    logger.info(f"Client disconnected: {request.sid}")
-
-
-@socketio.on('join_board')
-def on_join_board(data):
-    """Join a board's WebSocket room for real-time updates.
-    
-    Args:
-        data: Dictionary containing 'board_id'
-    """
-    user = get_authenticated_socket_user()
-    if not user:
-        logger.warning("Unauthorized join_board attempt: sid=%s", request.sid)
-        return {'success': False, 'message': 'Authentication required'}
-
-    board_id = _extract_board_id(data)
-    if board_id is None:
-        return {'success': False, 'message': 'Valid board_id is required'}
-
-    has_access, _ = can_access_board(user.id, board_id)
-    if not has_access:
-        logger.warning(
-            "Denied join_board: sid=%s user_id=%s board_id=%s",
-            request.sid,
-            user.id,
-            board_id,
-        )
-        return {'success': False, 'message': 'Access denied to this board'}
-
-    room = f'board_{board_id}'
-    join_room(room)
-    logger.info("Client %s (user_id=%s) joined board %s", request.sid, user.id, board_id)
-    emit('room_joined', {'board_id': board_id, 'message': f'Joined board {board_id}'})
-    return {'success': True, 'board_id': board_id}
-
-
-@socketio.on('leave_board')
-def on_leave_board(data):
-    """Leave a board's WebSocket room.
-    
-    Args:
-        data: Dictionary containing 'board_id'
-    """
-    user = get_authenticated_socket_user()
-    if not user:
-        return {'success': False, 'message': 'Authentication required'}
-
-    board_id = _extract_board_id(data)
-    if board_id is None:
-        return {'success': False, 'message': 'Valid board_id is required'}
-
-    has_access, _ = can_access_board(user.id, board_id)
-    if not has_access:
-        return {'success': False, 'message': 'Access denied to this board'}
-
-    room = f'board_{board_id}'
-    leave_room(room)
-    logger.info("Client %s (user_id=%s) left board %s", request.sid, user.id, board_id)
-    return {'success': True, 'board_id': board_id}
-
-
-@socketio.on('card_moved')
-def broadcast_card_moved(data):
-    """Broadcast when a card is moved to different position or column.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', 'from_column_id', 
-              'to_column_id', 'from_index', 'to_index'
-    """
-    return _reject_client_originated_mutation('card_moved')
-
-
-@socketio.on('card_updated')
-def broadcast_card_updated(data):
-    """Broadcast when a card's content or metadata is updated.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', and updated fields
-              (title, description, color, etc.)
-    """
-    return _reject_client_originated_mutation('card_updated')
-
-
-@socketio.on('card_created')
-def broadcast_card_created(data):
-    """Broadcast when a new card is created.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'column_id', 'card_id', 'card_data'
-    """
-    return _reject_client_originated_mutation('card_created')
-
-
-@socketio.on('card_deleted')
-def broadcast_card_deleted(data):
-    """Broadcast when a card is deleted.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', 'column_id'
-    """
-    return _reject_client_originated_mutation('card_deleted')
-
-
-@socketio.on('column_reordered')
-def broadcast_column_reordered(data):
-    """Broadcast when columns are reordered.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'column_order' (list of column IDs)
-    """
-    return _reject_client_originated_mutation('column_reordered')
-
-
-@socketio.on('checklist_item_added')
-def broadcast_checklist_item_added(data):
-    """Broadcast when a checklist item is added to a card.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'item_data'
-    """
-    return _reject_client_originated_mutation('checklist_item_added')
-
-
-@socketio.on('checklist_item_updated')
-def broadcast_checklist_item_updated(data):
-    """Broadcast when a checklist item is updated.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', 'item_id', 'updated_fields'
-    """
-    return _reject_client_originated_mutation('checklist_item_updated')
-
-
-@socketio.on('checklist_item_deleted')
-def broadcast_checklist_item_deleted(data):
-    """Broadcast when a checklist item is deleted.
-    
-    Args:
-        data: Dictionary containing 'board_id', 'card_id', 'item_id'
-    """
-    return _reject_client_originated_mutation('checklist_item_deleted')
-
-
-# ============================================================================
-# WebSocket Handlers for Theme Updates
-# ============================================================================
-
-@socketio.on('join_theme')
-def on_join_theme():
-    """Handle client joining the theme room to receive theme updates."""
-    user = get_authenticated_socket_user()
-    if not user:
-        return {'success': False, 'message': 'Authentication required'}
-
-    join_room('theme')
-    logger.info(f"✓ Client {request.sid} (user_id={user.id}) joined theme room")
-
-    # Send current theme to the new client
-    session = SessionLocal()
-    try:
-        setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
-        if setting:
-            try:
-                theme_id = int(setting.value)
-                logger.info(f"📢 Sending current theme {theme_id} to client {request.sid}")
-                # Emit current theme to this client only
-                emit('theme_changed', {
-                    'theme_id': theme_id
-                })
-                logger.info(f"✓ Emitted theme_changed to client {request.sid}")
-            except (ValueError, json.JSONDecodeError) as e:
-                logger.error(f"✗ Error parsing theme_id: {str(e)}")
-        else:
-            logger.info("ℹ No selected_theme setting found")
-    except Exception as e:
-        logger.error(f"✗ Error sending current theme to client: {str(e)}")
-    finally:
-        session.close()
-
-    return {'success': True}
-
-
-@socketio.on('leave_theme')
-def on_leave_theme():
-    """Handle client leaving the theme room."""
-    user = get_authenticated_socket_user()
-    if not user:
-        return {'success': False, 'message': 'Authentication required'}
-
-    leave_room('theme')
-    logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
-    return {'success': True}
-
+# WebSocket handlers moved to websocket_handlers.py
 
 import re as _re
 

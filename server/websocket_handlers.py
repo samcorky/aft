@@ -13,7 +13,7 @@ from flask_socketio import emit, join_room, leave_room
 from auth import get_authenticated_socket_user
 from database import SessionLocal
 from models import Setting
-from utils import can_access_board
+from utils import can_access_board, get_user_scoped_query
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +175,17 @@ def register_websocket_handlers(socketio, reject_connections: bool = False):
         if not user:
             return {'success': False, 'message': 'Authentication required'}
 
-        join_room('theme')
-        logger.info(f"✓ Client {request.sid} (user_id={user.id}) joined theme room")
+        room_name = f'theme_user_{user.id}'
+        join_room(room_name)
+        logger.info(f"✓ Client {request.sid} (user_id={user.id}) joined theme room {room_name}")
 
         # Send current theme to the new client
         session = SessionLocal()
         try:
-            setting = session.query(Setting).filter(Setting.key == 'selected_theme').first()
+            setting = get_user_scoped_query(session, Setting, user.id).filter(
+                Setting.key == 'selected_theme',
+                Setting.user_id == user.id,
+            ).first()
             if setting:
                 try:
                     theme_id = int(setting.value)
@@ -206,8 +210,9 @@ def register_websocket_handlers(socketio, reject_connections: bool = False):
         if not user:
             return {'success': False, 'message': 'Authentication required'}
 
-        leave_room('theme')
-        logger.info(f"Client {request.sid} (user_id={user.id}) left theme room")
+        room_name = f'theme_user_{user.id}'
+        leave_room(room_name)
+        logger.info(f"Client {request.sid} (user_id={user.id}) left theme room {room_name}")
         return {'success': True}
 
 

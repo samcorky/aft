@@ -78,24 +78,27 @@ def configure_broadcasting(socketio_instance):
 
         socketio_instance.start_background_task(do_emit)
 
-    def broadcast_theme_event(event_name, data):
-        """Broadcast a WebSocket event to all clients in the theme room.
+    def broadcast_theme_event(event_name, data, user_id=None):
+        """Broadcast a WebSocket event to theme subscribers.
+
+        When user_id is provided, emit only to that user's theme room.
+        Otherwise, emit to the shared theme room for global theme events.
 
         Note: Broadcasts happen asynchronously in background tasks. Failures are
         logged but do not affect the API response. Clients should implement refresh
         logic as fallback.
         """
-        room_name = 'theme'
+        room_name = f'theme_user_{user_id}' if user_id is not None else 'theme'
 
         def do_emit():
             try:
-                logger.info(f"📢 Broadcasting {event_name} to theme room with data: {data}")
+                logger.info(f"📢 Broadcasting {event_name} to room {room_name} with data: {data}")
                 socketio_instance.emit(event_name, data, room=room_name, namespace='/')
-                logger.info(f"✓ Successfully emitted {event_name} to theme room")
+                logger.info(f"✓ Successfully emitted {event_name} to room {room_name}")
                 clear_broadcast_failure(room_name, event_name)
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"✗ Error broadcasting {event_name} to theme room: {error_msg}")
+                logger.error(f"✗ Error broadcasting {event_name} to room {room_name}: {error_msg}")
                 import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 record_broadcast_failure(room_name, event_name, error_msg)

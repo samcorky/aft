@@ -32,9 +32,9 @@ def configure_theme_routes(broadcast_theme_event):
     _broadcast_theme_event = broadcast_theme_event
 
 
-def _emit_theme_event(event_name, data):
+def _emit_theme_event(event_name, data, user_id=None):
     if _broadcast_theme_event is not None:
-        _broadcast_theme_event(event_name, data)
+        _broadcast_theme_event(event_name, data, user_id=user_id)
 
 
 def _get_user_accessible_theme(session, user_id, theme_id):
@@ -408,7 +408,14 @@ def update_current_theme():
     session = SessionLocal()
     try:
         user_id = g.user.id
-        data = request.get_json()
+        try:
+            data = request.get_json(silent=True)
+        except BadRequest:
+            data = None
+
+        if not data or not isinstance(data, dict):
+            return create_error_response("Request body must contain valid JSON object", 400)
+
         theme_id = data.get('theme_id')
 
         if not theme_id:
@@ -434,7 +441,7 @@ def update_current_theme():
         _emit_theme_event('theme_changed', {
             'theme_id': theme_id,
             'theme_name': theme.name,
-        })
+        }, user_id=user_id)
 
         return create_success_response(message="Theme selection updated")
     except Exception as e:

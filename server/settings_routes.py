@@ -144,11 +144,11 @@ def get_setting(key):
 
         # Special validation for default_board
         if key == "default_board" and value is not None:
-            # Check if board exists
-            board = db.query(Board).filter(Board.id == value).first()
+            # Check if board exists AND is still accessible to this user
+            board = get_user_scoped_query(db, Board, user_id).filter(Board.id == value).first()
             if not board:
-                # Board doesn't exist, auto-correct to null
-                logger.warning(f"Default board {value} not found, resetting to null")
+                # Board doesn't exist or is no longer accessible — auto-correct to null
+                logger.warning(f"Default board {value} not found or inaccessible for user {user_id}, resetting to null")
                 setting.value = "null"
                 db.commit()
                 value = None

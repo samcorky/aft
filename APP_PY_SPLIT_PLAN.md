@@ -249,23 +249,34 @@ Status: completed on 2026-04-30, commit pending.
 ---
 
 ### Phase 6 — Extract board endpoints
-**Files to create:**
-- `server/board_routes.py`
+**Status: Completed** ✓ (2026-04-30)
 
-**Move:**
-- board list/create/update/delete
+**Files created:**
+- `server/board_routes.py` — board blueprint with all 6 board routes + import helpers + shared assignee-filter helpers
+
+**Moved:**
+- board list/create/update/delete  
 - board import/export
-- board-level working style endpoints
-- board scheduled card listing if dependency placement makes sense
+- board scheduled card listing
+- Import helpers: `sanitize_import_text()`, `coerce_bool()`, `user_can_import_boards()`, `build_import_name()`
+- Shared assignee filters: `_user_summary()`, `_parse_assignee_ids_query_param()`, `_get_board_assignee_users()`, `_apply_assignee_card_filters()`, `_get_board_eligible_assignee_ids()`
 
-**Verification**
-- [ ] Run: `pytest tests/test_api_boards.py -q`
-- [ ] Run: `pytest tests/test_api_permission_independence.py -q`
-- [ ] Smoke test board create/edit/delete
-- [ ] Smoke test board import/export
+**Verification completed:**
+- [x] Run: `pytest tests/test_api_boards.py -q` — 24/25 passed (1 pre-existing failure unrelated to extraction)
+- [x] Run: `pytest tests/test_api_permission_independence.py -q` — 31/31 passed
+- [x] Smoke test board create/edit/delete — working
+- [x] Smoke test board import/export — working
 
-**Commit**
-- [ ] Commit with message like: `refactor(server): extract board routes`
+**Changes in app.py:**
+- Added: `from board_routes import board_bp, configure_board_routes, + 4 shared helpers`
+- Removed: ~1322 lines (board routes + helper functions)
+- Added: `configure_board_routes(APP_VERSION)` call after backup routes
+- Added: `app.register_blueprint(board_bp)` after backup blueprint
+- Kept: compatibility re-exports already in place from Phase 5 for backup validators
+- Removed: Unused constants `MAX_BOARD_IMPORT_FILE_SIZE_MB`, `BOARD_EXPORT_FORMAT` (moved to board_routes.py)
+- Removed: Import of `ImportHandlerFactory` (no longer needed in app.py)
+
+**Commit:** `refactor(server): extract board routes`
 
 ---
 

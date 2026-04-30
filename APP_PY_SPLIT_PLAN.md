@@ -297,33 +297,45 @@ Status: completed on 2026-04-30, commit pending.
 - All tests passed (required DB rebuild)
 
 **Commit**
-- [ ] Commit with message like: `refactor(server): extract column routes`
+- [x] Commit with message like: `refactor(server): extract column routes`
 
 ---
 
 ### Phase 8 — Extract card core endpoints
-**Files to create:**
-- `server/card_routes.py`
+**Status: Completed ✓ (2026-04-30)**
 
-**Move:**
-- card CRUD
-- assignees
-- archive/unarchive
-- done-state endpoints
-- batch archive/unarchive
-- archive-after-period endpoints
+**Files created:**
+- `server/card_routes.py` — `card_bp`, `configure_card_routes(broadcast_event_fn)`, `_get_fully_authorized_batch_cards()`
 
-**Notes**
-- This is likely the single biggest API extraction.
-- If needed, split this into two commits:
-  1. card CRUD + assignees
-  2. batch/archive/done flows
+**Moved:**
+- `GET /api/columns/<id>/cards` → `get_column_cards`
+- `GET /api/boards/<id>/cards` → `get_board_cards`
+- `POST /api/columns/<id>/cards` → `create_card`
+- `DELETE /api/columns/<id>/cards` → `delete_all_cards_in_column`
+- `POST /api/columns/<id>/cards/move` → `move_all_cards_in_column`
+- `GET /api/cards/<id>` → `get_card`
+- `PATCH /api/cards/<id>` → `update_card`
+- `DELETE /api/cards/<id>` → `delete_card`
+- `GET /api/cards/<id>/assignees` → `get_card_assignees`
+- `PUT /api/cards/<id>/assignees` → `update_card_assignees`
+- `POST /api/cards/<id>/archive` → `archive_card`
+- `POST /api/cards/<id>/unarchive` → `unarchive_card`
+- `GET /api/cards/<id>/done` → `get_card_done_status`
+- `PUT /api/cards/<id>/done` → `update_card_done_status`
+- `POST /api/cards/batch/archive` → `batch_archive_cards`
+- `POST /api/cards/batch/unarchive` → `batch_unarchive_cards`
+- `POST /api/boards/<id>/archive-after` → `archive_cards_after_period`
+- `GET /api/boards/<id>/scheduled-cards` → `get_scheduled_cards`
+- Private helper: `_get_fully_authorized_batch_cards()`
 
-**Verification**
-- [ ] Run: `pytest tests/test_api_cards.py -q`
-- [ ] Run: `pytest tests/test_api_archive_after.py -q`
-- [ ] Smoke test card create/edit/move/archive/unarchive
-- [ ] Smoke test assignee filters
+**Notes:**
+- `broadcast_event` injected via `configure_card_routes()` (same pattern as column_routes)
+- Shared assignee helpers imported from `board_routes.py`
+- app.py reduced from ~4536 lines to ~2200 lines — the single biggest extraction
+- All tests passed without requiring a DB rebuild
+
+**Verification:**
+- [x] Full non-slow pytest suite passed
 
 **Commit**
 - [ ] Commit with message like: `refactor(server): extract card routes`

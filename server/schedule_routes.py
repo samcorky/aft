@@ -6,6 +6,7 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func
 
 from database import SessionLocal
+from datetime_helpers import parse_iso_datetime
 from models import BoardColumn, Card, ChecklistItem, Comment, ScheduledCard
 from utils import (
     MAX_COMMENT_LENGTH,
@@ -55,8 +56,7 @@ def create_schedule():
             - card_id
             - run_every
             - unit
-            - start_date
-            - start_time
+            - start_datetime
           properties:
             card_id:
               type: integer
@@ -65,18 +65,12 @@ def create_schedule():
             unit:
               type: string
               enum: [minute, hour, day, week, month, year]
-            start_date:
+            start_datetime:
               type: string
-              format: date
-            start_time:
+              format: date-time
+            end_datetime:
               type: string
-              format: time
-            end_date:
-              type: string
-              format: date
-            end_time:
-              type: string
-              format: time
+              format: date-time
             schedule_enabled:
               type: boolean
             allow_duplicates:
@@ -124,21 +118,17 @@ def create_schedule():
         if card.schedule is not None:
             return jsonify({"success": False, "message": "Card is already scheduled"}), 400
 
-        # Parse datetimes
+        # Parse datetimes using helper that normalizes timezone-aware input to naive UTC.
         try:
-            # Handle ISO format with 'Z' timezone suffix
-            # Convert to naive datetime (strip timezone) since we store as naive in DB
-            start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
-            start_datetime = datetime.fromisoformat(start_datetime_str)
-            if start_datetime.tzinfo is not None:
-                start_datetime = start_datetime.replace(tzinfo=None)
+            start_datetime = parse_iso_datetime(data.get('start_datetime'))
+            if start_datetime is None:
+                raise ValueError('Invalid start_datetime format')
 
             end_datetime = None
             if 'end_datetime' in data and data['end_datetime']:
-                end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
-                end_datetime = datetime.fromisoformat(end_datetime_str)
-                if end_datetime.tzinfo is not None:
-                    end_datetime = end_datetime.replace(tzinfo=None)
+                end_datetime = parse_iso_datetime(data.get('end_datetime'))
+                if end_datetime is None:
+                    raise ValueError('Invalid end_datetime format')
         except (ValueError, TypeError) as e:
             return jsonify({"success": False, "message": f"Invalid datetime format: {str(e)}"}), 400
 
@@ -417,29 +407,17 @@ def update_schedule(schedule_id):
             schedule.unit = data['unit']
 
         if 'start_datetime' in data:
-            try:
-                # Handle ISO format with 'Z' timezone suffix
-                # Convert to naive datetime (strip timezone) since we store as naive in DB
-                start_datetime_str = data['start_datetime'].replace('Z', '+00:00')
-                parsed_dt = datetime.fromisoformat(start_datetime_str)
-                if parsed_dt.tzinfo is not None:
-                    parsed_dt = parsed_dt.replace(tzinfo=None)
-                schedule.start_datetime = parsed_dt
-            except (ValueError, TypeError):
+            parsed_dt = parse_iso_datetime(data.get('start_datetime'))
+            if parsed_dt is None:
                 return jsonify({"success": False, "message": "Invalid start_datetime format"}), 400
+            schedule.start_datetime = parsed_dt
 
         if 'end_datetime' in data:
             if data['end_datetime']:
-                try:
-                    # Handle ISO format with 'Z' timezone suffix
-                    # Convert to naive datetime (strip timezone) since we store as naive in DB
-                    end_datetime_str = data['end_datetime'].replace('Z', '+00:00')
-                    parsed_dt = datetime.fromisoformat(end_datetime_str)
-                    if parsed_dt.tzinfo is not None:
-                        parsed_dt = parsed_dt.replace(tzinfo=None)
-                    schedule.end_datetime = parsed_dt
-                except (ValueError, TypeError):
+                parsed_dt = parse_iso_datetime(data.get('end_datetime'))
+                if parsed_dt is None:
                     return jsonify({"success": False, "message": "Invalid end_datetime format"}), 400
+                schedule.end_datetime = parsed_dt
             else:
                 schedule.end_datetime = None
 

@@ -281,16 +281,20 @@ Status: completed on 2026-04-30, commit pending.
 ---
 
 ### Phase 7 — Extract column endpoints
-**Files to create:**
-- `server/column_routes.py`
+**Status: Completed ✓ (2026-04-30)**
 
-**Move:**
-- board column list/create/update/delete
-- bulk move helpers that are clearly column-focused
+**Files created:**
+- `server/column_routes.py` — `column_bp`, `configure_column_routes(broadcast_event_fn)`
 
-**Verification**
-- [ ] Run the relevant cards/board API tests
-- [ ] Smoke test column create/rename/delete and drag ordering
+**Moved:**
+- `GET /api/boards/<id>/columns` → `get_board_columns`
+- `POST /api/boards/<id>/columns` → `create_column`
+- `DELETE /api/columns/<id>` → `delete_column`
+- `PATCH /api/columns/<id>` → `update_column`
+
+**Notes:**
+- `broadcast_event` injected via `configure_column_routes()` (called after the function is defined in app.py)
+- All tests passed (required DB rebuild)
 
 **Commit**
 - [ ] Commit with message like: `refactor(server): extract column routes`

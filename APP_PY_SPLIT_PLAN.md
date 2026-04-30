@@ -3,12 +3,6 @@
 ## Goal
 Reduce `server/app.py` from a monolithic 11k+ line file into smaller, domain-focused modules while preserving behavior and keeping each extraction reviewable, testable, and easy to roll back.
 
-## Progress Snapshot (2026-04-30)
-- Phases 1 through 10 are complete.
-- `server/app.py` has been reduced to ~696 lines.
-- New extracted modules now cover helpers, route domains, schedules/comments/checklists, and websocket broadcasting/handlers.
-- Remaining work is Phase 11 cleanup/final verification and final commit grouping.
-
 ## Baseline Assessment
 Baseline snapshot from this planning pass:
 
@@ -107,10 +101,10 @@ Move route groups and pure helpers into new modules.
 ## Ordered Checklist
 
 ### Phase 0 — Baseline capture
-- [x] Record current baseline in commit notes
-- [x] Confirm dev stack is healthy
-- [x] Confirm `server/app.py` still compiles
-- [x] Confirm current test suite baseline before first extraction
+- [ ] Record current baseline in commit notes
+- [ ] Confirm dev stack is healthy
+- [ ] Confirm `server/app.py` still compiles
+- [ ] Confirm current test suite baseline before first extraction
 
 Suggested evidence to record:
 - `/api/health/live` returns 200
@@ -380,27 +374,25 @@ Status: completed on 2026-04-30, commit pending.
 ---
 
 ### Phase 10 — Extract websocket handlers and broadcast plumbing
-**Status: Completed ✓ (2026-04-30)**
-
-**Files created:**
+**Files to create:**
 - `server/broadcasting.py`
 - `server/websocket_handlers.py`
 
-**Moved:**
+**Move:**
 - socket event handlers
 - board join/leave handlers
 - client-mutation rejection logic
 - theme room join/leave handlers
-- broadcast helper functions and failure tracking
+- broadcast helper functions and tracking
 
-**Notes:**
-- Kept `socketio = SocketIO(...)` in `server/app.py` as composition root.
-- Added `configure_broadcasting(socketio)` wiring in `server/app.py` and injected returned callbacks into route modules.
-- Registered socket handlers via `register_websocket_handlers(socketio, reject_connections=REJECT_SOCKETIO_CONNECTIONS)`.
-- app.py reduced from ~1049 lines to ~696 lines.
+**Notes**
+- Keep `socketio = SocketIO(...)` itself in `app.py`.
+- Import/register websocket handlers from the new module.
 
-**Verification:**
-- [x] Full non-slow pytest suite passed
+**Verification**
+- [ ] Run: `pytest tests/test_websocket_security.py -q`
+- [ ] Run: `pytest tests/test_websocket_theme_sync.py -q`
+- [ ] Smoke test board updates in two browser sessions
 
 **Commit**
 - [ ] Commit with message like: `refactor(server): extract websocket handlers`
@@ -451,10 +443,13 @@ Use this lightweight browser/API checklist after each extraction touching the ma
 - If a move requires too many imports, that is a sign a shared helper should be extracted first.
 - For very large domains like cards and backups, do not force a single giant commit.
 
-## Extraction Progress Summary
-Initial recommended extraction order has now been executed through Phase 10:
+## Recommended First Actual Extraction
+If starting immediately after this planning step, the safest first implementation chunk is:
 
-1. Shared helper extraction completed (`settings_schema.py`, `datetime_helpers.py`, `security_validators.py`)
-2. Route-domain extraction completed (`health_routes.py`, `theme_routes.py`, `notification_routes.py`, `settings_routes.py`, `backup_routes.py`, `board_routes.py`, `column_routes.py`, `card_routes.py`, `schedule_routes.py`)
-3. Websocket/broadcast extraction completed (`broadcasting.py`, `websocket_handlers.py`)
-4. Current focus is final cleanup/verification and final commit preparation (Phase 11)
+1. extract `settings_schema.py`
+2. extract `datetime_helpers.py`
+3. extract `security_validators.py`
+4. run focused tests
+5. commit
+
+That creates the shared foundation needed for the larger route moves.

@@ -1,57 +1,25 @@
-from flask import Flask, jsonify, request, send_file, g
-from flask_socketio import SocketIO, emit, join_room, leave_room
+from flask import Flask, jsonify, request, g
+from flask_socketio import SocketIO
 from flask_cors import CORS
 import logging
-import json
-import io
 import os
 import re
-import secrets
 import time
 import tempfile
-import subprocess
-import uuid
-import threading
-from datetime import datetime, timezone
 from pathlib import Path
 from flasgger import Swagger
-from database import SessionLocal, engine
-from models import Board, BoardColumn, BoardSetting, Card, CardSecondaryAssignee, Setting, ScheduledCard, ChecklistItem, Comment, Theme, User, Role, UserRole
-from sqlalchemy import text, func, or_
-from sqlalchemy.orm import selectinload
+from database import SessionLocal
+from models import User
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from werkzeug.routing import BaseConverter
-from werkzeug.exceptions import BadRequest
 from utils import (
-    validate_string_length,
-    validate_integer,
-    sanitize_string,
     create_error_response,
     create_success_response,
-    MAX_TITLE_LENGTH,
-    MAX_DESCRIPTION_LENGTH,
-    MAX_COMMENT_LENGTH,
-    get_user_scoped_query,
-    get_user_permissions,
-    require_permission,
-    require_any_permission,
-    require_board_access,
-    require_authentication,
-    get_current_user_id,
-    can_access_board,
 )
-from auth import auth_bp, load_user_from_session, get_authenticated_socket_user
+from auth import auth_bp, load_user_from_session
 from user_management import user_mgmt_bp
 from role_management import role_mgmt_bp
-from board_routes import (
-    board_bp,
-    configure_board_routes,
-    _apply_assignee_card_filters,
-  _get_board_eligible_assignee_ids,
-    _get_board_assignee_users,
-    _parse_assignee_ids_query_param,
-    _user_summary,
-)
+from board_routes import board_bp, configure_board_routes
 from health_routes import health_bp, configure_health_routes
 from theme_routes import theme_bp, configure_theme_routes
 from notification_routes import notification_bp
@@ -66,21 +34,21 @@ from broadcasting import (
     configure_broadcasting,
 )
 from websocket_handlers import register_websocket_handlers
-from settings_schema import (
-    SETTINGS_SCHEMA,
-    WORKING_STYLE_ALLOWED_VALUES,
-    get_board_working_style,
-    get_user_default_working_style,
-    normalize_working_style,
-    validate_setting,
-)
-from datetime_helpers import parse_iso_datetime, serialize_datetime
+from scheduler_lock import acquire_scheduler_lock
 from security_validators import (
-  validate_backup_file_security,
-  validate_backup_file_size,
+        validate_backup_file_security,
+        validate_backup_file_size,
     validate_safe_url,
-  validate_schema_integrity,
+        validate_schema_integrity,
 )
+
+# Keep legacy imports re-exported from app.py for existing tests/callers.
+__all__ = [
+    "validate_backup_file_security",
+    "validate_backup_file_size",
+    "validate_safe_url",
+    "validate_schema_integrity",
+]
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -336,12 +304,11 @@ def before_request():
         return
     
     # Check if initial setup is complete (any active user with password exists)
-    from models import User
     db = SessionLocal()
     try:
       try:
         has_users = db.query(User).filter(
-          User.is_active == True,
+                    User.is_active,
           User.password_hash.isnot(None)
         ).count() > 0
       except (ProgrammingError, OperationalError) as error:
@@ -577,8 +544,6 @@ if skip_scheduler_init:
 # The init lock must use process-aware stale detection to avoid false stale evictions.
 init_lock_file = Path(tempfile.gettempdir()) / "aft_scheduler_init.lock"
 
-from scheduler_lock import acquire_scheduler_lock
-
 if skip_scheduler_init:
     acquired_init_lock, init_lock_details = False, {"reason": "skipped_by_env"}
     should_init = False
@@ -628,10 +593,7 @@ else:
 
 # ============================================================================
 # WebSocket handlers moved to websocket_handlers.py
-
-import re as _re
-
-_HEX_COLOUR_RE = _re.compile(r'^#[0-9A-Fa-f]{6}$')
+_HEX_COLOUR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
 
 
 @app.route("/api/users/me/profile-colour", methods=["PUT"])
@@ -675,11 +637,10 @@ def update_profile_colour():
 
     db = SessionLocal()
     try:
-        from models import User
         user = db.query(User).filter(User.id == g.user.id).first()
         if not user:
             return create_error_response("User not found", 404)
-        user.profile_colour = colour
+        setattr(user, "profile_colour", colour)
         db.commit()
         return create_success_response({'profile_colour': colour})
     except Exception as e:

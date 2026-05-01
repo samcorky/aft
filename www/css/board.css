@@ -610,7 +610,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--page-panel-background);
-  color: var(--text-normal);
+  color: var(--text-color);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
@@ -625,7 +625,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--page-panel-background);
-  color: var(--text-normal);
+  color: var(--text-color);
   cursor: pointer;
   text-align: left;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
@@ -699,6 +699,20 @@
   word-break: break-word;
 }
 
+.assignee-modal-content {
+  max-width: 480px;
+}
+
+.assignee-modal-section {
+  margin-top: 16px;
+}
+
+.assignee-modal-empty-state {
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--text-secondary);
+}
+
 .card:active {
   cursor: grabbing;
 }
@@ -722,7 +736,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--card-bg-color) 85%, transparent);
   border-radius: 8px;
   z-index: 10;
 }
@@ -754,7 +768,7 @@
 
 @keyframes successFlash {
   0%, 100% { background-color: var(--card-bg-color, white); }
-  50% { background-color: #d4edda; border-color: var(--success-color, #28a745); }
+  50% { background-color: color-mix(in srgb, var(--success-color) 20%, var(--card-bg-color)); border-color: var(--success-color, #28a745); }
 }
 
 @keyframes errorShake {
@@ -1230,7 +1244,7 @@
 .modal-header h2 .card-ref-number {
   font-size: 0.6em;
   font-weight: normal;
-  color: var(--text-subtle);
+  color: var(--text-muted);
   margin-left: 10px;
   white-space: nowrap;
 }
@@ -1410,7 +1424,7 @@
 }
 
 .btn-danger:hover {
-  background-color: #c0392b;
+  background-color: color-mix(in srgb, var(--error-color) 80%, black);
 }
 
 .checklist-section {
@@ -1567,7 +1581,7 @@
 .card-metadata {
   margin-top: 20px;
   padding: 12px;
-  background-color: var(--background-secondary);
+  background-color: var(--background-light);
   border-radius: 4px;
   display: flex;
   flex-wrap: wrap;
@@ -1711,7 +1725,7 @@
   left: 0;
   right: 0;
   height: 2em;
-  background: linear-gradient(transparent, #f8f9fa);
+  background: linear-gradient(transparent, var(--page-panel-background));
 }
 
 .comment-read-more {

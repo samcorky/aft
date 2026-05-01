@@ -6476,7 +6476,7 @@ class BoardManager {
 
     const modalHtml = `
       <div class="modal" id="assignee-modal">
-        <div class="modal-content" style="max-width:480px;">
+        <div class="modal-content assignee-modal-content">
           <div class="modal-header">
             <div class="modal-header-actions">
               <button type="button" class="btn btn-secondary" id="owner-modal-cancel-btn">Cancel</button>
@@ -6484,16 +6484,16 @@ class BoardManager {
             </div>
             <h2>Assign To</h2>
           </div>
-          <div class="form-group" style="margin-top:16px;">
+          <div class="form-group assignee-modal-section">
             <label>Assigned To:</label>
             <div class="primary-assignee-grid" role="group" aria-label="Select primary assignee">
               ${primaryOptions}
             </div>
           </div>
-          <div class="form-group" style="margin-top:16px;">
+          <div class="form-group assignee-modal-section">
             <label>Secondary Assignees:</label>
             <div class="secondary-assignee-grid" id="secondary-assignees-list" role="group" aria-label="Toggle secondary assignees">
-              ${secondaryOptions || '<p style="color:var(--secondary-color);font-size:0.9em;">No eligible users found.</p>'}
+              ${secondaryOptions || '<p class="assignee-modal-empty-state">No eligible users found.</p>'}
             </div>
           </div>
         </div>

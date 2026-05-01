@@ -191,16 +191,14 @@
 
   // Load theme from backend API - will override any cached theme
   async function loadThemeFromAPI() {
+    const controller = new AbortController();
+    const timeoutMs = getThemeRequestTimeoutMs();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const controller = new AbortController();
-      const timeoutMs = getThemeRequestTimeoutMs();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-      
       const response = await fetch('/api/settings/theme', {
         signal: controller.signal
       });
-      
-      clearTimeout(timeoutId);
       
       if (response.ok) {
         const theme = await response.json();
@@ -216,6 +214,8 @@
       } else {
         console.warn('Theme API request timed out during page startup');
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
     
     return false; // API call failed

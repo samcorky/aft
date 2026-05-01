@@ -780,6 +780,7 @@ class BoardManager {
     this.viewportMetricsRafId = null;
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
+    this.hasLoadedBoardData = false; // Prevent empty-board render before initial cards load completes
     this.columnScrollPositions = {};
     this.persistScrollTimeoutId = null;
     this.autoScrollHoverTimeoutId = null;
@@ -897,7 +898,9 @@ class BoardManager {
       const loaded = this.loadPersistedAssigneeFilterVisibility();
       if (loaded) {
         this.notifyBoardFilterVisibilityChanged();
-        this.renderBoard();
+        if (this.hasLoadedBoardData) {
+          this.renderBoard();
+        }
         clearInterval(this.assigneeFilterVisibilityWatcherId);
         this.assigneeFilterVisibilityWatcherId = null;
         return;
@@ -1267,6 +1270,7 @@ class BoardManager {
     }
 
     this.render();
+    this.showBoardLoading();
     this.loadPersistedColumnScrollPositions();
     this.loadPersistedAssigneeFilterVisibility();
     this.watchForAssigneeFilterVisibilityUser();
@@ -1441,14 +1445,14 @@ class BoardManager {
   }
 
   render() {
-    this.container.innerHTML = `
-      <div class="loading-board">Loading board...</div>
-    `;
+    // Keep initial render empty; loading state is handled by board-loading-overlay.
+    this.container.innerHTML = '';
   }
 
   async loadBoard() {
     this.stopColumnAutoScroll();
     this.captureColumnScrollPositions();
+    this.showBoardLoading();
 
     // Cancel any in-flight board load request
     if (this.currentLoadController) {
@@ -1583,6 +1587,7 @@ class BoardManager {
       
       // Update header with board name and page title
       this.updateBoardTitle();
+      this.hasLoadedBoardData = true;
       
       this.renderBoard();
     } catch (err) {
@@ -6298,8 +6303,7 @@ class BoardManager {
       overlay.className = 'board-loading-overlay';
       overlay.innerHTML = `
         <div class="board-loading-content">
-          <div class="board-loading-spinner">⏳</div>
-          <div class="board-loading-text">Loading...</div>
+          <div class="board-loading-text">Board data is loading...</div>
         </div>
       `;
       this.container.appendChild(overlay);

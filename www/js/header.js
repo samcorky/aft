@@ -206,7 +206,15 @@ class Header {
   async load() {
     const response = await fetch('/components/header.html');
     const html = await response.text();
-    document.body.insertAdjacentHTML('afterbegin', html);
+    const parser = new DOMParser();
+    const parsedDocument = parser.parseFromString(html, 'text/html');
+    const headerElement = parsedDocument.body.firstElementChild;
+
+    if (!headerElement) {
+      throw new Error('Header component did not contain a root element');
+    }
+
+    document.body.prepend(document.importNode(headerElement, true));
     
     // Get references to status elements after HTML is inserted
     this.statusIcon = document.getElementById('status-icon');

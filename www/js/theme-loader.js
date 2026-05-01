@@ -4,6 +4,11 @@
 (function() {
   const SAFE_THEME_SETTING_NAME = /^[A-Za-z0-9-]+$/;
   const colorValidationElement = document.createElement('span');
+  const PUBLIC_PAGE_PATHS = ['/login.html', '/register.html', '/logout.html', '/setup.html', '/about.html', '/docs.html'];
+
+  function isPublicPagePath(pathname) {
+    return PUBLIC_PAGE_PATHS.some((pagePath) => pathname.includes(pagePath));
+  }
 
   function getSafeBackgroundImage(filename) {
     if (typeof filename !== 'string') {
@@ -105,7 +110,8 @@
   }
 
   // Try to load theme from sessionStorage first (fast path for same-session navigation)
-  function applyFromSessionStorage() {
+  function applyFromSessionStorage(options = {}) {
+    const includeBackgroundImage = options.includeBackgroundImage !== false;
     const savedTheme = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('currentTheme') : null;
     const savedBgImage = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('backgroundImage') : null;
     
@@ -118,12 +124,20 @@
         const safeThemeSettings = applyThemeSettings(root, theme);
 
         if (!safeThemeSettings) {
-          applyBackgroundImage(root, savedBgImage);
+          if (includeBackgroundImage) {
+            applyBackgroundImage(root, savedBgImage);
+          } else {
+            applyBackgroundImage(root, null);
+          }
           return false;
         }
         
-        // Also apply the cached background image
-        applyBackgroundImage(root, savedBgImage);
+        // Also apply the cached background image when allowed
+        if (includeBackgroundImage) {
+          applyBackgroundImage(root, savedBgImage);
+        } else {
+          applyBackgroundImage(root, null);
+        }
         
         return true; // Successfully applied cached theme
       } catch (e) {
@@ -131,8 +145,12 @@
       }
     }
     
-    // Apply cached background if no theme cache
-    applyBackgroundImage(document.documentElement, savedBgImage);
+    // Apply cached background if no theme cache and background usage is allowed
+    if (includeBackgroundImage) {
+      applyBackgroundImage(document.documentElement, savedBgImage);
+    } else {
+      applyBackgroundImage(document.documentElement, null);
+    }
     
     return false; // No cached theme available
   }
@@ -168,15 +186,23 @@
 
   // Initialize theme loading
   function init() {
+    const currentPath = window.location.pathname || '';
+    const isPublicPage = isPublicPagePath(currentPath);
+
     // First, apply cached theme if available (prevents flash)
-    const hasCachedTheme = applyFromSessionStorage();
-    
-    // Only load from API if we don't have a cached theme
-    // This reduces unnecessary API calls for same-session navigation
+    const hasCachedTheme = applyFromSessionStorage({ includeBackgroundImage: isPublicPage });
+
+    // For protected pages, always revalidate via API before applying background image.
+    // This avoids showing cached protected-page visuals before auth redirect completes.
+    if (!isPublicPage) {
+      loadThemeFromAPI().catch(error => {
+        console.debug('Background theme API update failed:', error.message);
+      });
+      return;
+    }
+
+    // On public pages, only load from API if we don't have cached theme settings.
     if (!hasCachedTheme) {
-      // Load fresh theme from API in background without blocking
-      // Don't await - let it run asynchronously while page continues loading
-      // This ensures we always have the latest theme from the database
       loadThemeFromAPI().catch(error => {
         // Silently handle API errors - cached theme or defaults are already applied
         console.debug('Background theme API update failed:', error.message);

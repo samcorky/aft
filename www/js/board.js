@@ -5,6 +5,7 @@ const COLUMN_AUTO_SCROLL_HOVER_DELAY_MS = 500;
 const COLUMN_AUTO_SCROLL_BASE_STEP_PX = 6;
 const COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX = 12;
 const COLUMN_AUTO_SCROLL_MIN_STEP_PX = 4;
+const BOARD_LOADING_OVERLAY_DELAY_MS = 500;
 
 /**
  * Calculate the percentage of checked items in a checklist
@@ -781,6 +782,8 @@ class BoardManager {
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
     this.hasLoadedBoardData = false; // Prevent empty-board render before initial cards load completes
+    this.isBootstrappingBoard = false; // True while first board load pipeline is running
+    this.boardLoadingDelayTimeoutId = null;
     this.columnScrollPositions = {};
     this.persistScrollTimeoutId = null;
     this.autoScrollHoverTimeoutId = null;
@@ -1248,51 +1251,62 @@ class BoardManager {
   }
 
   async init() {
-    // Get board ID from URL query parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const boardIdParam = urlParams.get('id');
-    
-    // Parse and validate board ID to prevent XSS
-    this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
-    
-    if (!this.boardId || isNaN(this.boardId)) {
-      this.showError('Invalid or missing board ID');
+    if (this.isBootstrappingBoard) {
       return;
     }
 
-    // Initialize Permission Manager with board context
-    console.log('Initializing PermissionManager for board:', this.boardId);
-    const permissionInitSuccess = await PermissionManager.init(this.boardId);
-    
-    if (!permissionInitSuccess) {
-      console.warn('Failed to initialize PermissionManager - some features may not be available');
-      // Continue anyway - the user is logged in if we're here
-    }
+    this.isBootstrappingBoard = true;
 
-    this.render();
-    this.showBoardLoading();
-    this.loadPersistedColumnScrollPositions();
-    this.loadPersistedAssigneeFilterVisibility();
-    this.watchForAssigneeFilterVisibilityUser();
-    this.notifyBoardFilterVisibilityChanged();
-    window.addEventListener('beforeunload', this.beforeUnloadHandler);
-    window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
-    window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
-    window.addEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
-    window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
-    
-    // Initialize WebSocket for real-time updates
-    this.wsManager = new WebSocketManager(this.boardId, this);
-    
-    // Load working style preference
-    await this.loadWorkingStyle();
-    
-    await this.loadBoard();
-    this.notifyBoardFilterActiveStateChanged();
-    this.setupMobileViewportSync();
-    this.setupKeyboardShortcuts();
-    this.setupDropdownClickOutside();
-    this.setupViewListener();
+    try {
+
+      // Get board ID from URL query parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const boardIdParam = urlParams.get('id');
+      
+      // Parse and validate board ID to prevent XSS
+      this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
+      
+      if (!this.boardId || isNaN(this.boardId)) {
+        this.showError('Invalid or missing board ID');
+        return;
+      }
+
+      // Initialize Permission Manager with board context
+      console.log('Initializing PermissionManager for board:', this.boardId);
+      const permissionInitSuccess = await PermissionManager.init(this.boardId);
+      
+      if (!permissionInitSuccess) {
+        console.warn('Failed to initialize PermissionManager - some features may not be available');
+        // Continue anyway - the user is logged in if we're here
+      }
+
+      this.render();
+      this.showBoardLoading();
+      this.loadPersistedColumnScrollPositions();
+      this.loadPersistedAssigneeFilterVisibility();
+      this.watchForAssigneeFilterVisibilityUser();
+      this.notifyBoardFilterVisibilityChanged();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+      window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+      window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+      window.addEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
+      window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
+      
+      // Initialize WebSocket for real-time updates
+      this.wsManager = new WebSocketManager(this.boardId, this);
+      
+      // Load working style preference
+      await this.loadWorkingStyle();
+      
+      await this.loadBoard();
+      this.notifyBoardFilterActiveStateChanged();
+      this.setupMobileViewportSync();
+      this.setupKeyboardShortcuts();
+      this.setupDropdownClickOutside();
+      this.setupViewListener();
+    } finally {
+      this.isBootstrappingBoard = false;
+    }
   }
 
   async loadWorkingStyle() {
@@ -1302,6 +1316,18 @@ class BoardManager {
       }
       return value === 'agile' ? 'agile' : 'kanban';
     };
+
+    const headerWorkingStylePromise = window.header?.workingStyleLoadPromise;
+    if (window.header?.currentBoardId === this.boardId && headerWorkingStylePromise) {
+      try {
+        await headerWorkingStylePromise;
+        this.workingStyle = normalize(window.header.workingStyle);
+        this.updateArchivedViewVisibility();
+        return;
+      } catch (error) {
+        console.warn('Falling back to board working style fetch after header load failure:', error);
+      }
+    }
 
     try {
       const response = await fetch(`/api/boards/${this.boardId}/settings/working-style`);
@@ -1450,6 +1476,11 @@ class BoardManager {
   }
 
   async loadBoard() {
+    // Ignore duplicate startup reloads while the first board request is still in flight.
+    if (this.isBootstrappingBoard && this.currentLoadController && !this.hasLoadedBoardData) {
+      return;
+    }
+
     this.stopColumnAutoScroll();
     this.captureColumnScrollPositions();
     this.showBoardLoading();
@@ -6296,22 +6327,35 @@ class BoardManager {
   }
 
   showBoardLoading() {
-    // Add or show loading overlay
-    let overlay = this.container.querySelector('.board-loading-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.className = 'board-loading-overlay';
-      overlay.innerHTML = `
-        <div class="board-loading-content">
-          <div class="board-loading-text">Board data is loading...</div>
-        </div>
-      `;
-      this.container.appendChild(overlay);
+    if (this.boardLoadingDelayTimeoutId) {
+      return;
     }
-    overlay.style.display = 'flex';
+
+    this.boardLoadingDelayTimeoutId = setTimeout(() => {
+      this.boardLoadingDelayTimeoutId = null;
+
+      // Add or show loading overlay
+      let overlay = this.container.querySelector('.board-loading-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'board-loading-overlay';
+        overlay.innerHTML = `
+          <div class="board-loading-content">
+            <div class="board-loading-text">Board data is loading...</div>
+          </div>
+        `;
+        this.container.appendChild(overlay);
+      }
+      overlay.style.display = 'flex';
+    }, BOARD_LOADING_OVERLAY_DELAY_MS);
   }
 
   hideBoardLoading() {
+    if (this.boardLoadingDelayTimeoutId) {
+      clearTimeout(this.boardLoadingDelayTimeoutId);
+      this.boardLoadingDelayTimeoutId = null;
+    }
+
     const overlay = this.container.querySelector('.board-loading-overlay');
     if (overlay) {
       overlay.style.display = 'none';
@@ -6779,7 +6823,19 @@ class BoardManager {
 }
 
 // Initialize board manager when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  if (window.__aftBoardBootstrapDone) {
+    return;
+  }
+  window.__aftBoardBootstrapDone = true;
+
+  if (window.authBootstrapPromise) {
+    const canContinue = await window.authBootstrapPromise;
+    if (!canContinue) {
+      return;
+    }
+  }
+
   window.boardManager = new BoardManager();
   window.boardManager.init();
 });

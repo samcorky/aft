@@ -5,9 +5,11 @@
 const form = document.getElementById('loginForm');
 const errorMessage = document.getElementById('errorMessage');
 const loginButton = document.getElementById('loginButton');
+let loginFlowInProgress = false;
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    loginFlowInProgress = true;
     
     const email = document.getElementById('email').value;
     const password = document.getElementById('password').value;
@@ -83,6 +85,11 @@ form.addEventListener('submit', async (e) => {
 
 // Check if already logged in
 async function checkAuth() {
+    // Skip auto-auth redirects while manual login flow is active.
+    if (loginFlowInProgress) {
+        return;
+    }
+
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -97,6 +104,10 @@ async function checkAuth() {
         
         if (setupResponse.ok) {
             const setupData = await setupResponse.json();
+
+            if (loginFlowInProgress) {
+                return;
+            }
             
             // If setup not complete, redirect to setup
             if (!setupData.setup_complete) {
@@ -118,6 +129,9 @@ async function checkAuth() {
         
         if (response.ok) {
             const data = await response.json();
+            if (loginFlowInProgress) {
+                return;
+            }
             if (data.authenticated) {
                 // Already logged in, check for redirect URL or go to main app
                 const redirectUrl = sessionStorage.getItem('redirectAfterLogin');

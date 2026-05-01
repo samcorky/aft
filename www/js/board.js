@@ -1201,7 +1201,8 @@ class BoardManager {
           message: response.ok
             ? 'Incomplete JSON response from server'
             : `HTTP error! status: ${response.status}`,
-          parseFailed: response.ok
+          parseFailed: response.ok,
+          parseFailureType: response.ok ? 'empty-body' : null
         };
       }
 
@@ -1213,12 +1214,16 @@ class BoardManager {
       return data;
     } catch (error) {
       // JSON parsing failed
+      if (response.ok) {
+        console.error('Invalid JSON response while loading board:', error);
+      }
       return {
         success: false,
         message: response.ok 
-          ? 'Incomplete JSON response from server'
+          ? 'Invalid JSON response from server'
           : `HTTP error! status: ${response.status}`,
-        parseFailed: response.ok
+        parseFailed: response.ok,
+        parseFailureType: response.ok ? 'invalid-json' : null
       };
     }
   }
@@ -1360,10 +1365,17 @@ class BoardManager {
     }, duration);
   }
 
-  showBoardLoadFailureMessage(parseFailed = false) {
+  showBoardLoadFailureMessage(parseFailed = false, parseFailureType = null, backendMessage = '') {
     const message = parseFailed
-      ? 'The server response was incomplete. Please try again.'
-      : 'The board data could not be loaded.';
+      ? (parseFailureType === 'invalid-json'
+        ? 'The server response was invalid. Please try again.'
+        : 'The server response was incomplete. Please try again.')
+      : (backendMessage || 'The board data could not be loaded.');
+
+    if (!parseFailed && backendMessage) {
+      console.error('Board API reported load failure:', backendMessage);
+    }
+
     this.hideBoardLoading();
     this.showErrorToast(message);
     this.showError(message);
@@ -1395,9 +1407,6 @@ class BoardManager {
         this.showError('Invalid or missing board ID');
         return;
       }
-
-      // Cache last successful board target for fast navigation from non-board pages.
-      sessionStorage.setItem('lastVisitedBoardId', String(this.boardId));
 
       // Initialize Permission Manager with board context
       console.log('Initializing PermissionManager for board:', this.boardId);
@@ -1675,12 +1684,18 @@ class BoardManager {
           if (canRetryParseFailure) {
             continue;
           }
-          this.showBoardLoadFailureMessage(data.parseFailed === true);
+          this.showBoardLoadFailureMessage(
+            data.parseFailed === true,
+            data.parseFailureType || null,
+            data.message || ''
+          );
           return;
         }
 
         const board = data.board;
         this.processBoard(board);
+        // Cache only after a successful board load so header links target valid/authorized boards.
+        sessionStorage.setItem('lastVisitedBoardId', String(this.boardId));
         this.hideBoardLoading();
         return;
       } catch (error) {

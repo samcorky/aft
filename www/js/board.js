@@ -5,6 +5,7 @@ const COLUMN_AUTO_SCROLL_HOVER_DELAY_MS = 500;
 const COLUMN_AUTO_SCROLL_BASE_STEP_PX = 6;
 const COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX = 12;
 const COLUMN_AUTO_SCROLL_MIN_STEP_PX = 4;
+const BOARD_LOADING_OVERLAY_DELAY_MS = 500;
 
 /**
  * Calculate the percentage of checked items in a checklist
@@ -83,6 +84,63 @@ function linkifyUrls(text) {
     const displayUrl = cleanUrl.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${displayUrl}</a>`;
   });
+}
+
+function appendLinkifiedText(container, text) {
+  if (!container) return;
+
+  const rawText = typeof text === 'string' ? text : String(text ?? '');
+  container.textContent = '';
+
+  if (!rawText) {
+    return;
+  }
+
+  const urlRegex = /https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b[-a-zA-Z0-9()@:%_\+.~#?&\/=]*/gi;
+
+  const normalizeUrl = (url) => {
+    let cleanUrl = url;
+
+    while (cleanUrl.endsWith(')') && (cleanUrl.match(/\)/g) || []).length > (cleanUrl.match(/\(/g) || []).length) {
+      cleanUrl = cleanUrl.slice(0, -1);
+    }
+
+    cleanUrl = cleanUrl.replace(/[.,;!?]+$/, '');
+    return cleanUrl;
+  };
+
+  let lastIndex = 0;
+  let match;
+
+  while ((match = urlRegex.exec(rawText)) !== null) {
+    const matchedUrl = match[0];
+    const cleanUrl = normalizeUrl(matchedUrl);
+    const startIndex = match.index;
+    const cleanUrlEndIndex = startIndex + cleanUrl.length;
+    const originalMatchEndIndex = startIndex + matchedUrl.length;
+
+    if (startIndex > lastIndex) {
+      container.appendChild(document.createTextNode(rawText.slice(lastIndex, startIndex)));
+    }
+
+    const link = document.createElement('a');
+    link.href = cleanUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = cleanUrl;
+    link.addEventListener('click', (event) => event.stopPropagation());
+    container.appendChild(link);
+
+    if (cleanUrlEndIndex < originalMatchEndIndex) {
+      container.appendChild(document.createTextNode(rawText.slice(cleanUrlEndIndex, originalMatchEndIndex)));
+    }
+
+    lastIndex = originalMatchEndIndex;
+  }
+
+  if (lastIndex < rawText.length) {
+    container.appendChild(document.createTextNode(rawText.slice(lastIndex)));
+  }
 }
 
 // Shared checklist management helper
@@ -780,6 +838,9 @@ class BoardManager {
     this.viewportMetricsRafId = null;
     this.currentLoadController = null; // Track in-flight board load requests
     this.currentViewState = null; // Track the view state for the current load
+    this.hasLoadedBoardData = false; // Prevent empty-board render before initial cards load completes
+    this.isBootstrappingBoard = false; // True while first board load pipeline is running
+    this.boardLoadingDelayTimeoutId = null;
     this.columnScrollPositions = {};
     this.persistScrollTimeoutId = null;
     this.autoScrollHoverTimeoutId = null;
@@ -897,7 +958,9 @@ class BoardManager {
       const loaded = this.loadPersistedAssigneeFilterVisibility();
       if (loaded) {
         this.notifyBoardFilterVisibilityChanged();
-        this.renderBoard();
+        if (this.hasLoadedBoardData) {
+          this.renderBoard();
+        }
         clearInterval(this.assigneeFilterVisibilityWatcherId);
         this.assigneeFilterVisibilityWatcherId = null;
         return;
@@ -1245,50 +1308,62 @@ class BoardManager {
   }
 
   async init() {
-    // Get board ID from URL query parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const boardIdParam = urlParams.get('id');
-    
-    // Parse and validate board ID to prevent XSS
-    this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
-    
-    if (!this.boardId || isNaN(this.boardId)) {
-      this.showError('Invalid or missing board ID');
+    if (this.isBootstrappingBoard) {
       return;
     }
 
-    // Initialize Permission Manager with board context
-    console.log('Initializing PermissionManager for board:', this.boardId);
-    const permissionInitSuccess = await PermissionManager.init(this.boardId);
-    
-    if (!permissionInitSuccess) {
-      console.warn('Failed to initialize PermissionManager - some features may not be available');
-      // Continue anyway - the user is logged in if we're here
-    }
+    this.isBootstrappingBoard = true;
 
-    this.render();
-    this.loadPersistedColumnScrollPositions();
-    this.loadPersistedAssigneeFilterVisibility();
-    this.watchForAssigneeFilterVisibilityUser();
-    this.notifyBoardFilterVisibilityChanged();
-    window.addEventListener('beforeunload', this.beforeUnloadHandler);
-    window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
-    window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
-    window.addEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
-    window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
-    
-    // Initialize WebSocket for real-time updates
-    this.wsManager = new WebSocketManager(this.boardId, this);
-    
-    // Load working style preference
-    await this.loadWorkingStyle();
-    
-    await this.loadBoard();
-    this.notifyBoardFilterActiveStateChanged();
-    this.setupMobileViewportSync();
-    this.setupKeyboardShortcuts();
-    this.setupDropdownClickOutside();
-    this.setupViewListener();
+    try {
+
+      // Get board ID from URL query parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      const boardIdParam = urlParams.get('id');
+      
+      // Parse and validate board ID to prevent XSS
+      this.boardId = boardIdParam ? parseInt(boardIdParam, 10) : null;
+      
+      if (!this.boardId || isNaN(this.boardId)) {
+        this.showError('Invalid or missing board ID');
+        return;
+      }
+
+      // Initialize Permission Manager with board context
+      console.log('Initializing PermissionManager for board:', this.boardId);
+      const permissionInitSuccess = await PermissionManager.init(this.boardId);
+      
+      if (!permissionInitSuccess) {
+        console.warn('Failed to initialize PermissionManager - some features may not be available');
+        // Continue anyway - the user is logged in if we're here
+      }
+
+      this.render();
+      this.showBoardLoading();
+      this.loadPersistedColumnScrollPositions();
+      this.loadPersistedAssigneeFilterVisibility();
+      this.watchForAssigneeFilterVisibilityUser();
+      this.notifyBoardFilterVisibilityChanged();
+      window.addEventListener('beforeunload', this.beforeUnloadHandler);
+      window.addEventListener('boardFiltersToggleRequested', this.boardFiltersToggleRequestHandler);
+      window.addEventListener('boardFiltersStateRequest', this.boardFiltersStateRequestHandler);
+      window.addEventListener('boardFiltersClearRequest', this.boardFiltersClearRequestHandler);
+      window.addEventListener('boardWorkingStyleChanged', this.boardWorkingStyleChangedHandler);
+      
+      // Initialize WebSocket for real-time updates
+      this.wsManager = new WebSocketManager(this.boardId, this);
+      
+      // Load working style preference
+      await this.loadWorkingStyle();
+      
+      await this.loadBoard();
+      this.notifyBoardFilterActiveStateChanged();
+      this.setupMobileViewportSync();
+      this.setupKeyboardShortcuts();
+      this.setupDropdownClickOutside();
+      this.setupViewListener();
+    } finally {
+      this.isBootstrappingBoard = false;
+    }
   }
 
   async loadWorkingStyle() {
@@ -1298,6 +1373,18 @@ class BoardManager {
       }
       return value === 'agile' ? 'agile' : 'kanban';
     };
+
+    const headerWorkingStylePromise = window.header?.workingStyleLoadPromise;
+    if (window.header?.currentBoardId === this.boardId && headerWorkingStylePromise) {
+      try {
+        await headerWorkingStylePromise;
+        this.workingStyle = normalize(window.header.workingStyle);
+        this.updateArchivedViewVisibility();
+        return;
+      } catch (error) {
+        console.warn('Falling back to board working style fetch after header load failure:', error);
+      }
+    }
 
     try {
       const response = await fetch(`/api/boards/${this.boardId}/settings/working-style`);
@@ -1441,14 +1528,19 @@ class BoardManager {
   }
 
   render() {
-    this.container.innerHTML = `
-      <div class="loading-board">Loading board...</div>
-    `;
+    // Keep initial render empty; loading state is handled by board-loading-overlay.
+    this.container.innerHTML = '';
   }
 
   async loadBoard() {
+    // Ignore duplicate startup reloads while the first board request is still in flight.
+    if (this.isBootstrappingBoard && this.currentLoadController && !this.hasLoadedBoardData) {
+      return;
+    }
+
     this.stopColumnAutoScroll();
     this.captureColumnScrollPositions();
+    this.showBoardLoading();
 
     // Cancel any in-flight board load request
     if (this.currentLoadController) {
@@ -1583,6 +1675,7 @@ class BoardManager {
       
       // Update header with board name and page title
       this.updateBoardTitle();
+      this.hasLoadedBoardData = true;
       
       this.renderBoard();
     } catch (err) {
@@ -5487,13 +5580,13 @@ class BoardManager {
               noCommentsMsg.remove();
             }
             
-            const isLongComment = data.comment.comment.split('\n').length > 10 || data.comment.comment.length > 500;
-            const newCommentHtml = this.generateCommentHtml(data.comment);
+            const sanitizedComment = this.sanitizeCommentData(data.comment);
+            const isLongComment = sanitizedComment.comment.split('\n').length > 10 || sanitizedComment.comment.length > 500;
+            const newComment = this.createCommentElement(sanitizedComment);
             
-            commentsList.insertAdjacentHTML('afterbegin', newCommentHtml);
+            commentsList.prepend(newComment);
             
             // Attach delete handler to new comment
-            const newComment = commentsList.querySelector(`[data-comment-id="${data.comment.id}"]`);
             const deleteBtn = newComment.querySelector('.comment-delete-btn');
             deleteBtn.addEventListener('click', () => this.deleteCommentHandler(deleteBtn, cardId));
             
@@ -6291,23 +6384,35 @@ class BoardManager {
   }
 
   showBoardLoading() {
-    // Add or show loading overlay
-    let overlay = this.container.querySelector('.board-loading-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.className = 'board-loading-overlay';
-      overlay.innerHTML = `
-        <div class="board-loading-content">
-          <div class="board-loading-spinner">⏳</div>
-          <div class="board-loading-text">Loading...</div>
-        </div>
-      `;
-      this.container.appendChild(overlay);
+    if (this.boardLoadingDelayTimeoutId) {
+      return;
     }
-    overlay.style.display = 'flex';
+
+    this.boardLoadingDelayTimeoutId = setTimeout(() => {
+      this.boardLoadingDelayTimeoutId = null;
+
+      // Add or show loading overlay
+      let overlay = this.container.querySelector('.board-loading-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'board-loading-overlay';
+        overlay.innerHTML = `
+          <div class="board-loading-content">
+            <div class="board-loading-text">Board data is loading...</div>
+          </div>
+        `;
+        this.container.appendChild(overlay);
+      }
+      overlay.style.display = 'flex';
+    }, BOARD_LOADING_OVERLAY_DELAY_MS);
   }
 
   hideBoardLoading() {
+    if (this.boardLoadingDelayTimeoutId) {
+      clearTimeout(this.boardLoadingDelayTimeoutId);
+      this.boardLoadingDelayTimeoutId = null;
+    }
+
     const overlay = this.container.querySelector('.board-loading-overlay');
     if (overlay) {
       overlay.style.display = 'none';
@@ -6424,87 +6529,105 @@ class BoardManager {
     }
 
     const { primary_assignee, secondary_assignees, available_users } = ownersData;
-    const primaryId = primary_assignee ? String(primary_assignee.id) : '';
-    const secondaryIds = new Set((secondary_assignees || []).map(u => u.id));
+    const sanitizedPrimaryAssignee = primary_assignee ? this.sanitizeAssigneeUser(primary_assignee) : null;
+    const sanitizedSecondaryAssignees = (secondary_assignees || []).map((user) => this.sanitizeAssigneeUser(user));
+    const sanitizedAvailableUsers = (available_users || []).map((user) => this.sanitizeAssigneeUser(user));
+    const primaryId = sanitizedPrimaryAssignee ? String(sanitizedPrimaryAssignee.id) : '';
+    const secondaryIds = new Set(sanitizedSecondaryAssignees.map(u => u.id));
 
-    const formatUser = (u) => u.display_name || u.username || 'Unknown user';
+    const formatUser = (u) => u.displayName;
 
-    const primaryOptions = `
-      <button
-        type="button"
-        class="primary-assignee-option ${primaryId === '' ? 'selected' : ''}"
-        data-user-id=""
-        aria-pressed="${primaryId === '' ? 'true' : 'false'}"
-      >
-        <span class="user-avatar-chip unassigned-chip">-</span>
-        <span class="primary-assignee-name">Unassigned</span>
-      </button>
-      ${(available_users || []).map(u => `
-        <button
-          type="button"
-          class="primary-assignee-option ${String(u.id) === primaryId ? 'selected' : ''}"
-          data-user-id="${u.id}"
-          aria-pressed="${String(u.id) === primaryId ? 'true' : 'false'}"
-        >
-          <span
-            class="user-avatar-chip"
-            style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
-          >
-            ${this.getInitials(formatUser(u))}
-          </span>
-          <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
-        </button>
-      `).join('')}
-    `;
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'assignee-modal';
 
-    const secondaryOptions = (available_users || []).map(u => `
-      <button
-        type="button"
-        class="secondary-assignee-option ${secondaryIds.has(u.id) ? 'selected' : ''}"
-        data-user-id="${u.id}"
-        aria-pressed="${secondaryIds.has(u.id) ? 'true' : 'false'}"
-      >
-        <span
-          class="user-avatar-chip"
-          style="background-color:${this.escapeHtml(u.profile_colour || '#90A4AE')}"
-        >
-          ${this.getInitials(formatUser(u))}
-        </span>
-        <span class="primary-assignee-name">${this.escapeHtml(formatUser(u))}</span>
-      </button>
-    `).join('');
+    const modalContent = document.createElement('div');
+    modalContent.className = 'modal-content assignee-modal-content';
 
-    const modalHtml = `
-      <div class="modal" id="assignee-modal">
-        <div class="modal-content assignee-modal-content">
-          <div class="modal-header">
-            <div class="modal-header-actions">
-              <button type="button" class="btn btn-secondary" id="owner-modal-cancel-btn">Cancel</button>
-              <button type="button" class="btn btn-primary" id="owner-modal-save-btn">Save</button>
-            </div>
-            <h2>Assign To</h2>
-          </div>
-          <div class="form-group assignee-modal-section">
-            <label>Assigned To:</label>
-            <div class="primary-assignee-grid" role="group" aria-label="Select primary assignee">
-              ${primaryOptions}
-            </div>
-          </div>
-          <div class="form-group assignee-modal-section">
-            <label>Secondary Assignees:</label>
-            <div class="secondary-assignee-grid" id="secondary-assignees-list" role="group" aria-label="Toggle secondary assignees">
-              ${secondaryOptions || '<p class="assignee-modal-empty-state">No eligible users found.</p>'}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'modal-header';
 
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const headerActions = document.createElement('div');
+    headerActions.className = 'modal-header-actions';
 
-    const modal = document.getElementById('assignee-modal');
-    const cancelBtn = document.getElementById('owner-modal-cancel-btn');
-    const saveBtn = document.getElementById('owner-modal-save-btn');
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.id = 'owner-modal-cancel-btn';
+    cancelBtn.textContent = 'Cancel';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.id = 'owner-modal-save-btn';
+    saveBtn.textContent = 'Save';
+
+    headerActions.append(cancelBtn, saveBtn);
+
+    const title = document.createElement('h2');
+    title.textContent = 'Assign To';
+    modalHeader.append(headerActions, title);
+
+    const primarySection = document.createElement('div');
+    primarySection.className = 'form-group assignee-modal-section';
+    const primaryLabel = document.createElement('label');
+    primaryLabel.textContent = 'Assigned To:';
+    const primaryGrid = document.createElement('div');
+    primaryGrid.className = 'primary-assignee-grid';
+    primaryGrid.setAttribute('role', 'group');
+    primaryGrid.setAttribute('aria-label', 'Select primary assignee');
+
+    const secondarySection = document.createElement('div');
+    secondarySection.className = 'form-group assignee-modal-section';
+    const secondaryLabel = document.createElement('label');
+    secondaryLabel.textContent = 'Secondary Assignees:';
+    const secondaryGrid = document.createElement('div');
+    secondaryGrid.className = 'secondary-assignee-grid';
+    secondaryGrid.id = 'secondary-assignees-list';
+    secondaryGrid.setAttribute('role', 'group');
+    secondaryGrid.setAttribute('aria-label', 'Toggle secondary assignees');
+
+    primaryGrid.appendChild(this.createAssigneeOptionButton({
+      className: 'primary-assignee-option',
+      userId: '',
+      selected: primaryId === '',
+      label: 'Unassigned',
+      initials: '-',
+      unassigned: true
+    }));
+
+    sanitizedAvailableUsers.forEach((user) => {
+      primaryGrid.appendChild(this.createAssigneeOptionButton({
+        className: 'primary-assignee-option',
+        userId: String(user.id),
+        selected: String(user.id) === primaryId,
+        label: formatUser(user),
+        initials: this.getInitials(formatUser(user)),
+        profileColour: user.profileColour
+      }));
+
+      secondaryGrid.appendChild(this.createAssigneeOptionButton({
+        className: 'secondary-assignee-option',
+        userId: String(user.id),
+        selected: secondaryIds.has(user.id),
+        label: formatUser(user),
+        initials: this.getInitials(formatUser(user)),
+        profileColour: user.profileColour
+      }));
+    });
+
+    if (secondaryGrid.childElementCount === 0) {
+      const emptyState = document.createElement('p');
+      emptyState.className = 'assignee-modal-empty-state';
+      emptyState.textContent = 'No eligible users found.';
+      secondaryGrid.appendChild(emptyState);
+    }
+
+    primarySection.append(primaryLabel, primaryGrid);
+    secondarySection.append(secondaryLabel, secondaryGrid);
+    modalContent.append(modalHeader, primarySection, secondarySection);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
 
     setupModalBackgroundClose(modal, () => modal.remove());
     cancelBtn.addEventListener('click', () => modal.remove());
@@ -6600,6 +6723,113 @@ class BoardManager {
         ${isLongComment ? `<button type="button" class="comment-read-more" data-comment-id="${comment.id}" aria-expanded="false" aria-controls="comment-text-${comment.id}" aria-label="Expand comment">Read more...</button>` : ''}
       </div>
     `;
+  }
+
+  createCommentElement(comment, isReadOnly = false) {
+    const isLongComment = comment.comment.split('\n').length > 10 || comment.comment.length > 500;
+    const commentItem = document.createElement('div');
+    commentItem.className = 'comment-item';
+    commentItem.setAttribute('data-comment-id', String(comment.id));
+
+    const commentHeader = document.createElement('div');
+    commentHeader.className = 'comment-header';
+
+    const commentDate = document.createElement('span');
+    commentDate.className = 'comment-date';
+    commentDate.setAttribute('data-tooltip', formatTooltipDateTime(comment.created_at));
+    commentDate.setAttribute('aria-label', `Created on ${formatTooltipDateTime(comment.created_at)}`);
+    commentDate.setAttribute('tabindex', '0');
+    commentDate.textContent = this.formatCommentDate(comment.created_at);
+    commentHeader.appendChild(commentDate);
+
+    if (!isReadOnly) {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'comment-delete-btn';
+      deleteBtn.setAttribute('data-comment-id', String(comment.id));
+      deleteBtn.title = 'Delete';
+      deleteBtn.setAttribute('aria-label', 'Delete comment');
+      deleteBtn.textContent = '🗑';
+      commentHeader.appendChild(deleteBtn);
+    }
+
+    const commentText = document.createElement('div');
+    commentText.className = `comment-text${isLongComment ? ' collapsed' : ''}`;
+    commentText.id = `comment-text-${comment.id}`;
+    commentText.setAttribute('data-comment-id', String(comment.id));
+    appendLinkifiedText(commentText, comment.comment);
+
+    commentItem.append(commentHeader, commentText);
+
+    if (isLongComment) {
+      const readMoreBtn = document.createElement('button');
+      readMoreBtn.type = 'button';
+      readMoreBtn.className = 'comment-read-more';
+      readMoreBtn.setAttribute('data-comment-id', String(comment.id));
+      readMoreBtn.setAttribute('aria-expanded', 'false');
+      readMoreBtn.setAttribute('aria-controls', `comment-text-${comment.id}`);
+      readMoreBtn.setAttribute('aria-label', 'Expand comment');
+      readMoreBtn.textContent = 'Read more...';
+      commentItem.appendChild(readMoreBtn);
+    }
+
+    return commentItem;
+  }
+
+  createAssigneeOptionButton({ className, userId, selected, label, initials, profileColour, unassigned = false }) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `${className}${selected ? ' selected' : ''}`;
+    button.setAttribute('data-user-id', String(userId));
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+
+    const avatarChip = document.createElement('span');
+    avatarChip.className = `user-avatar-chip${unassigned ? ' unassigned-chip' : ''}`;
+    if (!unassigned) {
+      avatarChip.style.backgroundColor = this.sanitizeProfileColour(profileColour);
+    }
+    avatarChip.textContent = this.sanitizePlainText(initials);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'primary-assignee-name';
+    nameSpan.textContent = this.sanitizePlainText(label);
+
+    button.append(avatarChip, nameSpan);
+    return button;
+  }
+
+  sanitizePlainText(text) {
+    return String(text ?? '').replace(/[\u0000-\u001F\u007F]/g, '');
+  }
+
+  sanitizeProfileColour(colour) {
+    const normalized = typeof colour === 'string' ? colour.trim() : '';
+    if (!normalized) {
+      return '#90A4AE';
+    }
+
+    if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('color', normalized)) {
+      return normalized;
+    }
+
+    return '#90A4AE';
+  }
+
+  sanitizeCommentData(comment) {
+    return {
+      id: Number.parseInt(comment?.id, 10) || 0,
+      created_at: this.sanitizePlainText(comment?.created_at),
+      comment: this.sanitizePlainText(comment?.comment)
+    };
+  }
+
+  sanitizeAssigneeUser(user) {
+    const displayName = this.sanitizePlainText(user?.display_name || user?.username || 'Unknown user');
+    return {
+      id: Number.parseInt(user?.id, 10) || 0,
+      displayName,
+      profileColour: this.sanitizeProfileColour(user?.profile_colour)
+    };
   }
 
   async deleteCommentHandler(deleteBtn, cardId) {
@@ -6775,7 +7005,19 @@ class BoardManager {
 }
 
 // Initialize board manager when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  if (window.__aftBoardBootstrapDone) {
+    return;
+  }
+  window.__aftBoardBootstrapDone = true;
+
+  if (window.authBootstrapPromise) {
+    const canContinue = await window.authBootstrapPromise;
+    if (!canContinue) {
+      return;
+    }
+  }
+
   window.boardManager = new BoardManager();
   window.boardManager.init();
 });

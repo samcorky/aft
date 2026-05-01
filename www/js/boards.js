@@ -1036,7 +1036,14 @@ class BoardsManager {
 }
 
 // Initialize boards manager when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  if (window.authBootstrapPromise) {
+    const canContinue = await window.authBootstrapPromise;
+    if (!canContinue) {
+      return;
+    }
+  }
+
   const boardsManager = new BoardsManager();
   boardsManager.init();
 });

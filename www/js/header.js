@@ -53,6 +53,137 @@ function updateMenuHoverState() {
   });
 }
 
+const AUTH_BOOTSTRAP_LOADING_DELAY_MS = 500;
+let authBootstrapLoadingTimeoutId = null;
+
+function isPublicPagePath(pathname) {
+  // Use the shared allowlist set by theme-loader.js; fall back to a local copy
+  // in case this script ever runs without theme-loader.js on the page.
+  const publicPages = window.__aftPublicPagePaths || [
+    '/login.html',
+    '/register.html',
+    '/logout.html',
+    '/setup.html',
+    '/about.html',
+    '/docs.html'
+  ];
+
+  return publicPages.some((pagePath) => pathname.includes(pagePath));
+}
+
+async function ensureAuthenticatedForProtectedPage() {
+  const currentPath = window.location.pathname || '';
+  if (isPublicPagePath(currentPath)) {
+    return true;
+  }
+
+  try {
+    const response = await fetch('/api/auth/me', {
+      cache: 'no-store'
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.user) {
+        window.currentUser = data.user;
+        window.userDataReady = true;
+        sessionStorage.setItem('currentUser', JSON.stringify(data.user));
+        return true;
+      }
+    }
+  } catch (error) {
+    console.error('Authentication bootstrap check failed:', error);
+  }
+
+  window.currentUser = null;
+  window.userDataReady = false;
+  sessionStorage.removeItem('currentUser');
+
+  if (!isPublicPagePath(currentPath)) {
+    sessionStorage.setItem('redirectAfterLogin', `${window.location.pathname}${window.location.search}${window.location.hash}`);
+    window.location.href = '/login.html';
+  }
+
+  return false;
+}
+
+function showAuthBootstrapLoading() {
+  const currentPath = window.location.pathname || '';
+  if (isPublicPagePath(currentPath)) {
+    return null;
+  }
+
+  let panel = document.getElementById('auth-bootstrap-loading');
+  if (panel) {
+    return panel;
+  }
+
+  panel = document.createElement('div');
+  panel.id = 'auth-bootstrap-loading';
+  panel.setAttribute('role', 'status');
+  panel.setAttribute('aria-live', 'polite');
+  panel.style.cssText = [
+    'position: fixed',
+    'inset: 0',
+    'display: flex',
+    'align-items: center',
+    'justify-content: center',
+    'z-index: 10001',
+    'background: rgba(0, 0, 0, 0.25)',
+    'backdrop-filter: blur(2px)'
+  ].join(';');
+
+  const content = document.createElement('div');
+  content.style.cssText = [
+    'background: var(--page-panel-background, #fff)',
+    'color: var(--text-bold, #2d3f57)',
+    'padding: 14px 20px',
+    'border-radius: 10px',
+    'box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18)',
+    'font-size: 16px',
+    'font-weight: 500',
+    'text-align: center'
+  ].join(';');
+  content.textContent = 'Checking authentication...';
+  panel.appendChild(content);
+
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function scheduleAuthBootstrapLoading() {
+  const currentPath = window.location.pathname || '';
+  if (isPublicPagePath(currentPath)) {
+    return;
+  }
+
+  if (authBootstrapLoadingTimeoutId) {
+    return;
+  }
+
+  authBootstrapLoadingTimeoutId = setTimeout(() => {
+    authBootstrapLoadingTimeoutId = null;
+    showAuthBootstrapLoading();
+  }, AUTH_BOOTSTRAP_LOADING_DELAY_MS);
+}
+
+function hideAuthBootstrapLoading() {
+  if (authBootstrapLoadingTimeoutId) {
+    clearTimeout(authBootstrapLoadingTimeoutId);
+    authBootstrapLoadingTimeoutId = null;
+  }
+
+  const panel = document.getElementById('auth-bootstrap-loading');
+  if (panel) {
+    panel.remove();
+  }
+}
+
+// Start auth bootstrap as early as possible so page-specific scripts can gate on it.
+if (!window.authBootstrapPromise && !isPublicPagePath(window.location.pathname || '')) {
+  window.authBootstrapPromise = ensureAuthenticatedForProtectedPage();
+}
+
 class Header {
   constructor() {
     this.statusIcon = null;
@@ -70,13 +201,22 @@ class Header {
     this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
     this.boardFiltersActiveStateHandler = this.handleBoardFiltersActiveStateChanged.bind(this);
     this.boardFilterStateWatchInterval = null;
+    this.workingStyleLoadPromise = null;
   }
 
   // Load the header HTML component
   async load() {
     const response = await fetch('/components/header.html');
     const html = await response.text();
-    document.body.insertAdjacentHTML('afterbegin', html);
+    const parser = new DOMParser();
+    const parsedDocument = parser.parseFromString(html, 'text/html');
+    const headerElement = parsedDocument.body.firstElementChild;
+
+    if (!headerElement) {
+      throw new Error('Header component did not contain a root element');
+    }
+
+    document.body.prepend(document.importNode(headerElement, true));
     
     // Get references to status elements after HTML is inserted
     this.statusIcon = document.getElementById('status-icon');
@@ -122,7 +262,8 @@ class Header {
     await this.loadCurrentUser();
     
     // Load working style preference
-    await this.loadWorkingStyle();
+    this.workingStyleLoadPromise = this.loadWorkingStyle();
+    await this.workingStyleLoadPromise;
 
     // Initialize board style toggle in settings menu
     this.initializeBoardStyleToggleMenu();
@@ -1649,11 +1790,28 @@ class Header {
 // Initialize header on page load
 const header = new Header();
 window.header = header; // Make it globally accessible
-document.addEventListener('DOMContentLoaded', () => {
-  header.load();
-  // Preload time format preference
-  if (typeof preloadTimeFormat === 'function') {
-    preloadTimeFormat();
+document.addEventListener('DOMContentLoaded', async () => {
+  scheduleAuthBootstrapLoading();
+
+  if (!window.authBootstrapPromise) {
+    window.authBootstrapPromise = ensureAuthenticatedForProtectedPage();
+  }
+
+  try {
+    const canContinue = await window.authBootstrapPromise;
+    if (!canContinue) {
+      hideAuthBootstrapLoading();
+      return;
+    }
+
+    await header.load();
+
+    // Preload time format preference
+    if (typeof preloadTimeFormat === 'function') {
+      preloadTimeFormat();
+    }
+  } finally {
+    hideAuthBootstrapLoading();
   }
 });
 

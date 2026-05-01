@@ -699,7 +699,7 @@
   word-break: break-word;
 }
 
-.assignee-modal-content {
+.modal-content.assignee-modal-content {
   max-width: 480px;
 }
 

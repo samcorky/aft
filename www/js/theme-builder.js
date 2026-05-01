@@ -41,6 +41,46 @@ class ThemeBuilder {
       };
     }
   }
+
+  getNetworkTimeoutMultiplier() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) {
+      return 1;
+    }
+
+    let multiplier = 1;
+    switch (connection.effectiveType) {
+      case 'slow-2g':
+        multiplier = 4;
+        break;
+      case '2g':
+        multiplier = 3;
+        break;
+      case '3g':
+        multiplier = 2;
+        break;
+      default:
+        multiplier = 1;
+        break;
+    }
+
+    if (connection.saveData) {
+      multiplier = Math.max(multiplier, 2);
+    }
+
+    return multiplier;
+  }
+
+  getRequestTimeoutMs(baseTimeoutMs = 5000, maxTimeoutMs = 25000) {
+    return Math.min(baseTimeoutMs * this.getNetworkTimeoutMultiplier(), maxTimeoutMs);
+  }
+
+  createTimeoutController(baseTimeoutMs = 5000, maxTimeoutMs = 25000) {
+    const timeoutMs = this.getRequestTimeoutMs(baseTimeoutMs, maxTimeoutMs);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return { controller, timeoutId, timeoutMs };
+  }
   
   /**
    * Escape HTML special characters to prevent XSS
@@ -263,9 +303,7 @@ class ThemeBuilder {
   async loadThemes(preserveSelection = false) {
     // Store current selection if preserving
     const currentSelection = preserveSelection ? this.themeSelect.value : null;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch('/api/themes', {
@@ -326,8 +364,11 @@ class ThemeBuilder {
         
         if (!themeParam) {
           // Load current theme selection from settings
-          const settingsController = new AbortController();
-          const settingsTimeoutId = setTimeout(() => settingsController.abort(), 5000);
+          const {
+            controller: settingsController,
+            timeoutId: settingsTimeoutId,
+            timeoutMs: settingsTimeoutMs
+          } = this.createTimeoutController();
           
           try {
           const settingsResponse = await fetch('/api/settings/theme', {
@@ -345,7 +386,7 @@ class ThemeBuilder {
         } catch (err) {
           clearTimeout(settingsTimeoutId);
           if (err.name === 'AbortError') {
-            console.error('Settings fetch timed out');
+            console.error(`Settings fetch timed out after ${Math.round(settingsTimeoutMs / 1000)} seconds`);
           } else {
             console.error('Error fetching settings:', err);
           }
@@ -356,8 +397,9 @@ class ThemeBuilder {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        console.error('Themes fetch timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Themes fetch timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error loading themes:', error);
         this.showErrorToast('Error loading themes: ' + error.message);
@@ -366,8 +408,7 @@ class ThemeBuilder {
   }
   
   async loadBackgroundImages() {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch('/api/themes/images', {
@@ -397,8 +438,9 @@ class ThemeBuilder {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        console.error('Background images fetch timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Background images fetch timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error loading background images:', error);
         this.showErrorToast('Error loading background images: ' + error.message);
@@ -621,8 +663,7 @@ class ThemeBuilder {
       applyBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       // Save theme selection to settings (apply to session)
@@ -645,8 +686,11 @@ class ThemeBuilder {
       await this.loadAndApplyTheme();
       
       // Reload the theme data into currentThemeData
-      const themeController = new AbortController();
-      const themeTimeoutId = setTimeout(() => themeController.abort(), 5000);
+      const {
+        controller: themeController,
+        timeoutId: themeTimeoutId,
+        timeoutMs: themeTimeoutMs
+      } = this.createTimeoutController();
       
       try {
         const themeResponse = await fetch('/api/settings/theme', {
@@ -668,7 +712,11 @@ class ThemeBuilder {
         }
       } catch (err) {
         clearTimeout(themeTimeoutId);
-        console.error('Error reloading theme data:', err);
+        if (err.name === 'AbortError') {
+          console.error(`Error reloading theme data: timed out after ${Math.round(themeTimeoutMs / 1000)} seconds`);
+        } else {
+          console.error('Error reloading theme data:', err);
+        }
       }
       
       clearTimeout(loadingTimeout);
@@ -684,8 +732,9 @@ class ThemeBuilder {
       applyBtn.disabled = false;
       
       if (error.name === 'AbortError') {
-        console.error('Apply theme request timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Apply theme request timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error applying theme:', error);
         this.showErrorToast('Error applying theme: ' + error.message);
@@ -694,8 +743,7 @@ class ThemeBuilder {
   }
   
   async loadAndApplyTheme() {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       // Fetch the current theme from settings
@@ -733,8 +781,9 @@ class ThemeBuilder {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        console.error('Load theme request timed out after 5 seconds');
-        throw new Error('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Load theme request timed out after ${timeoutSeconds} seconds`);
+        throw new Error(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       }
       
       console.error('Error loading and applying theme:', error);
@@ -775,8 +824,7 @@ class ThemeBuilder {
       saveBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       this.lastSaveError = false;
@@ -828,8 +876,9 @@ class ThemeBuilder {
       saveBtn.disabled = false;
       
       if (error.name === 'AbortError') {
-        console.error('Save theme request timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Save theme request timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error saving theme:', error);
         this.showErrorToast('Error saving theme: ' + error.message);
@@ -839,10 +888,11 @@ class ThemeBuilder {
   }
   
   async applyIfCurrentTheme() {
+    let requestTimeoutMs = 5000;
     try {
       // Fetch the current active theme
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
+      requestTimeoutMs = timeoutMs;
       
       const response = await fetch('/api/settings/theme', {
         signal: controller.signal
@@ -858,7 +908,11 @@ class ThemeBuilder {
       }
     } catch (error) {
       // Silent fail - this is a bonus feature, don't interrupt the save flow
-      console.log('Could not check/apply current theme:', error);
+      if (error.name === 'AbortError') {
+        console.log(`Could not check/apply current theme: timed out after ${Math.round(requestTimeoutMs / 1000)} seconds`);
+      } else {
+        console.log('Could not check/apply current theme:', error);
+      }
     }
   }
   
@@ -907,8 +961,7 @@ class ThemeBuilder {
       confirmBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch('/api/themes/copy', {
@@ -953,8 +1006,9 @@ class ThemeBuilder {
       confirmBtn.disabled = false;
       
       if (error.name === 'AbortError') {
-        console.error('Copy theme request timed out after 5 seconds');
-        errorDiv.textContent = 'Request timed out. Check your connection.';
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Copy theme request timed out after ${timeoutSeconds} seconds`);
+        errorDiv.textContent = `Request timed out after ${timeoutSeconds}s. Check your connection.`;
       } else {
         console.error('Error copying theme:', error);
         errorDiv.textContent = error.message;
@@ -1030,8 +1084,7 @@ class ThemeBuilder {
       confirmBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch(`/api/themes/${this.currentTheme}/rename`, {
@@ -1073,8 +1126,9 @@ class ThemeBuilder {
       confirmBtn.disabled = false;
       
       if (error.name === 'AbortError') {
-        console.error('Rename theme request timed out after 5 seconds');
-        errorDiv.textContent = 'Request timed out. Check your connection.';
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Rename theme request timed out after ${timeoutSeconds} seconds`);
+        errorDiv.textContent = `Request timed out after ${timeoutSeconds}s. Check your connection.`;
       } else {
         console.error('Error renaming theme:', error);
         errorDiv.textContent = error.message;
@@ -1126,8 +1180,7 @@ class ThemeBuilder {
       confirmBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch(`/api/themes/${this.currentTheme}`, {
@@ -1166,8 +1219,9 @@ class ThemeBuilder {
       this.hideDeleteModal();
       
       if (error.name === 'AbortError') {
-        console.error('Delete theme request timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Delete theme request timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error deleting theme:', error);
         this.showErrorToast('Error deleting theme: ' + error.message);
@@ -1201,6 +1255,8 @@ class ThemeBuilder {
   async handleThemeImport(event) {
     const file = event.target.files[0];
     if (!file) return;
+    let timeoutId = null;
+    let requestTimeoutMs = 5000;
     
     try {
       const text = await file.text();
@@ -1217,8 +1273,9 @@ class ThemeBuilder {
       // gracefully if there's an actual connectivity issue.
       
       // Import via API
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const { controller, timeoutId: importTimeoutId, timeoutMs } = this.createTimeoutController();
+      timeoutId = importTimeoutId;
+      requestTimeoutMs = timeoutMs;
       
       const response = await fetch('/api/themes/import', {
         method: 'POST',
@@ -1250,9 +1307,13 @@ class ThemeBuilder {
       
       this.showSuccessToast('Theme imported successfully');
     } catch (error) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
       if (error.name === 'AbortError') {
-        console.error('Import theme request timed out after 5 seconds');
-        this.showImportWarning('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(requestTimeoutMs / 1000);
+        console.error(`Import theme request timed out after ${timeoutSeconds} seconds`);
+        this.showImportWarning(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error importing theme:', error);
         this.showImportWarning(error.message || 'Failed to import theme');
@@ -1269,8 +1330,7 @@ class ThemeBuilder {
       return;
     }
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const response = await fetch(`/api/themes/${this.currentTheme}/export`, {
@@ -1302,8 +1362,9 @@ class ThemeBuilder {
       clearTimeout(timeoutId);
       
       if (error.name === 'AbortError') {
-        console.error('Export theme request timed out after 5 seconds');
-        this.showErrorToast('Request timed out. Check your connection.');
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Export theme request timed out after ${timeoutSeconds} seconds`);
+        this.showErrorToast(`Request timed out after ${timeoutSeconds}s. Check your connection.`);
       } else {
         console.error('Error exporting theme:', error);
         this.showErrorToast('Error exporting theme: ' + error.message);
@@ -1333,8 +1394,7 @@ class ThemeBuilder {
       uploadBtn.disabled = true;
     }, 500);
     
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const { controller, timeoutId, timeoutMs } = this.createTimeoutController();
     
     try {
       const formData = new FormData();
@@ -1382,8 +1442,9 @@ class ThemeBuilder {
       
       let errorMessage;
       if (error.name === 'AbortError') {
-        console.error('Upload background request timed out after 5 seconds');
-        errorMessage = 'Request timed out. Check your connection.';
+        const timeoutSeconds = Math.round(timeoutMs / 1000);
+        console.error(`Upload background request timed out after ${timeoutSeconds} seconds`);
+        errorMessage = `Request timed out after ${timeoutSeconds}s. Check your connection.`;
       } else {
         console.error('Error uploading background:', error);
         errorMessage = error.message;

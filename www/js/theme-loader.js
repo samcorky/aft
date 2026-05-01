@@ -10,6 +10,40 @@
     return PUBLIC_PAGE_PATHS.some((pagePath) => pathname.includes(pagePath));
   }
 
+  function getNetworkTimeoutMultiplier() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) {
+      return 1;
+    }
+
+    let multiplier = 1;
+    switch (connection.effectiveType) {
+      case 'slow-2g':
+        multiplier = 4;
+        break;
+      case '2g':
+        multiplier = 3;
+        break;
+      case '3g':
+        multiplier = 2;
+        break;
+      default:
+        multiplier = 1;
+        break;
+    }
+
+    if (connection.saveData) {
+      multiplier = Math.max(multiplier, 2);
+    }
+
+    return multiplier;
+  }
+
+  function getThemeRequestTimeoutMs() {
+    const baseTimeoutMs = 6000;
+    return Math.min(baseTimeoutMs * getNetworkTimeoutMultiplier(), 24000);
+  }
+
   function getSafeBackgroundImage(filename) {
     if (typeof filename !== 'string') {
       return null;
@@ -159,7 +193,8 @@
   async function loadThemeFromAPI() {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutMs = getThemeRequestTimeoutMs();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
       const response = await fetch('/api/settings/theme', {
         signal: controller.signal
@@ -178,6 +213,8 @@
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.warn('Failed to load theme from API:', error.message);
+      } else {
+        console.warn('Theme API request timed out during page startup');
       }
     }
     

@@ -8,11 +8,46 @@ const setupButton = document.getElementById('setupButton');
 const passwordInput = document.getElementById('password');
 const passwordStrengthBar = document.getElementById('passwordStrengthBar');
 
+function getNetworkTimeoutMultiplier() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) {
+        return 1;
+    }
+
+    let multiplier = 1;
+    switch (connection.effectiveType) {
+        case 'slow-2g':
+            multiplier = 4;
+            break;
+        case '2g':
+            multiplier = 3;
+            break;
+        case '3g':
+            multiplier = 2;
+            break;
+        default:
+            multiplier = 1;
+            break;
+    }
+
+    if (connection.saveData) {
+        multiplier = Math.max(multiplier, 2);
+    }
+
+    return multiplier;
+}
+
+function createTimeoutController(baseTimeoutMs = 5000, maxTimeoutMs = 25000) {
+    const timeoutMs = Math.min(baseTimeoutMs * getNetworkTimeoutMultiplier(), maxTimeoutMs);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return { controller, timeoutId, timeoutMs };
+}
+
 // Check if setup is needed
 async function checkSetupStatus() {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId } = createTimeoutController();
         
         const response = await fetch('/api/auth/setup/status', {
             credentials: 'include',
@@ -85,9 +120,11 @@ form.addEventListener('submit', async (e) => {
     setupButton.innerHTML = '<span class="loading"></span>Setting up...';
     errorMessage.classList.remove('show');
 
+    let requestTimeoutMs = 5000;
+
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId, timeoutMs } = createTimeoutController();
+        requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/setup/admin', {
             method: 'POST',
@@ -133,7 +170,7 @@ form.addEventListener('submit', async (e) => {
         console.error('Setup error:', error);
         
         if (error.name === 'AbortError') {
-            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+            errorMessage.textContent = `Request timed out after ${Math.round(requestTimeoutMs / 1000)}s. Please check your connection and try again.`;
         } else {
             errorMessage.textContent = 'An error occurred. Please try again.';
         }

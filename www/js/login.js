@@ -7,6 +7,42 @@ const errorMessage = document.getElementById('errorMessage');
 const loginButton = document.getElementById('loginButton');
 let loginFlowInProgress = false;
 
+function getNetworkTimeoutMultiplier() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) {
+        return 1;
+    }
+
+    let multiplier = 1;
+    switch (connection.effectiveType) {
+        case 'slow-2g':
+            multiplier = 4;
+            break;
+        case '2g':
+            multiplier = 3;
+            break;
+        case '3g':
+            multiplier = 2;
+            break;
+        default:
+            multiplier = 1;
+            break;
+    }
+
+    if (connection.saveData) {
+        multiplier = Math.max(multiplier, 2);
+    }
+
+    return multiplier;
+}
+
+function createTimeoutController(baseTimeoutMs = 5000, maxTimeoutMs = 25000) {
+    const timeoutMs = Math.min(baseTimeoutMs * getNetworkTimeoutMultiplier(), maxTimeoutMs);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return { controller, timeoutId, timeoutMs };
+}
+
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     loginFlowInProgress = true;
@@ -20,9 +56,11 @@ form.addEventListener('submit', async (e) => {
     loginButton.innerHTML = '<span class="loading"></span>Signing in...';
     errorMessage.classList.remove('show');
 
+    let requestTimeoutMs = 5000;
+
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId, timeoutMs } = createTimeoutController();
+        requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/login', {
             method: 'POST',
@@ -71,7 +109,7 @@ form.addEventListener('submit', async (e) => {
         console.error('Login error:', error);
         
         if (error.name === 'AbortError') {
-            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+            errorMessage.textContent = `Request timed out after ${Math.round(requestTimeoutMs / 1000)}s. Please check your connection and try again.`;
         } else {
             errorMessage.textContent = 'An error occurred. Please try again.';
         }
@@ -91,8 +129,7 @@ async function checkAuth() {
     }
 
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId } = createTimeoutController();
         
         // First check if setup is complete
         const setupResponse = await fetch('/api/auth/setup/status', {
@@ -117,8 +154,7 @@ async function checkAuth() {
         }
         
         // Check if already authenticated
-        const controller2 = new AbortController();
-        const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
+        const { controller: controller2, timeoutId: timeoutId2 } = createTimeoutController();
         
         const response = await fetch('/api/auth/check', {
             credentials: 'include',

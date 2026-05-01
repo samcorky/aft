@@ -8,42 +8,12 @@ const successMessage = document.getElementById('successMessage');
 const registerButton = document.getElementById('registerButton');
 const passwordInput = document.getElementById('password');
 const passwordStrengthBar = document.getElementById('passwordStrengthBar');
-
-function getNetworkTimeoutMultiplier() {
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (!connection) {
-        return 1;
-    }
-
-    let multiplier = 1;
-    switch (connection.effectiveType) {
-        case 'slow-2g':
-            multiplier = 4;
-            break;
-        case '2g':
-            multiplier = 3;
-            break;
-        case '3g':
-            multiplier = 2;
-            break;
-        default:
-            multiplier = 1;
-            break;
-    }
-
-    if (connection.saveData) {
-        multiplier = Math.max(multiplier, 2);
-    }
-
-    return multiplier;
-}
-
-function createTimeoutController(baseTimeoutMs = 5000, maxTimeoutMs = 25000) {
-    const timeoutMs = Math.min(baseTimeoutMs * getNetworkTimeoutMultiplier(), maxTimeoutMs);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    return { controller, timeoutId, timeoutMs };
-}
+const createTimeoutController = window.NetworkTimeoutUtils?.createTimeoutController ||
+    ((baseTimeoutMs = 5000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), baseTimeoutMs);
+        return { controller, timeoutId, timeoutMs: baseTimeoutMs };
+    });
 
 // Password strength indicator
 passwordInput.addEventListener('input', () => {
@@ -88,9 +58,11 @@ form.addEventListener('submit', async (e) => {
     successMessage.classList.remove('show');
 
     let requestTimeoutMs = 5000;
+    let timeoutId;
 
     try {
-        const { controller, timeoutId, timeoutMs } = createTimeoutController();
+        const { controller, timeoutId: requestTimeoutId, timeoutMs } = createTimeoutController();
+        timeoutId = requestTimeoutId;
         requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/register', {
@@ -107,8 +79,6 @@ form.addEventListener('submit', async (e) => {
             }),
             signal: controller.signal
         });
-        
-        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -158,21 +128,27 @@ form.addEventListener('submit', async (e) => {
         // Re-enable form
         registerButton.disabled = false;
         registerButton.textContent = 'Create Account';
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     }
 });
 
 // Check if already logged in
 async function checkAuth() {
     try {
-        const { controller, timeoutId } = createTimeoutController();
-        
         // First check if setup is complete
-        const setupResponse = await fetch('/api/auth/setup/status', {
-            credentials: 'include',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const { controller, timeoutId } = createTimeoutController();
+        let setupResponse;
+        try {
+            setupResponse = await fetch('/api/auth/setup/status', {
+                credentials: 'include',
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         
         if (setupResponse.ok) {
             const setupData = await setupResponse.json();
@@ -186,13 +162,15 @@ async function checkAuth() {
         
         // Check if already authenticated
         const { controller: controller2, timeoutId: timeoutId2 } = createTimeoutController();
-        
-        const response = await fetch('/api/auth/check', {
-            credentials: 'include',
-            signal: controller2.signal
-        });
-        
-        clearTimeout(timeoutId2);
+        let response;
+        try {
+            response = await fetch('/api/auth/check', {
+                credentials: 'include',
+                signal: controller2.signal
+            });
+        } finally {
+            clearTimeout(timeoutId2);
+        }
         
         if (response.ok) {
             const data = await response.json();

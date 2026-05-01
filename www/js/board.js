@@ -1396,6 +1396,9 @@ class BoardManager {
         return;
       }
 
+      // Cache last successful board target for fast navigation from non-board pages.
+      sessionStorage.setItem('lastVisitedBoardId', String(this.boardId));
+
       // Initialize Permission Manager with board context
       console.log('Initializing PermissionManager for board:', this.boardId);
       const permissionInitSuccess = await PermissionManager.init(this.boardId);

@@ -6,6 +6,12 @@ const form = document.getElementById('loginForm');
 const errorMessage = document.getElementById('errorMessage');
 const loginButton = document.getElementById('loginButton');
 let loginFlowInProgress = false;
+const createTimeoutController = window.NetworkTimeoutUtils?.createTimeoutController ||
+    ((baseTimeoutMs = 5000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), baseTimeoutMs);
+        return { controller, timeoutId, timeoutMs: baseTimeoutMs };
+    });
 
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -20,9 +26,13 @@ form.addEventListener('submit', async (e) => {
     loginButton.innerHTML = '<span class="loading"></span>Signing in...';
     errorMessage.classList.remove('show');
 
+    let requestTimeoutMs = 5000;
+
+    let timeoutId;
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId: requestTimeoutId, timeoutMs } = createTimeoutController();
+        timeoutId = requestTimeoutId;
+        requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/login', {
             method: 'POST',
@@ -33,8 +43,6 @@ form.addEventListener('submit', async (e) => {
             body: JSON.stringify({ email, password, remember_me: rememberMe }),
             signal: controller.signal
         });
-        
-        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -66,13 +74,12 @@ form.addEventListener('submit', async (e) => {
             // Re-enable form
             loginButton.disabled = false;
             loginButton.textContent = 'Sign In';
-            loginFlowInProgress = false;
         }
     } catch (error) {
         console.error('Login error:', error);
         
         if (error.name === 'AbortError') {
-            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+            errorMessage.textContent = `Request timed out after ${Math.round(requestTimeoutMs / 1000)}s. Please check your connection and try again.`;
         } else {
             errorMessage.textContent = 'An error occurred. Please try again.';
         }
@@ -81,7 +88,11 @@ form.addEventListener('submit', async (e) => {
         // Re-enable form
         loginButton.disabled = false;
         loginButton.textContent = 'Sign In';
+    } finally {
         loginFlowInProgress = false;
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     }
 });
 
@@ -93,16 +104,17 @@ async function checkAuth() {
     }
 
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
         // First check if setup is complete
-        const setupResponse = await fetch('/api/auth/setup/status', {
-            credentials: 'include',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const { controller, timeoutId } = createTimeoutController();
+        let setupResponse;
+        try {
+            setupResponse = await fetch('/api/auth/setup/status', {
+                credentials: 'include',
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         
         if (setupResponse.ok) {
             const setupData = await setupResponse.json();
@@ -119,15 +131,16 @@ async function checkAuth() {
         }
         
         // Check if already authenticated
-        const controller2 = new AbortController();
-        const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
-        
-        const response = await fetch('/api/auth/check', {
-            credentials: 'include',
-            signal: controller2.signal
-        });
-        
-        clearTimeout(timeoutId2);
+        const { controller: controller2, timeoutId: timeoutId2 } = createTimeoutController();
+        let response;
+        try {
+            response = await fetch('/api/auth/check', {
+                credentials: 'include',
+                signal: controller2.signal
+            });
+        } finally {
+            clearTimeout(timeoutId2);
+        }
         
         if (response.ok) {
             const data = await response.json();

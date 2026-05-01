@@ -204,6 +204,36 @@ class Header {
     this.workingStyleLoadPromise = null;
   }
 
+  getLastVisitedBoardId() {
+    const rawBoardId = sessionStorage.getItem('lastVisitedBoardId');
+    if (!rawBoardId) {
+      return null;
+    }
+
+    const parsedBoardId = parseInt(rawBoardId, 10);
+    return Number.isFinite(parsedBoardId) && parsedBoardId > 0 ? parsedBoardId : null;
+  }
+
+  updatePrimaryNavigationTargets() {
+    const logoLink = document.querySelector('.header-logo-link');
+    if (!logoLink) {
+      return;
+    }
+
+    const isBoardPage = (window.location.pathname || '').includes('/board.html');
+    if (isBoardPage) {
+      logoLink.setAttribute('href', '/');
+      return;
+    }
+
+    const lastBoardId = this.getLastVisitedBoardId();
+    if (lastBoardId) {
+      logoLink.setAttribute('href', `/board.html?id=${lastBoardId}`);
+    } else {
+      logoLink.setAttribute('href', '/');
+    }
+  }
+
   // Load the header HTML component
   async load() {
     const response = await fetch('/components/header.html');
@@ -217,6 +247,7 @@ class Header {
     }
 
     document.body.prepend(document.importNode(headerElement, true));
+    this.updatePrimaryNavigationTargets();
     
     // Get references to status elements after HTML is inserted
     this.statusIcon = document.getElementById('status-icon');

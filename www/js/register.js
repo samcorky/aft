@@ -8,6 +8,12 @@ const successMessage = document.getElementById('successMessage');
 const registerButton = document.getElementById('registerButton');
 const passwordInput = document.getElementById('password');
 const passwordStrengthBar = document.getElementById('passwordStrengthBar');
+const createTimeoutController = window.NetworkTimeoutUtils?.createTimeoutController ||
+    ((baseTimeoutMs = 5000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), baseTimeoutMs);
+        return { controller, timeoutId, timeoutMs: baseTimeoutMs };
+    });
 
 // Password strength indicator
 passwordInput.addEventListener('input', () => {
@@ -51,9 +57,13 @@ form.addEventListener('submit', async (e) => {
     errorMessage.classList.remove('show');
     successMessage.classList.remove('show');
 
+    let requestTimeoutMs = 5000;
+    let timeoutId;
+
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId: requestTimeoutId, timeoutMs } = createTimeoutController();
+        timeoutId = requestTimeoutId;
+        requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/register', {
             method: 'POST',
@@ -69,8 +79,6 @@ form.addEventListener('submit', async (e) => {
             }),
             signal: controller.signal
         });
-        
-        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -111,7 +119,7 @@ form.addEventListener('submit', async (e) => {
         console.error('Registration error:', error);
         
         if (error.name === 'AbortError') {
-            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+            errorMessage.textContent = `Request timed out after ${Math.round(requestTimeoutMs / 1000)}s. Please check your connection and try again.`;
         } else {
             errorMessage.textContent = 'An error occurred. Please try again.';
         }
@@ -120,22 +128,27 @@ form.addEventListener('submit', async (e) => {
         // Re-enable form
         registerButton.disabled = false;
         registerButton.textContent = 'Create Account';
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     }
 });
 
 // Check if already logged in
 async function checkAuth() {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
         // First check if setup is complete
-        const setupResponse = await fetch('/api/auth/setup/status', {
-            credentials: 'include',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const { controller, timeoutId } = createTimeoutController();
+        let setupResponse;
+        try {
+            setupResponse = await fetch('/api/auth/setup/status', {
+                credentials: 'include',
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         
         if (setupResponse.ok) {
             const setupData = await setupResponse.json();
@@ -148,15 +161,16 @@ async function checkAuth() {
         }
         
         // Check if already authenticated
-        const controller2 = new AbortController();
-        const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
-        
-        const response = await fetch('/api/auth/check', {
-            credentials: 'include',
-            signal: controller2.signal
-        });
-        
-        clearTimeout(timeoutId2);
+        const { controller: controller2, timeoutId: timeoutId2 } = createTimeoutController();
+        let response;
+        try {
+            response = await fetch('/api/auth/check', {
+                credentials: 'include',
+                signal: controller2.signal
+            });
+        } finally {
+            clearTimeout(timeoutId2);
+        }
         
         if (response.ok) {
             const data = await response.json();

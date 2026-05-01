@@ -7,19 +7,26 @@ const errorMessage = document.getElementById('errorMessage');
 const setupButton = document.getElementById('setupButton');
 const passwordInput = document.getElementById('password');
 const passwordStrengthBar = document.getElementById('passwordStrengthBar');
+const createTimeoutController = window.NetworkTimeoutUtils?.createTimeoutController ||
+    ((baseTimeoutMs = 5000) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), baseTimeoutMs);
+        return { controller, timeoutId, timeoutMs: baseTimeoutMs };
+    });
 
 // Check if setup is needed
 async function checkSetupStatus() {
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
-        const response = await fetch('/api/auth/setup/status', {
-            credentials: 'include',
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
+        const { controller, timeoutId } = createTimeoutController();
+        let response;
+        try {
+            response = await fetch('/api/auth/setup/status', {
+                credentials: 'include',
+                signal: controller.signal
+            });
+        } finally {
+            clearTimeout(timeoutId);
+        }
         
         if (response.ok) {
             const data = await response.json();
@@ -85,9 +92,13 @@ form.addEventListener('submit', async (e) => {
     setupButton.innerHTML = '<span class="loading"></span>Setting up...';
     errorMessage.classList.remove('show');
 
+    let requestTimeoutMs = 5000;
+    let timeoutId;
+
     try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const { controller, timeoutId: requestTimeoutId, timeoutMs } = createTimeoutController();
+        timeoutId = requestTimeoutId;
+        requestTimeoutMs = timeoutMs;
         
         const response = await fetch('/api/auth/setup/admin', {
             method: 'POST',
@@ -103,8 +114,6 @@ form.addEventListener('submit', async (e) => {
             }),
             signal: controller.signal
         });
-        
-        clearTimeout(timeoutId);
 
         const data = await response.json();
 
@@ -133,7 +142,7 @@ form.addEventListener('submit', async (e) => {
         console.error('Setup error:', error);
         
         if (error.name === 'AbortError') {
-            errorMessage.textContent = 'Request timed out. Please check your connection and try again.';
+            errorMessage.textContent = `Request timed out after ${Math.round(requestTimeoutMs / 1000)}s. Please check your connection and try again.`;
         } else {
             errorMessage.textContent = 'An error occurred. Please try again.';
         }
@@ -142,5 +151,9 @@ form.addEventListener('submit', async (e) => {
         // Re-enable form
         setupButton.disabled = false;
         setupButton.textContent = 'Complete Setup';
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
     }
 });

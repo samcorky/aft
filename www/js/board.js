@@ -6,6 +6,9 @@ const COLUMN_AUTO_SCROLL_BASE_STEP_PX = 6;
 const COLUMN_AUTO_SCROLL_MAX_EXTRA_STEP_PX = 12;
 const COLUMN_AUTO_SCROLL_MIN_STEP_PX = 4;
 const BOARD_LOADING_OVERLAY_DELAY_MS = 500;
+const INITIAL_BOARD_LOAD_TIMEOUT_MS = 15000;
+const SUBSEQUENT_BOARD_LOAD_TIMEOUT_MS = 10000;
+const MAX_INITIAL_BOARD_LOAD_ATTEMPTS = 2;
 
 /**
  * Calculate the percentage of checked items in a checklist
@@ -1191,7 +1194,19 @@ class BoardManager {
    */
   async parseResponse(response) {
     try {
-      const data = await response.json();
+      const rawText = await response.text();
+      if (!rawText || !rawText.trim()) {
+        return {
+          success: false,
+          message: response.ok
+            ? 'Incomplete JSON response from server'
+            : `HTTP error! status: ${response.status}`,
+          parseFailed: response.ok,
+          parseFailureType: response.ok ? 'empty-body' : null
+        };
+      }
+
+      const data = JSON.parse(rawText);
       if (!response.ok) {
         // Response parsed successfully but HTTP status indicates error
         return data;
@@ -1199,13 +1214,56 @@ class BoardManager {
       return data;
     } catch (error) {
       // JSON parsing failed
+      if (response.ok) {
+        console.error('Invalid JSON response while loading board:', error);
+      }
       return {
         success: false,
         message: response.ok 
-          ? `Invalid JSON response from server` 
-          : `HTTP error! status: ${response.status}`
+          ? 'Invalid JSON response from server'
+          : `HTTP error! status: ${response.status}`,
+        parseFailed: response.ok,
+        parseFailureType: response.ok ? 'invalid-json' : null
       };
     }
+  }
+
+  getNetworkTimeoutMultiplier() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (!connection) {
+      return 1;
+    }
+
+    let multiplier = 1;
+    switch (connection.effectiveType) {
+      case 'slow-2g':
+        multiplier = 4;
+        break;
+      case '2g':
+        multiplier = 3;
+        break;
+      case '3g':
+        multiplier = 2;
+        break;
+      default:
+        multiplier = 1;
+        break;
+    }
+
+    if (connection.saveData) {
+      multiplier = Math.max(multiplier, 2);
+    }
+
+    return multiplier;
+  }
+
+  getBoardLoadTimeoutMs(attempt = 1) {
+    const baseTimeoutMs = this.hasLoadedBoardData
+      ? SUBSEQUENT_BOARD_LOAD_TIMEOUT_MS
+      : INITIAL_BOARD_LOAD_TIMEOUT_MS;
+    const multiplier = this.getNetworkTimeoutMultiplier();
+    const retryBufferMs = (attempt - 1) * 5000;
+    return Math.min((baseTimeoutMs * multiplier) + retryBufferMs, 45000);
   }
 
   /**
@@ -1305,6 +1363,28 @@ class BoardManager {
       toast.style.animation = 'slideOut 0.3s ease-in';
       setTimeout(() => toast.remove(), 300);
     }, duration);
+  }
+
+  showBoardLoadFailureMessage(parseFailed = false, parseFailureType = null, backendMessage = '') {
+    const message = parseFailed
+      ? (parseFailureType === 'invalid-json'
+        ? 'The server response was invalid. Please try again.'
+        : 'The server response was incomplete. Please try again.')
+      : (backendMessage || 'The board data could not be loaded.');
+
+    if (!parseFailed && backendMessage) {
+      console.error('Board API reported load failure:', backendMessage);
+    }
+
+    this.hideBoardLoading();
+    this.showErrorToast(message);
+    this.showError(message);
+  }
+
+  showBoardLoadUnexpectedErrorMessage() {
+    this.hideBoardLoading();
+    this.showErrorToast('Error loading board. Please try again.');
+    this.showError('An error occurred while loading the board');
   }
 
   async init() {
@@ -1546,95 +1626,109 @@ class BoardManager {
     if (this.currentLoadController) {
       this.currentLoadController.abort();
     }
-    
-    // Create new controller for this request
-    const controller = new AbortController();
-    this.currentLoadController = controller;
-    
+
     // Capture current view state
     const viewState = {
       currentView: this.currentView,
       showArchived: this.showArchived
     };
     this.currentViewState = viewState;
-    
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    try {
-      let response;
-      
-      if (this.currentView === 'scheduled') {
-        // Load board with all scheduled cards in a single request
-        const scheduledParams = this.buildAssigneeFilterQueryParams();
-        const scheduledQuery = scheduledParams.toString();
-        const scheduledUrl = scheduledQuery
-          ? `/api/boards/${this.boardId}/cards/scheduled?${scheduledQuery}`
-          : `/api/boards/${this.boardId}/cards/scheduled`;
+    const maxAttempts = this.hasLoadedBoardData ? 1 : MAX_INITIAL_BOARD_LOAD_ATTEMPTS;
 
-        response = await fetch(scheduledUrl, {
-          signal: controller.signal
-        });
-      } else {
-        // Load board with nested structure (board -> columns -> cards)
-        // Add archived parameter to filter cards based on showArchived state
-        const queryParams = this.buildAssigneeFilterQueryParams();
-        queryParams.set('archived', this.showArchived ? 'true' : 'false');
-        response = await fetch(`/api/boards/${this.boardId}/cards?${queryParams.toString()}`, {
-          signal: controller.signal
-        });
-      }
-      
-      clearTimeout(timeoutId);
-      
-      // Check if this request is stale (view changed while loading)
-      if (this.currentViewState !== viewState) {
-        // View changed during load, ignore this response
-        return;
-      }
-      
-      const data = await this.parseResponse(response);
-      
-      // Check again after parsing in case view changed
-      if (this.currentViewState !== viewState) {
-        return;
-      }
-      
-      if (!data.success) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const requestController = new AbortController();
+      this.currentLoadController = requestController;
+      const requestTimeoutMs = this.getBoardLoadTimeoutMs(attempt);
+      const timeoutId = setTimeout(() => requestController.abort(), requestTimeoutMs);
+
+      try {
+        let response;
+        
+        if (this.currentView === 'scheduled') {
+          // Load board with all scheduled cards in a single request
+          const scheduledParams = this.buildAssigneeFilterQueryParams();
+          const scheduledQuery = scheduledParams.toString();
+          const scheduledUrl = scheduledQuery
+            ? `/api/boards/${this.boardId}/cards/scheduled?${scheduledQuery}`
+            : `/api/boards/${this.boardId}/cards/scheduled`;
+
+          response = await fetch(scheduledUrl, {
+            signal: requestController.signal
+          });
+        } else {
+          // Load board with nested structure (board -> columns -> cards)
+          // Add archived parameter to filter cards based on showArchived state
+          const queryParams = this.buildAssigneeFilterQueryParams();
+          queryParams.set('archived', this.showArchived ? 'true' : 'false');
+          response = await fetch(`/api/boards/${this.boardId}/cards?${queryParams.toString()}`, {
+            signal: requestController.signal
+          });
+        }
+        
+        clearTimeout(timeoutId);
+        
+        // Check if this request is stale (view changed while loading)
+        if (this.currentViewState !== viewState) {
+          return;
+        }
+        
+        const data = await this.parseResponse(response);
+        
+        // Check again after parsing in case view changed
+        if (this.currentViewState !== viewState) {
+          return;
+        }
+
+        if (!data.success) {
+          const canRetryParseFailure = data.parseFailed === true && attempt < maxAttempts;
+          if (canRetryParseFailure) {
+            continue;
+          }
+          this.showBoardLoadFailureMessage(
+            data.parseFailed === true,
+            data.parseFailureType || null,
+            data.message || ''
+          );
+          return;
+        }
+
+        const board = data.board;
+        this.processBoard(board);
+        // Cache only after a successful board load so header links target valid/authorized boards.
+        sessionStorage.setItem('lastVisitedBoardId', String(this.boardId));
         this.hideBoardLoading();
-        this.showErrorToast('Failed to load board: ' + data.message);
-        this.showError('Failed to load board: ' + data.message);
         return;
-      }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        // Ignore aborted requests (they were intentionally cancelled)
+        if (error.name === 'AbortError') {
+          const canRetryTimeout = this.currentViewState === viewState && attempt < maxAttempts;
+          if (canRetryTimeout) {
+            continue;
+          }
 
-      const board = data.board;
-      this.processBoard(board);
-      this.hideBoardLoading();
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // Ignore aborted requests (they were intentionally cancelled)
-      if (error.name === 'AbortError') {
-        // Only show error if this was the timeout abort, not a cancellation
+          // Only show error if this was the timeout abort, not a cancellation
+          if (this.currentViewState === viewState) {
+            this.hideBoardLoading();
+            this.showErrorToast(`Load board timed out (${Math.round(requestTimeoutMs / 1000)}s). Please check your connection.`);
+            this.showError('Load board timed out. Please check your connection.');
+          }
+          return;
+        }
+        
+        // Only process errors for non-stale requests
         if (this.currentViewState === viewState) {
-          this.hideBoardLoading();
-          this.showErrorToast('Load board timed out (5s). Please check your connection.');
-          this.showError('Load board timed out. Please check your connection.');
+          console.error('Error loading board:', error);
+          this.showBoardLoadUnexpectedErrorMessage();
         }
         return;
-      }
-      
-      // Only process errors for non-stale requests
-      if (this.currentViewState === viewState) {
-        console.error('Error loading board:', error);
-        this.hideBoardLoading();
-        this.showErrorToast(`Error loading board: ${error.message}`);
-        this.showError('An error occurred while loading the board');
-      }
-    } finally {
-      // Always clear current load controller if this was the active request
-      // This ensures cleanup even if there's an unexpected error path
-      if (this.currentLoadController === controller) {
-        this.currentLoadController = null;
+      } finally {
+        // Always clear current load controller if this was the active request
+        // This ensures cleanup even if there's an unexpected error path
+        if (this.currentLoadController === requestController) {
+          this.currentLoadController = null;
+        }
       }
     }
   }

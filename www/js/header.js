@@ -389,7 +389,7 @@ class Header {
         return;
       }
 
-      if (target.matches('a.mobile-menu-link, a.mobile-notification-link')) {
+      if (target.matches('a.mobile-menu-link, button.mobile-menu-link, a.mobile-notification-link')) {
         closeMenu();
       }
     });

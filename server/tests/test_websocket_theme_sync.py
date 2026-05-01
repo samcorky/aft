@@ -259,3 +259,174 @@ class TestAPIIntegrationForWebSocket:
         
         # All status checks should succeed
         assert all(results)
+
+
+# ---------------------------------------------------------------------------
+# Socket.IO unit tests — theme room join/leave and broadcast delivery
+# ---------------------------------------------------------------------------
+
+import importlib
+import os
+from types import SimpleNamespace
+
+os.environ.setdefault('ENABLE_SERVER_SIDE_SESSIONS', 'false')
+os.environ.setdefault('SECRET_KEY', 'unit-test-secret-key')
+os.environ.setdefault('AFT_SKIP_SCHEDULER_INIT', 'true')
+
+_APP_MODULE = None
+_WS_MODULE = None
+
+
+def _get_app_module():
+    global _APP_MODULE
+    if _APP_MODULE is None:
+        _APP_MODULE = importlib.import_module('app')
+    return _APP_MODULE
+
+
+def _get_ws_module():
+    global _WS_MODULE
+    if _WS_MODULE is None:
+        _WS_MODULE = importlib.import_module('websocket_handlers')
+    return _WS_MODULE
+
+
+def _make_authed_socket_client(app_module, ws_module, user_id=1):
+    """Create an authenticated Flask-SocketIO test client for the given user id."""
+    flask_client = app_module.app.test_client()
+    user = SimpleNamespace(id=user_id)
+    # Patch authentication so the test client is accepted as this user.
+    import unittest.mock as mock
+    with mock.patch.object(ws_module, 'get_authenticated_socket_user', return_value=user):
+        client = app_module.socketio.test_client(app_module.app, flask_test_client=flask_client)
+    return client, user
+
+
+@pytest.mark.unit
+class TestThemeSocketIOFlow:
+    """Unit tests for the Socket.IO theme room join/leave and broadcast flow."""
+
+    def test_join_theme_emits_ack(self, monkeypatch):
+        """join_theme must return a success acknowledgement."""
+        app_module = _get_app_module()
+        ws_module = _get_ws_module()
+        user = SimpleNamespace(id=1)
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
+
+        mock_session = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **kw: SimpleNamespace(first=lambda: None)
+            ),
+            close=lambda: None,
+        )
+        monkeypatch.setattr(ws_module, 'SessionLocal', lambda: mock_session)
+
+        client = app_module.socketio.test_client(app_module.app)
+        try:
+            assert client.is_connected()
+
+            ack = client.emit('join_theme', callback=True)
+            payload = ack[0] if isinstance(ack, list) else ack
+            assert isinstance(payload, dict)
+            assert payload.get('success') is True
+        finally:
+            client.disconnect()
+
+    def test_leave_theme_emits_ack(self, monkeypatch):
+        """leave_theme must return a success acknowledgement after joining."""
+        app_module = _get_app_module()
+        ws_module = _get_ws_module()
+        user = SimpleNamespace(id=1)
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
+
+        mock_session = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **kw: SimpleNamespace(first=lambda: None)
+            ),
+            close=lambda: None,
+        )
+        monkeypatch.setattr(ws_module, 'SessionLocal', lambda: mock_session)
+
+        client = app_module.socketio.test_client(app_module.app)
+        try:
+            assert client.is_connected()
+            client.emit('join_theme', callback=True)
+
+            ack = client.emit('leave_theme', callback=True)
+            payload = ack[0] if isinstance(ack, list) else ack
+            assert isinstance(payload, dict)
+            assert payload.get('success') is True
+        finally:
+            client.disconnect()
+
+    def test_unauthenticated_join_theme_rejected(self, monkeypatch):
+        """Socket connection must be rejected when no authenticated user is present."""
+        app_module = _get_app_module()
+        ws_module = _get_ws_module()
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: None)
+
+        client = app_module.socketio.test_client(app_module.app)
+        assert client.is_connected() is False
+
+    def test_theme_updated_broadcast_received_by_room_member(self, monkeypatch):
+        """A client that has joined its theme room must receive theme_updated broadcasts."""
+        app_module = _get_app_module()
+        ws_module = _get_ws_module()
+        user = SimpleNamespace(id=42)
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
+
+        mock_session = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **kw: SimpleNamespace(first=lambda: None)
+            ),
+            close=lambda: None,
+        )
+        monkeypatch.setattr(ws_module, 'SessionLocal', lambda: mock_session)
+
+        client = app_module.socketio.test_client(app_module.app)
+        try:
+            assert client.is_connected()
+            client.emit('join_theme', callback=True)
+            client.get_received()  # clear join events
+
+            # Simulate the server broadcasting a theme update to the user's room
+            room = f'theme_user_{user.id}'
+            app_module.socketio.emit('theme_updated', {'theme_id': 7, 'theme_name': 'Test'}, room=room)
+
+            received = client.get_received()
+            theme_events = [e for e in received if e.get('name') == 'theme_updated']
+            assert len(theme_events) == 1
+            assert theme_events[0]['args'][0]['theme_id'] == 7
+        finally:
+            client.disconnect()
+
+    def test_theme_updated_not_received_after_leave(self, monkeypatch):
+        """A client that has left the theme room must not receive subsequent broadcasts."""
+        app_module = _get_app_module()
+        ws_module = _get_ws_module()
+        user = SimpleNamespace(id=99)
+        monkeypatch.setattr(ws_module, 'get_authenticated_socket_user', lambda: user)
+
+        mock_session = SimpleNamespace(
+            query=lambda model: SimpleNamespace(
+                filter=lambda *a, **kw: SimpleNamespace(first=lambda: None)
+            ),
+            close=lambda: None,
+        )
+        monkeypatch.setattr(ws_module, 'SessionLocal', lambda: mock_session)
+
+        client = app_module.socketio.test_client(app_module.app)
+        try:
+            assert client.is_connected()
+            client.emit('join_theme', callback=True)
+            client.emit('leave_theme', callback=True)
+            client.get_received()  # clear
+
+            room = f'theme_user_{user.id}'
+            app_module.socketio.emit('theme_updated', {'theme_id': 5, 'theme_name': 'X'}, room=room)
+
+            received = client.get_received()
+            theme_events = [e for e in received if e.get('name') == 'theme_updated']
+            assert theme_events == []
+        finally:
+            client.disconnect()

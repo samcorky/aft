@@ -74,8 +74,7 @@ def create_notification(subject: str, message: str, action_title: str = None, ac
         If truncation occurs, an info message is logged with details about
         the truncated content.
     """
-    # Import here to avoid circular dependency
-    from app import validate_safe_url
+    from security_validators import validate_safe_url
     
     db = SessionLocal()
     try:

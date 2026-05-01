@@ -4,7 +4,9 @@
 (function() {
   const SAFE_THEME_SETTING_NAME = /^[A-Za-z0-9-]+$/;
   const colorValidationElement = document.createElement('span');
-  const PUBLIC_PAGE_PATHS = ['/login.html', '/register.html', '/logout.html', '/setup.html', '/about.html', '/docs.html'];
+  // Expose as a shared constant so other scripts (e.g. header.js) can reuse
+  // the same list rather than maintaining a separate copy.
+  const PUBLIC_PAGE_PATHS = window.__aftPublicPagePaths = ['/login.html', '/register.html', '/logout.html', '/setup.html', '/about.html', '/docs.html'];
 
   function isPublicPagePath(pathname) {
     return PUBLIC_PAGE_PATHS.some((pagePath) => pathname.includes(pagePath));

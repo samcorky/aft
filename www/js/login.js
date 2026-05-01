@@ -74,6 +74,7 @@ form.addEventListener('submit', async (e) => {
             // Re-enable form
             loginButton.disabled = false;
             loginButton.textContent = 'Sign In';
+            loginFlowInProgress = false;
         }
     } catch (error) {
         console.error('Login error:', error);
@@ -88,6 +89,7 @@ form.addEventListener('submit', async (e) => {
         // Re-enable form
         loginButton.disabled = false;
         loginButton.textContent = 'Sign In';
+        loginFlowInProgress = false;
     } finally {
         if (timeoutId) {
             clearTimeout(timeoutId);

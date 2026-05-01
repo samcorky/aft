@@ -371,26 +371,26 @@ class ThemeBuilder {
           } = this.createTimeoutController();
           
           try {
-          const settingsResponse = await fetch('/api/settings/theme', {
-            signal: settingsController.signal
-          });
-          
-          clearTimeout(settingsTimeoutId);
-          
-          if (settingsResponse.ok) {
-            const currentTheme = await this.parseResponse(settingsResponse);
-            if (currentTheme.id) {
-              this.themeSelect.value = currentTheme.id;
+            const settingsResponse = await fetch('/api/settings/theme', {
+              signal: settingsController.signal
+            });
+            
+            clearTimeout(settingsTimeoutId);
+            
+            if (settingsResponse.ok) {
+              const currentTheme = await this.parseResponse(settingsResponse);
+              if (currentTheme.id) {
+                this.themeSelect.value = currentTheme.id;
+              }
+            }
+          } catch (err) {
+            clearTimeout(settingsTimeoutId);
+            if (err.name === 'AbortError') {
+              console.error(`Settings fetch timed out after ${Math.round(settingsTimeoutMs / 1000)} seconds`);
+            } else {
+              console.error('Error fetching settings:', err);
             }
           }
-        } catch (err) {
-          clearTimeout(settingsTimeoutId);
-          if (err.name === 'AbortError') {
-            console.error(`Settings fetch timed out after ${Math.round(settingsTimeoutMs / 1000)} seconds`);
-          } else {
-            console.error('Error fetching settings:', err);
-          }
-        }
         }
       }
     } catch (error) {

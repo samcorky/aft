@@ -389,7 +389,7 @@ class Header {
         return;
       }
 
-      if (target.matches('a.mobile-menu-link, a.mobile-notification-link')) {
+      if (target.matches('a.mobile-menu-link, button.mobile-menu-link, a.mobile-notification-link')) {
         closeMenu();
       }
     });
@@ -867,38 +867,54 @@ class Header {
   }
 
   initializeBoardStyleToggleMenu() {
-    const menuItem = document.getElementById('toggle-board-style-menu-item');
-    if (!menuItem) {
+    const menuItems = [
+      document.getElementById('toggle-board-style-menu-item'),
+      document.getElementById('mobile-toggle-board-style-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
       return;
     }
 
     if (!this.currentBoardId || !this.boardStyleEditable) {
-      menuItem.style.display = 'none';
+      menuItems.forEach((menuItem) => {
+        menuItem.style.display = 'none';
+      });
       return;
     }
 
-    menuItem.style.display = '';
+    menuItems.forEach((menuItem) => {
+      menuItem.style.display = '';
+    });
     this.updateBoardStyleMenuLabel();
 
-    if (!menuItem.dataset.boundStyleToggleHandler) {
-      menuItem.addEventListener('click', async (e) => {
-        e.preventDefault();
-        await this.toggleBoardStyle();
-        closeAllMenusExcept(null);
-        updateMenuHoverState();
-      });
-      menuItem.dataset.boundStyleToggleHandler = 'true';
-    }
+    menuItems.forEach((menuItem) => {
+      if (!menuItem.dataset.boundStyleToggleHandler) {
+        menuItem.addEventListener('click', async (e) => {
+          e.preventDefault();
+          await this.toggleBoardStyle();
+          closeAllMenusExcept(null);
+          updateMenuHoverState();
+        });
+        menuItem.dataset.boundStyleToggleHandler = 'true';
+      }
+    });
   }
 
   updateBoardStyleMenuLabel() {
-    const menuItem = document.getElementById('toggle-board-style-menu-item');
-    if (!menuItem) {
+    const menuItems = [
+      document.getElementById('toggle-board-style-menu-item'),
+      document.getElementById('mobile-toggle-board-style-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
       return;
     }
 
     const label = this.workingStyle === 'agile' ? 'Agile' : 'Kanban';
-    menuItem.textContent = `Style: ${label}`;
+    menuItems.forEach((menuItem) => {
+      menuItem.textContent = `Style: ${label}`;
+    });
   }
 
   async toggleBoardStyle() {
@@ -935,28 +951,36 @@ class Header {
   }
 
   initializeBoardFilterToggleMenu() {
-    const menuItem = document.getElementById('toggle-board-filters-menu-item');
-    if (!menuItem) {
+    const menuItems = [
+      document.getElementById('toggle-board-filters-menu-item'),
+      document.getElementById('mobile-toggle-board-filters-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
       return;
     }
 
     const isBoardPage = document.body.classList.contains('board-page');
-    menuItem.style.display = isBoardPage ? '' : 'none';
+    menuItems.forEach((menuItem) => {
+      menuItem.style.display = isBoardPage ? '' : 'none';
+    });
     if (!isBoardPage) {
       return;
     }
 
-    if (!menuItem.dataset.boundToggleHandler) {
-      menuItem.addEventListener('click', (e) => {
-        e.preventDefault();
+    menuItems.forEach((menuItem) => {
+      if (!menuItem.dataset.boundToggleHandler) {
+        menuItem.addEventListener('click', (e) => {
+          e.preventDefault();
 
-        window.dispatchEvent(new CustomEvent('boardFiltersToggleRequested'));
+          window.dispatchEvent(new CustomEvent('boardFiltersToggleRequested'));
 
-        closeAllMenusExcept(null);
-        updateMenuHoverState();
-      });
-      menuItem.dataset.boundToggleHandler = 'true';
-    }
+          closeAllMenusExcept(null);
+          updateMenuHoverState();
+        });
+        menuItem.dataset.boundToggleHandler = 'true';
+      }
+    });
 
     // Initialize label from current board manager state when possible.
     let initialVisible = false;
@@ -1003,12 +1027,19 @@ class Header {
   }
 
   updateBoardFilterMenuLabel(visible) {
-    const menuItem = document.getElementById('toggle-board-filters-menu-item');
-    if (!menuItem) {
+    const menuItems = [
+      document.getElementById('toggle-board-filters-menu-item'),
+      document.getElementById('mobile-toggle-board-filters-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
       return;
     }
 
-    menuItem.textContent = visible ? 'Hide filters' : 'Show filters';
+    const label = visible ? 'Hide filters' : 'Show filters';
+    menuItems.forEach((menuItem) => {
+      menuItem.textContent = label;
+    });
   }
 
   /**
@@ -1016,28 +1047,36 @@ class Header {
    * Sets up event listener for clearing filters and manages visibility based on filter state
    */
   initializeBoardFilterClearMenu() {
-    const menuItem = document.getElementById('clear-board-filters-menu-item');
-    if (!menuItem) {
+    const menuItems = [
+      document.getElementById('clear-board-filters-menu-item'),
+      document.getElementById('mobile-clear-board-filters-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
       return;
     }
 
     const isBoardPage = document.body.classList.contains('board-page');
-    menuItem.style.display = 'none'; // Initially hidden
+    menuItems.forEach((menuItem) => {
+      menuItem.style.display = 'none'; // Initially hidden
+    });
     if (!isBoardPage) {
       return;
     }
 
-    if (!menuItem.dataset.boundClearHandler) {
-      menuItem.addEventListener('click', (e) => {
-        e.preventDefault();
+    menuItems.forEach((menuItem) => {
+      if (!menuItem.dataset.boundClearHandler) {
+        menuItem.addEventListener('click', (e) => {
+          e.preventDefault();
 
-        window.dispatchEvent(new CustomEvent('boardFiltersClearRequest'));
+          window.dispatchEvent(new CustomEvent('boardFiltersClearRequest'));
 
-        closeAllMenusExcept(null);
-        updateMenuHoverState();
-      });
-      menuItem.dataset.boundClearHandler = 'true';
-    }
+          closeAllMenusExcept(null);
+          updateMenuHoverState();
+        });
+        menuItem.dataset.boundClearHandler = 'true';
+      }
+    });
 
     // Listen for filter active state changes
     window.addEventListener('boardFiltersActiveStateChanged', this.boardFiltersActiveStateHandler);
@@ -1071,11 +1110,19 @@ class Header {
    * @param {boolean} active - Whether filters are currently active
    */
   updateClearFiltersMenuVisibility(active) {
-    const menuItem = document.getElementById('clear-board-filters-menu-item');
-    if (menuItem) {
-      const isBoardPage = document.body.classList.contains('board-page');
-      menuItem.style.display = (isBoardPage && active) ? '' : 'none';
+    const menuItems = [
+      document.getElementById('clear-board-filters-menu-item'),
+      document.getElementById('mobile-clear-board-filters-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
+      return;
     }
+
+    const isBoardPage = document.body.classList.contains('board-page');
+    menuItems.forEach((menuItem) => {
+      menuItem.style.display = (isBoardPage && active) ? '' : 'none';
+    });
   }
 
   // Update views dropdown to show/hide done view based on working style

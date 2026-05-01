@@ -4836,6 +4836,7 @@ class BoardManager {
 
     const canArchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/archive');
     const canUnarchiveCard = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/unarchive');
+    const canDeleteCard = this.canCallPermissionEndpoint('DELETE', '/api/cards/:id');
     const canToggleDone = this.canCallPermissionEndpoint('PATCH', '/api/cards/:id/done');
     const canManageAssignees = this.canCallPermissionEndpoint('PUT', '/api/cards/:id/assignees');
     const canCreateSchedule = this.canCallPermissionEndpoint('POST', '/api/schedules');
@@ -4875,6 +4876,7 @@ class BoardManager {
                   ${canArchiveCard && this.workingStyle !== 'agile' ? '<button type="button" class="btn btn-secondary" id="archive-card-detail-btn" data-card-id="' + cardData.id + '">🗄️ Archive</button>' : ''}` : ''
               }
               ${canManageAssignees ? `<button type="button" class="btn btn-secondary" id="assign-assignees-btn" data-card-id="${cardData.id}">👤 Assignees</button>` : ''}
+              ${canDeleteCard ? `<button type="button" class="btn btn-danger" id="delete-card-detail-btn" data-card-id="${cardData.id}">Delete</button>` : ''}
               <button type="button" class="btn btn-secondary" id="cancel-edit-card-btn">${isReadOnly ? 'Close' : 'Cancel'}</button>
               ${!isReadOnly ? '<button type="submit" form="edit-card-form" class="btn btn-primary">Save</button>' : ''}
             </div>
@@ -4986,6 +4988,7 @@ class BoardManager {
     const modal = document.getElementById('edit-card-modal');
     const form = document.getElementById('edit-card-form');
     const cancelBtn = document.getElementById('cancel-edit-card-btn');
+    const deleteBtn = document.getElementById('delete-card-detail-btn');
     const archiveBtn = document.getElementById('archive-card-detail-btn');
     const unarchiveBtn = document.getElementById('unarchive-card-detail-btn');
     const assignAssigneesBtn = document.getElementById('assign-assignees-btn');
@@ -5015,6 +5018,17 @@ class BoardManager {
     if (assignAssigneesBtn) {
       assignAssigneesBtn.addEventListener('click', async () => {
         await this.openAssigneeModal(cardId);
+      });
+    }
+
+    // Handle delete button
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        const cardElement = document.querySelector(`.card[data-card-id="${cardId}"]`);
+        const wasDeleted = await this.deleteCard(cardId, cardElement);
+        if (wasDeleted) {
+          modal.remove();
+        }
       });
     }
 
@@ -5966,7 +5980,7 @@ class BoardManager {
 
   async deleteCard(cardId, cardElement = null) {
     if (!await showConfirm('Are you sure you want to delete this card?', 'Confirm Deletion')) {
-      return;
+      return false;
     }
 
     // Show loading state
@@ -5993,11 +6007,13 @@ class BoardManager {
         
         // Reload board to reflect deletion
         await this.loadBoard();
+        return true;
       } else {
         if (cardElement) {
           cardElement.classList.remove('updating');
         }
         this.showErrorToast(`Failed to delete card: ${data.message}`);
+        return false;
       }
     } catch (err) {
       clearTimeout(timeoutId);
@@ -6010,6 +6026,7 @@ class BoardManager {
       } else {
         this.showErrorToast(`Error deleting card: ${err.message}`);
       }
+      return false;
     }
   }
 

@@ -57,7 +57,9 @@ const AUTH_BOOTSTRAP_LOADING_DELAY_MS = 500;
 let authBootstrapLoadingTimeoutId = null;
 
 function isPublicPagePath(pathname) {
-  const publicPages = [
+  // Use the shared allowlist set by theme-loader.js; fall back to a local copy
+  // in case this script ever runs without theme-loader.js on the page.
+  const publicPages = window.__aftPublicPagePaths || [
     '/login.html',
     '/register.html',
     '/logout.html',

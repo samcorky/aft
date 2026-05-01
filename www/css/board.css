@@ -1989,6 +1989,7 @@ button.readonly-disabled,
 
   .card-delete-btn {
     font-size: 17px;
+    display: none;
   }
 
   .card-move-btn {

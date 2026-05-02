@@ -958,6 +958,83 @@ def set_working_style():
         session.close()
 
 
+@settings_bp.route("/api/settings/timezone", methods=["GET"])
+@require_permission('setting.view')
+def get_timezone_setting():
+    """Get the current user timezone preference.
+
+    Returns a validated IANA timezone string and defaults to UTC when unset.
+    """
+    db = SessionLocal()
+    try:
+        user_id = g.user.id
+        setting = db.query(Setting).filter(Setting.key == 'timezone', Setting.user_id == user_id).first()
+
+        timezone_value = "UTC"
+        if setting and setting.value is not None:
+            try:
+                parsed_value = json.loads(setting.value)
+            except (TypeError, json.JSONDecodeError):
+                parsed_value = setting.value
+
+            is_valid, _ = validate_setting('timezone', parsed_value)
+            if is_valid:
+                timezone_value = parsed_value
+
+        return jsonify({
+            "success": True,
+            "key": "timezone",
+            "value": timezone_value,
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting timezone setting: {str(e)}")
+        return create_error_response("Failed to get timezone setting", 500)
+    finally:
+        db.close()
+
+
+@settings_bp.route("/api/settings/timezone", methods=["PUT"])
+@require_permission('setting.edit')
+def set_timezone_setting():
+    """Set the current user timezone preference."""
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True)
+        if data is None or "value" not in data:
+            return create_error_response("value is required", 400)
+
+        timezone_value = data.get("value")
+        is_valid, error = validate_setting('timezone', timezone_value)
+        if not is_valid:
+            return create_error_response(error, 400)
+
+        user_id = g.user.id
+        setting = db.query(Setting).filter(Setting.key == 'timezone', Setting.user_id == user_id).first()
+
+        value_json = json.dumps(timezone_value)
+        if setting:
+            setting.value = value_json
+            message = "Timezone updated"
+        else:
+            db.add(Setting(key='timezone', value=value_json, user_id=user_id))
+            message = "Timezone created"
+
+        db.commit()
+
+        return jsonify({
+            "success": True,
+            "message": message,
+            "key": "timezone",
+            "value": timezone_value,
+        }), 200
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error setting timezone setting: {str(e)}")
+        return create_error_response("Failed to set timezone setting", 500)
+    finally:
+        db.close()
+
+
 def configure_settings_routes(app, APP_VERSION):
     """Configure the settings routes by storing APP_VERSION for use by settings routes.
     

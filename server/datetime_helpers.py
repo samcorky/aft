@@ -33,9 +33,16 @@ def parse_iso_datetime(value):
 
 
 def serialize_datetime(value):
-    """Serialize datetime to ISO string with timezone when available."""
+    """Serialize datetime to an explicit UTC ISO-8601 string."""
     if not value:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc).isoformat()
-    return value.isoformat()
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat().replace("+00:00", "Z")
+
+
+def utc_now():
+    """Return the current UTC timestamp as a naive datetime for DB DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)

@@ -20,6 +20,7 @@ import json
 DEFAULT_USER_SETTINGS = {
     "default_board": "null",  # JSON-encoded null
     "time_format": '"24"',  # JSON-encoded string
+    "timezone": '"UTC"',  # JSON-encoded IANA timezone
     "working_style": '"kanban"',  # JSON-encoded string
     "selected_theme": "1",  # Default theme ID
 }

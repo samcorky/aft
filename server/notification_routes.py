@@ -5,6 +5,7 @@ import logging
 from flask import Blueprint, g, jsonify, request
 
 from database import SessionLocal
+from datetime_helpers import serialize_datetime
 from models import Notification, User
 from permissions import has_permission
 from security_validators import validate_safe_url
@@ -43,7 +44,7 @@ def get_notifications():
                         "subject": n.subject,
                         "message": n.message,
                         "unread": n.unread,
-                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                        "created_at": serialize_datetime(n.created_at),
                         "action_title": n.action_title,
                         "action_url": n.action_url,
                     }

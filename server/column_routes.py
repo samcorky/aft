@@ -4,8 +4,8 @@ Extracted from app.py – all /api/boards/<id>/columns and /api/columns endpoint
 """
 from flask import Blueprint, jsonify, request
 import logging
-from datetime import datetime
 from database import SessionLocal
+from datetime_helpers import serialize_datetime, utc_now
 from models import Board, BoardColumn
 from utils import (
     MAX_TITLE_LENGTH,
@@ -106,8 +106,8 @@ def get_board_columns(board_id):
                         "board_id": c.board_id,
                         "name": c.name,
                         "order": c.order,
-                        "created_at": c.created_at.isoformat() if c.created_at else None,
-                        "updated_at": c.updated_at.isoformat() if c.updated_at else None
+                        "created_at": serialize_datetime(c.created_at),
+                        "updated_at": serialize_datetime(c.updated_at)
                     }
                     for c in columns
                 ],
@@ -252,7 +252,7 @@ def create_column(board_id):
             )
             order = max_order
 
-        now = datetime.utcnow()
+        now = utc_now()
         column = BoardColumn(board_id=board_id, name=name, order=order, updated_at=now)
         db.add(column)
         db.commit()
@@ -263,8 +263,8 @@ def create_column(board_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
-            "created_at": column.created_at.isoformat() if column.created_at else None,
-            "updated_at": column.updated_at.isoformat() if column.updated_at else None
+            "created_at": serialize_datetime(column.created_at),
+            "updated_at": serialize_datetime(column.updated_at)
         }
 
         # Broadcast column creation so other connected clients can refresh immediately.
@@ -531,7 +531,7 @@ def update_column(column_id):
 
         # Set updated_at timestamp only if name changed (not just reordering)
         if name_changed:
-            column.updated_at = datetime.utcnow()
+          column.updated_at = utc_now()
 
         db.commit()
         db.refresh(column)
@@ -540,8 +540,8 @@ def update_column(column_id):
             "board_id": column.board_id,
             "name": column.name,
             "order": column.order,
-            "created_at": column.created_at.isoformat() if column.created_at else None,
-            "updated_at": column.updated_at.isoformat() if column.updated_at else None
+            "created_at": serialize_datetime(column.created_at),
+            "updated_at": serialize_datetime(column.updated_at)
         }
 
         # Broadcast column update event

@@ -13,6 +13,7 @@ import logging
 import json
 from flask import Blueprint, request, g
 from database import SessionLocal
+from datetime_helpers import serialize_datetime
 from models import User, Role, UserRole, Board
 from utils import (
     create_error_response,
@@ -82,7 +83,7 @@ def get_all_roles():
                 'description': role.description,
                 'is_system_role': role.is_system_role,
                 'permissions': permissions,
-                'created_at': role.created_at.isoformat() if hasattr(role.created_at, 'isoformat') else None,
+                'created_at': serialize_datetime(role.created_at),
                 'board_specific_only': role.name in BOARD_SPECIFIC_ONLY_ROLES,
                 'global_only': role.name in GLOBAL_ONLY_ROLES
             }
@@ -260,7 +261,7 @@ def get_user_roles():
                     'role_name': role.name,
                     'board_id': board.id if board else None,
                     'board_name': board.name if board else None,
-                    'assigned_at': user_role.created_at.isoformat() if user_role.created_at else None
+                    'assigned_at': serialize_datetime(user_role.created_at)
                 })
             
             user_list.append({

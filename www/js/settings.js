@@ -3,6 +3,7 @@ class Settings {
   constructor() {
     this.defaultBoardSelect = document.getElementById('default-board');
     this.timeFormatRadios = document.querySelectorAll('input[name="time-format"]');
+    this.timezoneSelect = document.getElementById('timezone-select');
     this.themeSelect = document.getElementById('theme-select');
     this.workingStyleSelect = document.getElementById('working-style');
     this.statusElement = document.getElementById('settings-status');
@@ -12,10 +13,82 @@ class Settings {
   async init() {
     await this.loadBoards();
     await this.loadSettings();
+    await this.loadTimezoneOptions();
+    await this.loadTimezoneSetting();
     await this.loadThemes();
     await this.loadWorkingStyle();
     await this.applyThemeColors(); // Ensure theme is loaded on page load
     this.attachEventListeners();
+  }
+
+  getSupportedTimezones() {
+    if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
+      try {
+        const supported = Intl.supportedValuesOf('timeZone');
+        if (Array.isArray(supported) && supported.length > 0) {
+          return ['UTC', ...supported.filter(tz => tz !== 'UTC')];
+        }
+      } catch (error) {
+        console.warn('Failed to read supported browser timezones:', error);
+      }
+    }
+
+    return [
+      'UTC',
+      'Europe/London',
+      'Europe/Paris',
+      'America/New_York',
+      'America/Chicago',
+      'America/Denver',
+      'America/Los_Angeles',
+      'Asia/Tokyo',
+      'Asia/Kolkata',
+      'Australia/Sydney'
+    ];
+  }
+
+  async loadTimezoneOptions() {
+    if (!this.timezoneSelect) {
+      return;
+    }
+
+    const timezones = this.getSupportedTimezones();
+    this.timezoneSelect.innerHTML = '';
+
+    timezones.forEach(timezone => {
+      const option = document.createElement('option');
+      option.value = timezone;
+      option.textContent = timezone;
+      this.timezoneSelect.appendChild(option);
+    });
+  }
+
+  async loadTimezoneSetting() {
+    if (!this.timezoneSelect) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/settings/timezone');
+      if (!response.ok) {
+        this.timezoneSelect.value = 'UTC';
+        return;
+      }
+
+      const data = await response.json();
+      const timezone = (data && data.success && typeof data.value === 'string' && data.value) ? data.value : 'UTC';
+
+      if ([...this.timezoneSelect.options].some(option => option.value === timezone)) {
+        this.timezoneSelect.value = timezone;
+      } else {
+        this.timezoneSelect.value = 'UTC';
+      }
+
+      sessionStorage.setItem('timezone', this.timezoneSelect.value || 'UTC');
+    } catch (error) {
+      console.error('Error loading timezone setting:', error);
+      this.timezoneSelect.value = 'UTC';
+    }
   }
 
   async loadBoards() {
@@ -327,6 +400,45 @@ class Settings {
     }
   }
 
+  async saveTimezone() {
+    if (!this.timezoneSelect) {
+      return;
+    }
+
+    try {
+      this.showStatus('Saving...', 'info');
+
+      const timezone = this.timezoneSelect.value || 'UTC';
+      const response = await fetch('/api/settings/timezone', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ value: timezone })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        const errorMessage = data.message || `HTTP error! status: ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      if (data.success) {
+        sessionStorage.setItem('timezone', timezone);
+        this.showStatus('Saved', 'success');
+
+        setTimeout(() => {
+          this.statusElement.textContent = '';
+          this.statusElement.className = 'settings-status';
+        }, 2000);
+      } else {
+        this.showStatus('Error: ' + data.message, 'error');
+      }
+    } catch (err) {
+      this.showStatus('Error: ' + err.message, 'error');
+    }
+  }
+
   async saveWorkingStyle() {
     try {
       // Show saving status
@@ -402,6 +514,20 @@ class Settings {
         }, 500);
       });
     });
+
+    if (this.timezoneSelect) {
+      this.timezoneSelect.addEventListener('change', () => {
+        if (this.saveTimeout) {
+          clearTimeout(this.saveTimeout);
+        }
+
+        this.showStatus('Pending...', 'info');
+
+        this.saveTimeout = setTimeout(() => {
+          this.saveTimezone();
+        }, 500);
+      });
+    }
 
     // Theme selector
     if (this.themeSelect) {

@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+from datetime_helpers import serialize_datetime
 import json
 
 
@@ -37,8 +38,8 @@ class Theme(Base):
             'settings': json.loads(self.settings) if isinstance(self.settings, str) else self.settings,
             'background_image': self.background_image,
             'system_theme': self.system_theme,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+            'created_at': serialize_datetime(self.created_at),
+            'updated_at': serialize_datetime(self.updated_at)
         }
     
     def __repr__(self):

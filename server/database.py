@@ -11,6 +11,7 @@ engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,  # Verify connections before using them
     pool_recycle=3600,  # Recycle connections after 1 hour
+    connect_args={"init_command": "SET time_zone = '+00:00'"},  # Force UTC per DB connection
 )
 
 # Session factory

@@ -93,3 +93,41 @@ class TestSettingsAPI:
         data = response.json()
         assert data['success'] is True
         assert data['value'] == sample_board['id']
+
+    def test_timezone_default_is_utc(self, api_client, authenticated_session):
+        """Test timezone endpoint returns UTC default for users without an override."""
+        # Reset any previously stored timezone to ensure a clean baseline
+        authenticated_session.put(f'{api_client}/api/settings/timezone', json={'value': 'UTC'})
+
+        response = authenticated_session.get(f'{api_client}/api/settings/timezone')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['success'] is True
+        assert data['value'] == 'UTC'
+
+    def test_timezone_can_be_updated(self, api_client, authenticated_session):
+        """Test timezone endpoint stores and returns a valid IANA timezone."""
+        put_response = authenticated_session.put(
+            f'{api_client}/api/settings/timezone',
+            json={'value': 'Europe/London'}
+        )
+        assert put_response.status_code == 200
+        put_data = put_response.json()
+        assert put_data['success'] is True
+        assert put_data['value'] == 'Europe/London'
+
+        get_response = authenticated_session.get(f'{api_client}/api/settings/timezone')
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert get_data['success'] is True
+        assert get_data['value'] == 'Europe/London'
+
+    def test_timezone_rejects_invalid_value(self, api_client, authenticated_session):
+        """Test timezone endpoint rejects invalid timezone names."""
+        response = authenticated_session.put(
+            f'{api_client}/api/settings/timezone',
+            json={'value': 'Not/A_Real_Zone'}
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False

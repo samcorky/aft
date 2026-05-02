@@ -8,7 +8,6 @@ import io
 import json
 import logging
 import re
-from datetime import datetime
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload
 from database import SessionLocal
@@ -42,7 +41,7 @@ from utils import (
     validate_string_length,
 )
 from board_import_handlers import ImportHandlerFactory
-from datetime_helpers import parse_iso_datetime, serialize_datetime
+from datetime_helpers import parse_iso_datetime, serialize_datetime, utc_now
 from security_validators import validate_json_import_payload_size
 from settings_schema import get_user_default_working_style
 from permissions import has_permission
@@ -361,8 +360,8 @@ def get_boards():
                 "id": b.id, 
                 "name": b.name, 
                 "description": b.description,
-                "created_at": b.created_at.isoformat() if b.created_at else None,
-                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+                "created_at": serialize_datetime(b.created_at),
+                "updated_at": serialize_datetime(b.updated_at),
                 "can_delete": can_delete,
                 "can_edit": can_edit,
                 "can_export": can_export,
@@ -485,7 +484,7 @@ def create_board():
                 return create_error_response(error, 400)
 
         # Create board
-        now = datetime.utcnow()
+        now = utc_now()
         user_id = get_current_user_id()
         board = Board(name=name, description=description, owner_id=user_id, updated_at=now)
         db.add(board)
@@ -508,8 +507,8 @@ def create_board():
             "id": board.id, 
             "name": board.name, 
             "description": board.description,
-            "created_at": board.created_at.isoformat() if board.created_at else None,
-            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+            "created_at": serialize_datetime(board.created_at),
+            "updated_at": serialize_datetime(board.updated_at)
         }
         return create_success_response({"board": result}, status_code=201)
 
@@ -576,7 +575,7 @@ def export_board(board_id):
                 "format": BOARD_EXPORT_FORMAT,
                 "format_version": "1.0",
                 "app_version": _APP_VERSION,
-                "exported_at": serialize_datetime(datetime.utcnow()),
+                "exported_at": serialize_datetime(utc_now()),
                 "exported_by_user_id": g.user.id,
                 "source_board_id": board.id,
                 "features_exported": [
@@ -686,7 +685,7 @@ def export_board(board_id):
         }
 
         board_slug = re.sub(r"[^A-Za-z0-9_-]+", "_", board.name or "board").strip("_") or "board"
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
         filename = f"aft_board_{board_slug}_{timestamp}.json"
         file_content = json.dumps(export_payload, ensure_ascii=True, indent=2)
 
@@ -829,7 +828,7 @@ def import_board_from_export():
             name=resolved_board_name,
             description=board_description,
             owner_id=user_id,
-            updated_at=datetime.utcnow(),
+            updated_at=utc_now(),
         )
         db.add(new_board)
         db.flush()
@@ -885,7 +884,7 @@ def import_board_from_export():
                 board_id=new_board.id,
                 name=column_name,
                 order=column_order,
-                updated_at=datetime.utcnow(),
+                updated_at=utc_now(),
             )
             db.add(new_column)
             db.flush()
@@ -941,7 +940,7 @@ def import_board_from_export():
                 schedule=None,
                 created_by_id=created_by_id,
                 assigned_to_id=assigned_to_id,
-                updated_at=datetime.utcnow(),
+                updated_at=utc_now(),
             )
             db.add(new_card)
             db.flush()
@@ -984,7 +983,7 @@ def import_board_from_export():
                     name=item_name,
                     checked=coerce_bool(item.get("checked"), default=False),
                     order=raw_order if raw_order >= 0 else 0,
-                    updated_at=datetime.utcnow(),
+                    updated_at=utc_now(),
                 )
             )
 
@@ -1040,7 +1039,7 @@ def import_board_from_export():
             if not isinstance(unit, str) or unit not in allowed_units:
                 unit = "day"
 
-            start_datetime = parse_iso_datetime(schedule.get("start_datetime")) or datetime.utcnow()
+            start_datetime = parse_iso_datetime(schedule.get("start_datetime")) or utc_now()
             end_datetime = parse_iso_datetime(schedule.get("end_datetime"))
 
             new_schedule = ScheduledCard(
@@ -1178,8 +1177,8 @@ def get_board_scheduled_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
-                    "created_at": card.created_at.isoformat() if card.created_at else None,
-                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "created_at": serialize_datetime(card.created_at),
+                    "updated_at": serialize_datetime(card.updated_at),
                     "assigned_to": {
                         "id": card.assigned_to.id,
                         "display_name": card.assigned_to.display_name,
@@ -1193,8 +1192,8 @@ def get_board_scheduled_cards(board_id):
                             "name": item.name,
                             "checked": item.checked,
                             "order": item.order,
-                            "created_at": item.created_at.isoformat() if item.created_at else None,
-                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
+                            "created_at": serialize_datetime(item.created_at),
+                            "updated_at": serialize_datetime(item.updated_at)
                         }
                         for item in card.checklist_items
                     ],
@@ -1204,7 +1203,7 @@ def get_board_scheduled_cards(board_id):
                             "card_id": comment.card_id,
                             "comment": comment.comment,
                             "order": comment.order,
-                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                            "created_at": serialize_datetime(comment.created_at)
                         }
                         for comment in card.comments
                     ]
@@ -1216,8 +1215,8 @@ def get_board_scheduled_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
-                "created_at": column.created_at.isoformat() if column.created_at else None,
-                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
+                "created_at": serialize_datetime(column.created_at),
+                "updated_at": serialize_datetime(column.updated_at),
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -1464,7 +1463,7 @@ def update_board(board_id):
             board.description = description
 
         # Set updated_at timestamp
-        board.updated_at = datetime.utcnow()
+        board.updated_at = utc_now()
 
         db.commit()
         db.refresh(board)
@@ -1473,8 +1472,8 @@ def update_board(board_id):
             "id": board.id, 
             "name": board.name, 
             "description": board.description,
-            "created_at": board.created_at.isoformat() if board.created_at else None,
-            "updated_at": board.updated_at.isoformat() if board.updated_at else None
+            "created_at": serialize_datetime(board.created_at),
+            "updated_at": serialize_datetime(board.updated_at)
         }
         return create_success_response(
             {"board": result, "message": "Board updated successfully"}

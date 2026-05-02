@@ -1,6 +1,6 @@
 # AFT Server
 
-Flask-based REST API server for the AFT (Atlassian Free Trello) application.
+Flask-based REST API server for the AFT (Aim, Focus, Track) application.
 
 ## Architecture
 

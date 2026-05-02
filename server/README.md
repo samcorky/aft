@@ -1,6 +1,6 @@
 # AFT Server
 
-Flask-based REST API server for the AFT (Atlassian Free Trello) application.
+Flask-based REST API server for the AFT (Aim, Focus, Track) application.
 
 ## Architecture
 
@@ -15,10 +15,15 @@ The server is built with:
 
 ```
 server/
-├── app.py                    # Main Flask application with API endpoints
+├── app.py                    # Flask app bootstrap, middleware, scheduler init
+├── *_routes.py               # Route modules grouped by domain
+├── auth.py                   # Authentication/session routes
+├── websocket_handlers.py     # Socket.IO event handlers and auth checks
 ├── database.py               # Database configuration and session management
-├── models.py                 # SQLAlchemy models (Board, Column, Card, Setting)
+├── models.py                 # SQLAlchemy models (boards, cards, users, roles, etc.)
 ├── utils.py                  # Validation and utility functions
+├── *_scheduler.py            # Backup/card/housekeeping background schedulers
+├── scheduler_lock.py         # Startup lock to avoid duplicate scheduler init
 ├── migrate.py                # Migration management script
 ├── alembic/                  # Database migration files
 ├── tests/                    # Test suite
@@ -27,7 +32,8 @@ server/
 │   └── test_api_edge_cases.py # Security and edge case tests
 ├── requirements.txt          # Production dependencies
 ├── requirements-dev.txt      # Development/testing dependencies
-└── TESTING.md                # Testing documentation
+└── docs/                     # Server documentation
+   └── SERVER_TESTING.md      # Testing documentation
 ```
 
 ## Key Features
@@ -66,70 +72,25 @@ The `utils.py` module provides comprehensive validation:
 - `create_error_response()` - Creates standardized error responses
 - `create_success_response()` - Creates standardized success responses
 
-### Database Models
+### Data Model Coverage
 
-**Board**:
-- `id` (Integer, PK)
-- `name` (String 255, required)
-- `description` (Text, optional)
-- Cascade deletes to columns
+The data model extends beyond boards/cards/settings and includes authentication, role/permission, scheduling, notification, and collaboration entities.
 
-**BoardColumn**:
-- `id` (Integer, PK)
-- `board_id` (Integer, FK to Board)
-- `name` (String 255, required)
-- `order` (Integer, required)
-- Cascade deletes to cards
+See `models.py` and `server/docs/PERMISSION_MODEL.md` for the authoritative model and permission details.
 
-**Card**:
-- `id` (Integer, PK)
-- `column_id` (Integer, FK to Column)
-- `title` (String 255, required)
-- `description` (String 2000, optional)
-- `order` (Integer, required)
+## API Surface (Overview)
 
-**Setting**:
-- `id` (Integer, PK)
-- `key` (String 255, unique, required)
-- `value` (Text, JSON-encoded)
+Core API groups include:
+- Authentication/session and user approval
+- User and role/permission management
+- Boards, columns, cards, comments, checklist items, timestamps
+- Scheduling and recurring card automation
+- Notifications and housekeeping health
+- Themes and application settings
+- Backup/restore and database operational endpoints
+- Health, version, stats, and API docs (`/api/docs`)
 
-## API Endpoints
-
-### Health & Utility
-- `GET /api/version` - Get app and database version
-- `GET /api/test` - Test database connection
-- `GET /api/stats` - Get database statistics
-- `GET /api/docs` - Swagger API documentation
-
-### Boards
-- `GET /api/boards` - List all boards
-- `POST /api/boards` - Create a new board
-- `PATCH /api/boards/<id>` - Update a board
-- `DELETE /api/boards/<id>` - Delete a board
-
-### Columns
-- `GET /api/boards/<id>/columns` - Get columns for a board
-- `POST /api/boards/<id>/columns` - Create a column
-- `PATCH /api/columns/<id>` - Update a column
-- `DELETE /api/columns/<id>` - Delete a column
-
-### Cards
-- `GET /api/columns/<id>/cards` - Get cards in a column
-- `GET /api/boards/<id>/cards` - Get all cards for a board (nested)
-- `POST /api/columns/<id>/cards` - Create a card
-- `PATCH /api/cards/<id>` - Update a card (including move)
-- `DELETE /api/cards/<id>` - Delete a card
-- `DELETE /api/columns/<id>/cards` - Delete all cards in a column
-
-### Settings
-- `GET /api/settings/schema` - Get settings schema
-- `GET /api/settings/<key>` - Get a setting value
-- `PUT /api/settings/<key>` - Set a setting value
-
-### Database Management
-- `GET /api/database/backup` - Download database backup
-- `POST /api/database/restore` - Restore from backup
-- `DELETE /api/database` - Delete all data and recreate schema
+Use Swagger at `/api/docs` for the current endpoint contract.
 
 ## Development
 
@@ -170,7 +131,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 ### Testing
 
-See [TESTING.md](TESTING.md) for comprehensive testing documentation.
+See [SERVER_TESTING.md](docs/SERVER_TESTING.md) for comprehensive testing documentation.
 
 Quick start:
 ```bash
@@ -227,7 +188,6 @@ python migrate.py downgrade
 ⚠️ **Rate Limiting**: Consider adding rate limiting for production (e.g., Flask-Limiter)
 ⚠️ **HTTPS**: Always use HTTPS in production
 ⚠️ **CORS**: Configure CORS policies for your domain
-⚠️ **Authentication**: Add authentication/authorization for multi-user scenarios
 ⚠️ **CSRF Protection**: Add CSRF tokens if using session-based auth
 
 ### Security Testing

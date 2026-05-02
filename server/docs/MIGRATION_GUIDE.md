@@ -161,7 +161,7 @@ schedule_id = Column(Integer, ForeignKey('scheduled_cards.id', ondelete='SET NUL
 
 **Key Points:**
 - Use `ForeignKey()` to reference the parent table
-- Specify `ondelete` behavior (see Cascade Behavior section)
+- Specify `ondelete` behaviour (see Cascade Behaviour section)
 - Set `nullable=True` if relationship is optional
 - **Always add `index=True`** for query performance
 
@@ -198,7 +198,7 @@ class Card(Base):
 
 #### 3. Cascade Behavior
 
-Choose appropriate `ondelete` behavior:
+Choose appropriate `ondelete` behaviour:
 
 - **`CASCADE`**: Delete children when parent deleted
   - Use for: Comments on cards, checklist items on cards
@@ -278,7 +278,7 @@ def upgrade() -> None:
 
 ```python
 def test_relationship_cascade(self, api_client):
-    """Test that cascade behavior works correctly."""
+    """Test that cascade behaviour works correctly."""
     # Create parent
     parent_response = requests.post(
         f'{api_client}/api/schedules',
@@ -295,7 +295,7 @@ def test_relationship_cascade(self, api_client):
     )
     assert delete_response.status_code == 200
     
-    # Verify child behavior based on cascade setting
+    # Verify child behaviour based on cascade setting
     # SET NULL: child still exists, FK is null
     # CASCADE: child is deleted
 ```

@@ -732,7 +732,7 @@ def test_schedule_duplicate_prevention(self, api_client):
         assert data['allow_duplicates'] is False
         
         # Note: Actual duplicate prevention testing would require
-        # creating cards and checking scheduler behavior
+        # creating cards and checking scheduler behaviour
         # That's better suited for integration/manual testing
         
     finally:
@@ -743,7 +743,8 @@ def test_schedule_duplicate_prevention(self, api_client):
 
 - [pytest Documentation](https://docs.pytest.org/)
 - [requests Documentation](https://requests.readthedocs.io/)
-- [AFT Security Guidelines](./server/SECURITY.md)
+- [AFT Security Guidelines](../server/docs/SECURITY.md)
 - [Python Testing Best Practices](https://docs.python-guide.org/writing/tests/)
 
 **Last Updated**: 2025-11-30
+

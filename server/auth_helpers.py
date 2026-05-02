@@ -10,6 +10,7 @@ This file provides examples and helper functions for:
 
 from database import SessionLocal
 from models import User, Role, UserRole, Board, Card, Setting
+from models import Theme
 from utils import get_user_scoped_query, get_user_permissions, can_access_board
 from permissions import INITIAL_ROLES, has_permission
 import json
@@ -22,8 +23,11 @@ DEFAULT_USER_SETTINGS = {
     "time_format": '"24"',  # JSON-encoded string
     "timezone": '"UTC"',  # JSON-encoded IANA timezone
     "working_style": '"kanban"',  # JSON-encoded string
-    "selected_theme": "1",  # Default theme ID
+    "selected_theme": "1",  # Fallback theme ID (resolved dynamically to Fresh Green)
 }
+
+# Name of the system theme to assign to new users by default
+DEFAULT_THEME_NAME = "Fresh Green"
 
 
 def create_default_user_settings(user_id, db_session=None):
@@ -44,7 +48,20 @@ def create_default_user_settings(user_id, db_session=None):
     
     try:
         settings_created = 0
-        for key, value in DEFAULT_USER_SETTINGS.items():
+        # Resolve default theme ID from DB; fall back to ID 1 if not found
+        default_theme_id = "1"
+        fresh_green = db_session.query(Theme).filter(
+            Theme.name == DEFAULT_THEME_NAME,
+            Theme.system_theme == True,
+            Theme.user_id == None
+        ).first()
+        if fresh_green:
+            default_theme_id = str(fresh_green.id)
+
+        resolved_settings = dict(DEFAULT_USER_SETTINGS)
+        resolved_settings["selected_theme"] = default_theme_id
+
+        for key, value in resolved_settings.items():
             # Check if setting already exists for this user
             existing = db_session.query(Setting).filter(
                 Setting.user_id == user_id,

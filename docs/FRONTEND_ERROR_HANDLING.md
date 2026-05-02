@@ -832,3 +832,4 @@ All frontend API interactions must follow these patterns:
 10. ✅ **Preserve user work** in all failure scenarios
 
 These patterns ensure a consistent, professional user experience even when the backend is unavailable or slow.
+

@@ -193,7 +193,7 @@ Use semantic landmarks or ARIA roles:
 - [ ] Focus indicators visible
 - [ ] Color contrast ratios pass WCAG AA (4.5:1 for normal text)
 - [ ] Zoom to 200% without loss of functionality
-- [ ] No reliance on color alone for information
+- [ ] No reliance on colour alone for information
 
 ### Tools
 - **axe DevTools**: Browser extension for automated accessibility testing
@@ -224,3 +224,4 @@ When adding new features, ensure:
 - [ ] Focus management is handled correctly
 - [ ] Screen reader testing completed
 - [ ] Documentation updated if needed
+

@@ -67,21 +67,21 @@ Pages integrate the system by:
 <script src="/js/board.js"></script>
 ```
 
-#### 2. Initialize in JavaScript
+#### 2. Initialise in JavaScript
 
 ```javascript
 // In board.js or page-specific script
 async init() {
   const boardId = this.getBoardId(); // Get board ID from URL or context
   
-  // Initialize PermissionManager with board context
+  // Initialise PermissionManager with board context
   const success = await PermissionManager.init(boardId);
   
   if (!success) {
-    console.warn('Failed to initialize permissions - some features may not be available');
+    console.warn('Failed to initialise permissions - some features may not be available');
   }
   
-  // Continue with rest of initialization
+  // Continue with rest of initialisation
   this.render();
   // ...
 }
@@ -115,12 +115,12 @@ applyPermissionBasedRendering() {
 ### PermissionManager Methods
 
 #### `init(boardId)`
-Initialize the permission manager by loading permissions from the API.
+Initialise the permission manager by loading permissions from the API.
 
 **Parameters:**
 - `boardId` (number|null): Optional board ID for board-specific permissions
 
-**Returns:** `Promise<boolean>` - True if initialization succeeded
+**Returns:** `Promise<boolean>` - True if initialisation succeeded
 
 **Example:**
 ```javascript
@@ -299,12 +299,12 @@ endpoint_mapping = {
 <script src="/js/my-page.js"></script>
 ```
 
-### 3. Initialize in Page JavaScript
+### 3. Initialise in Page JavaScript
 
 ```javascript
 // In my-page.js
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize permission manager (no board context for global pages)
+  // Initialise permission manager (no board context for global pages)
   await PermissionManager.init();
   
   // Render page
@@ -347,8 +347,8 @@ PermissionManager.applyToElements();
 
 ## Best Practices
 
-### 1. Initialize Early
-Always initialize PermissionManager before rendering UI elements:
+### 1. Initialise Early
+Always initialise PermissionManager before rendering UI elements:
 
 ```javascript
 // ✅ Good
@@ -391,11 +391,11 @@ if (PermissionManager.canCallEndpoint('POST', '/api/columns/:id/cards')) {
 ```
 
 ### 4. Handle Missing Permissions Gracefully
-Always provide fallback behavior:
+Always provide fallback behaviour:
 
 ```javascript
 if (!PermissionManager.initialized) {
-  console.warn('Permissions not loaded - using default behavior');
+  console.warn('Permissions not loaded - using default behaviour');
   // Show read-only UI or error message
 }
 ```
@@ -473,7 +473,7 @@ def create_column(board_id):
 
 ### Board Detail Page Integration
 
-See [board.js](www/js/board.js) for the complete implementation on the board detail page.
+See [board.js\](../www/js/board.js) for the complete implementation on the board detail page.
 
 ### Boards List Page Integration
 
@@ -482,12 +482,12 @@ The boards list page demonstrates a hybrid approach where:
 - Frontend uses PermissionManager for consistent rendering pattern
 - Falls back gracefully if PermissionManager is unavailable
 
-**Key Implementation** ([boards.js](www/js/boards.js)):
+**Key Implementation** ([boards.js\](../www/js/boards.js)):
 
 ```javascript
 class BoardsManager {
   async init() {
-    // Initialize PermissionManager without board context (global permissions)
+    // Initialise PermissionManager without board context (global permissions)
     await PermissionManager.init();
     
     // Load and render boards
@@ -565,7 +565,7 @@ class ExamplePageManager {
   }
   
   async init() {
-    // Initialize permissions first
+    // Initialise permissions first
     await PermissionManager.init();
     
     // Load data
@@ -614,7 +614,7 @@ class ExamplePageManager {
   }
 }
 
-// Initialize on page load
+// Initialise on page load
 document.addEventListener('DOMContentLoaded', async () => {
   const manager = new ExamplePageManager();
   await manager.init();
@@ -643,6 +643,7 @@ The Permission-Based UI Rendering System provides:
 - ✅ Extensible to all pages
 - ✅ Easy to add new permissions and endpoints
 - ✅ Better user experience (hide unavailable features)
-- ✅ Reduced errors (prevent unauthorized actions)
+- ✅ Reduced errors (prevent unauthorised actions)
 
-By following this system, you ensure that users only see and interact with features they're authorized to use, while maintaining a clean and maintainable codebase.
+By following this system, you ensure that users only see and interact with features they're authorised to use, while maintaining a clean and maintainable codebase.
+

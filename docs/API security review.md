@@ -4,16 +4,16 @@ Date: 2026-03-15
 Reviewer: GitHub Copilot (GPT-5.3-Codex)
 
 ## Scope and Method
-This review focused on exploitability in increasing order of ease and complexity, with emphasis on gaining unauthorized data access without known usernames/passwords.
+This review focused on exploitability in increasing order of ease and complexity, with emphasis on gaining unauthorised data access without known usernames/passwords.
 
 Work performed included:
-- Static code review of authentication, authorization, setup/bootstrap, notifications, themes, batch card operations, and websocket handlers.
+- Static code review of authentication, authorisation, setup/bootstrap, notifications, themes, batch card operations, and websocket handlers.
 - Live API probing against the running local instance.
 - Live websocket probing and event injection tests.
-- Session forgery validation using the configured/default Flask secret behavior.
+- Session forgery validation using the configured/default Flask secret behaviour.
 
 ## Executive Summary
-Multiple critical and high-severity authorization flaws were confirmed. The most severe chain allows no-password authentication bypass through forged session cookies when the default Flask secret is in use, combined with missing approval checks in session loading. The websocket unauthenticated join and client event-injection issue has now been remediated by enforcing authenticated Socket.IO connections, board-scoped join authorization, and server-only mutation broadcasts. Additional IDOR and scoping flaws were confirmed in notifications, batch card archive operations, and theme operations.
+Multiple critical and high-severity authorisation flaws were confirmed. The most severe chain allows no-password authentication bypass through forged session cookies when the default Flask secret is in use, combined with missing approval checks in session loading. The websocket unauthenticated join and client event-injection issue has now been remediated by enforcing authenticated Socket.IO connections, board-scoped join authorization, and server-only mutation broadcasts. Additional IDOR and scoping flaws were confirmed in notifications, batch card archive operations, and theme operations.
 
 ## Findings (Ordered by Severity)
 
@@ -64,25 +64,25 @@ Primary code references:
 - server/tests/test_websocket_security.py:29-90 (websocket regression coverage)
 
 Impact:
-- Unauthorized realtime data observation risk.
+- Unauthorised realtime data observation risk.
 - UI integrity risk from forged events (confusion, spoofed activity, trust erosion).
 
 Actions taken:
 - Added a shared session-resolution helper so Socket.IO handlers can reuse the same active/approved session validation model as HTTP request authentication.
 - Changed Socket.IO `connect` to reject unauthenticated clients before a websocket session is established.
-- Changed `join_board` and `leave_board` to validate `board_id` and authorize board membership with the existing server-side `can_access_board(...)` policy.
+- Changed `join_board` and `leave_board` to validate `board_id` and authorise board membership with the existing server-side `can_access_board(...)` policy.
 - Changed `join_theme` and `leave_theme` to require an authenticated websocket session.
 - Replaced client-originated mutation broadcasts with explicit rejection responses; realtime updates now continue to flow only from server-side validated REST handlers via the existing broadcast path.
-- Added websocket security regression tests covering unauthenticated connect rejection, authorized/denied board join, and blocked rebroadcast of client-emitted mutation events.
+- Added websocket security regression tests covering unauthenticated connect rejection, authorised/denied board join, and blocked rebroadcast of client-emitted mutation events.
 
 Recommendations:
 - ~~Require websocket authentication at connect.~~ **FIXED**: `handle_connect()` now resolves the current session user and returns `False` for unauthenticated socket connections.
-- ~~Authorize board membership on join_board using server-side board access checks.~~ **FIXED**: `join_board` / `leave_board` now validate the supplied `board_id` and enforce `can_access_board(...)` before room membership changes are allowed.
+- ~~Authorise board membership on join_board using server-side board access checks.~~ **FIXED**: `join_board` / `leave_board` now validate the supplied `board_id` and enforce `can_access_board(...)` before room membership changes are allowed.
 - ~~Reject client-originated mutation events; only broadcast server-originated validated events.~~ **FIXED**: client-emitted mutation events now return an explicit rejection payload, and server-side route handlers remain the only broadcast source for board mutations.
 
 ---
 
-### 3) High: Notification authorization IDOR (cross-user mutation)
+### 3) High: Notification authorisation IDOR (cross-user mutation)
 Status: **Fixed (2026-03-15)**
 
 What was observed:
@@ -132,10 +132,10 @@ Primary code references:
 - server/app.py:6645 (id-based query)
 
 Impact:
-- Users with card.archive may archive/unarchive cards outside authorized boards by submitting foreign ids.
+- Users with card.archive may archive/unarchive cards outside authorised boards by submitting foreign ids.
 
 Actions taken:
-- Added a shared batch-authorization helper that loads requested card ids through `get_user_scoped_query(...)` for the current user and compares the full requested set against the fully authorized set before any mutation runs.
+- Added a shared batch-authorisation helper that loads requested card ids through `get_user_scoped_query(...)` for the current user and compares the full requested set against the fully authorised set before any mutation runs.
 - Changed batch archive and batch unarchive to fail closed if any requested card id is missing or out of scope; no partial success is allowed.
 - Returned explicit user-facing failure messages that state no cards were archived/unarchived when the request is rejected.
 - Updated the board UI batch archive/unarchive handlers to show the server-provided rejection message directly.
@@ -184,7 +184,7 @@ Status: **Partially fixed (2026-03-16)**
 
 What was observed:
 - Public test endpoint returned database connectivity and board count.
-- Setup status endpoint reveals initialization state.
+- Setup status endpoint reveals initialisation state.
 - Setup admin endpoint is intentionally unauthenticated when setup incomplete.
 
 Primary code references:
@@ -202,9 +202,9 @@ Impact:
 Actions taken:
 - Added public minimal liveness endpoint (`/api/health/live`) that returns only `{ "ok": true }`.
 - Moved internal readiness checks to `/api/health/ready` and protected them with `X-Health-Token` (`HEALTHCHECK_TOKEN`) and source IP allow-list (`HEALTHCHECK_ALLOWED_SOURCE_IP`).
-- Updated compose `server` healthcheck to call `/api/health/ready` with the token header so `nginx` startup gating behavior remains intact.
+- Updated compose `server` healthcheck to call `/api/health/ready` with the token header so `nginx` startup gating behaviour remains intact.
 - Hardened legacy `/api/test` by requiring authentication and removing public recon details (including board count).
-- Added/updated regression coverage for liveness data minimization and readiness token enforcement.
+- Added/updated regression coverage for liveness data minimisation and readiness token enforcement.
 
 Recommendations:
 - ~~Restrict/disable public health details in production.~~ **FIXED**
@@ -232,7 +232,7 @@ Impact:
 - Reduced the remaining surface to status visibility plus optional cleanup of an already-existing known test user.
 
 Actions taken:
-- Removed test-user creation behavior and the password-bearing success response from the runtime endpoint.
+- Removed test-user creation behaviour and the password-bearing success response from the runtime endpoint.
 - Replaced the endpoint with read-only status guidance for `user.manage` or `user.role`, plus delete-only cleanup restricted to `user.manage`.
 - Updated the System Info widget to explain that a clean database is test-compatible and that any needed test account must be created outside the UI.
 - Added the same guidance and detection widget to User Management so role-focused admins can safely detect the known test user without creating or elevating it.
@@ -272,13 +272,14 @@ Recommendations:
 
 ## What Was Tested
 - Confirmed tested directly:
-  - API behavior (HTTP endpoints)
-  - Realtime websocket channel behavior (Socket.IO)
-   - Post-fix Socket.IO validation for unauthenticated connect rejection, authorized/denied room joins, and blocked client-originated mutation rebroadcast
+  - API behaviour (HTTP endpoints)
+  - Realtime websocket channel behaviour (Socket.IO)
+   - Post-fix Socket.IO validation for unauthenticated connect rejection, authorised/denied room joins, and blocked client-originated mutation rebroadcast
    - Basic browser UI smoke testing for restricted-user board visibility after permission-based control removal
 - Not fully tested in this review:
   - End-to-end browser UI flows and visual behaviors in the web interface
   - Manual click-path UX regression testing
    - New Issue 4 API regression tests could not be executed in this workspace because the pytest authentication fixture requires a fresh database and the current local data already contains users
 
-So this review did test backend API and realtime channel behavior, but it did not perform a full manual browser UI penetration run.
+So this review did test backend API and realtime channel behaviour, but it did not perform a full manual browser UI penetration run.
+

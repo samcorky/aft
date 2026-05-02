@@ -1,113 +1,37 @@
 # AFT
-Atlassian Free Trello.
+## What is it?
+Aim, Focus, Track - AFT is an Application For Tasks, it provides an Adaptive Flow Toolkit to let you organise your tasks in the way that makes sense for you and then get them done.
 
-## What?
-Kanban style task organisation.
+It is fully open source and is self hosted using a simple docker deployment approach.
 
-## Why?
-Trello was great, then Atlassian bought it.
+### Kanban working style
+You can use it as a simple set of Kanban boards, making one or more boards with custom columns including a done column, allowing you to drag cards between them as necessary to reflect your work. 
 
-## How?
+### Agile working style
+You can create boards for each epic or group of tasks that need to be done and then create columns within the boards to represent features or sets of common tasks that can be ticked off when done showing the completion of that column or feature.
+
+### Scheduling
+I wrote AFT because I couldn't find self hosted Kanban software that allowed you to specify a schedule for certain tasks to appear in your to do list, keeping track of things like regular maintenance, bin day, monthly accounts etc.
+
+### Intuitive UI
+AFT should be easy to use without reading manuals and all core features should be straightforward to discover and use by simply loading it up and making a start - if it isn't in any way, log an issue in the [GitHub repo](https://github.com/sjefferson99/aft) and we'll fix it up.
+There is comprehensive documentation in the form of this readme, the Swagger API page and the in app docs page for more advanced and time saving tricks, but these are not needed to use everything in AFT as a standard user.
+
+### API
+The entire application is based on a server container that exposes all functionality via API. The UI is a separate container with a javascript web app that adds a layer over the API. You can easily interact with any element of AFT programmatically over API, or even completely rewrite the UI or drop into a larger application.
+Check the swagger docs page in the settings menu for more details.
+
+### Security
+Authentication should be rock solid, data should be secure, known exploits patched regularly and best practice design followed for preventing injection attacks, cross site scripting etc. Details of security review performed and mitigated are in the docs folders.
+
+## Deployment
 - Clone the repo to a machine running docker
-- Edit .env to have more secure passwords
-- Configure WebSocket CORS for your deployment (see Configuration section below)
+- Edit .env to have more secure passwords, correct CORS config and any further necessary options using the comments for guidance and the configuration details below
 - `docker compose up -d`
-- Navigate to http(s)://{docker-host-ip}
+- Adjust backup folder permissions as below
+- Navigate to http(s)://{docker-host-domain-name}
 
-### Configuration
-
-#### CORS Origins (HTTP/HTTPS/WebSocket)
-The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to localhost addresses for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
-
-**Development (default):**
-```
-CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1
-```
-
-**Production (example with multiple trusted domains):**
-```
-CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
-```
-
-**Custom Host / Docker Host Access:**
-```
-CORS_ALLOWED_ORIGINS=http://your-docker-host-ip,https://your-docker-host-ip,https://your-hostname
-```
-
-Provide a comma-separated list of all origins that should be allowed to connect, including the exact scheme and host you use in the browser (for example https://staustell). This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
-
-#### HTTPS and Session Cookie Security
-By default, the stack now enforces secure session cookies and redirects direct HTTP requests to HTTPS.
-
-- Nginx auto-generates a self-signed certificate at startup when no certificate files exist, so HTTPS works out of the box without manual certificate setup.
-- Flask defaults `SESSION_COOKIE_SECURE=true`, so browsers only send session cookies over HTTPS.
-- The HTTP listener (port 80) redirects non-localhost traffic to HTTPS unless an upstream reverse proxy forwards `X-Forwarded-Proto: https`.
-
-This keeps direct deployments secure by default while still supporting external reverse proxies and certificate resolvers.
-
-### Backup Storage
-Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
-
-**Permission Requirements**: The container runs as a non-root user (UID 1000). If the `./backups/` directory is not writable, backups will fail with a permission error displayed in the UI. To fix this, run:
-```bash
-sudo chown -R 1000:1000 ./backups
-sudo chmod -R 755 ./backups
-```
-
-## Testing
-
-For developers who want to run the test suite:
-
-```powershell
-cd server
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-pytest
-```
-
-**Note:** Tests automatically handle authentication by creating a test admin user. For detailed testing instructions including fresh database setup, see [server/TESTING.md](server/TESTING.md).
-
-## Contributing and Agent Context
-
-If you are contributing code (human or AI-assisted), start with [CONTRIBUTING.md](CONTRIBUTING.md).
-
-For portable, agent-specific project context that should be available across machines via git, use [AGENT_CONTEXT.md](AGENT_CONTEXT.md). Keep this file concise and focused on stable workflow/security/testing facts.
-
-
-## Security and Access Control
-
-The application now includes a multi-user security model with authentication, role-based authorization, and secure-by-default deployment settings.
-
-- **Authentication Across HTTP + WebSocket** - Login/logout is enforced for protected API access and real-time socket connections.
-- **Role-Based Access Control (RBAC)** - Supports global and board-specific roles with permission checks on backend endpoints.
-- **Permission-Aware UI** - Frontend controls are shown/hidden based on effective permissions, reducing invalid actions before API calls.
-- **Ownership and IDOR Protection** - Server-side scoping checks prevent users from accessing resources they do not own or are not assigned to.
-- **Secure Session Defaults** - HTTPS-first behavior, secure session cookies by default, and optional Redis-backed server-side sessions.
-- **Operational Hardening** - Token-protected health checks and browser hardening headers in the reverse proxy layer.
-
-### Access Model and User Lifecycle
-
-- **Board Ownership and Sharing** - Boards are owned by a user, and access can be shared per board. Board-specific roles enable read-only access (viewer) or read/write collaboration (editor) without granting global access to all boards.
-- **Fine-Grained Per-Board Permissions** - Effective permissions are evaluated per board, so actions like editing or deleting are allowed only where the user has board-level rights.
-- **Custom Role Construction** - Role management supports building custom roles from individual permission blocks, then assigning those roles to users within the allowed assignment scope.
-- **Controlled Role Assignment** - Role changes require role-management permissions, with backend checks to prevent unauthorized escalation and invalid global vs board-specific assignments.
-- **Registration and Approval Workflow** - New user registrations are created in a pending state and must be approved by an administrator before login access is granted.
-- **First Admin Initial Setup** - A dedicated setup flow creates the first administrator account, auto-approves it, and completes initial bootstrap for the instance.
-- **User Profile Colours** - Each user is assigned a default avatar/profile colour (RGB hex) on account creation and can update it from the Profile page.
-
-For implementation details and extension guidance:
-- [server/AUTHENTICATION.md](server/AUTHENTICATION.md)
-- [server/PERMISSION_MODEL.md](server/PERMISSION_MODEL.md)
-- [PERMISSION_UI_SYSTEM.md](PERMISSION_UI_SYSTEM.md)
-## When?
-In one evening for version 1.
-That's right this is entirely copilot generated with my general guidance.
-I know what it all does, I have no idea what code was written to achieve it.
-Use at your own risk.
-
-## Features
-
+## Features in detail
 ### Working Style Configuration
 The application supports different working styles to accommodate various team preferences.
 
@@ -123,7 +47,7 @@ The application supports different working styles to accommodate various team pr
 In Agile mode, cards use Done/Not Done status and the Archived View is hidden. In Kanban mode, archive workflows remain available. For detailed information on using these features, see the Docs page (accessible from the user menu in the header).
 
 ### 📋 Board Management
-- **Create Multiple Boards** - Organize different projects with separate Kanban boards
+- **Create Multiple Boards** - Organise different projects with separate Kanban boards
 - **Update Board Details** - Rename boards and modify their properties
 - **Delete Boards** - Remove boards when projects are complete
 - **Default Board Setting** - Set a default board to load on startup
@@ -204,7 +128,7 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 ![Schedule Modal](images/schedule_modal.png)
 
 ### ⚙️ Settings & Configuration
-- **Customizable Settings** - Configure application preferences including default board
+- **Customisable Settings** - Configure application preferences including default board
 - **Time Format Settings** - Choose between 12-hour (AM/PM) or 24-hour time display
 - **Working Style Default (New Boards)** - Set your default board style for boards created in the future
   - **Kanban**: Traditional column-based workflow where cards move through stages
@@ -218,14 +142,14 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 ![Settings](images/settings.png)
 
 ### 🎨 Theme Builder
-- **Visual Customization** - Create and customize color themes for the entire application
+- **Visual Customisation** - Create and customise colour themes for the entire application
 - **Database-Backed Themes** - Themes stored in database, persist across sessions
 - **System Themes** - Pre-built themes (Default, Dark, Light, Solarized) that cannot be modified
-- **Custom Themes** - Create unlimited custom themes with your preferred colors
+- **Custom Themes** - Create unlimited custom themes with your preferred colours
 - **Theme Management**:
   - **Create**: Copy existing themes to create your own variants
-  - **Edit**: Modify all color variables (primary, secondary, status, text, backgrounds, header)
-  - **Rename**: Update theme names for better organization
+  - **Edit**: Modify all colour variables (primary, secondary, status, text, backgrounds, header)
+  - **Rename**: Update theme names for better organisation
   - **Import/Export**: Share themes as JSON files
   - **Apply**: Instantly preview and apply themes to your session
 - **Background Images** - Select from included background images or upload custom images
@@ -233,16 +157,16 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
   - Upload custom background images for unique theme styling
   - Background images stored in Docker named volume (persistent across restarts)
 - **Background Images** - Select from available background images or upload custom images
-- **Live Preview** - See color changes in real-time as you edit
-- **Organized Theme List** - Themes grouped by User Themes and System Themes, alphabetically sorted
+- **Live Preview** - See colour changes in real-time as you edit
+- **Organised Theme List** - Themes grouped by User Themes and System Themes, alphabetically sorted
 - **Read-Only System Themes** - System themes protected from modification
 - **Unsaved Changes Protection** - Warning modal when applying themes with unsaved changes
-- **Comprehensive Color Control** - Configure 15+ color variables:
-  - Primary and secondary colors with hover states
-  - Status colors (success, error, warning)
-  - Text colors (primary, muted, inverted)
-  - Background colors (light, dark, card backgrounds)
-  - Header colors (background, text, menu, buttons, icons)
+- **Comprehensive Colour Control** - Configure 15+ colour variables:
+  - Primary and secondary colours with hover states
+  - Status colours (success, error, warning)
+  - Text colours (primary, muted, inverted)
+  - Background colours (light, dark, card backgrounds)
+  - Header colours (background, text, menu, buttons, icons)
 - **Accessibility** - Full ARIA support, keyboard navigation, screen reader compatible
 
 ![Theme Builder](images/theme_builder.png)
@@ -275,7 +199,7 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 - **Version Notifications** - Automatic alerts when new AFT releases are available
 - **Documentation Notification** - Welcome notification on first installation directing users to Docs
 - **Action Buttons** - Optional action buttons on notifications with secure URL validation
-- **Notification Center** - View and manage all notifications from the header
+- **Notification Centre** - View and manage all notifications from the header
 - **Mark as Read** - Individual or bulk mark notifications as read and delete
 - **Notification Badge** - Unread count indicator in header
 
@@ -317,7 +241,7 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 
 The header displays a real-time system status indicator in the top-right corner. This widget monitors three critical system components and displays their health status:
 
-### Status Indicator Colors & Meanings
+### Status Indicator Colours & Meanings
 
 | Status | Icon | Color | Meaning | Troubleshooting |
 |--------|------|-------|---------|-----------------|
@@ -348,16 +272,102 @@ The widget checks system status in this order and stops at the first failure:
    - If server is OK but database fails, shows "DB Error"
    - Indicates database-specific issues
 
+## Configuration
+
+### CORS Origins (HTTP/HTTPS/WebSocket)
+The application enforces CORS (Cross-Origin Resource Sharing) on all web traffic: HTTP, HTTPS, and WebSocket connections. By default, CORS is restricted to localhost addresses for development safety. For production deployments or when accessing from different hosts, update the `CORS_ALLOWED_ORIGINS` environment variable in `.env`:
+
+**Development (default):**
+```
+CORS_ALLOWED_ORIGINS=http://localhost,http://127.0.0.1,https://localhost,https://127.0.0.1
+```
+
+**Production (example with multiple trusted domains):**
+```
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
+```
+
+**Custom Host / Docker Host Access:**
+```
+CORS_ALLOWED_ORIGINS=http://your-docker-host-ip,https://your-docker-host-ip,https://your-hostname
+```
+
+Provide a comma-separated list of all origins that should be allowed to connect, including the exact scheme and host you use in the browser (for example https://staustell). This prevents Cross-Site Request Forgery and Cross-Site WebSocket Hijacking attacks by only accepting connections from trusted sources.
+
+### HTTPS and Session Cookie Security
+By default, the stack now enforces secure session cookies and redirects direct HTTP requests to HTTPS.
+
+- Nginx auto-generates a self-signed certificate at startup when no certificate files exist, so HTTPS works out of the box without manual certificate setup.
+- Flask defaults `SESSION_COOKIE_SECURE=true`, so browsers only send session cookies over HTTPS.
+- The HTTP listener (port 80) redirects non-localhost traffic to HTTPS unless an upstream reverse proxy forwards `X-Forwarded-Proto: https`.
+
+This keeps direct deployments secure by default while still supporting external reverse proxies and certificate resolvers.
+
+### Backup Storage
+Automatic backups are stored on the host filesystem at `./backups/` (relative to the docker-compose.yml location). This directory is automatically created by Docker and persists across container restarts. You can include this directory in your host backup solution for additional data protection.
+
+**Permission Requirements**: The container runs as a non-root user (UID 1000). If the `./backups/` directory is not writable, backups will fail with a permission error displayed in the UI. To fix this, run:
+```bash
+sudo chown -R 1000:1000 ./backups
+sudo chmod -R 755 ./backups
+```
+
+## Testing
+
+For developers who want to run the test suite:
+
+```powershell
+cd server
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest
+```
+
+**Note:** Tests automatically handle authentication by creating a test admin user. For detailed testing instructions including fresh database setup, see [server/docs/SERVER_TESTING.md](server/docs/SERVER_TESTING.md).
+
+## Contributing and Agent Context
+
+If you are contributing code (human or AI-assisted), start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For portable, agent-specific project context that should be available across machines via git, use [AGENT_CONTEXT.md](AGENT_CONTEXT.md). Keep this file concise and focused on stable workflow/security/testing facts.
+
+
+## Security and Access Control
+
+The application includes a multi-user security model with authentication, role-based authorisation, and secure-by-default deployment settings.
+
+- **Authentication Across HTTP + WebSocket** - Login/logout is enforced for protected API access and real-time socket connections.
+- **Role-Based Access Control (RBAC)** - Supports global and board-specific roles with permission checks on backend endpoints.
+- **Permission-Aware UI** - Frontend controls are shown/hidden based on effective permissions, reducing invalid actions before API calls.
+- **Ownership and IDOR Protection** - Server-side scoping checks prevent users from accessing resources they do not own or are not assigned to.
+- **Secure Session Defaults** - HTTPS-first behaviour, secure session cookies by default, and optional Redis-backed server-side sessions.
+- **Operational Hardening** - Token-protected health checks and browser hardening headers in the reverse proxy layer.
+
+### Permissions Access Model and User Lifecycle
+
+- **Board Ownership and Sharing** - Boards are owned by a user, and access can be shared per board. Board-specific roles enable read-only access (viewer) or read/write collaboration (editor) without granting global access to all boards.
+- **Fine-Grained Per-Board Permissions** - Effective permissions are evaluated per board, so actions like editing or deleting are allowed only where the user has board-level rights.
+- **Custom Role Construction** - Role management supports building custom roles from individual permission blocks, then assigning those roles to users within the allowed assignment scope.
+- **Controlled Role Assignment** - Role changes require role-management permissions, with backend checks to prevent unauthorised escalation and invalid global vs board-specific assignments.
+- **Registration and Approval Workflow** - New user registrations are created in a pending state and must be approved by an administrator before login access is granted.
+- **First Admin Initial Setup** - A dedicated setup flow creates the first administrator account, auto-approves it, and completes initial bootstrap for the instance.
+- **User Profile Colours** - Each user is assigned a default avatar/profile colour (RGB hex) on account creation and can update it from the Profile page.
+
+For implementation details and extension guidance:
+- [server/docs/AUTHENTICATION.md](server/docs/AUTHENTICATION.md)
+- [server/docs/PERMISSION_MODEL.md](server/docs/PERMISSION_MODEL.md)
+- [docs/PERMISSION_UI_SYSTEM.md](docs/PERMISSION_UI_SYSTEM.md)
+
 ### Testing WebSocket Disconnection
 
 To test the WebSocket disconnection scenario (for development/debugging):
 
-1. Edit [server/app.py](server/app.py) line ~237
-2. Change `REJECT_SOCKETIO_CONNECTIONS = False` to `REJECT_SOCKETIO_CONNECTIONS = True`
-3. Rebuild: `docker compose down ; docker compose up -d --build`
-4. Open board page - header shows "WebSocket Disconnected" within 5 seconds
-5. Real-time updates will not work
-6. Revert the flag to `False` and rebuild to restore connectivity
+1. Edit [server/app.py](server/app.py) and set `REJECT_SOCKETIO_CONNECTIONS` to `True`
+2. Rebuild: `docker compose down ; docker compose up -d --build`
+3. Open board page - header shows "WebSocket Disconnected" within 5 seconds
+4. Real-time updates will not work
+5. Revert `REJECT_SOCKETIO_CONNECTIONS` to `False` and rebuild to restore connectivity
 
 ### Polling & Real-Time Updates
 
@@ -367,56 +377,4 @@ To test the WebSocket disconnection scenario (for development/debugging):
 
 ## Architecture Decisions
 
-This section documents key architectural choices made in the AFT application.
-
-### Custom Date Math vs. dateutil
-
-**Decision**: Implement custom `_add_months()` and `_add_years()` functions instead of using `python-dateutil`.
-
-**Rationale**:
-- Scheduled cards feature only needs simple calendar math (add N months/years)
-- `python-dateutil` adds 300KB+ dependency for functionality we don't need
-- Our custom implementation handles edge cases correctly:
-  - Month overflow (Jan 31 + 1 month = Feb 28/29)
-  - Leap years (Feb 29 + 1 year = Feb 28)
-  - Year boundaries (Dec 31 + 1 month = Jan 31 next year)
-- No timezone/DST complexity needed (app uses local time)
-- Custom functions are ~50 lines vs. large library
-
-**When to Reconsider**: If we later need timezone handling, complex recurrence rules (RRULE), or relative deltas with multiple units, consider adding `python-dateutil`.
-
-**Implementation**: See `server/schedule_utils.py` for the custom date math functions.
-
-### Background Services: Daemon Threads vs. Celery
-
-**Decision**: Use simple Python scripts with daemon threads instead of Celery task queue.
-
-**Rationale**:
-- Application is single-user/small-scale
-- Simple periodic tasks (backups every N minutes, card creation on schedule)
-- Don't need distributed task execution, complex workflows, or advanced retry logic
-- Simpler deployment (no Redis/RabbitMQ required)
-- Easier to debug and maintain
-- Threads run within Flask app container, sharing database connections and context
-
-**When to Reconsider**: If application scales to multi-user with complex workflows, many background tasks, or need for task prioritization/distribution, consider Celery.
-
-**Implementation**: See `server/backup_scheduler.py` and `server/card_scheduler.py` for examples of the daemon thread pattern.
-
-### Single Container vs. Microservices
-
-**Decision**: Run all background services as daemon threads within the Flask app container.
-
-**Rationale**:
-- Simpler deployment and orchestration
-- Shared database connections and SQLAlchemy sessions
-- Direct access to Flask app models and utilities
-- Lower resource overhead (no inter-service communication)
-- Appropriate for single-user application scale
-
-**Trade-offs**:
-- All services restart if Flask app restarts
-- Can't scale services independently
-- Acceptable for current use case
-
-**Implementation**: Background services initialized in `server/app.py` via `init_backup_scheduler()` and `init_card_scheduler()` functions.
+Architecture rationale and implementation notes are maintained in [docs/Architecture.MD](docs/Architecture.MD).

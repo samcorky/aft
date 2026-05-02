@@ -11,18 +11,18 @@ You can use it as a simple set of Kanban boards, making one or more boards with 
 You can create boards for each epic or group of tasks that need to be done and then create columns within the boards to represent features or sets of common tasks that can be ticked off when done showing the completion of that column or feature.
 
 ### Scheduling
-I wrote AFT because I couldn't find self hosted Kanban software that allowed you to specify a schedule for certain tasks to appear in your to do list, keeping track of thigns like regular maintenance, bin day, monthyl accounts etc.
+I wrote AFT because I couldn't find self hosted Kanban software that allowed you to specify a schedule for certain tasks to appear in your to do list, keeping track of things like regular maintenance, bin day, monthly accounts etc.
 
 ### Intuitive UI
-AFT should be easy to use without reading manuals and all core features should be straightforward to discover and use by simply loading it up and making a start - if it isn't in anyway, log an issue in the [github repo](https://github.com/sjefferson99/aft) and we'll fix it up.
+AFT should be easy to use without reading manuals and all core features should be straightforward to discover and use by simply loading it up and making a start - if it isn't in any way, log an issue in the [GitHub repo](https://github.com/sjefferson99/aft) and we'll fix it up.
 There is comprehensive documentation in the form of this readme, the Swagger API page and the in app docs page for more advanced and time saving tricks, but these are not needed to use everything in AFT as a standard user.
 
 ### API
-The entire application is based on a server container that exposes all functionality via API. The UI is a separate container with a javascript web app that adds a layer over the API. You can easily interact with any element of AFT programatically over API, or even completely rewrite the UI or drop into a larger application.
+The entire application is based on a server container that exposes all functionality via API. The UI is a separate container with a javascript web app that adds a layer over the API. You can easily interact with any element of AFT programmatically over API, or even completely rewrite the UI or drop into a larger application.
 Check the swagger docs page in the settings menu for more details.
 
 ### Security
-Authentication should be rock solid, data should be secure, known exploits patched reguarly and best practice design followed for preventing injection attacks, cross site scripting etc. Details of security review performed and mitigated are in the docs folders.
+Authentication should be rock solid, data should be secure, known exploits patched regularly and best practice design followed for preventing injection attacks, cross site scripting etc. Details of security review performed and mitigated are in the docs folders.
 
 ## Deployment
 - Clone the repo to a machine running docker

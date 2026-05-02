@@ -531,7 +531,7 @@ def update_column(column_id):
 
         # Set updated_at timestamp only if name changed (not just reordering)
         if name_changed:
-          column.updated_at = utc_now()
+            column.updated_at = utc_now()
 
         db.commit()
         db.refresh(column)

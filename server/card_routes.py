@@ -16,10 +16,11 @@ Extracted from app.py – all card-related endpoints:
 """
 from flask import Blueprint, jsonify, request, g
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 from database import SessionLocal
+from datetime_helpers import serialize_datetime, utc_now
 from models import Board, BoardColumn, Card, CardSecondaryAssignee, User
 from utils import (
     MAX_DESCRIPTION_LENGTH,
@@ -175,8 +176,8 @@ def get_column_cards(column_id):
                 "done": c.done,
                 "scheduled": c.scheduled,
                 "schedule": c.schedule,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
-                "updated_at": c.updated_at.isoformat() if c.updated_at else None,
+                "created_at": serialize_datetime(c.created_at),
+                "updated_at": serialize_datetime(c.updated_at),
                 "checklist_items": [
                     {
                         "id": item.id,
@@ -184,8 +185,8 @@ def get_column_cards(column_id):
                         "name": item.name,
                         "checked": item.checked,
                         "order": item.order,
-                        "created_at": item.created_at.isoformat() if item.created_at else None,
-                        "updated_at": item.updated_at.isoformat() if item.updated_at else None
+                        "created_at": serialize_datetime(item.created_at),
+                        "updated_at": serialize_datetime(item.updated_at)
                     }
                     for item in c.checklist_items
                 ]
@@ -358,8 +359,8 @@ def get_board_cards(board_id):
                     "done": card.done,
                     "scheduled": card.scheduled,
                     "schedule": card.schedule,
-                    "created_at": card.created_at.isoformat() if card.created_at else None,
-                    "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+                    "created_at": serialize_datetime(card.created_at),
+                    "updated_at": serialize_datetime(card.updated_at),
                     "assigned_to": {
                         "id": card.assigned_to.id,
                         "display_name": card.assigned_to.display_name,
@@ -373,8 +374,8 @@ def get_board_cards(board_id):
                             "name": item.name,
                             "checked": item.checked,
                             "order": item.order,
-                            "created_at": item.created_at.isoformat() if item.created_at else None,
-                            "updated_at": item.updated_at.isoformat() if item.updated_at else None
+                            "created_at": serialize_datetime(item.created_at),
+                            "updated_at": serialize_datetime(item.updated_at)
                         }
                         for item in card.checklist_items
                     ],
@@ -384,7 +385,7 @@ def get_board_cards(board_id):
                             "card_id": comment.card_id,
                             "comment": comment.comment,
                             "order": comment.order,
-                            "created_at": comment.created_at.isoformat() if comment.created_at else None
+                            "created_at": serialize_datetime(comment.created_at)
                         }
                         for comment in card.comments
                     ]
@@ -396,8 +397,8 @@ def get_board_cards(board_id):
                 "id": column.id,
                 "name": column.name,
                 "order": column.order,
-                "created_at": column.created_at.isoformat() if column.created_at else None,
-                "updated_at": column.updated_at.isoformat() if column.updated_at else None,
+                "created_at": serialize_datetime(column.created_at),
+                "updated_at": serialize_datetime(column.updated_at),
                 "cards": cards_data,
             }
             result["columns"].append(column_data)
@@ -592,7 +593,7 @@ def create_card(column_id):
                 return create_error_response("Schedule must be an integer", 400)
 
         # Create card
-        now = datetime.utcnow()
+        now = utc_now()
         card = Card(
             column_id=column_id,
             title=title,
@@ -618,8 +619,8 @@ def create_card(column_id):
             "schedule": card.schedule,
             "archived": card.archived,
             "done": card.done,
-            "created_at": card.created_at.isoformat() if card.created_at else None,
-            "updated_at": card.updated_at.isoformat() if card.updated_at else None
+            "created_at": serialize_datetime(card.created_at),
+            "updated_at": serialize_datetime(card.updated_at)
         }
 
         # Get board_id for WebSocket broadcast
@@ -983,16 +984,16 @@ def get_card(card_id):
             "done": card.done,
             "scheduled": card.scheduled,
             "schedule": card.schedule,
-            "created_at": card.created_at.isoformat() if card.created_at else None,
-            "updated_at": card.updated_at.isoformat() if card.updated_at else None,
+            "created_at": serialize_datetime(card.created_at),
+            "updated_at": serialize_datetime(card.updated_at),
             "checklist_items": [
                 {
                     "id": item.id,
                     "name": item.name,
                     "checked": item.checked,
                     "order": item.order,
-                    "created_at": item.created_at.isoformat() if item.created_at else None,
-                    "updated_at": item.updated_at.isoformat() if item.updated_at else None
+                    "created_at": serialize_datetime(item.created_at),
+                    "updated_at": serialize_datetime(item.updated_at)
                 }
                 for item in sorted(card.checklist_items, key=lambda x: x.order)
             ],
@@ -1002,7 +1003,7 @@ def get_card(card_id):
                     "card_id": comment.card_id,
                     "comment": comment.comment,
                     "order": comment.order,
-                    "created_at": comment.created_at.isoformat() if comment.created_at else None
+                    "created_at": serialize_datetime(comment.created_at)
                 }
                 for comment in card.comments
             ]
@@ -1241,7 +1242,7 @@ def update_card(card_id):
 
         # Set updated_at timestamp if user made content changes
         if user_content_changed:
-            card.updated_at = datetime.utcnow()
+            card.updated_at = utc_now()
 
         db.commit()
         db.refresh(card)
@@ -1254,8 +1255,8 @@ def update_card(card_id):
             "order": card.order,
             "done": card.done,
             "archived": card.archived,
-            "created_at": card.created_at.isoformat() if card.created_at else None,
-            "updated_at": card.updated_at.isoformat() if card.updated_at else None
+            "created_at": serialize_datetime(card.created_at),
+            "updated_at": serialize_datetime(card.updated_at)
         }
 
         # Get board_id for WebSocket broadcast
@@ -1596,7 +1597,7 @@ def archive_card(card_id):
         card.archived = True
 
         # Set updated_at timestamp
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         db.commit()
 
@@ -1610,8 +1611,8 @@ def archive_card(card_id):
             "order": card.order,
             "archived": card.archived,
             "done": card.done,
-            "created_at": card.created_at.isoformat() if card.created_at else None,
-            "updated_at": card.updated_at.isoformat() if card.updated_at else None
+            "created_at": serialize_datetime(card.created_at),
+            "updated_at": serialize_datetime(card.updated_at)
         }
 
         # Broadcast card archived event
@@ -1680,7 +1681,7 @@ def unarchive_card(card_id):
         card.archived = False
 
         # Set updated_at timestamp
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         # Increment order of all active cards at this position and above
         # This ensures the unarchived card is inserted at its order position
@@ -1703,8 +1704,8 @@ def unarchive_card(card_id):
             "order": card.order,
             "archived": card.archived,
             "done": card.done,
-            "created_at": card.created_at.isoformat() if card.created_at else None,
-            "updated_at": card.updated_at.isoformat() if card.updated_at else None
+            "created_at": serialize_datetime(card.created_at),
+            "updated_at": serialize_datetime(card.updated_at)
         }
 
         # Get board_id for broadcast
@@ -1856,7 +1857,7 @@ def update_card_done_status(card_id):
         card.done = done_status
 
         # Set updated_at timestamp
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         db.commit()
 
@@ -2113,7 +2114,7 @@ def batch_unarchive_cards():
                 card.archived = False
 
                 # Set updated_at timestamp
-                card.updated_at = datetime.utcnow()
+                card.updated_at = utc_now()
 
         db.commit()
 
@@ -2231,7 +2232,7 @@ def archive_cards_after_period(column_id):
             return jsonify({"success": False, "message": "period must be one of: minutes, hours, days, weeks"}), 400
 
         # Calculate the cutoff datetime
-        now = datetime.utcnow()
+        now = utc_now()
         if period == "minutes":
             cutoff = now - timedelta(minutes=quantity)
         elif period == "hours":
@@ -2273,8 +2274,8 @@ def archive_cards_after_period(column_id):
                     "most_recent_card": {
                         "id": most_recent.id,
                         "title": most_recent.title,
-                        "updated_at": most_recent.updated_at.isoformat() if most_recent.updated_at else None,
-                        "created_at": most_recent.created_at.isoformat() if most_recent.created_at else None
+                        "updated_at": serialize_datetime(most_recent.updated_at),
+                        "created_at": serialize_datetime(most_recent.created_at)
                     }
                 }), 200
             else:

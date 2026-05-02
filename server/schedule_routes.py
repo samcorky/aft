@@ -1,12 +1,10 @@
 """Schedule, checklist item, and comment route handlers."""
 
-from datetime import datetime
-
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func
 
 from database import SessionLocal
-from datetime_helpers import parse_iso_datetime
+from datetime_helpers import parse_iso_datetime, serialize_datetime, utc_now
 from models import BoardColumn, Card, ChecklistItem, Comment, ScheduledCard
 from utils import (
     MAX_COMMENT_LENGTH,
@@ -247,8 +245,8 @@ def create_schedule():
                         'schedule': created_template_card.schedule,
                         'archived': created_template_card.archived,
                         'done': created_template_card.done,
-                        'created_at': created_template_card.created_at.isoformat() if created_template_card.created_at else None,
-                        'updated_at': created_template_card.updated_at.isoformat() if created_template_card.updated_at else None
+                        'created_at': serialize_datetime(created_template_card.created_at),
+                        'updated_at': serialize_datetime(created_template_card.updated_at)
                     }
                 }, board_id)
 
@@ -281,8 +279,8 @@ def create_schedule():
                 "card_id": schedule.card_id,
                 "run_every": schedule.run_every,
                 "unit": schedule.unit,
-                "start_datetime": schedule.start_datetime.isoformat(),
-                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "start_datetime": serialize_datetime(schedule.start_datetime),
+                "end_datetime": serialize_datetime(schedule.end_datetime),
                 "schedule_enabled": schedule.schedule_enabled,
                 "allow_duplicates": schedule.allow_duplicates,
                 "next_runs": next_runs
@@ -343,8 +341,8 @@ def get_schedule(schedule_id):
                 "card_id": schedule.card_id,
                 "run_every": schedule.run_every,
                 "unit": schedule.unit,
-                "start_datetime": schedule.start_datetime.isoformat(),
-                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "start_datetime": serialize_datetime(schedule.start_datetime),
+                "end_datetime": serialize_datetime(schedule.end_datetime),
                 "schedule_enabled": schedule.schedule_enabled,
                 "allow_duplicates": schedule.allow_duplicates,
                 "next_runs": next_runs
@@ -448,8 +446,8 @@ def update_schedule(schedule_id):
                 "card_id": schedule.card_id,
                 "run_every": schedule.run_every,
                 "unit": schedule.unit,
-                "start_datetime": schedule.start_datetime.isoformat(),
-                "end_datetime": schedule.end_datetime.isoformat() if schedule.end_datetime else None,
+                "start_datetime": serialize_datetime(schedule.start_datetime),
+                "end_datetime": serialize_datetime(schedule.end_datetime),
                 "schedule_enabled": schedule.schedule_enabled,
                 "allow_duplicates": schedule.allow_duplicates,
                 "next_runs": next_runs
@@ -683,7 +681,7 @@ def create_checklist_item(card_id):
             order = db.query(ChecklistItem).filter(ChecklistItem.card_id == card_id).count()
 
         # Create checklist item
-        now = datetime.utcnow()
+        now = utc_now()
         checklist_item = ChecklistItem(
             card_id=card_id,
             name=name,
@@ -695,7 +693,7 @@ def create_checklist_item(card_id):
         db.add(checklist_item)
 
         # Update parent card's updated_at timestamp
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         db.commit()
         db.refresh(checklist_item)
@@ -712,8 +710,8 @@ def create_checklist_item(card_id):
                     'name': checklist_item.name,
                     'checked': checklist_item.checked,
                     'order': checklist_item.order,
-                    'created_at': checklist_item.created_at.isoformat() if checklist_item.created_at else None,
-                    'updated_at': checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
+                    'created_at': serialize_datetime(checklist_item.created_at),
+                    'updated_at': serialize_datetime(checklist_item.updated_at)
                 }
             }, column.board_id)
 
@@ -725,8 +723,8 @@ def create_checklist_item(card_id):
                 "name": checklist_item.name,
                 "checked": checklist_item.checked,
                 "order": checklist_item.order,
-                "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
-                "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
+                "created_at": serialize_datetime(checklist_item.created_at),
+                "updated_at": serialize_datetime(checklist_item.updated_at)
             }
         }), 201
 
@@ -831,12 +829,12 @@ def update_checklist_item(item_id):
 
         # Set updated_at timestamp for checklist item only if content changed (not just reordering)
         if content_changed:
-            checklist_item.updated_at = datetime.utcnow()
+            checklist_item.updated_at = utc_now()
 
         # Update parent card's updated_at timestamp for any checklist change (including reordering)
         card = db.query(Card).filter(Card.id == checklist_item.card_id).first()
         if card:
-            card.updated_at = datetime.utcnow()
+            card.updated_at = utc_now()
 
         db.commit()
         db.refresh(checklist_item)
@@ -847,8 +845,8 @@ def update_checklist_item(item_id):
             "name": checklist_item.name,
             "checked": checklist_item.checked,
             "order": checklist_item.order,
-            "created_at": checklist_item.created_at.isoformat() if checklist_item.created_at else None,
-            "updated_at": checklist_item.updated_at.isoformat() if checklist_item.updated_at else None
+            "created_at": serialize_datetime(checklist_item.created_at),
+            "updated_at": serialize_datetime(checklist_item.updated_at)
         }
 
         # Get board_id for broadcast
@@ -912,7 +910,7 @@ def delete_checklist_item(item_id):
         # Update parent card's updated_at timestamp
         card = db.query(Card).filter(Card.id == card_id).first()
         if card:
-            card.updated_at = datetime.utcnow()
+            card.updated_at = utc_now()
 
         db.commit()
 
@@ -996,7 +994,7 @@ def get_card_comments(card_id):
                         "card_id": c.card_id,
                         "comment": c.comment,
                         "order": c.order,
-                        "created_at": c.created_at.isoformat() if c.created_at else None,
+                        "created_at": serialize_datetime(c.created_at),
                     }
                     for c in comments
                 ],
@@ -1095,7 +1093,7 @@ def create_comment(card_id):
         db.add(comment)
 
         # Update parent card's updated_at timestamp
-        card.updated_at = datetime.utcnow()
+        card.updated_at = utc_now()
 
         db.commit()
         db.refresh(comment)
@@ -1105,7 +1103,7 @@ def create_comment(card_id):
             "card_id": comment.card_id,
             "comment": comment.comment,
             "order": comment.order,
-            "created_at": comment.created_at.isoformat() if comment.created_at else None,
+            "created_at": serialize_datetime(comment.created_at),
         }
 
         return create_success_response({"comment": result}, status_code=201)
@@ -1158,7 +1156,7 @@ def delete_comment(comment_id):
         # Update parent card's updated_at timestamp
         card = db.query(Card).filter(Card.id == card_id).first()
         if card:
-            card.updated_at = datetime.utcnow()
+            card.updated_at = utc_now()
 
         db.commit()
 

@@ -1,6 +1,7 @@
 """Shared settings schema and working-style helpers."""
 
 import json
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from models import BoardSetting, Setting
 from utils import get_user_scoped_query
@@ -26,6 +27,25 @@ def _validate_time_format(time_str):
         hours, minutes = int(hours_str), int(minutes_str)
         return 0 <= hours <= 23 and 0 <= minutes <= 59
     except (ValueError, AttributeError):
+        return False
+
+
+def _validate_timezone(timezone_name):
+    """Validate an IANA timezone name supported by Python zoneinfo."""
+    if not isinstance(timezone_name, str):
+        return False
+
+    candidate = timezone_name.strip()
+    if not candidate:
+        return False
+
+    if candidate == "UTC":
+        return True
+
+    try:
+        ZoneInfo(candidate)
+        return True
+    except ZoneInfoNotFoundError:
         return False
 
 
@@ -90,6 +110,12 @@ SETTINGS_SCHEMA = {
         "nullable": False,
         "description": "Time format preference: '12' for 12-hour or '24' for 24-hour",
         "validate": lambda value: isinstance(value, str) and value in ["12", "24"],
+    },
+    "timezone": {
+        "type": "string",
+        "nullable": False,
+        "description": "IANA timezone name used when rendering UTC timestamps (for example 'UTC' or 'Europe/London')",
+        "validate": _validate_timezone,
     },
     "working_style": {
         "type": "string",

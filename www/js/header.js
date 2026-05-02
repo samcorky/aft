@@ -1841,6 +1841,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (typeof preloadTimeFormat === 'function') {
       preloadTimeFormat();
     }
+
+    // Preload timezone preference
+    if (typeof preloadUserTimezone === 'function') {
+      preloadUserTimezone();
+    }
   } finally {
     hideAuthBootstrapLoading();
   }

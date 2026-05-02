@@ -1,5 +1,6 @@
 """Tests for timestamp functionality across entities."""
 import pytest
+import re
 import time
 from datetime import datetime
 
@@ -160,6 +161,18 @@ class TestTimestamps:
         
         if initial_updated_at and updated_card['updated_at']:
             assert updated_card['updated_at'] != initial_updated_at
+
+    def test_card_timestamps_include_timezone_offset(self, api_client, authenticated_session, sample_card):
+        """Card timestamps should be serialized with explicit timezone information."""
+        response = authenticated_session.get(f'{api_client}/api/cards/{sample_card["id"]}')
+        assert response.status_code == 200
+        card = response.json()['card']
+
+        for key in ['created_at', 'updated_at']:
+            value = card.get(key)
+            if value:
+                assert value.endswith('Z') or re.search(r'[+-]\d{2}:\d{2}$', value)
+                datetime.fromisoformat(value.replace('Z', '+00:00'))
     
     def test_card_updated_at_on_column_change(self, api_client, authenticated_session, sample_card, sample_board):
         """Test that card updated_at changes when moved to different column."""

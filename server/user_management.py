@@ -11,6 +11,7 @@ This module provides admin-only endpoints for:
 import json
 from flask import Blueprint, jsonify, request, g
 from database import SessionLocal
+from datetime_helpers import serialize_datetime
 from models import User, Role, UserRole
 from utils import (
     require_permission,
@@ -113,8 +114,8 @@ def list_users():
                 'is_approved': user.is_approved,
                 'email_verified': user.email_verified,
                 'oauth_provider': user.oauth_provider,
-                'created_at': user.created_at.isoformat() if user.created_at else None,
-                'last_login_at': user.last_login_at.isoformat() if user.last_login_at else None,
+                'created_at': serialize_datetime(user.created_at),
+                'last_login_at': serialize_datetime(user.last_login_at),
                 'roles': [{'id': r.id, 'name': r.name} for r in roles]
             })
         
@@ -163,7 +164,7 @@ def list_pending_users():
             'display_name': user.display_name,
           'is_active': user.is_active,
           'is_approved': user.is_approved,
-          'created_at': user.created_at.isoformat() if user.created_at else None,
+          'created_at': serialize_datetime(user.created_at),
         } for user in users]
         
         return create_success_response(data={

@@ -61,14 +61,16 @@
  * @param {Date} dateObj - Date object to format
  * @param {string} timeFormat - Either '12' or '24'
  * @param {boolean} includeSeconds - Whether to include seconds in the output
+ * @param {string} timezone - IANA timezone name
  * @returns {string} Formatted time string
  */
-function applyTimeFormat(dateObj, timeFormat, includeSeconds) {
+function applyTimeFormat(dateObj, timeFormat, includeSeconds, timezone = 'UTC') {
   if (timeFormat === '12') {
     const options = {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
+      timeZone: timezone
     };
     if (includeSeconds) {
       options.second = '2-digit';
@@ -78,13 +80,68 @@ function applyTimeFormat(dateObj, timeFormat, includeSeconds) {
     const options = {
       hour: '2-digit',
       minute: '2-digit',
-      hour12: false
+      hour12: false,
+      timeZone: timezone
     };
     if (includeSeconds) {
       options.second = '2-digit';
     }
     return dateObj.toLocaleTimeString('en-GB', options);
   }
+}
+
+function parseTimestampAsUtc(date) {
+  if (date instanceof Date) {
+    return date;
+  }
+
+  if (typeof date !== 'string') {
+    return new Date(date);
+  }
+
+  const trimmed = date.trim();
+  if (!trimmed) {
+    return new Date(trimmed);
+  }
+
+  // Treat naive backend timestamps as UTC.
+  const hasExplicitTimezone = /(?:Z|[+\-]\d{2}:\d{2})$/i.test(trimmed);
+  return new Date(hasExplicitTimezone ? trimmed : `${trimmed}Z`);
+}
+
+function getCachedTimezone() {
+  const timezone = sessionStorage.getItem('timezone') || 'UTC';
+  return timezone.trim() || 'UTC';
+}
+
+function formatDatePart(dateObj, locale = 'en-GB') {
+  return dateObj.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: getCachedTimezone(),
+  });
+}
+
+async function preloadUserTimezone() {
+  if (sessionStorage.getItem('timezone')) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/settings/timezone');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && typeof data.value === 'string' && data.value.trim()) {
+        sessionStorage.setItem('timezone', data.value.trim());
+        return;
+      }
+    }
+  } catch (err) {
+    console.error('Error preloading timezone:', err);
+  }
+
+  sessionStorage.setItem('timezone', 'UTC');
 }
 
 /**
@@ -120,7 +177,7 @@ async function preloadTimeFormat() {
  * @returns {Promise<string>} Formatted time string (e.g., "2:30 PM" or "14:30")
  */
 async function formatTime(date, includeSeconds = false) {
-  const dateObj = date instanceof Date ? date : new Date(date);
+  const dateObj = parseTimestampAsUtc(date);
   
   // Check session storage first
   let timeFormat = sessionStorage.getItem('timeFormat');
@@ -147,7 +204,7 @@ async function formatTime(date, includeSeconds = false) {
   }
   
   // Format using helper function
-  return applyTimeFormat(dateObj, timeFormat, includeSeconds);
+  return applyTimeFormat(dateObj, timeFormat, includeSeconds, getCachedTimezone());
 }
 
 /**
@@ -160,14 +217,14 @@ async function formatTime(date, includeSeconds = false) {
  * @returns {string} Formatted time string (e.g., "2:30 PM" or "14:30")
  */
 function formatTimeSync(date, includeSeconds = false) {
-  const dateObj = date instanceof Date ? date : new Date(date);
+  const dateObj = parseTimestampAsUtc(date);
   
   // Check session storage (synchronous) and validate
   const cachedFormat = sessionStorage.getItem('timeFormat') || '24';
   const timeFormat = (cachedFormat === '12' || cachedFormat === '24') ? cachedFormat : '24';
   
   // Format using helper function
-  return applyTimeFormat(dateObj, timeFormat, includeSeconds);
+  return applyTimeFormat(dateObj, timeFormat, includeSeconds, getCachedTimezone());
 }
 
 /**
@@ -179,8 +236,8 @@ function formatTimeSync(date, includeSeconds = false) {
  * @returns {string} Formatted date string
  */
 function formatTooltipDateTime(date) {
-  const dateObj = date instanceof Date ? date : new Date(date);
-  const datePart = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const dateObj = parseTimestampAsUtc(date);
+  const datePart = formatDatePart(dateObj);
   const timePart = formatTimeSync(dateObj);
   return `${datePart} ${timePart}`;
 }
@@ -195,7 +252,7 @@ function formatTooltipDateTime(date) {
 function formatTimeAgo(date) {
   if (!date) return '';
   
-  const dateObj = date instanceof Date ? date : new Date(date);
+  const dateObj = parseTimestampAsUtc(date);
   const now = new Date();
   
   const diffMs = now - dateObj;
@@ -227,7 +284,7 @@ function formatTimeAgo(date) {
 function formatTimeAgoLong(date) {
   if (!date) return '';
   
-  const dateObj = date instanceof Date ? date : new Date(date);
+  const dateObj = parseTimestampAsUtc(date);
   const now = new Date();
   
   const diffMs = now - dateObj;
@@ -241,8 +298,7 @@ function formatTimeAgoLong(date) {
   if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
   
   // For older dates, show the formatted date
-  const dateOptions = { day: 'numeric', month: 'short', year: 'numeric' };
-  return dateObj.toLocaleDateString('en-GB', dateOptions) + ' ' + formatTimeSync(dateObj);
+  return formatDatePart(dateObj) + ' ' + formatTimeSync(dateObj);
 }
 
 /**

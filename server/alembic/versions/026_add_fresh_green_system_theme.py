@@ -47,12 +47,12 @@ def upgrade():
 
     # 1. Remove any user-owned "Fresh Green" theme (created via API during development)
     conn.execute(sa.text(
-        "DELETE FROM themes WHERE name = 'Fresh Green' AND (system_theme = 0 OR system_theme IS NULL)"
+        "DELETE FROM themes WHERE name = 'Fresh Green' AND (system_theme = 0 OR system_theme IS NULL) AND user_id IS NOT NULL"
     ))
 
     # 2. Insert Fresh Green as a system theme if it doesn't already exist
     result = conn.execute(sa.text(
-        "SELECT id FROM themes WHERE name = 'Fresh Green' AND system_theme = 1 LIMIT 1"
+        "SELECT id FROM themes WHERE name = 'Fresh Green' AND system_theme = 1 AND user_id IS NULL LIMIT 1"
     ))
     row = result.fetchone()
 
@@ -67,15 +67,16 @@ def upgrade():
 
     # 3. Retrieve the canonical system theme ID
     result = conn.execute(sa.text(
-        "SELECT id FROM themes WHERE name = 'Fresh Green' AND system_theme = 1 LIMIT 1"
+        "SELECT id FROM themes WHERE name = 'Fresh Green' AND system_theme = 1 AND user_id IS NULL LIMIT 1"
     ))
     fresh_green_id = result.fetchone()[0]
 
-    # 4. Update the selected_theme setting for all existing users to Fresh Green
+    # 4. Update the selected_theme setting only for users still on the old default (id=1)
     conn.execute(sa.text("""
         UPDATE settings
         SET `value` = :theme_id
         WHERE `key` = 'selected_theme'
+          AND `value` = '1'
     """), {'theme_id': str(fresh_green_id)})
 
 
@@ -91,5 +92,5 @@ def downgrade():
 
     # Remove the Fresh Green system theme
     conn.execute(sa.text(
-        "DELETE FROM themes WHERE name = 'Fresh Green' AND system_theme = 1"
+        "DELETE FROM themes WHERE name = 'Fresh Green' AND system_theme = 1 AND user_id IS NULL"
     ))

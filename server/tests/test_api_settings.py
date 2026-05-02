@@ -95,8 +95,13 @@ class TestSettingsAPI:
         assert data['value'] == sample_board['id']
 
     def test_timezone_default_is_utc(self, api_client, authenticated_session):
-        """Test timezone endpoint returns UTC default for users without an override."""
-        # Reset any previously stored timezone to ensure a clean baseline
+        """Test timezone endpoint returns UTC when timezone is explicitly set to UTC.
+
+        A truly unset state cannot be tested here because the session-scoped test
+        user persists across tests.  The endpoint logic (returning UTC when the DB
+        row has no timezone value) is exercised by the unit-level validation path.
+        This test verifies that the GET/PUT round-trip for UTC works correctly.
+        """
         authenticated_session.put(f'{api_client}/api/settings/timezone', json={'value': 'UTC'})
 
         response = authenticated_session.get(f'{api_client}/api/settings/timezone')

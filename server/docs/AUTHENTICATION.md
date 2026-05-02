@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the multi-tenant authentication and authorization system implemented in AFT. The system provides:
+This document describes the multi-tenant authentication and authorisation system implemented in AFT. The system provides:
 
 - **User management** with support for local authentication and OAuth providers
 - **Role-Based Access Control (RBAC)** with flexible permission system
@@ -129,7 +129,7 @@ user_id = request.json.get('user_id')  # Client can lie!
 Access to child resources is inherited from parent:
 - **Board owner** → can access all Columns, Cards, ChecklistItems, Comments, ScheduledCards
 - **Card creator** → tracked but doesn't override board ownership
-- **Card assignee** → tracked for organization but doesn't grant special access
+- **Card assignee** → tracked for organisation but doesn't grant special access
 
 ### 5. Board Sharing (Future)
 
@@ -456,7 +456,7 @@ show_user_permissions(user.id)
 
 ## Future Enhancements
 
-- **Team/Organization support**: Add an organizations table with team members
+- **Team/Organisation support**: Add an organisations table with team members
 - **Custom roles**: Allow admins to create custom roles with specific permissions
 - **Audit logging**: Track all data access and modifications
 - **API keys**: Generate API keys for programmatic access

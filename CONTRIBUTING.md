@@ -8,14 +8,14 @@ Before submitting any code contribution, **verify ALL items** are complete:
 
 - [ ] **Authentication Setup** - If developing/testing features requiring authentication, ensure fresh database or test admin exists (see [Authentication for Development](#authentication-for-development))
 - [ ] **Tests Created** - All new features and bug fixes MUST include tests (see [Testing Requirements](#testing-requirements))
-- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [TESTING.md](server/TESTING.md))
+- [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [SERVER_TESTING.md](server/docs/SERVER_TESTING.md))
 - [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
-- [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md))
+- [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](docs/FRONTEND_ERROR_HANDLING.md))
 - [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
 - [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
 - [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
 - [ ] **Documentation** - README/docs updated if behaviour changed
-- [ ] **Agent Context Updated** - If workflow/security/testing behavior changed, update [AGENT_CONTEXT.md](./AGENT_CONTEXT.md)
+- [ ] **Agent Context Updated** - If workflow/security/testing behaviour changed, update [AGENT_CONTEXT.md](./AGENT_CONTEXT.md)
 - [ ] **All Tests Pass** - Run `pytest -v` with fresh database and verify all tests pass
 
 **AI Contributors:** Start with [AGENT_CONTEXT.md](./AGENT_CONTEXT.md), then read this entire document including all linked files (TESTING.md, ACCESSIBILITY.md, MIGRATION_GUIDE.md, FRONTEND_ERROR_HANDLING.md, AUTHENTICATION.md) before implementing ANY feature.
@@ -129,7 +129,7 @@ On a fresh database (no users exist), you can create an initial admin user:
 
 ### Running Tests
 
-**Tests require a fresh database** to automatically create the test admin user. See [TESTING.md](server/TESTING.md) for detailed instructions:
+**Tests require a fresh database** to automatically create the test admin user. See [SERVER_TESTING.md](server/docs/SERVER_TESTING.md) for detailed instructions:
 
 ```powershell
 # Windows
@@ -157,9 +157,9 @@ pytest -v
 
 For detailed information about the authentication system:
 
-- **[AUTHENTICATION.md](server/AUTHENTICATION.md)** - Complete authentication architecture and implementation guide
-- **[AUTH_QUICK_REFERENCE.md](server/AUTH_QUICK_REFERENCE.md)** - Quick reference for using authentication in code
-- **[TESTING.md](server/TESTING.md)** - Test suite authentication requirements
+- **[AUTHENTICATION.md](server/docs/AUTHENTICATION.md)** - Complete authentication architecture and implementation guide
+- **[AUTH_QUICK_REFERENCE.md](server/docs/AUTH_QUICK_REFERENCE.md)** - Quick reference for using authentication in code
+- **[SERVER_TESTING.md](server/docs/SERVER_TESTING.md)** - Test suite authentication requirements
 
 ## Development Workflow
 
@@ -200,7 +200,7 @@ git checkout -b fix/your-bugfix-name
 
 **⚠️ IMPORTANT**: If your changes include database schema modifications (new tables, columns, etc.), follow these steps:
 
-1. **Create Migration**: Follow the [Alembic Migration Guide](server/alembic/MIGRATION_GUIDE.md)
+1. **Create Migration**: Follow the [Alembic Migration Guide](server/docs/MIGRATION_GUIDE.md)
 
 2. **Update Schema Validation**: When adding new tables to the database:
    - Add the table name to the `expected_tables` list in the `validate_schema_integrity()` function in [server/app.py](server/app.py#L545)
@@ -213,7 +213,7 @@ git checkout -b fix/your-bugfix-name
    - Verify the backup file doesn't trigger security validation errors
    - Test restoring the backup to confirm it passes all validations
 
-See the [Migration Guide](server/alembic/MIGRATION_GUIDE.md) for detailed instructions on creating migrations and updating schema validation.
+See the [Migration Guide](server/docs/MIGRATION_GUIDE.md) for detailed instructions on creating migrations and updating schema validation.
 
 ### 5. Test Your Changes
 
@@ -386,18 +386,18 @@ def get_scheduler():
 
 ### Integration in app.py
 
-Add initialization function and call it at module level:
+Add initialisation function and call it at module level:
 
 ```python
 def init_my_scheduler():
-    """Initialize and start the scheduler."""
+    """Initialise and start the scheduler."""
     try:
         from my_scheduler import get_scheduler
         scheduler = get_scheduler()
         scheduler.start()
-        logger.info("My scheduler initialization attempted")
+        logger.info("My scheduler initialisation attempted")
     except Exception as e:
-        logger.error(f"Failed to initialize scheduler: {str(e)}")
+        logger.error(f"Failed to initialise scheduler: {str(e)}")
 
 # Start scheduler when module is loaded (at end of app.py)
 init_my_scheduler()
@@ -411,7 +411,7 @@ init_my_scheduler()
 
 ### Testing Background Services
 - Test via API endpoints (create conditions, verify results via API)
-- Test lock file behavior (ensure it prevents concurrent execution)
+- Test lock file behaviour (ensure it prevents concurrent execution)
 - Test error recovery (simulate failures, verify continued operation)
 - Test notification generation (if applicable)
 - **Note**: Don't test actual timing/sleep in unit tests (too slow, unreliable)
@@ -464,7 +464,7 @@ def calculate_next_occurrence(start_time: datetime, interval: int, unit: str) ->
 
 ## Testing Requirements
 
-All code contributions must include appropriate tests. See [TESTING.md](./TESTING.md) for comprehensive testing guidelines.
+All code contributions must include appropriate tests. See [TESTING.md](docs/TESTING.md) for comprehensive testing guidelines.
 
 ### Test Coverage Requirements
 
@@ -519,7 +519,7 @@ pytest tests/test_your_feature.py -v
 
 ## Accessibility Requirements
 
-All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](./ACCESSIBILITY.md) for comprehensive guidelines.
+All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](docs/ACCESSIBILITY.md) for comprehensive guidelines.
 
 ### Required for All UI Changes
 
@@ -562,7 +562,7 @@ All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](./ACCES
 
 All frontend API interactions must follow error handling best practices to ensure a consistent user experience when the database or API is unavailable.
 
-See [FRONTEND_ERROR_HANDLING.md](./FRONTEND_ERROR_HANDLING.md) for comprehensive guidelines on:
+See [FRONTEND_ERROR_HANDLING.md](docs/FRONTEND_ERROR_HANDLING.md) for comprehensive guidelines on:
 
 - **Database Connection Monitoring**: Continuous polling and status tracking
 - **API Call Patterns**: 5-second timeouts with AbortController
@@ -583,7 +583,7 @@ All API calls must:
 
 ## Security Guidelines
 
-All code must follow security best practices. See [server/SECURITY.md](./server/SECURITY.md) for comprehensive security guidelines.
+All code must follow security best practices. See [server/docs/SECURITY.md](server/docs/SECURITY.md) for comprehensive security guidelines.
 
 ### Required Security Practices
 
@@ -591,7 +591,7 @@ All code must follow security best practices. See [server/SECURITY.md](./server/
    - Type checking
    - Length limits
    - Format validation
-   - Sanitization
+   - Sanitisation
 
 2. **SQL Injection Prevention**: Use parameterized queries
    ```python
@@ -868,7 +868,7 @@ BREAKING CHANGE: Backup API now returns 'backups' array instead of 'files'"
 
 ## Recognition
 
-Contributors are recognized in:
+Contributors are recognised in:
 - GitHub contributors page
 - Release notes (for significant contributions)
 

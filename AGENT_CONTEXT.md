@@ -6,7 +6,7 @@ Purpose
 
 How to use
 - Read this file at the start of security or testing work.
-- Update only when behavior or workflow changes.
+- Update only when behaviour or workflow changes.
 - Keep entries short and factual.
 
 Critical workflow reminders
@@ -14,7 +14,7 @@ Critical workflow reminders
   - Check coding standards for formatting and naming conventions  
   - Ensure API tests follow API-only patterns (no direct DB access)  
   - Review security guidelines (input validation, length limits, no error leaking)  
-  - Update README/docs if behavior changed  
+  - Update README/docs if behaviour changed  
   - Create or update tests for all API changes  
   - Run pytest to verify all tests pass
 

@@ -21,7 +21,7 @@ All API endpoints now implement comprehensive input validation:
 - **Length Limits**: 
   - Names/Titles: Maximum 255 characters
   - Descriptions: Maximum 2000 characters
-- **Sanitization**: Trim whitespace, reject empty strings after sanitization
+- **Sanitisation**: Trim whitespace, reject empty strings after sanitisation
 - **Location**: Applied to all board, column, and card name/title/description fields
 
 #### Integer Validation
@@ -108,7 +108,7 @@ except Exception as e:
 
 ⚠️ **Not Implemented** (Recommended for Production):
 - **Rate Limiting**: No request rate limits (recommend Flask-Limiter)
-- **Authentication**: No user authentication/authorization
+- **Authentication**: No user authentication/authorisation
 - **CSRF Protection**: No CSRF tokens (needed if using session-based auth)
 - **CORS**: No CORS configuration (configure for your domain)
 - **HTTPS**: Application assumes HTTPS is handled by reverse proxy

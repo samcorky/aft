@@ -5,7 +5,7 @@
 This test suite includes both **unit tests** and **API integration tests**. 
 
 - **Unit Tests**: Test individual functions and utilities without requiring a running server
-- **API Integration Tests**: Make HTTP requests to validate the external behavior of API endpoints
+- **API Integration Tests**: Make HTTP requests to validate the external behaviour of API endpoints
 
 ## Test Organisation
 
@@ -135,7 +135,7 @@ pytest tests/test_api_edge_cases.py -v
 
 ### Note on Coverage
 
-**Coverage reporting is not applicable** for API integration tests because they make HTTP requests to an external server (Docker container). The tests validate API behavior, not internal code paths. 
+**Coverage reporting is not applicable** for API integration tests because they make HTTP requests to an external server (Docker container). The tests validate API behaviour, not internal code paths. 
 
 However, unit tests in `test_utils.py` do test internal code paths and provide code coverage for validation utilities.
 
@@ -215,7 +215,7 @@ The test suite includes two types of tests:
 These are **API integration tests** that:
 - Make real HTTP requests to `http://localhost` (via nginx)
 - Test the running Docker container, not Python code directly
-- Validate API behavior, status codes, and response data
+- Validate API behaviour, status codes, and response data
 - Automatically clean up test data between runs
 
 **Test Files**:
@@ -258,7 +258,7 @@ These tests import backup validation helpers directly from `app.py` and validate
 
 - The module explicitly sets `ENABLE_SERVER_SIDE_SESSIONS=false` at test import time.
 - This is intentional: backup security tests are session-backend agnostic and should not require optional Redis session packages to run in local unit-test environments.
-- Runtime behavior is unchanged for the application; this only scopes test setup for that file.
+- Runtime behaviour is unchanged for the application; this only scopes test setup for that file.
 
 ### Test Isolation Strategy
 

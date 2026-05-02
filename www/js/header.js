@@ -1,7 +1,7 @@
 // Header component functionality
 
 // Central logo configuration — change this one path to update the logo everywhere
-const LOGO_PATH = '/images/aft_logo.webp';
+const LOGO_PATH = '/images/AFT_logo.webp';
 
 /**
  * Close all pinned dropdown menus except the specified one.

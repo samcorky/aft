@@ -2,6 +2,8 @@
 
 // Central logo configuration — change this one path to update the logo everywhere
 const LOGO_PATH = '/images/AFT_logo.webp';
+// PNG favicon path — used for the page favicon (wider browser support than WebP)
+const FAVICON_PATH = '/images/AFT_logo.png';
 
 /**
  * Close all pinned dropdown menus except the specified one.
@@ -256,7 +258,7 @@ class Header {
     const logoImg = document.querySelector('.header-logo');
     if (logoImg) logoImg.src = LOGO_PATH;
     const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon) favicon.href = LOGO_PATH;
+    if (favicon) favicon.href = FAVICON_PATH;
     
     // Get references to status elements after HTML is inserted
     this.statusIcon = document.getElementById('status-icon');

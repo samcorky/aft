@@ -286,7 +286,7 @@ showErrorToast(message, duration = 3000) {
     bottom: 20px;
     right: 20px;
     background: #e74c3c;
-    colour: white;
+    color: white;
     padding: 12px 20px;
     border-radius: 5px;
     box-shadow: 0 4px 8px rgba(0,0,0,0.3);
@@ -696,8 +696,8 @@ Check browser console:
 }
 
 @keyframes successFlash {
-  0%, 100% { background-colour: inherit; }
-  50% { background-colour: #d4edda; }
+  0%, 100% { background-color: inherit; }
+  50% { background-color: #d4edda; }
 }
 
 @keyframes errorShake {

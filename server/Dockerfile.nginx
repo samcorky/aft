@@ -4,8 +4,14 @@ FROM nginx:1.29-alpine
 RUN apk add --no-cache openssl
 
 # Copy entrypoint script and fix line endings
-COPY entrypoint.sh /entrypoint.sh
+# Build context must be the repo root (not ./server)
+COPY server/entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
+
+# Bake in nginx config and static web files so the image is self-contained.
+# Both can still be overridden at runtime via volume mounts (used in local dev).
+COPY server/nginx.conf /etc/nginx/conf.d/default.conf
+COPY www/ /usr/share/nginx/html/
 
 # Set entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

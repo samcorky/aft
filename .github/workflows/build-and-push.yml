@@ -1,0 +1,98 @@
+name: Build and Push to GHCR
+
+# Triggers on published GitHub Releases (e.g. when you create a v1.2.3 tag/release
+# via the GitHub UI or `gh release create`). This avoids a build on every commit.
+#
+# To also trigger on every push to main, uncomment the push block below.
+on:
+  release:
+    types: [published]
+  # Allows manual runs from the GitHub Actions tab — useful for testing the
+  # runner and build pipeline before cutting a real release.
+  workflow_dispatch:
+    inputs:
+      push_images:
+        description: "Push images to GHCR? (set to false for a build-only dry run)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+  # push:
+  #   branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  # Automatically resolves to the repo owner (sjefferson99) — no hardcoding needed
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    name: Build and push Docker images
+    # "self-hosted" tells GitHub Actions to route this job to your local runner
+    # instead of a GitHub-hosted runner, so no Actions minutes are consumed.
+    # See docs/self-hosted-runner.md for setup instructions.
+    runs-on: self-hosted
+
+    permissions:
+      contents: read
+      packages: write   # required to push to GHCR
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # GITHUB_TOKEN is automatically provided — no PAT or extra secret needed
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── aft (server) image ────────────────────────────────────────────────
+
+      - name: Extract metadata for aft (server)
+        id: meta-server
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/aft
+          tags: |
+            # Full semver tag from release:  ghcr.io/sjefferson99/aft:1.2.3
+            type=semver,pattern={{version}}
+            # Major.minor tag:               ghcr.io/sjefferson99/aft:1.2
+            type=semver,pattern={{major}}.{{minor}}
+            # Always update latest:          ghcr.io/sjefferson99/aft:latest
+            type=raw,value=latest
+
+      - name: Build and push aft (server)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          # On a release event always push; on manual dispatch respect the input
+          push: ${{ github.event_name == 'release' || inputs.push_images == 'true' }}
+          tags: ${{ steps.meta-server.outputs.tags }}
+          labels: ${{ steps.meta-server.outputs.labels }}
+
+      # ── aft-web (nginx + UI) image ─────────────────────────────────────────
+
+      - name: Extract metadata for aft-web
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/aft-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push aft-web (nginx + UI)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile.nginx
+          push: ${{ github.event_name == 'release' || inputs.push_images == 'true' }}
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}

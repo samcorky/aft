@@ -25,11 +25,41 @@ Check the swagger docs page in the settings menu for more details.
 Authentication should be rock solid, data should be secure, known exploits patched regularly and best practice design followed for preventing injection attacks, cross site scripting etc. Details of security review performed and mitigated are in the docs folders.
 
 ## Deployment
-- Clone the repo to a machine running docker
-- Edit .env to have more secure passwords, correct CORS config and any further necessary options using the comments for guidance and the configuration details below
+
+### Quick start (recommended)
+No repo clone needed — images are published to GitHub Container Registry on each release.
+
+```sh
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.yml
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/.env.example
+mv .env.example .env
+```
+
+> **Note:** The GHCR images are public, so `docker compose pull` requires no authentication. If you are pulling a private fork, log in first with `docker login ghcr.io`.
+
+- Edit `.env` with your passwords, CORS config, and any other options (see comments in the file and the configuration details below)
+- `docker compose pull`
 - `docker compose up -d`
 - Adjust backup folder permissions as below
-- Navigate to http(s)://{docker-host-domain-name}
+- Navigate to `http(s)://<docker-host>`
+
+To pull the latest release in future: `docker compose pull && docker compose up -d`
+
+Available images:
+- `ghcr.io/sjefferson99/aft:latest` — API server only
+- `ghcr.io/sjefferson99/aft-web:latest` — nginx + UI (proxies to the server)
+
+### Server-only deployment
+Remove or comment out the `nginx` service in `compose.yml` to run the API server without the web UI.
+
+### Development / build from source
+Use `compose.dev.yml` to build images locally from the repo:
+
+```sh
+git clone https://github.com/sjefferson99/aft.git
+cd aft
+docker compose -f compose.dev.yml up --build -d
+```
 
 ## Features in detail
 ### Working Style Configuration

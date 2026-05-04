@@ -31,7 +31,11 @@ No repo clone needed — images are published to GitHub Container Registry on ea
 
 ```sh
 curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.yml
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/.env.example
+mv .env.example .env
 ```
+
+> **Note:** The GHCR images are public, so `docker compose pull` requires no authentication. If you are pulling a private fork, log in first with `docker login ghcr.io`.
 
 - Edit `.env` with your passwords, CORS config, and any other options (see comments in the file and the configuration details below)
 - `docker compose pull`

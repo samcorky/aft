@@ -1,8 +1,13 @@
 # Uses pre-built images from GitHub Container Registry — no build step needed.
-# Copy this file and a .env file to your server, then run:
+# Copy this file to your server alongside a .env file (use .env.example as a
+# starting point: curl -O .../raw/.../main/.env.example && mv .env.example .env)
+# then run:
 #
 #   docker compose pull
 #   docker compose up -d
+#
+# Images are tagged :latest (tracks the most recent release) and also by semver
+# (e.g. :1.2.0). Pin to a semver tag for fully reproducible deployments.
 #
 # Required .env variables:
 #   MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD

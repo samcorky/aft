@@ -43,8 +43,8 @@ sudo ./svc.sh start
 Run the following in an elevated PowerShell prompt from the runner directory:
 
 ```powershell
-.\svc.sh install
-.\svc.sh start
+.\svc.cmd install
+.\svc.cmd start
 ```
 
 Or use the interactive method during development — just run `./run.sh` (Linux)

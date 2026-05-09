@@ -741,13 +741,13 @@ def import_board_from_export():
         description: AFT-formatted JSON export file
     responses:
             201:
-        description: Board imported successfully
-      400:
-        description: Invalid file, format or validation error
-      403:
-        description: Insufficient permissions
-      500:
-        description: Import failed
+                description: Board imported successfully
+            400:
+                description: Invalid file, format or validation error
+            403:
+                description: Insufficient permissions
+            500:
+                description: Import failed
     """
     db = SessionLocal()
     try:

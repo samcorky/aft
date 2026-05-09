@@ -157,6 +157,12 @@
               </div>
             </span>
           </div>
+          <div class="status-row" id="card-regenerate-row" style="display: none;">
+            <span class="status-label">Manual Run:</span>
+            <span class="status-value">
+              <button id="open-card-regenerate-modal" class="scheduler-generate-btn" type="button">Generate Tasks</button>
+            </span>
+          </div>
           <div class="status-row" id="card-scheduler-details" style="display: none;">
             <div class="scheduler-details">
               <div class="scheduler-tooltip" id="card-tooltip"></div>
@@ -285,6 +291,40 @@
           </p>
           <button class="delete-db-btn" id="delete-db-btn">Delete Database</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scheduler Regeneration Modal -->
+  <div class="modal" id="card-regenerate-modal" role="dialog" aria-modal="true" aria-labelledby="card-regenerate-title">
+    <div class="modal-content scheduler-regenerate-modal-content">
+      <h2 id="card-regenerate-title">Generate Scheduled Tasks</h2>
+      <p class="modal-instruction">Choose a date and time range to preview and manually generate scheduled cards.</p>
+
+      <div class="scheduler-regenerate-grid">
+        <div class="scheduler-regenerate-field">
+          <label for="card-regenerate-start">Start</label>
+          <input type="datetime-local" id="card-regenerate-start">
+        </div>
+        <div class="scheduler-regenerate-field">
+          <label for="card-regenerate-end">End</label>
+          <input type="datetime-local" id="card-regenerate-end">
+        </div>
+      </div>
+
+      <div id="card-regenerate-inline-error" class="error-message" style="margin-top: 6px;"></div>
+
+      <div class="scheduler-preview-wrapper">
+        <div class="scheduler-preview-header">
+          <strong id="card-regenerate-preview-count">Preview: 0 cards</strong>
+          <span id="card-regenerate-preview-meta" class="scheduler-preview-meta"></span>
+        </div>
+        <div id="card-regenerate-preview-list" class="scheduler-preview-list" aria-live="polite"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="cancel-btn" id="cancel-card-regenerate-btn">Cancel</button>
+        <button class="scheduler-confirm-btn" id="confirm-card-regenerate-btn">Generate</button>
       </div>
     </div>
   </div>

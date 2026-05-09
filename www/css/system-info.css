@@ -557,6 +557,29 @@
   transform: translateY(0);
 }
 
+.scheduler-generate-btn {
+  background-color: var(--primary-color);
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.scheduler-generate-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.scheduler-generate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Delete Confirmation Modal */
 .modal {
   display: none;
@@ -637,6 +660,110 @@
   justify-content: flex-end;
 }
 
+.scheduler-regenerate-modal-content {
+  max-width: 760px;
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#card-regenerate-modal .modal-content h2 {
+  color: var(--text-bold);
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+#card-regenerate-modal .modal-instruction {
+  margin-bottom: 18px;
+}
+
+.scheduler-regenerate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scheduler-regenerate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scheduler-regenerate-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.scheduler-regenerate-field input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--page-panel-background);
+  color: var(--text-color);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.scheduler-regenerate-field input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.scheduler-preview-wrapper {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--background-subtle, rgba(0, 0, 0, 0.02));
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scheduler-preview-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.scheduler-preview-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.scheduler-preview-list {
+  overflow: auto;
+  max-height: 340px;
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+}
+
+.scheduler-preview-item {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.scheduler-preview-item:last-child {
+  border-bottom: none;
+}
+
+.scheduler-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.scheduler-preview-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
 .cancel-btn {
   background-color: transparent;
   color: var(--text-secondary);
@@ -650,8 +777,31 @@
 }
 
 .cancel-btn:hover {
-  background-color: #f8f9fa;
+  background-color: var(--background-subtle, #f8f9fa);
   border-color: var(--border-color);
+}
+
+.scheduler-confirm-btn {
+  background-color: var(--primary-color);
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.scheduler-confirm-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.scheduler-confirm-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .confirm-delete-btn {
@@ -685,6 +835,14 @@
 @media (max-width: 768px) {
   .info-grid {
     grid-template-columns: 1fr;
+  }
+
+  .scheduler-regenerate-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scheduler-preview-wrapper {
+    min-height: 200px;
   }
   
   .stats-grid {

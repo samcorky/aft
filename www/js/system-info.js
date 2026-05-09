@@ -5,7 +5,17 @@ const CONFIRMATION_TEXT = "Yes I am sure I want to delete all of my data!";
 class SystemInfo {
   constructor() {
     this.modal = null;
+    this.cardRegenerateModal = null;
     this.deleteBtn = null;
+    this.openCardRegenerateBtn = null;
+    this.cardRegenerateStartInput = null;
+    this.cardRegenerateEndInput = null;
+    this.cardRegenerateError = null;
+    this.cardRegeneratePreviewCount = null;
+    this.cardRegeneratePreviewMeta = null;
+    this.cardRegeneratePreviewList = null;
+    this.cardRegenerateConfirmBtn = null;
+    this.cardRegeneratePreviewDebounce = null;
     this.confirmInput = null;
     this.errorMessage = null;
     this.backupToggle = null;
@@ -18,7 +28,16 @@ class SystemInfo {
   async init() {
     // Get element references
     this.modal = document.getElementById('delete-modal');
+    this.cardRegenerateModal = document.getElementById('card-regenerate-modal');
     this.deleteBtn = document.getElementById('delete-db-btn');
+    this.openCardRegenerateBtn = document.getElementById('open-card-regenerate-modal');
+    this.cardRegenerateStartInput = document.getElementById('card-regenerate-start');
+    this.cardRegenerateEndInput = document.getElementById('card-regenerate-end');
+    this.cardRegenerateError = document.getElementById('card-regenerate-inline-error');
+    this.cardRegeneratePreviewCount = document.getElementById('card-regenerate-preview-count');
+    this.cardRegeneratePreviewMeta = document.getElementById('card-regenerate-preview-meta');
+    this.cardRegeneratePreviewList = document.getElementById('card-regenerate-preview-list');
+    this.cardRegenerateConfirmBtn = document.getElementById('confirm-card-regenerate-btn');
     this.confirmInput = document.getElementById('delete-confirmation-input');
     this.errorMessage = document.getElementById('delete-error');
     this.backupToggle = document.getElementById('backupToggle');
@@ -64,8 +83,10 @@ class SystemInfo {
   handleDangerZonePermissions() {
     // Check if user has admin.database permission
     const hasAdminDatabase = typeof hasPermission === 'function' && hasPermission('admin.database');
+    const hasSystemAdmin = typeof hasPermission === 'function' && hasPermission('system.admin');
     
     const dangerZoneCard = document.getElementById('danger-zone-card');
+    const regenerateRow = document.getElementById('card-regenerate-row');
     
     if (!hasAdminDatabase) {
       // Hide the danger zone card entirely
@@ -73,13 +94,25 @@ class SystemInfo {
         dangerZoneCard.style.display = 'none';
       }
     }
+
+    if (regenerateRow) {
+      regenerateRow.style.display = hasSystemAdmin ? 'flex' : 'none';
+    }
   }
 
   setupEventListeners() {
     // Delete button opens modal
-    this.deleteBtn.addEventListener('click', () => {
-      this.openDeleteModal();
-    });
+    if (this.deleteBtn) {
+      this.deleteBtn.addEventListener('click', () => {
+        this.openDeleteModal();
+      });
+    }
+
+    if (this.openCardRegenerateBtn) {
+      this.openCardRegenerateBtn.addEventListener('click', () => {
+        this.openCardRegenerateModal();
+      });
+    }
 
     // Cancel button closes modal
     document.getElementById('cancel-delete-btn').addEventListener('click', () => {
@@ -91,10 +124,35 @@ class SystemInfo {
       this.confirmDelete();
     });
 
+    const cancelRegenerateBtn = document.getElementById('cancel-card-regenerate-btn');
+    if (cancelRegenerateBtn) {
+      cancelRegenerateBtn.addEventListener('click', () => {
+        this.closeCardRegenerateModal();
+      });
+    }
+
+    if (this.cardRegenerateConfirmBtn) {
+      this.cardRegenerateConfirmBtn.addEventListener('click', async () => {
+        await this.confirmCardRegenerate();
+      });
+    }
+
     // Clear error when typing
     this.confirmInput.addEventListener('input', () => {
       this.errorMessage.textContent = '';
     });
+
+    if (this.cardRegenerateStartInput) {
+      this.cardRegenerateStartInput.addEventListener('input', () => {
+        this.scheduleCardRegeneratePreview();
+      });
+    }
+
+    if (this.cardRegenerateEndInput) {
+      this.cardRegenerateEndInput.addEventListener('input', () => {
+        this.scheduleCardRegeneratePreview();
+      });
+    }
 
     // Close modal on background click
     this.modal.addEventListener('click', (e) => {
@@ -103,10 +161,21 @@ class SystemInfo {
       }
     });
 
+    if (this.cardRegenerateModal) {
+      this.cardRegenerateModal.addEventListener('click', (e) => {
+        if (e.target === this.cardRegenerateModal) {
+          this.closeCardRegenerateModal();
+        }
+      });
+    }
+
     // Close modal on Escape key
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.modal.classList.contains('active')) {
+      if (e.key === 'Escape' && this.modal && this.modal.classList.contains('active')) {
         this.closeDeleteModal();
+      }
+      if (e.key === 'Escape' && this.cardRegenerateModal && this.cardRegenerateModal.classList.contains('active')) {
+        this.closeCardRegenerateModal();
       }
     });
 
@@ -403,6 +472,249 @@ class SystemInfo {
     if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
     
     return date.toLocaleString();
+  }
+
+  formatDateTimeLocalInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
+  openCardRegenerateModal() {
+    if (!this.cardRegenerateModal) {
+      return;
+    }
+
+    const now = new Date();
+    const oneDayAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    if (this.cardRegenerateStartInput) {
+      this.cardRegenerateStartInput.value = this.formatDateTimeLocalInput(oneDayAgo);
+    }
+    if (this.cardRegenerateEndInput) {
+      this.cardRegenerateEndInput.value = this.formatDateTimeLocalInput(now);
+    }
+
+    if (this.cardRegenerateError) {
+      this.cardRegenerateError.textContent = '';
+    }
+
+    if (this.cardRegeneratePreviewCount) {
+      this.cardRegeneratePreviewCount.textContent = 'Preview: loading...';
+    }
+    if (this.cardRegeneratePreviewMeta) {
+      this.cardRegeneratePreviewMeta.textContent = '';
+    }
+    if (this.cardRegeneratePreviewList) {
+      this.cardRegeneratePreviewList.innerHTML = '<div class="scheduler-preview-subtitle">Loading preview...</div>';
+    }
+
+    this.cardRegenerateModal.classList.add('active');
+    this.scheduleCardRegeneratePreview(true);
+  }
+
+  closeCardRegenerateModal() {
+    if (!this.cardRegenerateModal) {
+      return;
+    }
+
+    this.cardRegenerateModal.classList.remove('active');
+    if (this.cardRegeneratePreviewDebounce) {
+      clearTimeout(this.cardRegeneratePreviewDebounce);
+      this.cardRegeneratePreviewDebounce = null;
+    }
+  }
+
+  buildCardRegenerateRangePayload() {
+    const startValue = this.cardRegenerateStartInput ? this.cardRegenerateStartInput.value : '';
+    const endValue = this.cardRegenerateEndInput ? this.cardRegenerateEndInput.value : '';
+
+    if (!startValue || !endValue) {
+      return null;
+    }
+
+    const startDate = new Date(startValue);
+    const endDate = new Date(endValue);
+
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return null;
+    }
+
+    if (endDate < startDate) {
+      return null;
+    }
+
+    return {
+      start_datetime: startDate.toISOString(),
+      end_datetime: endDate.toISOString()
+    };
+  }
+
+  scheduleCardRegeneratePreview(immediate = false) {
+    if (this.cardRegeneratePreviewDebounce) {
+      clearTimeout(this.cardRegeneratePreviewDebounce);
+      this.cardRegeneratePreviewDebounce = null;
+    }
+
+    if (immediate) {
+      this.loadCardRegeneratePreview();
+      return;
+    }
+
+    this.cardRegeneratePreviewDebounce = setTimeout(() => {
+      this.loadCardRegeneratePreview();
+    }, 250);
+  }
+
+  renderCardRegeneratePreview(preview) {
+    const escapeHtml = (value) => {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    };
+
+    const cards = Array.isArray(preview.cards) ? preview.cards : [];
+    const count = Number(preview.would_generate_count || 0);
+    const runsConsidered = Number(preview.runs_considered || 0);
+
+    if (this.cardRegeneratePreviewCount) {
+      this.cardRegeneratePreviewCount.textContent = `Preview: ${count} card${count === 1 ? '' : 's'}`;
+    }
+
+    if (this.cardRegeneratePreviewMeta) {
+      this.cardRegeneratePreviewMeta.textContent = `${runsConsidered} run${runsConsidered === 1 ? '' : 's'} considered`;
+    }
+
+    if (!this.cardRegeneratePreviewList) {
+      return;
+    }
+
+    if (cards.length === 0) {
+      this.cardRegeneratePreviewList.innerHTML = '<div class="scheduler-preview-subtitle">No cards will be generated for this range.</div>';
+      return;
+    }
+
+    this.cardRegeneratePreviewList.innerHTML = cards.map((card) => {
+      const runAt = card.run_at ? new Date(card.run_at).toLocaleString() : 'Unknown run time';
+      const boardName = escapeHtml(card.board_name || 'Unknown board');
+      const columnName = escapeHtml(card.column_name || 'Unknown column');
+      const title = escapeHtml(card.template_card_title || 'Untitled template');
+      const scheduleId = escapeHtml(card.schedule_id || 'n/a');
+      return `
+        <div class="scheduler-preview-item">
+          <div class="scheduler-preview-title">${title}</div>
+          <div class="scheduler-preview-subtitle">Run: ${escapeHtml(runAt)}</div>
+          <div class="scheduler-preview-subtitle">Board: ${boardName} | Column: ${columnName} | Schedule #${scheduleId}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async loadCardRegeneratePreview() {
+    const payload = this.buildCardRegenerateRangePayload();
+    if (!payload) {
+      if (this.cardRegenerateError) {
+        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is at or after start.';
+      }
+      if (this.cardRegeneratePreviewList) {
+        this.cardRegeneratePreviewList.innerHTML = '<div class="scheduler-preview-subtitle">Preview unavailable with invalid range.</div>';
+      }
+      if (this.cardRegeneratePreviewCount) {
+        this.cardRegeneratePreviewCount.textContent = 'Preview: 0 cards';
+      }
+      return;
+    }
+
+    if (this.cardRegenerateError) {
+      this.cardRegenerateError.textContent = '';
+    }
+
+    try {
+      const response = await fetch('/api/schedules/regenerate/preview', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || `Preview request failed (${response.status})`);
+      }
+
+      this.renderCardRegeneratePreview(data.preview || {});
+    } catch (error) {
+      console.error('Error loading scheduler regeneration preview:', error);
+      if (this.cardRegenerateError) {
+        this.cardRegenerateError.textContent = error.message || 'Failed to load preview.';
+      }
+      if (this.cardRegeneratePreviewList) {
+        this.cardRegeneratePreviewList.innerHTML = '<div class="scheduler-preview-subtitle">Failed to load preview.</div>';
+      }
+      if (this.cardRegeneratePreviewCount) {
+        this.cardRegeneratePreviewCount.textContent = 'Preview: 0 cards';
+      }
+    }
+  }
+
+  async confirmCardRegenerate() {
+    const payload = this.buildCardRegenerateRangePayload();
+    if (!payload) {
+      if (this.cardRegenerateError) {
+        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is at or after start.';
+      }
+      return;
+    }
+
+    if (this.cardRegenerateError) {
+      this.cardRegenerateError.textContent = '';
+    }
+
+    if (this.cardRegenerateConfirmBtn) {
+      this.cardRegenerateConfirmBtn.disabled = true;
+      this.cardRegenerateConfirmBtn.textContent = 'Generating...';
+    }
+
+    try {
+      const response = await fetch('/api/schedules/regenerate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || `Generate request failed (${response.status})`);
+      }
+
+      const generatedCount = data.result && typeof data.result.generated_count === 'number'
+        ? data.result.generated_count
+        : 0;
+
+      await showAlert(`Generated ${generatedCount} scheduled card${generatedCount === 1 ? '' : 's'}.`, 'Scheduler');
+
+      this.closeCardRegenerateModal();
+      await this.loadSystemInfo();
+    } catch (error) {
+      console.error('Error generating scheduled cards:', error);
+      if (this.cardRegenerateError) {
+        this.cardRegenerateError.textContent = error.message || 'Failed to generate scheduled cards.';
+      }
+    } finally {
+      if (this.cardRegenerateConfirmBtn) {
+        this.cardRegenerateConfirmBtn.disabled = false;
+        this.cardRegenerateConfirmBtn.textContent = 'Generate';
+      }
+    }
   }
 
   openDeleteModal() {

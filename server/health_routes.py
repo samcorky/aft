@@ -276,6 +276,8 @@ def get_permissions_mapping():
             'GET /api/schedules/:id': {'permission': 'schedule.view', 'description': 'View schedule details'},
             'PUT /api/schedules/:id': {'permission': 'schedule.edit', 'description': 'Update schedule'},
             'DELETE /api/schedules/:id': {'permission': 'schedule.delete', 'description': 'Delete schedule'},
+            'POST /api/schedules/regenerate/preview': {'permission': 'system.admin', 'description': 'Preview manual scheduled card regeneration'},
+            'POST /api/schedules/regenerate': {'permission': 'system.admin', 'description': 'Manually generate scheduled cards for a date range'},
             'GET /api/settings/schema': {'permission': 'setting.view', 'description': 'View settings schema'},
             'GET /api/settings/:key': {'permission': 'setting.view', 'description': 'View setting'},
             'PUT /api/settings/:key': {'permission': 'setting.edit', 'description': 'Update setting'},

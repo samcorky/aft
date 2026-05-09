@@ -101,8 +101,11 @@ For any new Copilot/AI agent session in this repo:
 4. **Start Development Environment**
    
    ```bash
-   docker compose up -d --build
+  docker compose -f compose.dev.yml up -d --build
    ```
+
+  Important: For local development/testing, always use `compose.dev.yml` with `--build`.
+  `compose.yml` uses GHCR pre-built images for deployment and is not the source-of-truth stack for active development.
 
 5. **Verify Setup**
    
@@ -133,14 +136,14 @@ On a fresh database (no users exist), you can create an initial admin user:
 
 ```powershell
 # Windows
-docker compose down
+docker compose -f compose.dev.yml down
 Remove-Item -Recurse -Force data
-docker compose up -d
+docker compose -f compose.dev.yml up -d --build
 
 # Linux/macOS  
-docker compose down
+docker compose -f compose.dev.yml down
 rm -rf data
-docker compose up -d
+docker compose -f compose.dev.yml up -d --build
 ```
 
 Then run tests:
@@ -162,6 +165,32 @@ For detailed information about the authentication system:
 - **[SERVER_TESTING.md](server/docs/SERVER_TESTING.md)** - Test suite authentication requirements
 
 ## Development Workflow
+
+### Quick Development Commands
+
+Use these commands during local development and testing:
+
+```bash
+# Start/rebuild local dev stack from source
+docker compose -f compose.dev.yml up -d --build
+
+# Stop local dev stack
+docker compose -f compose.dev.yml down
+
+# Reset local DB state (remove host data dir contents)
+docker compose -f compose.dev.yml down
+rm -rf data   # Windows PowerShell: Remove-Item -Recurse -Force data
+docker compose -f compose.dev.yml up -d --build
+
+# Check service health/status
+docker compose -f compose.dev.yml ps
+
+# Tail logs across services
+docker compose -f compose.dev.yml logs -f server nginx db redis
+
+# Rebuild one service only
+docker compose -f compose.dev.yml up -d --build server
+```
 
 ### 1. Create an Issue
 
@@ -313,6 +342,8 @@ class ExampleClass {
 - **Semantic HTML**: Use appropriate HTML5 elements
 - **Accessibility**: Include ARIA attributes (see [Accessibility Requirements](#accessibility-requirements))
 - **CSS Classes**: Use kebab-case for class names
+- **Theme Variables Required**: Use existing CSS variables (for example primary/text/border/surface variables) for colors, spacing, and component states. Do not hardcode colors for new UI components.
+- **Modal Consistency**: New modals must reuse existing modal structure and action patterns (`.modal`, `.modal-content`, `.modal-actions`, existing button styles) so they match the current UI and theme behavior.
 
 ## Background Services
 
@@ -544,6 +575,13 @@ All UI changes must meet accessibility standards. See [ACCESSIBILITY.md](docs/AC
   </div>
 </div>
 ```
+
+### Modal Styling Standards
+
+- Reuse existing modal classes and layout patterns before creating new modal-specific variants.
+- Keep modal content spacing consistent with existing UI spacing conventions (header/body/action areas should not be flush to edges).
+- Use CSS variables for modal colors and states (normal, hover, focus, disabled) to preserve theme support.
+- Reserve danger/error styling only for destructive actions (for example delete/confirm-destructive flows).
 
 ### Forms Must Include
 

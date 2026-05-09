@@ -13,6 +13,7 @@ from models import User, Role, UserRole, Board, Card, Setting
 from models import Theme
 from utils import get_user_scoped_query, get_user_permissions, can_access_board
 from permissions import INITIAL_ROLES, has_permission
+from sqlalchemy.exc import IntegrityError
 import json
 
 
@@ -67,15 +68,24 @@ def create_default_user_settings(user_id, db_session=None):
                 Setting.user_id == user_id,
                 Setting.key == key
             ).first()
-            
-            if not existing:
-                setting = Setting(
-                    key=key,
-                    value=value,
-                    user_id=user_id
-                )
-                db_session.add(setting)
-                settings_created += 1
+
+            if existing:
+                continue
+
+            # Use a savepoint so duplicate-key races do not abort the outer transaction.
+            try:
+                with db_session.begin_nested():
+                    setting = Setting(
+                        key=key,
+                        value=value,
+                        user_id=user_id
+                    )
+                    db_session.add(setting)
+                    db_session.flush()
+                    settings_created += 1
+            except IntegrityError:
+                # Another request inserted the same setting concurrently.
+                continue
         
         if should_close:
             db_session.commit()

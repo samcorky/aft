@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, g
 from database import SessionLocal
 from models import Setting, Board, BoardSetting
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 import json
 import logging
 from utils import (
@@ -751,14 +752,23 @@ def update_card_scheduler_config():
         
         if setting:
             setting.value = value
-        else:
-            # Create as global setting (user_id = NULL)
-            setting = Setting(key="card_scheduler_enabled", value=value, user_id=None)
-            db.add(setting)
-        
-        db.commit()
-        
-        return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+            db.commit()
+            return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+
+        # Create as global setting (user_id = NULL). Handle duplicate-key races by retrying as update.
+        setting = Setting(key="card_scheduler_enabled", value=value, user_id=None)
+        db.add(setting)
+        try:
+            db.commit()
+            return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
+        except IntegrityError:
+            db.rollback()
+            existing_setting = db.query(Setting).filter(Setting.key == "card_scheduler_enabled", Setting.user_id.is_(None)).first()
+            if not existing_setting:
+                raise
+            existing_setting.value = value
+            db.commit()
+            return jsonify({"success": True, "message": "Card scheduler configuration updated successfully"})
     except Exception as e:
         db.rollback()
         logger.error(f"Error updating card scheduler config: {str(e)}")

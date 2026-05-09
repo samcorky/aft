@@ -5,11 +5,12 @@ import time
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import logging
 
 from sqlalchemy import func, text
 from database import SessionLocal
+from datetime_helpers import serialize_datetime
 from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
@@ -300,6 +301,165 @@ class CardScheduler:
             finally:
                 self._release_schedule_run_lock(db, run_lock_key)
 
+    def _iter_schedule_runs_in_range(
+        self,
+        schedule: ScheduledCard,
+        range_start: datetime,
+        range_end: datetime,
+    ) -> list[datetime]:
+        """Expand a schedule into all run times that fall inside a requested range."""
+        schedule_start = schedule.start_datetime  # type: ignore[assignment]
+        schedule_end = schedule.end_datetime  # type: ignore[assignment]
+
+        if schedule_start is None:
+            return []
+
+        effective_start = max(range_start, schedule_start)
+        effective_end = range_end
+        if schedule_end is not None:
+            effective_end = min(effective_end, schedule_end)
+
+        if effective_end < effective_start:
+            return []
+
+        run_times: list[datetime] = []
+        candidate = get_next_run(
+            start=schedule_start,
+            after=effective_start,
+            run_every=schedule.run_every,  # type: ignore[arg-type]
+            unit=schedule.unit  # type: ignore[arg-type]
+        )
+
+        max_iterations = 10000
+        iterations = 0
+        while candidate is not None and candidate <= effective_end and iterations < max_iterations:
+            run_times.append(candidate)
+            iterations += 1
+
+            previous_candidate = candidate
+            candidate = get_next_run(
+                start=schedule_start,
+                after=previous_candidate + timedelta(microseconds=1),
+                run_every=schedule.run_every,  # type: ignore[arg-type]
+                unit=schedule.unit  # type: ignore[arg-type]
+            )
+            if candidate is not None and candidate <= previous_candidate:
+                break
+
+        return run_times
+
+    def _build_schedule_run_preview_item(self, db, schedule: ScheduledCard, run_time: datetime) -> Optional[dict[str, Any]]:
+        """Build preview metadata for a run that can produce a card."""
+        template = db.query(Card).filter(Card.id == schedule.card_id).first()
+        if not template:
+            logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
+            return None
+
+        if not schedule.allow_duplicates:  # type: ignore
+            existing_card = (
+                db.query(Card)
+                .filter(Card.column_id == template.column_id)
+                .filter(Card.schedule == schedule.id)
+                .filter(Card.scheduled.is_(False))
+                .filter(Card.archived.is_(False))
+                .first()
+            )
+            if existing_card:
+                return None
+
+        column = db.query(BoardColumn).filter(BoardColumn.id == template.column_id).first()
+        board = column.board if column else None
+
+        return {
+            "run_at": serialize_datetime(run_time),
+            "schedule_id": schedule.id,
+            "template_card_id": template.id,
+            "template_card_title": template.title,
+            "board_id": board.id if board else None,
+            "board_name": board.name if board else None,
+            "column_id": column.id if column else template.column_id,
+            "column_name": column.name if column else None,
+            "frequency": {
+                "run_every": schedule.run_every,
+                "unit": schedule.unit,
+            },
+            "allow_duplicates": bool(schedule.allow_duplicates),
+        }
+
+    def regenerate_for_range(
+        self,
+        range_start: datetime,
+        range_end: datetime,
+        *,
+        preview_only: bool,
+    ) -> dict[str, Any]:
+        """Preview or create scheduled cards for all enabled schedules within a custom date range."""
+        db = SessionLocal()
+        pending_broadcasts: list[dict[str, Any]] = []
+        preview_items: list[dict[str, Any]] = []
+        generated_count = 0
+        runs_considered = 0
+
+        try:
+            schedules = (
+                db.query(ScheduledCard)
+                .filter(ScheduledCard.schedule_enabled.is_(True))
+                .all()
+            )
+
+            for schedule in schedules:
+                run_times = self._iter_schedule_runs_in_range(schedule, range_start, range_end)
+                for run_time in run_times:
+                    runs_considered += 1
+                    preview_item = self._build_schedule_run_preview_item(db, schedule, run_time)
+                    if preview_item is None:
+                        continue
+
+                    preview_items.append(preview_item)
+
+                    if preview_only:
+                        continue
+
+                    run_lock_key = self._build_schedule_run_lock_key(schedule.id, run_time)  # type: ignore[arg-type]
+                    if not self._acquire_schedule_run_lock(db, run_lock_key):
+                        continue
+
+                    try:
+                        created_card = self._create_scheduled_card(db, schedule, pending_broadcasts)
+                        if created_card is not None:
+                            generated_count += 1
+                    finally:
+                        self._release_schedule_run_lock(db, run_lock_key)
+
+            preview_items.sort(key=lambda item: item["run_at"])
+
+            if preview_only:
+                db.rollback()
+            else:
+                db.commit()
+                for event_data in pending_broadcasts:
+                    self._broadcast_event(
+                        event_name='card_created',
+                        data=event_data,
+                        board_id=event_data['board_id']
+                    )
+
+            return {
+                "range_start": serialize_datetime(range_start),
+                "range_end": serialize_datetime(range_end),
+                "runs_considered": runs_considered,
+                "would_generate_count": len(preview_items),
+                "generated_count": generated_count,
+                "cards": preview_items,
+            }
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error regenerating scheduled cards for range: {str(e)}")
+            raise
+        finally:
+            db.close()
+
     def _broadcast_event(self, event_name: str, data: dict, board_id: int):
         """Broadcast websocket event via injected callback when available."""
         if _broadcast_event_callback is None:
@@ -310,7 +470,7 @@ class CardScheduler:
 
         _broadcast_event_callback(event_name, data, board_id)
     
-    def _create_scheduled_card(self, db, schedule: ScheduledCard, pending_broadcasts: list):
+    def _create_scheduled_card(self, db, schedule: ScheduledCard, pending_broadcasts: list) -> Optional[Card]:
         """Create a new card from a schedule template.
         
         Args:
@@ -323,7 +483,7 @@ class CardScheduler:
             template = db.query(Card).filter(Card.id == schedule.card_id).first()
             if not template:
                 logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
-                return
+                return None
             
             # Check for duplicates if not allowed
             if not schedule.allow_duplicates:  # type: ignore
@@ -339,7 +499,7 @@ class CardScheduler:
                 
                 if existing_count > 0:
                     logger.info(f"Skipping card creation for schedule {schedule.id} - duplicate exists in column")
-                    return
+                    return None
             
             # Get the highest order in the column for new cards
             max_order = db.query(func.max(Card.order)).filter(
@@ -419,6 +579,7 @@ class CardScheduler:
                 )
             
             logger.info(f"Created card {new_card.id} from schedule {schedule.id}")
+            return new_card
             
         except Exception as e:
             logger.error(f"Error creating card from schedule {schedule.id}: {str(e)}")

@@ -2,6 +2,7 @@
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func
+from datetime import datetime
 
 from database import SessionLocal
 from datetime_helpers import parse_iso_datetime, serialize_datetime, utc_now
@@ -30,6 +31,22 @@ def configure_schedule_routes(broadcast_event_fn):
 def broadcast_event(event_name, data, board_id):
     if _broadcast_event:
         _broadcast_event(event_name, data, board_id)
+
+
+def _parse_regeneration_range(payload: dict) -> tuple[datetime, datetime] | tuple[None, None]:
+  """Parse and validate regeneration range payload."""
+  if not payload:
+    return None, None
+
+  start_datetime = parse_iso_datetime(payload.get('start_datetime'))
+  end_datetime = parse_iso_datetime(payload.get('end_datetime'))
+  if start_datetime is None or end_datetime is None:
+    return None, None
+
+  if end_datetime < start_datetime:
+    return None, None
+
+  return start_datetime, end_datetime
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +311,125 @@ def create_schedule():
         return jsonify({"success": False, "message": "Failed to create schedule"}), 500
     finally:
         db.close()
+
+
+@schedule_bp.route("/api/schedules/regenerate/preview", methods=["POST"])
+@require_permission('system.admin')
+def preview_schedule_regeneration():
+    """Preview scheduled cards that would be generated for a custom date range.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - start_datetime
+            - end_datetime
+          properties:
+            start_datetime:
+              type: string
+              format: date-time
+            end_datetime:
+              type: string
+              format: date-time
+    responses:
+      200:
+        description: Preview calculated successfully
+      400:
+        description: Invalid request body or datetime values
+      500:
+        description: Server error
+    """
+    data = request.get_json(silent=True)
+    start_datetime, end_datetime = _parse_regeneration_range(data)
+    if start_datetime is None or end_datetime is None:
+        return jsonify({
+            "success": False,
+            "message": "Valid start_datetime and end_datetime are required, and end_datetime must be after start_datetime"
+        }), 400
+
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+
+        scheduler = get_card_scheduler()
+        result = scheduler.regenerate_for_range(
+            range_start=start_datetime,
+            range_end=end_datetime,
+            preview_only=True,
+        )
+
+        return jsonify({
+            "success": True,
+            "preview": result,
+        })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error previewing schedule regeneration: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to preview schedule regeneration"}), 500
+
+
+@schedule_bp.route("/api/schedules/regenerate", methods=["POST"])
+@require_permission('system.admin')
+def regenerate_scheduled_cards():
+    """Generate scheduled cards for a custom date range.
+    ---
+    tags:
+      - Scheduled Cards
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - start_datetime
+            - end_datetime
+          properties:
+            start_datetime:
+              type: string
+              format: date-time
+            end_datetime:
+              type: string
+              format: date-time
+    responses:
+      200:
+        description: Cards generated successfully
+      400:
+        description: Invalid request body or datetime values
+      500:
+        description: Server error
+    """
+    data = request.get_json(silent=True)
+    start_datetime, end_datetime = _parse_regeneration_range(data)
+    if start_datetime is None or end_datetime is None:
+        return jsonify({
+            "success": False,
+            "message": "Valid start_datetime and end_datetime are required, and end_datetime must be after start_datetime"
+        }), 400
+
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+
+        scheduler = get_card_scheduler()
+        result = scheduler.regenerate_for_range(
+            range_start=start_datetime,
+            range_end=end_datetime,
+            preview_only=False,
+        )
+
+        return jsonify({
+            "success": True,
+            "message": "Scheduled cards generated successfully",
+            "result": result,
+        })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error regenerating scheduled cards: {str(e)}")
+        return jsonify({"success": False, "message": "Failed to regenerate scheduled cards"}), 500
 
 
 @schedule_bp.route("/api/schedules/<int:schedule_id>", methods=["GET"])

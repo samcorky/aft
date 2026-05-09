@@ -55,6 +55,10 @@ Remove or comment out the `nginx` service in `compose.yml` to run the API server
 ### Development / build from source
 Use `compose.dev.yml` to build images locally from the repo:
 
+- Always use `compose.dev.yml` for local development/testing.
+- Always include `--build` when starting the dev stack so current source changes are applied.
+- Do not use `compose.yml` for development testing (it is for GHCR deployment images).
+
 ```sh
 git clone https://github.com/sjefferson99/aft.git
 cd aft
@@ -153,6 +157,7 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 - **Automatic Creation** - Cards created every minute based on enabled schedules
 - **Schedule Tracking** - Auto-generated comments track which schedule created each card
 - **Checklist Preservation** - Template checklist items are copied to new cards
+- **Manual Generate Tasks (Admin)** - From System Info, admins can open a Generate Tasks modal, choose a start/end date-time range, preview exactly which cards would be created, then run generation on demand for that range
 
 ![Scheduled Cards](images/scheduled_cards.png)
 ![Schedule Modal](images/schedule_modal.png)
@@ -239,6 +244,7 @@ In Agile mode, cards use Done/Not Done status and the Archived View is hidden. I
 - **Version Tracking** - Monitor application and database schema versions
 - **DB Stats** - Statistics on task entities in the database
 - **Service Monitoring** - Status of running system services and enable/disable toggle
+- **Generate Scheduled Tasks (Admin)** - Manually generate scheduled cards for a selected date-time range with a preview before execution
 
 ![System Info](images/system_info.png)
 

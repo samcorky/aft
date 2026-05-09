@@ -215,7 +215,27 @@ def _evaluate_server_health() -> bool:
 @health_bp.route("/api/version")
 @require_authentication
 def get_version():
-    """Get application and database schema version."""
+    """Get application and database schema version.
+    ---
+    tags:
+      - Health
+    security:
+      - session: []
+    responses:
+      200:
+        description: App and DB version numbers
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            app_version:
+              type: string
+            db_version:
+              type: string
+      500:
+        description: Database error
+    """
     db = SessionLocal()
     try:
         result = db.execute(text("SELECT version_num FROM alembic_version"))
@@ -242,7 +262,18 @@ def _find_known_test_user(db):
 @health_bp.route("/api/admin/test-user", methods=["GET"])
 @require_any_permission('user.manage', 'user.role')
 def get_test_user_status():
-    """Get known test user status and test compatibility guidance."""
+    """Get known test user status and test compatibility guidance.
+    ---
+    tags:
+      - Admin
+    security:
+      - session: []
+    responses:
+      200:
+        description: Test user presence and compatibility details
+      403:
+        description: Insufficient permissions
+    """
     from permissions import has_permission
 
     db = SessionLocal()
@@ -286,7 +317,22 @@ def get_test_user_status():
 @health_bp.route("/api/admin/test-user", methods=["DELETE"])
 @require_permission('user.manage')
 def remove_test_user():
-    """Remove the known test user if it is present."""
+    """Remove the known test user if present.
+    ---
+    tags:
+      - Admin
+    security:
+      - session: []
+    responses:
+      200:
+        description: Test user deleted
+      404:
+        description: Test user not found
+      403:
+        description: Insufficient permissions
+      500:
+        description: Deletion failed
+    """
     db = SessionLocal()
     try:
         test_user = _find_known_test_user(db)
@@ -328,7 +374,24 @@ def remove_test_user():
 @health_bp.route("/api/debug/permissions")
 @require_authentication
 def debug_user_permissions():
-    """Debug endpoint to check user permissions for a board."""
+    """Check the current user's resolved permissions, optionally scoped to a board.
+    ---
+    tags:
+      - Admin
+    security:
+      - session: []
+    parameters:
+      - name: board_id
+        in: query
+        required: false
+        type: integer
+        description: Optional board ID for board-scoped permission resolution
+    responses:
+      200:
+        description: User permissions and role assignments
+      403:
+        description: Not authenticated
+    """
     board_id = request.args.get('board_id', type=int)
 
     db = SessionLocal()
@@ -370,7 +433,24 @@ def debug_user_permissions():
 @health_bp.route("/api/permissions/mapping")
 @require_authentication
 def get_permissions_mapping():
-    """Get mapping of API endpoints to required permissions and user's current permissions."""
+    """Get the full API endpoint-to-permission mapping with current user's access.
+    ---
+    tags:
+      - Admin
+    security:
+      - session: []
+    parameters:
+      - name: board_id
+        in: query
+        required: false
+        type: integer
+        description: Optional board ID for board-scoped permission evaluation
+    responses:
+      200:
+        description: Permission mapping with user's current access status
+      403:
+        description: Not authenticated
+    """
     board_id = request.args.get('board_id', type=int)
     db = SessionLocal()
 
@@ -518,7 +598,18 @@ def get_permissions_mapping():
 @health_bp.route("/api/broadcast-status")
 @require_permission('monitoring.system')
 def get_broadcast_status():
-    """Get WebSocket broadcast error status for debugging."""
+    """Get WebSocket broadcast error counts per room (debugging).
+    ---
+    tags:
+      - Health
+    security:
+      - session: []
+    responses:
+      200:
+        description: Broadcast failure counts per room
+      403:
+        description: Insufficient permissions
+    """
     with BROADCAST_FAILURES_LOCK:
         failures_copy = dict(BROADCAST_FAILURES)
         total_rooms = len(BROADCAST_FAILURES)
@@ -533,13 +624,36 @@ def get_broadcast_status():
 @health_bp.route("/api/scheduler/health")
 @require_permission('setting.view')
 def get_scheduler_health():
-    """Get health status of all background schedulers."""
+    """Get health status of all background schedulers.
+    ---
+    tags:
+      - Health
+    security:
+      - session: []
+    responses:
+      200:
+        description: Scheduler health details for all background threads
+      403:
+        description: Insufficient permissions
+    """
     return jsonify(_collect_scheduler_health()), 200
 
 
 @health_bp.route("/api/server-health")
 def server_health():
-    """Public, minimal server health endpoint for external monitoring."""
+    """Public server health check (no authentication required).
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Boolean health status covering DB and all scheduler threads
+        schema:
+          type: object
+          properties:
+            healthy:
+              type: boolean
+    """
     return jsonify({"healthy": _evaluate_server_health()}), 200
 
 
@@ -570,13 +684,42 @@ def _is_internal_readiness_request_authorized():
 
 @health_bp.route("/api/health/live")
 def health_live():
-    """Public liveness endpoint with minimal disclosure."""
+    """Public liveness endpoint — confirms the server process is running.
+    ---
+    tags:
+      - Health
+    responses:
+      200:
+        description: Server is alive
+        schema:
+          type: object
+          properties:
+            ok:
+              type: boolean
+    """
     return jsonify({"ok": True}), 200
 
 
 @health_bp.route("/api/health/ready")
 def health_ready():
-    """Internal readiness endpoint for compose health checks."""
+    """Internal readiness endpoint for compose health checks (token + IP restricted).
+    ---
+    tags:
+      - Health
+    parameters:
+      - name: X-Health-Token
+        in: header
+        required: true
+        type: string
+        description: HEALTHCHECK_TOKEN value configured in the environment
+    responses:
+      200:
+        description: Server and database are ready
+      404:
+        description: Unauthorised (invalid token or source IP)
+      503:
+        description: Database not reachable
+    """
     if not _is_internal_readiness_request_authorized():
         return jsonify({"ok": False}), 404
 
@@ -594,7 +737,18 @@ def health_ready():
 @health_bp.route("/api/test")
 @require_authentication
 def test_db():
-    """Test database connectivity using the legacy endpoint."""
+    """Legacy database connectivity test.
+    ---
+    tags:
+      - Health
+    security:
+      - session: []
+    responses:
+      200:
+        description: Database is reachable
+      500:
+        description: Database not reachable
+    """
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))
@@ -609,7 +763,20 @@ def test_db():
 @health_bp.route("/api/stats")
 @require_permission('board.view')
 def get_stats():
-    """Get database statistics for the current user."""
+    """Get board and card statistics scoped to the current user.
+    ---
+    tags:
+      - Health
+    security:
+      - session: []
+    responses:
+      200:
+        description: Board, column, card and checklist item counts
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         user_id = g.user.id

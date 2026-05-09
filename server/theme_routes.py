@@ -125,6 +125,7 @@ def update_theme(theme_id):
         type: integer
       - name: body
         in: body
+        required: true
         schema:
           type: object
           properties:

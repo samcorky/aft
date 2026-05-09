@@ -740,7 +740,7 @@ def import_board_from_export():
         type: file
         description: AFT-formatted JSON export file
     responses:
-      200:
+            201:
         description: Board imported successfully
       400:
         description: Invalid file, format or validation error

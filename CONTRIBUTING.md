@@ -353,7 +353,7 @@ All Flask route functions **must** include a Flasgger YAML docstring so the endp
 
 ### Required Format
 
-Every `@<blueprint>.route(...)` function must have a docstring whose first line is `---` (after the summary sentence), followed by valid Swagger 2.0 YAML:
+Every `@<blueprint>.route(...)` function must have a docstring with a one-line summary first, then a line containing `---` to begin valid Swagger 2.0 YAML:
 
 ```python
 @some_bp.route("/api/example", methods=["POST"])

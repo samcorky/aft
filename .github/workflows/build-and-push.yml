@@ -1,9 +1,10 @@
 name: Build and Push to GHCR
 
-# Triggers on published GitHub Releases (e.g. when you create a v1.2.3 tag/release
-# via the GitHub UI or `gh release create`). This avoids a build on every commit.
-#
-# To also trigger on every push to main, uncomment the push block below.
+# Triggers on:
+# - Published GitHub Releases (e.g. when you create a v1.2.3 tag/release
+#   via the GitHub UI or `gh release create`). Avoids a build on every commit.
+# - Pushes to main branch (e.g., when PRs are merged). Updates :latest tag.
+# - Manual workflow_dispatch runs for testing.
 on:
   release:
     types: [published]
@@ -19,8 +20,10 @@ on:
         options:
           - "true"
           - "false"
-  # push:
-  #   branches: [main]
+  # Build and push on every push to main (e.g., when PRs are merged)
+  # This ensures :latest tag stays up to date with the main branch
+  push:
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -71,8 +74,8 @@ jobs:
         with:
           context: .
           file: server/Dockerfile
-          # On a release event always push; on manual dispatch respect the input
-          push: ${{ github.event_name == 'release' || inputs.push_images == 'true' }}
+          # On a release event or push to main always push; on manual dispatch respect the input
+          push: ${{ github.event_name == 'release' || github.event_name == 'push' || inputs.push_images == 'true' }}
           tags: ${{ steps.meta-server.outputs.tags }}
           labels: ${{ steps.meta-server.outputs.labels }}
 
@@ -93,6 +96,6 @@ jobs:
         with:
           context: .
           file: server/Dockerfile.nginx
-          push: ${{ github.event_name == 'release' || inputs.push_images == 'true' }}
+          push: ${{ github.event_name == 'release' || github.event_name == 'push' || inputs.push_images == 'true' }}
           tags: ${{ steps.meta-web.outputs.tags }}
           labels: ${{ steps.meta-web.outputs.labels }}

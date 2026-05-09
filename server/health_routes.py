@@ -40,6 +40,178 @@ def configure_health_routes(app_version, broadcast_failures, broadcast_failures_
     BROADCAST_FAILURES_LOCK = broadcast_failures_lock
 
 
+def _collect_scheduler_health() -> dict:
+    """Collect detailed scheduler thread health data for all background schedulers."""
+    health = {}
+
+    try:
+        from backup_scheduler import get_scheduler
+        scheduler = get_scheduler()
+
+        status = scheduler.get_status()
+        last_backup_iso = status.get('latest_backup_date')
+
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                is_healthy = lock_age < 150
+
+                health['backup_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,
+                    'last_backup': last_backup_iso,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id'),
+                    'permission_error': scheduler.permission_error
+                }
+            except Exception as e:
+                health['backup_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e),
+                    'permission_error': scheduler.permission_error
+                }
+        else:
+            health['backup_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'last_backup': last_backup_iso,
+                'lock_file_exists': False,
+                'permission_error': scheduler.permission_error
+            }
+    except Exception as e:
+        health['backup_scheduler'] = {'error': str(e)}
+
+    try:
+        from card_scheduler import get_scheduler as get_card_scheduler
+        scheduler = get_card_scheduler()
+
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                is_healthy = lock_age < 150
+
+                health['card_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['card_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['card_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['card_scheduler'] = {'error': str(e)}
+
+    try:
+        from housekeeping_scheduler import get_housekeeping_scheduler
+        scheduler = get_housekeeping_scheduler(APP_VERSION)
+
+        lock_file_exists = scheduler.lock_file.exists()
+        is_healthy = False
+
+        if lock_file_exists:
+            try:
+                lock_data = json.loads(scheduler.lock_file.read_text())
+                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
+                lock_age = (datetime.now() - last_heartbeat).total_seconds()
+                is_healthy = lock_age < 150
+
+                health['housekeeping_scheduler'] = {
+                    'running': is_healthy,
+                    'thread_alive': is_healthy,
+                    'lock_file_exists': True,
+                    'lock_file_age_seconds': lock_age,
+                    'lock_pid': lock_data.get('pid'),
+                    'lock_container': lock_data.get('container_id')
+                }
+            except Exception as e:
+                health['housekeeping_scheduler'] = {
+                    'running': False,
+                    'thread_alive': False,
+                    'lock_file_exists': True,
+                    'lock_file_error': str(e)
+                }
+        else:
+            health['housekeeping_scheduler'] = {
+                'running': False,
+                'thread_alive': False,
+                'lock_file_exists': False
+            }
+    except Exception as e:
+        health['housekeeping_scheduler'] = {'error': str(e)}
+
+    return health
+
+
+def _is_scheduler_thread_healthy(details: dict) -> bool:
+    """Return True when scheduler detail payload reports a running/alive thread."""
+    if not isinstance(details, dict):
+        return False
+    if details.get('error'):
+        return False
+    return bool(details.get('running')) and bool(details.get('thread_alive'))
+
+
+def _evaluate_server_health() -> bool:
+    """Evaluate whether the server should be considered healthy for monitoring."""
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        db.close()
+        return False
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    scheduler_health = _collect_scheduler_health()
+
+    # Thread health is always required regardless of enabled/disabled workload state.
+    for scheduler_key in ('backup_scheduler', 'card_scheduler', 'housekeeping_scheduler'):
+        if not _is_scheduler_thread_healthy(scheduler_health.get(scheduler_key, {})):
+            return False
+
+    # Backup workload health should only count when automatic backups are enabled.
+    try:
+        from backup_scheduler import get_scheduler
+        backup_status = get_scheduler().get_status()
+        backup_enabled = bool(backup_status.get('enabled'))
+        if backup_enabled and not bool(backup_status.get('backup_within_window')):
+            return False
+    except Exception:
+        return False
+
+    return True
+
+
 @health_bp.route("/api/version")
 @require_authentication
 def get_version():
@@ -362,131 +534,13 @@ def get_broadcast_status():
 @require_permission('setting.view')
 def get_scheduler_health():
     """Get health status of all background schedulers."""
-    health = {}
+    return jsonify(_collect_scheduler_health()), 200
 
-    try:
-        from backup_scheduler import get_scheduler
-        scheduler = get_scheduler()
 
-        status = scheduler.get_status()
-        last_backup_iso = status.get('latest_backup_date')
-
-        lock_file_exists = scheduler.lock_file.exists()
-        is_healthy = False
-
-        if lock_file_exists:
-            try:
-                lock_data = json.loads(scheduler.lock_file.read_text())
-                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
-                lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                is_healthy = lock_age < 150
-
-                health['backup_scheduler'] = {
-                    'running': is_healthy,
-                    'thread_alive': is_healthy,
-                    'last_backup': last_backup_iso,
-                    'lock_file_exists': True,
-                    'lock_file_age_seconds': lock_age,
-                    'lock_pid': lock_data.get('pid'),
-                    'lock_container': lock_data.get('container_id'),
-                    'permission_error': scheduler.permission_error
-                }
-            except Exception as e:
-                health['backup_scheduler'] = {
-                    'running': False,
-                    'thread_alive': False,
-                    'lock_file_exists': True,
-                    'lock_file_error': str(e),
-                    'permission_error': scheduler.permission_error
-                }
-        else:
-            health['backup_scheduler'] = {
-                'running': False,
-                'thread_alive': False,
-                'last_backup': last_backup_iso,
-                'lock_file_exists': False,
-                'permission_error': scheduler.permission_error
-            }
-    except Exception as e:
-        health['backup_scheduler'] = {'error': str(e)}
-
-    try:
-        from card_scheduler import get_scheduler as get_card_scheduler
-        scheduler = get_card_scheduler()
-
-        lock_file_exists = scheduler.lock_file.exists()
-        is_healthy = False
-
-        if lock_file_exists:
-            try:
-                lock_data = json.loads(scheduler.lock_file.read_text())
-                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
-                lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                is_healthy = lock_age < 150
-
-                health['card_scheduler'] = {
-                    'running': is_healthy,
-                    'thread_alive': is_healthy,
-                    'lock_file_exists': True,
-                    'lock_file_age_seconds': lock_age,
-                    'lock_pid': lock_data.get('pid'),
-                    'lock_container': lock_data.get('container_id')
-                }
-            except Exception as e:
-                health['card_scheduler'] = {
-                    'running': False,
-                    'thread_alive': False,
-                    'lock_file_exists': True,
-                    'lock_file_error': str(e)
-                }
-        else:
-            health['card_scheduler'] = {
-                'running': False,
-                'thread_alive': False,
-                'lock_file_exists': False
-            }
-    except Exception as e:
-        health['card_scheduler'] = {'error': str(e)}
-
-    try:
-        from housekeeping_scheduler import get_housekeeping_scheduler
-        scheduler = get_housekeeping_scheduler(APP_VERSION)
-
-        lock_file_exists = scheduler.lock_file.exists()
-        is_healthy = False
-
-        if lock_file_exists:
-            try:
-                lock_data = json.loads(scheduler.lock_file.read_text())
-                last_heartbeat = datetime.fromisoformat(lock_data['last_heartbeat'])
-                lock_age = (datetime.now() - last_heartbeat).total_seconds()
-                is_healthy = lock_age < 150
-
-                health['housekeeping_scheduler'] = {
-                    'running': is_healthy,
-                    'thread_alive': is_healthy,
-                    'lock_file_exists': True,
-                    'lock_file_age_seconds': lock_age,
-                    'lock_pid': lock_data.get('pid'),
-                    'lock_container': lock_data.get('container_id')
-                }
-            except Exception as e:
-                health['housekeeping_scheduler'] = {
-                    'running': False,
-                    'thread_alive': False,
-                    'lock_file_exists': True,
-                    'lock_file_error': str(e)
-                }
-        else:
-            health['housekeeping_scheduler'] = {
-                'running': False,
-                'thread_alive': False,
-                'lock_file_exists': False
-            }
-    except Exception as e:
-        health['housekeeping_scheduler'] = {'error': str(e)}
-
-    return jsonify(health), 200
+@health_bp.route("/api/server-health")
+def server_health():
+    """Public, minimal server health endpoint for external monitoring."""
+    return jsonify({"healthy": _evaluate_server_health()}), 200
 
 
 def _healthcheck_allowed_source_ips():

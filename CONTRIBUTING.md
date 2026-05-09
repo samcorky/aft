@@ -11,6 +11,7 @@ Before submitting any code contribution, **verify ALL items** are complete:
 - [ ] **API-Only Tests** - Tests use ONLY API endpoints, never direct database/filesystem access (see [SERVER_TESTING.md](server/docs/SERVER_TESTING.md))
 - [ ] **Code Standards** - Code follows all style guidelines in [Coding Standards](#coding-standards)
 - [ ] **Frontend Error Handling** - All API calls follow error handling patterns (see [FRONTEND_ERROR_HANDLING.md](docs/FRONTEND_ERROR_HANDLING.md))
+- [ ] **Swagger Documentation** - Every new Flask route has a Flasgger YAML docstring so it appears in `/api/docs` (see [API Documentation](#api-documentation))
 - [ ] **Accessibility** - UI changes include ARIA attributes, keyboard navigation, screen reader support (see [Accessibility Requirements](#accessibility-requirements))
 - [ ] **Security** - Input validation, length limits, no error leaking (see [Security Guidelines](#security-guidelines))
 - [ ] **Database Changes** - Migration created, schema validation updated (see [Database Changes](#database-changes))
@@ -27,6 +28,7 @@ Before submitting any code contribution, **verify ALL items** are complete:
 - [Human and Agent Documentation](#human-and-agent-documentation)
 - [Development Workflow](#development-workflow)
 - [Coding Standards](#coding-standards)
+- [API Documentation](#api-documentation)
 - [Testing Requirements](#testing-requirements)
 - [Accessibility Requirements](#accessibility-requirements)
 - [Security Guidelines](#security-guidelines)
@@ -344,6 +346,99 @@ class ExampleClass {
 - **CSS Classes**: Use kebab-case for class names
 - **Theme Variables Required**: Use existing CSS variables (for example primary/text/border/surface variables) for colors, spacing, and component states. Do not hardcode colors for new UI components.
 - **Modal Consistency**: New modals must reuse existing modal structure and action patterns (`.modal`, `.modal-content`, `.modal-actions`, existing button styles) so they match the current UI and theme behavior.
+
+## API Documentation
+
+All Flask route functions **must** include a Flasgger YAML docstring so the endpoint appears in the interactive Swagger UI at `/api/docs`.
+
+### Required Format
+
+Every `@<blueprint>.route(...)` function must have a docstring with a one-line summary first, then a line containing `---` to begin valid Swagger 2.0 YAML:
+
+```python
+@some_bp.route("/api/example", methods=["POST"])
+@require_authentication
+def create_example():
+    """Create a new example resource.
+    ---
+    tags:
+      - Examples
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+    responses:
+      201:
+        description: Example created
+      400:
+        description: Missing or invalid fields
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
+```
+
+### Tag Conventions
+
+Use consistent tags so related endpoints are grouped together in the UI:
+
+| Tag | Use for |
+|---|---|
+| `Boards` | Board CRUD and import/export |
+| `Cards` | Card operations |
+| `Columns` | Column operations |
+| `Notifications` | Notification endpoints |
+| `Settings` | User and board settings |
+| `Themes` | Theme management |
+| `Health` | Liveness, readiness and stats |
+| `Admin` | Debug, test-user and permission mapping |
+| `Users` | User profile and management |
+| `Auth` | Login, logout and session |
+| `Roles` | Role and permission management |
+| `Backups` | Backup management |
+| `Schedules` | Scheduled card management |
+
+### Security Declaration
+
+- Authenticated endpoints must include `security:\n  - session: []`.
+- Public endpoints (no auth required) omit the `security` block.
+
+### Verification
+
+Run the following to check for any routes missing a Swagger docstring before committing:
+
+```bash
+cd server
+python3 -c "
+import ast, pathlib
+missing = []
+for path in sorted(pathlib.Path('.').glob('*.py')):
+    try: tree = ast.parse(path.read_text(encoding='utf-8'))
+    except SyntaxError: continue
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef): continue
+        is_route = any(
+            (isinstance(d, ast.Call) and isinstance(d.func, ast.Attribute) and d.func.attr == 'route') or
+            (isinstance(d, ast.Attribute) and d.attr == 'route')
+            for d in node.decorator_list)
+        if is_route and '---' not in (ast.get_docstring(node) or ''):
+            missing.append(f'{path.name}:{node.lineno}  {node.name}()')
+print(f'{len(missing)} routes missing Swagger YAML:')
+for m in missing: print(' ', m)
+"
+```
+
+Output should be `0 routes missing Swagger YAML`.
 
 ## Background Services
 

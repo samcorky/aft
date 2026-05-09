@@ -524,7 +524,27 @@ def create_board():
 @require_board_access()
 @require_permission('board.view')
 def export_board(board_id):
-    """Export a single board and all board-related data as JSON."""
+    """Export a board and all its data as a JSON file.
+    ---
+    tags:
+      - Boards
+    security:
+      - session: []
+    parameters:
+      - name: board_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: JSON file download containing the full board export
+      403:
+        description: Insufficient permissions
+      404:
+        description: Board not found
+      500:
+        description: Export failed
+    """
     db = SessionLocal()
     try:
         board = db.query(Board).filter(Board.id == board_id).first()
@@ -705,7 +725,30 @@ def export_board(board_id):
 @board_bp.route("/api/boards/import", methods=["POST"])
 @require_authentication
 def import_board_from_export():
-    """Import a board from an AFT JSON export file."""
+    """Import a board from an AFT JSON export file.
+    ---
+    tags:
+      - Boards
+    security:
+      - session: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: file
+        in: formData
+        required: true
+        type: file
+        description: AFT-formatted JSON export file
+    responses:
+            201:
+        description: Board imported successfully
+      400:
+        description: Invalid file, format or validation error
+      403:
+        description: Insufficient permissions
+      500:
+        description: Import failed
+    """
     db = SessionLocal()
     try:
         user_id = g.user.id

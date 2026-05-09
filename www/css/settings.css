@@ -629,14 +629,14 @@
   background-color: var(--page-panel-background);
   color: var(--text-color);
   border-radius: 12px;
-  padding: 0;
+  padding: 25px 30px;
   max-width: 500px;
   width: 90%;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-  overflow: hidden;
 }
 
 .modal-header {
+  margin: -25px -30px 0;
   padding: 25px 30px;
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -678,6 +678,7 @@
 }
 
 .modal-body {
+  margin: 0 -30px;
   padding: 25px 30px;
   color: var(--text-color);
   line-height: 1.6;
@@ -712,6 +713,7 @@
 }
 
 .modal-actions {
+  margin: 20px -30px -25px;
   padding: 20px 30px;
   border-top: 1px solid var(--border-color);
   display: flex;
@@ -724,6 +726,7 @@
 }
 
 .modal-footer {
+  margin: 20px -30px -25px;
   padding: 20px 30px;
   border-top: 1px solid var(--border-color);
   display: flex;

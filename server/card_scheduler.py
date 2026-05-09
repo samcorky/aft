@@ -22,6 +22,8 @@ from scheduler_lock import (
 
 logger = logging.getLogger(__name__)
 
+MAX_REGENERATION_RUNS_PER_SCHEDULE = 10000
+
 
 _broadcast_event_callback = None
 
@@ -306,6 +308,8 @@ class CardScheduler:
         schedule: ScheduledCard,
         range_start: datetime,
         range_end: datetime,
+        *,
+        max_runs: int,
     ) -> list[datetime]:
         """Expand a schedule into all run times that fall inside a requested range."""
         schedule_start = schedule.start_datetime  # type: ignore[assignment]
@@ -330,9 +334,12 @@ class CardScheduler:
             unit=schedule.unit  # type: ignore[arg-type]
         )
 
-        max_iterations = 10000
         iterations = 0
-        while candidate is not None and candidate <= effective_end and iterations < max_iterations:
+        while candidate is not None and candidate <= effective_end:
+            if iterations >= max_runs:
+                raise ValueError(
+                    f"Regeneration request exceeds the maximum allowed runs per schedule ({max_runs}). Narrow the date range or reduce schedule frequency."
+                )
             run_times.append(candidate)
             iterations += 1
 
@@ -348,26 +355,14 @@ class CardScheduler:
 
         return run_times
 
-    def _build_schedule_run_preview_item(self, db, schedule: ScheduledCard, run_time: datetime) -> Optional[dict[str, Any]]:
+    def _build_schedule_run_preview_item(
+        self,
+        schedule: ScheduledCard,
+        run_time: datetime,
+        template: Card,
+        column: Optional[BoardColumn],
+    ) -> dict[str, Any]:
         """Build preview metadata for a run that can produce a card."""
-        template = db.query(Card).filter(Card.id == schedule.card_id).first()
-        if not template:
-            logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
-            return None
-
-        if not schedule.allow_duplicates:  # type: ignore
-            existing_card = (
-                db.query(Card)
-                .filter(Card.column_id == template.column_id)
-                .filter(Card.schedule == schedule.id)
-                .filter(Card.scheduled.is_(False))
-                .filter(Card.archived.is_(False))
-                .first()
-            )
-            if existing_card:
-                return None
-
-        column = db.query(BoardColumn).filter(BoardColumn.id == template.column_id).first()
         board = column.board if column else None
 
         return {
@@ -385,6 +380,20 @@ class CardScheduler:
             },
             "allow_duplicates": bool(schedule.allow_duplicates),
         }
+
+    def _get_schedule_preview_context(
+        self,
+        db,
+        schedule: ScheduledCard,
+    ) -> tuple[Card, Optional[BoardColumn]] | tuple[None, None]:
+        """Load schedule preview context once per schedule to avoid N+1 queries."""
+        template = db.query(Card).filter(Card.id == schedule.card_id).first()
+        if not template:
+            logger.error(f"Template card {schedule.card_id} not found for schedule {schedule.id}")
+            return None, None
+
+        column = db.query(BoardColumn).filter(BoardColumn.id == template.column_id).first()
+        return template, column
 
     def regenerate_for_range(
         self,
@@ -408,12 +417,35 @@ class CardScheduler:
             )
 
             for schedule in schedules:
-                run_times = self._iter_schedule_runs_in_range(schedule, range_start, range_end)
+                template, column = self._get_schedule_preview_context(db, schedule)
+                if template is None:
+                    continue
+
+                run_times = self._iter_schedule_runs_in_range(
+                    schedule,
+                    range_start,
+                    range_end,
+                    max_runs=MAX_REGENERATION_RUNS_PER_SCHEDULE,
+                )
+
+                if not schedule.allow_duplicates:  # type: ignore
+                    existing_card = (
+                        db.query(Card)
+                        .filter(Card.column_id == template.column_id)
+                        .filter(Card.schedule == schedule.id)
+                        .filter(Card.scheduled.is_(False))
+                        .filter(Card.archived.is_(False))
+                        .first()
+                    )
+                    if existing_card:
+                        continue
+                    if run_times:
+                        # Only the first run can produce a new card when duplicates are disallowed.
+                        run_times = run_times[:1]
+
                 for run_time in run_times:
                     runs_considered += 1
-                    preview_item = self._build_schedule_run_preview_item(db, schedule, run_time)
-                    if preview_item is None:
-                        continue
+                    preview_item = self._build_schedule_run_preview_item(schedule, run_time, template, column)
 
                     preview_items.append(preview_item)
 

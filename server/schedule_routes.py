@@ -2,7 +2,8 @@
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import func
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any
 
 from database import SessionLocal
 from datetime_helpers import parse_iso_datetime, serialize_datetime, utc_now
@@ -33,20 +34,30 @@ def broadcast_event(event_name, data, board_id):
         _broadcast_event(event_name, data, board_id)
 
 
-def _parse_regeneration_range(payload: dict) -> tuple[datetime, datetime] | tuple[None, None]:
-  """Parse and validate regeneration range payload."""
-  if not payload:
-    return None, None
+MAX_REGENERATION_RANGE_DAYS = 90
+MAX_REGENERATION_RANGE_DURATION = timedelta(days=MAX_REGENERATION_RANGE_DAYS)
 
-  start_datetime = parse_iso_datetime(payload.get('start_datetime'))
-  end_datetime = parse_iso_datetime(payload.get('end_datetime'))
-  if start_datetime is None or end_datetime is None:
-    return None, None
 
-  if end_datetime < start_datetime:
-    return None, None
+def _parse_regeneration_range(payload: Any) -> tuple[datetime, datetime] | tuple[None, None]:
+    """Parse and validate regeneration range payload."""
+    if not isinstance(payload, dict):
+        return None, None
 
-  return start_datetime, end_datetime
+    if not payload:
+        return None, None
+
+    start_datetime = parse_iso_datetime(payload.get('start_datetime'))
+    end_datetime = parse_iso_datetime(payload.get('end_datetime'))
+    if start_datetime is None or end_datetime is None:
+        return None, None
+
+    if end_datetime < start_datetime:
+        return None, None
+
+    if (end_datetime - start_datetime) > MAX_REGENERATION_RANGE_DURATION:
+        return None, None
+
+    return start_datetime, end_datetime
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +360,7 @@ def preview_schedule_regeneration():
     if start_datetime is None or end_datetime is None:
         return jsonify({
             "success": False,
-            "message": "Valid start_datetime and end_datetime are required, and end_datetime must be after start_datetime"
+        "message": f"Valid start_datetime and end_datetime are required, end_datetime must be on or after start_datetime, and range must be <= {MAX_REGENERATION_RANGE_DAYS} days"
         }), 400
 
     try:
@@ -366,6 +377,8 @@ def preview_schedule_regeneration():
             "success": True,
             "preview": result,
         })
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Error previewing schedule regeneration: {str(e)}")
@@ -408,7 +421,7 @@ def regenerate_scheduled_cards():
     if start_datetime is None or end_datetime is None:
         return jsonify({
             "success": False,
-            "message": "Valid start_datetime and end_datetime are required, and end_datetime must be after start_datetime"
+        "message": f"Valid start_datetime and end_datetime are required, end_datetime must be on or after start_datetime, and range must be <= {MAX_REGENERATION_RANGE_DAYS} days"
         }), 400
 
     try:
@@ -426,6 +439,8 @@ def regenerate_scheduled_cards():
             "message": "Scheduled cards generated successfully",
             "result": result,
         })
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Error regenerating scheduled cards: {str(e)}")

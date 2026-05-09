@@ -218,7 +218,7 @@ class TestCardSchedulerAPI:
             self._set_scheduler_enabled(api_client, authenticated_session, original_enabled)
 
     def test_regenerate_schedules_rejects_invalid_range(self, api_client, authenticated_session):
-        """Generate endpoint should validate that end_datetime is after start_datetime."""
+        """Generate endpoint should validate that end_datetime is on or after start_datetime."""
         response = authenticated_session.post(
             f'{api_client}/api/schedules/regenerate',
             json={
@@ -229,3 +229,52 @@ class TestCardSchedulerAPI:
         assert response.status_code == 400
         data = response.json()
         assert data['success'] is False
+
+    def test_preview_regenerate_rejects_non_object_payload(self, api_client, authenticated_session):
+        """Preview endpoint should reject valid JSON payloads that are not objects."""
+        response = authenticated_session.post(
+            f'{api_client}/api/schedules/regenerate/preview',
+            json=['not', 'an', 'object']
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data['success'] is False
+
+    def test_regenerate_schedules_rejects_excessive_run_volume(self, api_client, authenticated_session, clean_database, sample_column):
+        """Generate endpoint should reject ranges that would exceed server-side run limits."""
+        card_response = authenticated_session.post(
+            f'{api_client}/api/columns/{sample_column["id"]}/cards',
+            json={'title': 'Volume Guard Template', 'description': 'limit guard test'}
+        )
+        assert card_response.status_code == 201
+        card_id = card_response.json()['card']['id']
+
+        start_dt = datetime.now().replace(second=0, microsecond=0) - timedelta(days=8)
+        end_dt = datetime.now().replace(second=0, microsecond=0)
+
+        schedule_response = authenticated_session.post(
+            f'{api_client}/api/schedules',
+            json={
+                'card_id': card_id,
+                'run_every': 1,
+                'unit': 'minute',
+                'start_datetime': start_dt.isoformat(),
+                'end_datetime': None,
+                'schedule_enabled': True,
+                'allow_duplicates': True,
+                'keep_source_card': True,
+            }
+        )
+        assert schedule_response.status_code == 201
+
+        generate_response = authenticated_session.post(
+            f'{api_client}/api/schedules/regenerate',
+            json={
+                'start_datetime': start_dt.isoformat(),
+                'end_datetime': end_dt.isoformat(),
+            }
+        )
+        assert generate_response.status_code == 400
+        data = generate_response.json()
+        assert data['success'] is False
+        assert 'maximum allowed runs per schedule' in data['message']

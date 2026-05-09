@@ -220,7 +220,7 @@ def get_version():
     tags:
       - Health
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: App and DB version numbers
@@ -267,7 +267,7 @@ def get_test_user_status():
     tags:
       - Admin
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Test user presence and compatibility details
@@ -322,7 +322,7 @@ def remove_test_user():
     tags:
       - Admin
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Test user deleted
@@ -379,7 +379,7 @@ def debug_user_permissions():
     tags:
       - Admin
     security:
-      - session: []
+      - SessionAuth: []
     parameters:
       - name: board_id
         in: query
@@ -438,7 +438,7 @@ def get_permissions_mapping():
     tags:
       - Admin
     security:
-      - session: []
+      - SessionAuth: []
     parameters:
       - name: board_id
         in: query
@@ -603,7 +603,7 @@ def get_broadcast_status():
     tags:
       - Health
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Broadcast failure counts per room
@@ -629,7 +629,7 @@ def get_scheduler_health():
     tags:
       - Health
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Scheduler health details for all background threads
@@ -742,7 +742,7 @@ def test_db():
     tags:
       - Health
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Database is reachable
@@ -768,7 +768,7 @@ def get_stats():
     tags:
       - Health
     security:
-      - session: []
+      - SessionAuth: []
     responses:
       200:
         description: Board, column, card and checklist item counts

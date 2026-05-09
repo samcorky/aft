@@ -295,6 +295,7 @@ def before_request():
         request.path == '/api/test' or  # Legacy health endpoint
         request.path == '/api/health/live' or
         request.path == '/api/health/ready' or
+        request.path == '/api/server-health' or
         request.path.startswith('/setup.html') or
         request.path.startswith('/css/') or
         request.path.startswith('/js/') or

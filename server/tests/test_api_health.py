@@ -1,6 +1,7 @@
 """Tests for health and statistics API endpoints."""
 
 import pytest
+import requests
 
 
 @pytest.mark.api
@@ -14,6 +15,15 @@ class TestHealthEndpoints:
 
         data = response.json()
         assert data["ok"] is True
+
+    def test_server_health_endpoint_public_boolean(self, api_client):
+        """Public server health endpoint should return a minimal boolean payload."""
+        response = requests.get(f"{api_client}/api/server-health", timeout=5)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert set(data.keys()) == {"healthy"}
+        assert isinstance(data["healthy"], bool)
 
     def test_readiness_requires_token(self, api_client, authenticated_session):
         """Readiness endpoint should not be accessible without health token."""

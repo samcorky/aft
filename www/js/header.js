@@ -207,6 +207,7 @@ class Header {
     this.boardFiltersActiveStateHandler = this.handleBoardFiltersActiveStateChanged.bind(this);
     this.boardFilterStateWatchInterval = null;
     this.workingStyleLoadPromise = null;
+    this._prevUnhealthyServices = null; // Track previous scheduler health state for toast deduplication
   }
 
   getLastVisitedBoardId() {
@@ -1527,6 +1528,36 @@ class Header {
     return div.innerHTML;
   }
 
+  _showServiceUnhealthyToast(services) {
+    const label = services.length === 1
+      ? `${services[0]} service has stopped`
+      : `Services stopped: ${services.join(', ')}`;
+    const toast = document.createElement('div');
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.textContent = label;
+    toast.style.cssText = [
+      'position:fixed',
+      'bottom:20px',
+      'right:20px',
+      'background:#e74c3c',
+      'color:white',
+      'padding:12px 20px',
+      'border-radius:5px',
+      'box-shadow:0 4px 8px rgba(0,0,0,0.3)',
+      'z-index:10000',
+      'animation:slideIn 0.3s ease-out',
+      'max-width:400px',
+      'word-wrap:break-word',
+    ].join(';');
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-in';
+      setTimeout(() => toast.remove(), 300);
+    }, 6000);
+  }
+
   /**
    * Update the status icon and text in the header.
    * 
@@ -1695,18 +1726,80 @@ class Header {
       const healthResponse = await fetch('/api/scheduler/health', { signal: healthController.signal });
       
       clearTimeout(healthTimeoutId);
+
+      // Scheduler endpoint can be permission-restricted; don't treat non-2xx as service failure.
+      if (!healthResponse.ok) {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = `Scheduler health unavailable (${healthResponse.status}).`;
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
       
-      const healthData = await healthResponse.json();
+      let healthData = null;
+      try {
+        healthData = await healthResponse.json();
+      } catch {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = 'Scheduler health unavailable (invalid response).';
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
+
+      if (!healthData || typeof healthData !== 'object') {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = 'Scheduler health unavailable (unexpected response).';
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
       
-      // Check housekeeping scheduler health
-      const housekeepingHealth = healthData.housekeeping_scheduler;
-      const isHousekeepingHealthy = housekeepingHealth && 
-                                     housekeepingHealth.running && 
-                                     housekeepingHealth.thread_alive;
+      // Check all three scheduler threads
+      const schedulerChecks = [
+        { key: 'backup_scheduler',       label: 'Backup' },
+        { key: 'card_scheduler',         label: 'Card' },
+        { key: 'housekeeping_scheduler', label: 'Housekeeping' },
+      ];
+      const unhealthyServices = schedulerChecks
+        .filter(({ key }) => {
+          const s = healthData[key];
+          return !(s && s.running && s.thread_alive);
+        })
+        .map(({ label }) => label);
       
-      this.updateStatus('success', 'Connected', null, isHousekeepingHealthy);
+      if (unhealthyServices.length > 0) {
+        this.statusIcon.className = 'status-icon error';
+        this.statusText.textContent = 'Service Unhealthy';
+        this.statusText.title = `Stopped service(s): ${unhealthyServices.join(', ')}`;
+        this.dbConnected = true; // Database is healthy; background services are not
+      } else {
+        this.updateStatus('success', 'Connected', null, true);
+      }
       
-      // Update version display
+      // Show toast if any services are newly unhealthy (or unhealthy on first check)
+      const prevUnhealthy = this._prevUnhealthyServices;
+      const newlyUnhealthy = unhealthyServices.filter(
+        s => !prevUnhealthy || !prevUnhealthy.includes(s)
+      );
+      if (newlyUnhealthy.length > 0) {
+        this._showServiceUnhealthyToast(newlyUnhealthy);
+      }
+      this._prevUnhealthyServices = unhealthyServices;
+      
+      // Update version display (DB is healthy regardless of scheduler state)
       if (versionData.success) {
         this.updateVersion(versionData.app_version, versionData.db_version);
       }

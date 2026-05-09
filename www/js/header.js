@@ -1726,8 +1726,46 @@ class Header {
       const healthResponse = await fetch('/api/scheduler/health', { signal: healthController.signal });
       
       clearTimeout(healthTimeoutId);
+
+      // Scheduler endpoint can be permission-restricted; don't treat non-2xx as service failure.
+      if (!healthResponse.ok) {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = `Scheduler health unavailable (${healthResponse.status}).`;
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
       
-      const healthData = await healthResponse.json();
+      let healthData = null;
+      try {
+        healthData = await healthResponse.json();
+      } catch {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = 'Scheduler health unavailable (invalid response).';
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
+
+      if (!healthData || typeof healthData !== 'object') {
+        this.updateStatus('success', 'Connected', null, true);
+        this.statusText.title = 'Scheduler health unavailable (unexpected response).';
+        this.dbConnected = true;
+        this._prevUnhealthyServices = [];
+
+        if (versionData.success) {
+          this.updateVersion(versionData.app_version, versionData.db_version);
+        }
+        return;
+      }
       
       // Check all three scheduler threads
       const schedulerChecks = [

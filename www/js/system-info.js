@@ -620,7 +620,7 @@ class SystemInfo {
     const payload = this.buildCardRegenerateRangePayload();
     if (!payload) {
       if (this.cardRegenerateError) {
-        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is after start.';
+        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is at or after start.';
       }
       if (this.cardRegeneratePreviewList) {
         this.cardRegeneratePreviewList.innerHTML = '<div class="scheduler-preview-subtitle">Preview unavailable with invalid range.</div>';
@@ -668,7 +668,7 @@ class SystemInfo {
     const payload = this.buildCardRegenerateRangePayload();
     if (!payload) {
       if (this.cardRegenerateError) {
-        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is after start.';
+        this.cardRegenerateError.textContent = 'Provide a valid start and end time, and ensure end is at or after start.';
       }
       return;
     }

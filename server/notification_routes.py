@@ -25,7 +25,18 @@ notification_bp = Blueprint("notification_routes", __name__)
 @notification_bp.route("/api/notifications", methods=["GET"])
 @require_authentication
 def get_notifications():
-    """Get all notifications for the current user."""
+    """Get all notifications for the current user.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    responses:
+      200:
+        description: List of notifications ordered by newest first
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         user_id = g.user.id
@@ -63,7 +74,46 @@ def get_notifications():
 @notification_bp.route("/api/notifications", methods=["POST"])
 @require_authentication
 def create_notification():
-    """Create a new notification."""
+    """Create a notification for the current user or all users (admin only).
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - subject
+            - message
+          properties:
+            subject:
+              type: string
+              maxLength: 255
+            message:
+              type: string
+            for_all_users:
+              type: boolean
+              description: Requires system.admin permission
+            action_title:
+              type: string
+              maxLength: 100
+            action_url:
+              type: string
+              maxLength: 500
+    responses:
+      201:
+        description: Notification created
+      400:
+        description: Missing or invalid fields
+      403:
+        description: Only admins can send to all users
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         data = request.get_json()
@@ -169,7 +219,25 @@ def create_notification():
 @notification_bp.route("/api/notifications/<int:notification_id>/read", methods=["PUT"])
 @require_authentication
 def mark_notification_read(notification_id):
-    """Mark a notification as read."""
+    """Mark a notification as read.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    parameters:
+      - name: notification_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Notification marked as read
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         notification = db.query(Notification).filter(
@@ -197,7 +265,25 @@ def mark_notification_read(notification_id):
 @notification_bp.route("/api/notifications/<int:notification_id>/unread", methods=["PUT"])
 @require_authentication
 def mark_notification_unread(notification_id):
-    """Mark a notification as unread."""
+    """Mark a notification as unread.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    parameters:
+      - name: notification_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Notification marked as unread
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         notification = db.query(Notification).filter(
@@ -225,7 +311,25 @@ def mark_notification_unread(notification_id):
 @notification_bp.route("/api/notifications/<int:notification_id>", methods=["DELETE"])
 @require_authentication
 def delete_notification(notification_id):
-    """Delete a notification."""
+    """Delete a notification.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    parameters:
+      - name: notification_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Notification deleted
+      404:
+        description: Notification not found
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         notification = db.query(Notification).filter(
@@ -253,7 +357,18 @@ def delete_notification(notification_id):
 @notification_bp.route("/api/notifications/mark-all-read", methods=["PUT"])
 @require_authentication
 def mark_all_notifications_read():
-    """Mark all notifications as read."""
+    """Mark all notifications as read for the current user.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    responses:
+      200:
+        description: All notifications marked as read
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         current_user_id = get_current_user_id()
@@ -281,7 +396,18 @@ def mark_all_notifications_read():
 @notification_bp.route("/api/notifications/delete-all", methods=["DELETE"])
 @require_authentication
 def delete_all_notifications():
-    """Delete all notifications for the current user."""
+    """Delete all notifications for the current user.
+    ---
+    tags:
+      - Notifications
+    security:
+      - session: []
+    responses:
+      200:
+        description: All notifications deleted
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         current_user_id = get_current_user_id()

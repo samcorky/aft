@@ -781,7 +781,25 @@ def update_card_scheduler_config():
 @require_board_access()
 @require_permission('board.view')
 def get_board_working_style_setting(board_id):
-    """Get the working style for a specific board."""
+    """Get the working style setting for a specific board.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    parameters:
+      - name: board_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Working style value and edit permission flag
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         value = get_board_working_style(db, board_id)
@@ -810,7 +828,38 @@ def get_board_working_style_setting(board_id):
 @require_board_access()
 @require_permission('board.edit')
 def set_board_working_style_setting(board_id):
-    """Set the working style for a specific board."""
+    """Set the working style setting for a specific board.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    parameters:
+      - name: board_id
+        in: path
+        required: true
+        type: integer
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - value
+          properties:
+            value:
+              type: string
+              enum: [kanban, agile]
+    responses:
+      200:
+        description: Working style updated
+      400:
+        description: Invalid value
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         data = request.get_json(silent=True)
@@ -865,21 +914,19 @@ def set_board_working_style_setting(board_id):
 @settings_bp.route("/api/settings/working-style", methods=["GET"])
 @require_permission('setting.view')
 def get_working_style():
-    """Retrieve the current working style preference for the logged-in user.
-    
-    Looks up the 'working_style' setting to determine which working style
-    is currently active for this user ('kanban' or 'agile').
-    Returns the working style value with validation.
-    
-    Returns:
-        tuple: (JSON response, HTTP status code)
-            - 200: Success with working_style value
-            - 404: No working style setting found
-            - 500: Server error during retrieval
-    
-    Example:
-        GET /api/settings/working-style
-        Response: {"success": true, "value": "kanban"}
+    """Get the current user's default working style preference.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    responses:
+      200:
+        description: Working style value (kanban or agile)
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
     """
     session = SessionLocal()
     try:
@@ -901,26 +948,33 @@ def get_working_style():
 @settings_bp.route("/api/settings/working-style", methods=["PUT"])
 @require_permission('setting.edit')
 def set_working_style():
-    """Set the working style preference for the logged-in user.
-    
-    Updates the 'working_style' setting to change the working style preference
-    for the current user. Valid values are 'kanban' (traditional kanban board)
-    or 'agile' (board-level done tracking).
-    Creates the setting if it doesn't exist.
-    
-    Request Body:
-        value (str, required): 'kanban' or 'agile'
-    
-    Returns:
-        tuple: (JSON response, HTTP status code)
-            - 200: Success with confirmation message
-            - 400: Invalid or missing value
-            - 500: Server error during update
-    
-    Example:
-        PUT /api/settings/working-style
-        Body: {"value": "agile"}
-        Response: {"success": true, "message": "Working style updated"}
+    """Set the current user's default working style preference.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - value
+          properties:
+            value:
+              type: string
+              enum: [kanban, agile]
+    responses:
+      200:
+        description: Working style updated
+      400:
+        description: Missing or invalid value
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
     """
     session = SessionLocal()
     try:
@@ -971,9 +1025,19 @@ def set_working_style():
 @settings_bp.route("/api/settings/timezone", methods=["GET"])
 @require_permission('setting.view')
 def get_timezone_setting():
-    """Get the current user timezone preference.
-
-    Returns a validated IANA timezone string and defaults to UTC when unset.
+    """Get the current user's timezone preference.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    responses:
+      200:
+        description: IANA timezone string (defaults to UTC when unset)
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
     """
     db = SessionLocal()
     try:
@@ -1006,7 +1070,34 @@ def get_timezone_setting():
 @settings_bp.route("/api/settings/timezone", methods=["PUT"])
 @require_permission('setting.edit')
 def set_timezone_setting():
-    """Set the current user timezone preference."""
+    """Set the current user's timezone preference.
+    ---
+    tags:
+      - Settings
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - value
+          properties:
+            value:
+              type: string
+              description: Valid IANA timezone string e.g. 'Europe/London'
+    responses:
+      200:
+        description: Timezone updated
+      400:
+        description: Missing or invalid timezone value
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     db = SessionLocal()
     try:
         data = request.get_json(silent=True)

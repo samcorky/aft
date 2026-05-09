@@ -45,6 +45,20 @@ def _get_user_accessible_theme(session, user_id, theme_id):
 @theme_bp.route("/api/themes", methods=["GET"])
 @require_permission('theme.view')
 def get_themes():
+    """List all themes accessible to the current user.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    responses:
+      200:
+        description: Array of theme objects
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -60,6 +74,27 @@ def get_themes():
 @theme_bp.route("/api/themes/<int:theme_id>", methods=["GET"])
 @require_permission('theme.view')
 def get_theme(theme_id):
+    """Get a single theme by ID.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: theme_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Theme object
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -77,6 +112,40 @@ def get_theme(theme_id):
 @theme_bp.route("/api/themes/<int:theme_id>", methods=["PUT"])
 @require_permission('theme.edit')
 def update_theme(theme_id):
+    """Update a theme's name, settings or background image.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: theme_id
+        in: path
+        required: true
+        type: integer
+      - name: body
+        in: body
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+            settings:
+              type: object
+            background_image:
+              type: string
+    responses:
+      200:
+        description: Updated theme object
+      400:
+        description: Invalid data or system theme
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -126,6 +195,39 @@ def update_theme(theme_id):
 @theme_bp.route("/api/themes/<int:theme_id>/rename", methods=["PUT"])
 @require_permission('theme.edit')
 def rename_theme(theme_id):
+    """Rename a theme.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: theme_id
+        in: path
+        required: true
+        type: integer
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+    responses:
+      200:
+        description: Renamed theme object
+      400:
+        description: Name missing, taken, or system theme
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -161,6 +263,29 @@ def rename_theme(theme_id):
 @theme_bp.route("/api/themes/<int:theme_id>", methods=["DELETE"])
 @require_permission('theme.delete')
 def delete_theme(theme_id):
+    """Delete a user-owned theme.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: theme_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Theme deleted
+      400:
+        description: Cannot delete system themes
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -186,6 +311,38 @@ def delete_theme(theme_id):
 @theme_bp.route("/api/themes/copy", methods=["POST"])
 @require_permission('theme.create')
 def copy_theme():
+    """Copy a system theme into a new user-owned theme.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - source_theme_id
+            - new_name
+          properties:
+            source_theme_id:
+              type: integer
+            new_name:
+              type: string
+    responses:
+      201:
+        description: New theme object
+      400:
+        description: Missing fields, name taken, or source is not a system theme
+      403:
+        description: Insufficient permissions
+      404:
+        description: Source theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -229,6 +386,38 @@ def copy_theme():
 @theme_bp.route("/api/themes/import", methods=["POST"])
 @require_permission('theme.create')
 def import_theme():
+    """Create a theme from raw settings JSON.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - name
+            - settings
+          properties:
+            name:
+              type: string
+            settings:
+              type: object
+            background_image:
+              type: string
+    responses:
+      201:
+        description: Created theme object
+      400:
+        description: Missing fields, invalid settings, or name taken
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -269,6 +458,27 @@ def import_theme():
 @theme_bp.route("/api/themes/<int:theme_id>/export", methods=["GET"])
 @require_permission('theme.view')
 def export_theme(theme_id):
+    """Export a theme's settings as JSON.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: theme_id
+        in: path
+        required: true
+        type: integer
+    responses:
+      200:
+        description: Theme settings JSON
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -293,6 +503,30 @@ def export_theme(theme_id):
 @theme_bp.route("/api/themes/upload-image", methods=["POST"])
 @require_permission('theme.edit')
 def upload_theme_image():
+    """Upload a background image for use in themes.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: image
+        in: formData
+        required: true
+        type: file
+        description: Image file (jpg, jpeg, png, gif, webp)
+    responses:
+      200:
+        description: Uploaded filename
+      400:
+        description: No file, no selection, or invalid type
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     try:
         if 'image' not in request.files:
             return create_error_response("No image file provided", 400)
@@ -325,6 +559,20 @@ def upload_theme_image():
 @theme_bp.route("/api/themes/images", methods=["GET"])
 @require_permission('theme.view')
 def list_theme_images():
+    """List available background images for themes.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    responses:
+      200:
+        description: Sorted list of image filenames
+      403:
+        description: Insufficient permissions
+      500:
+        description: Server error
+    """
     try:
         backgrounds_dir = Path('/var/www/images/backgrounds')
         backgrounds_dir.mkdir(parents=True, exist_ok=True)
@@ -345,6 +593,29 @@ def list_theme_images():
 @theme_bp.route("/api/themes/images/<safe_filename:filename>", methods=["GET"])
 @require_permission('theme.view')
 def get_theme_image(filename):
+    """Serve a background image file.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: filename
+        in: path
+        required: true
+        type: string
+    responses:
+      200:
+        description: Image file
+      400:
+        description: Invalid path or file type
+      403:
+        description: Insufficient permissions
+      404:
+        description: Image not found
+      500:
+        description: Server error
+    """
     try:
         logger.info(f"get_theme_image called with filename: {repr(filename)}")
 
@@ -387,6 +658,22 @@ def get_theme_image(filename):
 @theme_bp.route("/api/settings/theme", methods=["GET"])
 @require_permission('setting.view')
 def get_current_theme():
+    """Get the current user's selected theme.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    responses:
+      200:
+        description: Current theme object
+      403:
+        description: Insufficient permissions
+      404:
+        description: No theme selected or selected theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id
@@ -419,6 +706,35 @@ def get_current_theme():
 @theme_bp.route("/api/settings/theme", methods=["PUT"])
 @require_permission('setting.edit')
 def update_current_theme():
+    """Set the current user's selected theme.
+    ---
+    tags:
+      - Themes
+    security:
+      - session: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - theme_id
+          properties:
+            theme_id:
+              type: integer
+    responses:
+      200:
+        description: Theme selection updated
+      400:
+        description: Invalid theme_id
+      403:
+        description: Insufficient permissions
+      404:
+        description: Theme not found
+      500:
+        description: Server error
+    """
     session = SessionLocal()
     try:
         user_id = g.user.id

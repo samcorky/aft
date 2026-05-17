@@ -1159,6 +1159,10 @@ class Header {
       window.__boardOwnerDataLoadedHeaderBound = 'true';
     }
 
+    if (window.boardManager && window.boardManager.boardId === this.currentBoardId && window.boardManager.boardOwnerData) {
+      this.hydrateBoardReassignmentOptions(window.boardManager.boardOwnerData);
+    }
+
     menuItems.forEach((menuItem) => {
       if (!menuItem.dataset.boundReassignHandler) {
         menuItem.addEventListener('click', async (e) => {
@@ -1194,23 +1198,84 @@ class Header {
     console.error(message);
   }
 
-  handleBoardOwnerDataLoaded(event) {
-    const detail = event?.detail;
-    if (!detail || detail.boardId !== this.currentBoardId) {
+  hydrateBoardReassignmentOptions(detail) {
+    if (!detail) {
       return;
     }
 
     this.boardReassignmentOptions = {
       board: {
-        id: detail.boardId,
+        id: this.currentBoardId,
         owner_id: detail.owner_id,
       },
       current_owner: detail.owner || null,
       can_reassign: detail.can_reassign_owner === true,
       available_users: Array.isArray(detail.available_owner_users) ? detail.available_owner_users : [],
     };
+  }
+
+  handleBoardOwnerDataLoaded(event) {
+    const detail = event?.detail;
+    if (!detail || detail.boardId !== this.currentBoardId) {
+      return;
+    }
+
+    this.hydrateBoardReassignmentOptions(detail);
 
     this.refreshBoardReassignMenuState();
+  }
+
+  async fetchBoardReassignmentOptions(showErrors = false) {
+    if (!this.currentBoardId) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch(`/api/boards/${this.currentBoardId}/cards?archived=false&include_owner_candidates=true`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (error) {
+        data = {
+          success: false,
+          message: response.ok
+            ? 'Invalid JSON response from server'
+            : `HTTP error ${response.status}`
+        };
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Failed to load board owner options');
+      }
+
+      const board = data.board || {};
+      return {
+        board: {
+          id: board.id || this.currentBoardId,
+          owner_id: board.owner_id,
+        },
+        current_owner: board.owner || null,
+        can_reassign: board.can_reassign_owner === true,
+        available_users: Array.isArray(board.available_owner_users) ? board.available_owner_users : [],
+      };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (showErrors) {
+        if (error.name === 'AbortError') {
+          this.showBoardPageToast('Loading board owners timed out. Please try again.');
+        } else {
+          this.showBoardPageToast(error.message || 'Failed to load board owner options.');
+        }
+      }
+      return null;
+    }
   }
 
   refreshBoardReassignMenuState() {
@@ -1229,7 +1294,14 @@ class Header {
       existingModal.remove();
     }
 
-    const options = this.boardReassignmentOptions;
+    let options = this.boardReassignmentOptions;
+    if (options?.can_reassign === true && (!Array.isArray(options.available_users) || options.available_users.length === 0)) {
+      options = await this.fetchBoardReassignmentOptions(true);
+      if (options) {
+        this.boardReassignmentOptions = options;
+      }
+    }
+
     if (!options || options.can_reassign !== true) {
       this.refreshBoardReassignMenuState();
       return;

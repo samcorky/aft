@@ -160,7 +160,7 @@ def _get_board_reassignment_users(db):
 
 
 def _can_reassign_board(board, user_id):
-    user_permissions = get_user_permissions(user_id, board_id=board.id)
+    user_permissions = get_user_permissions(user_id)
     return board.owner_id == user_id or has_permission(user_permissions, "system.admin")
 
 
@@ -177,18 +177,38 @@ def _build_board_owner_response(board, can_reassign, available_users=None):
     }
 
 
-def _build_board_owner_metadata(board, user_id, db):
+def _build_board_owner_metadata(board, user_id, db, include_candidates=False):
     can_reassign = _can_reassign_board(board, user_id)
-    available_users = []
-    if can_reassign:
+    available_users = None
+    if include_candidates and can_reassign:
         available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)]
 
-    return {
+    metadata = {
         "owner_id": board.owner_id,
         "owner": _user_summary(board.owner) if board.owner else None,
         "can_reassign_owner": can_reassign,
-        "available_owner_users": available_users,
     }
+    if include_candidates:
+        metadata["available_owner_users"] = available_users or []
+    return metadata
+
+
+def _ensure_board_editor_role_assignment(db, user_id, board_id):
+    board_editor_role = db.query(Role).filter(Role.name == "board_editor").first()
+    if not board_editor_role:
+        raise ValueError("Required role 'board_editor' not found")
+
+    existing_assignment = db.query(UserRole).filter(
+        UserRole.user_id == user_id,
+        UserRole.role_id == board_editor_role.id,
+        UserRole.board_id == board_id,
+    ).first()
+
+    if existing_assignment:
+        return False
+
+    db.add(UserRole(user_id=user_id, role_id=board_editor_role.id, board_id=board_id))
+    return True
 
 
 def _apply_assignee_card_filters(cards_query, selected_assignee_ids, include_unassigned, include_secondary_assignees):
@@ -1230,10 +1250,11 @@ def get_board_scheduled_cards(board_id):
         selected_assignee_ids = _parse_assignee_ids_query_param(request.args.get('assignee_ids'))
         include_unassigned = request.args.get('include_unassigned', 'false').lower() == 'true'
         include_secondary_assignees = request.args.get('include_secondary_assignees', 'false').lower() == 'true'
+        include_owner_candidates = request.args.get('include_owner_candidates', 'false').lower() == 'true'
 
         # Build nested structure with scheduled cards
         result = {"id": board.id, "name": board.name, "columns": []}
-        result.update(_build_board_owner_metadata(board, g.user.id, db))
+        result.update(_build_board_owner_metadata(board, g.user.id, db, include_candidates=include_owner_candidates))
 
         eligible_users = _get_board_assignee_users(db, board_id)
         result["assignee_filter_users"] = [_user_summary(u) for u in eligible_users]
@@ -1645,6 +1666,8 @@ def reassign_board_owner(board_id):
         if not new_owner:
             return create_error_response("Selected owner not found", 404)
 
+        board_editor_assigned = _ensure_board_editor_role_assignment(db, new_owner.id, board.id)
+
         board.owner_id = new_owner.id
         board.updated_at = utc_now()
         db.commit()
@@ -1657,14 +1680,24 @@ def reassign_board_owner(board_id):
             new_owner.id,
             g.user.id,
         )
+        if board_editor_assigned:
+            logger.info(
+                "Granted board_editor on board %s to reassigned owner user %s",
+                board.id,
+                new_owner.id,
+            )
 
         return create_success_response(
             {
                 **_build_board_owner_response(board, _can_reassign_board(board, g.user.id)),
-                **_build_board_owner_metadata(board, g.user.id, db),
+                **_build_board_owner_metadata(board, g.user.id, db, include_candidates=True),
             },
             message="Board reassigned successfully",
         )
+    except ValueError as e:
+        db.rollback()
+        logger.error(f"Error reassigning board {board_id}: {str(e)}")
+        return create_error_response(str(e), 500)
     except Exception as e:
         db.rollback()
         logger.error(f"Error reassigning board {board_id}: {str(e)}")

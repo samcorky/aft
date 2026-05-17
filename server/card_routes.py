@@ -307,6 +307,7 @@ def get_board_cards(board_id):
         selected_assignee_ids = _parse_assignee_ids_query_param(request.args.get('assignee_ids'))
         include_unassigned = request.args.get('include_unassigned', 'false').lower() == 'true'
         include_secondary_assignees = request.args.get('include_secondary_assignees', 'false').lower() == 'true'
+        include_owner_candidates = request.args.get('include_owner_candidates', 'false').lower() == 'true'
 
         # Get board
         board = db.query(Board).filter(Board.id == board_id).first()
@@ -324,7 +325,7 @@ def get_board_cards(board_id):
 
         # Build nested structure
         result = {"id": board.id, "name": board.name, "columns": []}
-        result.update(_build_board_owner_metadata(board, g.user.id, db))
+        result.update(_build_board_owner_metadata(board, g.user.id, db, include_candidates=include_owner_candidates))
         eligible_users = _get_board_assignee_users(db, board_id)
         result["assignee_filter_users"] = [_user_summary(u) for u in eligible_users]
 

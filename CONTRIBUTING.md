@@ -103,11 +103,11 @@ For any new Copilot/AI agent session in this repo:
 4. **Start Development Environment**
    
    ```bash
-  docker compose -f compose.dev.yml up -d --build
+  docker compose up -d --build
    ```
 
-  Important: For local development/testing, always use `compose.dev.yml` with `--build`.
-  `compose.yml` uses GHCR pre-built images for deployment and is not the source-of-truth stack for active development.
+  Important: For local development/testing, always use `compose.yml` with `--build`.
+  `compose.example.yml` is the GHCR deployment template.
 
 5. **Verify Setup**
    
@@ -138,14 +138,14 @@ On a fresh database (no users exist), you can create an initial admin user:
 
 ```powershell
 # Windows
-docker compose -f compose.dev.yml down
+docker compose down
 Remove-Item -Recurse -Force data
-docker compose -f compose.dev.yml up -d --build
+docker compose up -d --build
 
 # Linux/macOS  
-docker compose -f compose.dev.yml down
+docker compose down
 rm -rf data
-docker compose -f compose.dev.yml up -d --build
+docker compose up -d --build
 ```
 
 Then run tests:
@@ -174,24 +174,24 @@ Use these commands during local development and testing:
 
 ```bash
 # Start/rebuild local dev stack from source
-docker compose -f compose.dev.yml up -d --build
+docker compose up -d --build
 
 # Stop local dev stack
-docker compose -f compose.dev.yml down
+docker compose down
 
 # Reset local DB state (remove host data dir contents)
-docker compose -f compose.dev.yml down
+docker compose down
 rm -rf data   # Windows PowerShell: Remove-Item -Recurse -Force data
-docker compose -f compose.dev.yml up -d --build
+docker compose up -d --build
 
 # Check service health/status
-docker compose -f compose.dev.yml ps
+docker compose ps
 
 # Tail logs across services
-docker compose -f compose.dev.yml logs -f server nginx db redis
+docker compose logs -f server nginx db redis
 
 # Rebuild one service only
-docker compose -f compose.dev.yml up -d --build server
+docker compose up -d --build server
 ```
 
 ### 1. Create an Issue

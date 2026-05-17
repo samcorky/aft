@@ -102,7 +102,7 @@ On any server (no repo clone needed — just a `.env` file):
 
 ```sh
 # Download the default compose file
-curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.yml
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.example.yml
 
 # Create your .env with DB credentials, SECRET_KEY, HEALTHCHECK_TOKEN, etc.
 nano .env

@@ -4,6 +4,13 @@ import json
 import pytest
 
 
+def get_current_user(api_client, session):
+    response = session.get(f'{api_client}/api/auth/me')
+    assert response.status_code == 200
+    data = response.json()
+    return data['user']
+
+
 def build_minimal_board_import_payload(board_name="Imported Board"):
     """Build a minimal valid AFT board import payload for API tests."""
     return {
@@ -151,6 +158,186 @@ class TestBoardsAPI:
             'name': 'Updated Name'
         })
         assert response.status_code == 403
+
+    def test_board_cards_include_owner_data_for_owner(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Board owners should receive owner metadata in the default board payload."""
+        owner = get_current_user(api_client, authenticated_session)
+
+        response = authenticated_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards')
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        board = data['board']
+        assert board['owner']['id'] == owner['id']
+        assert board['can_reassign_owner'] is True
+        assert 'available_owner_users' not in board
+
+    def test_board_cards_include_owner_candidates_for_owner(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Board owners can request owner candidates explicitly for reassignment."""
+        owner = get_current_user(api_client, authenticated_session)
+        other_user = get_current_user(api_client, second_user_session)
+
+        response = authenticated_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/cards?include_owner_candidates=true'
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        board = data['board']
+        returned_ids = {user['id'] for user in board['available_owner_users']}
+        assert owner['id'] in returned_ids
+        assert other_user['id'] in returned_ids
+
+    def test_board_cards_include_owner_data_for_viewer(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Board viewers can read owner data but do not get reassignment candidates by default."""
+        second_user = get_current_user(api_client, second_user_session)
+        owner = get_current_user(api_client, authenticated_session)
+
+        grant_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'board_viewer', 'board_id': sample_board['id']}
+        )
+        assert grant_response.status_code == 200
+
+        response = second_user_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards')
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        board = data['board']
+        assert board['owner']['id'] == owner['id']
+        assert board['can_reassign_owner'] is False
+        assert 'available_owner_users' not in board
+
+    def test_board_cards_include_no_owner_candidates_for_viewer(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Board viewers can request board owner metadata but still do not receive reassignment candidates."""
+        second_user = get_current_user(api_client, second_user_session)
+
+        grant_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'board_viewer', 'board_id': sample_board['id']}
+        )
+        assert grant_response.status_code == 200
+
+        response = second_user_session.get(
+            f'{api_client}/api/boards/{sample_board["id"]}/cards?include_owner_candidates=true'
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        board = data['board']
+        assert board['available_owner_users'] == []
+
+    def test_board_cards_forbidden_without_access(self, api_client, second_user_session, sample_board):
+        """Users without board access must not load board payload owner details."""
+        response = second_user_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards')
+        assert response.status_code == 403
+
+    def test_reassign_board_owner_as_owner(self, api_client, authenticated_session, second_user_session):
+        """A non-admin board owner should be able to reassign their board to another user."""
+        second_user = get_current_user(api_client, second_user_session)
+        admin_user = get_current_user(api_client, authenticated_session)
+
+        grant_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'board_creator'}
+        )
+        assert grant_response.status_code == 200
+
+        create_response = second_user_session.post(
+            f'{api_client}/api/boards',
+            json={'name': 'Second User Owned Board', 'description': 'Owned by test user B'}
+        )
+        assert create_response.status_code == 201
+        board_id = create_response.json()['board']['id']
+
+        response = second_user_session.put(
+            f'{api_client}/api/boards/{board_id}/owner',
+            json={'owner_id': admin_user['id']}
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        assert data['board']['owner_id'] == admin_user['id']
+        assert data['owner_id'] == admin_user['id']
+        assert data['owner']['id'] == admin_user['id']
+
+        old_owner_check = second_user_session.get(f'{api_client}/api/boards/{board_id}/cards')
+        assert old_owner_check.status_code == 403
+
+    def test_reassigned_owner_keeps_access_after_giving_board_away(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Users who receive ownership keep board access after giving ownership away again."""
+        second_user = get_current_user(api_client, second_user_session)
+        admin_user = get_current_user(api_client, authenticated_session)
+
+        first_reassign = authenticated_session.put(
+            f'{api_client}/api/boards/{sample_board["id"]}/owner',
+            json={'owner_id': second_user['id']}
+        )
+        assert first_reassign.status_code == 200
+
+        second_reassign = second_user_session.put(
+            f'{api_client}/api/boards/{sample_board["id"]}/owner',
+            json={'owner_id': admin_user['id']}
+        )
+        assert second_reassign.status_code == 200
+
+        former_owner_check = second_user_session.get(f'{api_client}/api/boards/{sample_board["id"]}/cards')
+        assert former_owner_check.status_code == 200
+
+    def test_reassign_board_owner_as_admin(self, api_client, authenticated_session, second_user_session):
+        """Administrators should be able to reassign any board."""
+        second_user = get_current_user(api_client, second_user_session)
+        admin_user = get_current_user(api_client, authenticated_session)
+
+        grant_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'board_creator'}
+        )
+        assert grant_response.status_code == 200
+
+        create_response = second_user_session.post(
+            f'{api_client}/api/boards',
+            json={'name': 'Admin Reassign Test Board', 'description': 'Owned by test user B'}
+        )
+        assert create_response.status_code == 201
+        board_id = create_response.json()['board']['id']
+
+        response = authenticated_session.put(
+            f'{api_client}/api/boards/{board_id}/owner',
+            json={'owner_id': admin_user['id']}
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data['success'] is True
+        assert data['board']['owner_id'] == admin_user['id']
+
+    def test_admin_with_board_specific_role_can_still_reassign_board(self, api_client, authenticated_session, second_user_session, sample_board):
+        """Global administrators should still be able to reassign boards even when they also have board-scoped roles."""
+        second_user = get_current_user(api_client, second_user_session)
+
+        grant_admin_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'administrator'}
+        )
+        assert grant_admin_response.status_code == 200
+
+        grant_viewer_response = authenticated_session.post(
+            f'{api_client}/api/users/{second_user["id"]}/roles',
+            json={'role_name': 'board_viewer', 'board_id': sample_board['id']}
+        )
+        assert grant_viewer_response.status_code == 200
+
+        response = second_user_session.put(
+            f'{api_client}/api/boards/{sample_board["id"]}/owner',
+            json={'owner_id': second_user['id']}
+        )
+        assert response.status_code == 200
     
     def test_delete_board(self, api_client, authenticated_session, sample_board):
         """Test deleting a board."""

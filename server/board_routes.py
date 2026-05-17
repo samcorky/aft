@@ -9,6 +9,7 @@ import json
 import logging
 import re
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from database import SessionLocal
 from models import (
@@ -145,6 +146,76 @@ def _get_board_assignee_users(db, board_id, board=None):
         .order_by(User.username)
         .all()
     )
+
+
+def _get_board_reassignment_users(db):
+    return (
+        db.query(User)
+        .filter(User.is_active.is_(True), User.is_approved.is_(True))
+        .order_by(
+            func.lower(func.coalesce(User.display_name, User.username, User.email)),
+            func.lower(User.username),
+        )
+        .all()
+    )
+
+
+def _can_reassign_board(board, user_id):
+    user_permissions = get_user_permissions(user_id)
+    return board.owner_id == user_id or has_permission(user_permissions, "system.admin")
+
+
+def _build_board_owner_response(board, can_reassign, available_users=None):
+    return {
+        "board": {
+            "id": board.id,
+            "name": board.name,
+            "owner_id": board.owner_id,
+        },
+        "current_owner": _user_summary(board.owner) if board.owner else None,
+        "can_reassign": can_reassign,
+        "available_users": available_users or [],
+    }
+
+
+def _build_board_owner_metadata(board, user_id, db, include_candidates=False):
+    can_reassign = _can_reassign_board(board, user_id)
+    available_users = None
+    if include_candidates and can_reassign:
+        available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)]
+
+    metadata = {
+        "owner_id": board.owner_id,
+        "owner": _user_summary(board.owner) if board.owner else None,
+        "can_reassign_owner": can_reassign,
+    }
+    if include_candidates:
+        metadata["available_owner_users"] = available_users or []
+    return metadata
+
+
+def _ensure_board_editor_role_assignment(db, user_id, board_id):
+    board_editor_role = db.query(Role).filter(Role.name == "board_editor").first()
+    if not board_editor_role:
+        raise ValueError("Required role 'board_editor' not found")
+
+    existing_assignment = db.query(UserRole).filter(
+        UserRole.user_id == user_id,
+        UserRole.role_id == board_editor_role.id,
+        UserRole.board_id == board_id,
+    ).first()
+
+    if existing_assignment:
+        return False
+
+    try:
+        with db.begin_nested():
+            db.add(UserRole(user_id=user_id, role_id=board_editor_role.id, board_id=board_id))
+            db.flush()
+        return True
+    except IntegrityError:
+        # Another concurrent request may have assigned this role first.
+        return False
 
 
 def _apply_assignee_card_filters(cards_query, selected_assignee_ids, include_unassigned, include_secondary_assignees):
@@ -1156,6 +1227,13 @@ def get_board_scheduled_cards(board_id):
         type: integer
         required: true
         description: The ID of the board
+            - name: include_owner_candidates
+                in: query
+                type: string
+                required: false
+                description: Include owner reassignment candidate users when true
+                enum: ['true', 'false']
+                default: 'false'
     responses:
       200:
         description: Board with columns and scheduled cards
@@ -1186,9 +1264,11 @@ def get_board_scheduled_cards(board_id):
         selected_assignee_ids = _parse_assignee_ids_query_param(request.args.get('assignee_ids'))
         include_unassigned = request.args.get('include_unassigned', 'false').lower() == 'true'
         include_secondary_assignees = request.args.get('include_secondary_assignees', 'false').lower() == 'true'
+        include_owner_candidates = request.args.get('include_owner_candidates', 'false').lower() == 'true'
 
         # Build nested structure with scheduled cards
         result = {"id": board.id, "name": board.name, "columns": []}
+        result.update(_build_board_owner_metadata(board, g.user.id, db, include_candidates=include_owner_candidates))
 
         eligible_users = _get_board_assignee_users(db, board_id)
         result["assignee_filter_users"] = [_user_summary(u) for u in eligible_users]
@@ -1526,5 +1606,171 @@ def update_board(board_id):
         db.rollback()
         logger.error(f"Error updating board {board_id}: {str(e)}")
         return create_error_response("Failed to update board", 500)
+    finally:
+        db.close()
+
+
+@board_bp.route("/api/boards/<int:board_id>/owner", methods=["PUT"])
+@require_board_access()
+def reassign_board_owner(board_id):
+    """Reassign a board to a different owner.
+
+    Only board owners and administrators can reassign boards.
+    ---
+    tags:
+        - Boards
+    parameters:
+        - name: board_id
+          in: path
+          type: integer
+          required: true
+          description: The ID of the board
+        - name: body
+          in: body
+          required: true
+          schema:
+              type: object
+              required:
+                  - owner_id
+              properties:
+                  owner_id:
+                      type: integer
+                      example: 2
+                      description: The new owner user ID
+    responses:
+        200:
+            description: Board reassigned successfully
+        400:
+            description: Invalid request body
+        403:
+            description: Only board owners or administrators can reassign boards
+        404:
+            description: Board or owner not found
+        500:
+            description: Server error
+    """
+    db = SessionLocal()
+    try:
+        data = request.get_json(silent=True) or {}
+        new_owner_id = data.get("owner_id")
+
+        if not isinstance(new_owner_id, int) or new_owner_id <= 0:
+            return create_error_response("owner_id must be a positive integer", 400)
+
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return create_error_response("Board not found", 404)
+
+        if not _can_reassign_board(board, g.user.id):
+            return create_error_response(
+                "Only board owners or administrators can reassign boards", 403
+            )
+
+        previous_owner_id = board.owner_id
+
+        new_owner = (
+            db.query(User)
+            .filter(
+                User.id == new_owner_id,
+                User.is_active.is_(True),
+                User.is_approved.is_(True),
+            )
+            .first()
+        )
+        if not new_owner:
+            return create_error_response("Selected owner not found", 404)
+
+        board_editor_assigned = _ensure_board_editor_role_assignment(db, new_owner.id, board.id)
+        available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)]
+
+        board.owner_id = new_owner.id
+        board.updated_at = utc_now()
+        db.commit()
+        db.refresh(board)
+
+        logger.info(
+            "Board %s ownership reassigned from user %s to user %s by user %s",
+            board.id,
+            previous_owner_id,
+            new_owner.id,
+            g.user.id,
+        )
+        if board_editor_assigned:
+            logger.info(
+                "Granted board_editor on board %s to reassigned owner user %s",
+                board.id,
+                new_owner.id,
+            )
+
+        return create_success_response(
+            {
+                **_build_board_owner_response(
+                    board,
+                    _can_reassign_board(board, g.user.id),
+                    available_users=available_users,
+                ),
+                **_build_board_owner_metadata(board, g.user.id, db, include_candidates=True),
+            },
+            message="Board reassigned successfully",
+        )
+    except ValueError as e:
+        db.rollback()
+        logger.error(f"Error reassigning board {board_id}: {str(e)}")
+        return create_error_response(str(e), 500)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error reassigning board {board_id}: {str(e)}")
+        return create_error_response("Failed to reassign board", 500)
+    finally:
+        db.close()
+
+
+@board_bp.route("/api/boards/<int:board_id>/owner", methods=["GET"])
+@require_board_access()
+def get_board_owner(board_id):
+    """Get board owner metadata for reassignment UI.
+
+    Users with board read access can retrieve owner details.
+    Candidate users are returned only for board owners and administrators.
+    ---
+    tags:
+        - Boards
+    parameters:
+        - name: board_id
+          in: path
+          type: integer
+          required: true
+          description: The ID of the board
+    responses:
+        200:
+            description: Board owner metadata loaded successfully
+        404:
+            description: Board not found
+        500:
+            description: Server error
+    """
+    db = SessionLocal()
+    try:
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return create_error_response("Board not found", 404)
+
+        can_reassign = _can_reassign_board(board, g.user.id)
+        available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)] if can_reassign else []
+
+        return create_success_response(
+            {
+                **_build_board_owner_response(
+                    board,
+                    can_reassign,
+                    available_users=available_users,
+                ),
+                **_build_board_owner_metadata(board, g.user.id, db, include_candidates=True),
+            },
+            message="Board owner metadata loaded successfully",
+        )
+    except Exception as e:
+        logger.error(f"Error loading board owner metadata for board {board_id}: {str(e)}")
+        return create_error_response("Failed to load board owner metadata", 500)
     finally:
         db.close()

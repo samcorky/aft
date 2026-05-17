@@ -96,8 +96,9 @@ def register_pending_test_users(expected_count=3, timeout_seconds=10):
             },
             timeout=5,
         )
-        assert response.status_code == 201, response.text
+        assert response.status_code == 201, f"Failed to register user{i}: {response.status_code} - {response.text}"
 
+    # Wait for users to appear in pending list
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         admin_session = requests.Session()
@@ -286,6 +287,11 @@ class TestUserApproval:
             "password": f"UserPass{user_num}123!"
         })
         assert response.status_code == 200
+
+        me_response = user_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert me_response.status_code == 200
+        role_names = [role["name"] for role in me_response.json()["user"]["roles"]]
+        assert 'board_creator' in role_names
     
     def test_reject_user_success(self, admin_session, setup_test_environment):
         """Admin should be able to reject pending users."""
@@ -811,12 +817,12 @@ class TestCompleteUserManagementFlow:
         response = admin.post(f"{API_BASE_URL}/api/users/{user_id}/approve")
         assert response.status_code == 200
         
-        # 6. Assign role
-        response = admin.post(
-            f"{API_BASE_URL}/api/users/{user_id}/roles",
-            json={"role_name": "board_creator"}
-        )
+        # 6. Verify board_creator role is auto-assigned on approval
+        response = admin.get(f"{API_BASE_URL}/api/users")
         assert response.status_code == 200
+        approved_user = next(u for u in response.json()['users'] if u['id'] == user_id)
+        role_names = [r['name'] for r in approved_user['roles']]
+        assert 'board_creator' in role_names
         
         # 7. Verify user can login
         user_session = requests.Session()

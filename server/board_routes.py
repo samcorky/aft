@@ -1227,13 +1227,13 @@ def get_board_scheduled_cards(board_id):
         type: integer
         required: true
         description: The ID of the board
-            - name: include_owner_candidates
-                in: query
-                type: string
-                required: false
-                description: Include owner reassignment candidate users when true
-                enum: ['true', 'false']
-                default: 'false'
+      - name: include_owner_candidates
+        in: query
+        type: string
+        required: false
+        description: Include owner reassignment candidate users when true
+        enum: ['true', 'false']
+        default: 'false'
     responses:
       200:
         description: Board with columns and scheduled cards

@@ -8,17 +8,16 @@ This module provides admin-only endpoints for:
 - Activating/deactivating users
 """
 
-import json
 from flask import Blueprint, jsonify, request, g
 from database import SessionLocal
 from datetime_helpers import serialize_datetime
 from models import User, Role, UserRole
+from auth import ensure_global_role
 from utils import (
     require_permission,
     create_error_response,
     create_success_response,
 )
-from permissions import INITIAL_ROLES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -219,31 +218,14 @@ def approve_user(user_id):
         
         user.is_approved = True
 
-        # Ensure approved users always get full theme rights globally.
-        # This gives access to copy system themes and manage only their own copies.
-        theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
-        if not theme_role:
-            role_info = INITIAL_ROLES.get('theme_user')
-            if role_info:
-                theme_role = Role(
-                    name='theme_user',
-                    description=role_info['description'],
-                    is_system_role=role_info['is_system_role'],
-                    permissions=json.dumps(role_info['permissions'])
-                )
-                db.add(theme_role)
-                db.flush()
-
-        if theme_role:
-            existing_theme_role = db.query(UserRole).filter(
-                UserRole.user_id == user.id,
-                UserRole.role_id == theme_role.id,
-                UserRole.board_id.is_(None)
-            ).first()
-            if not existing_theme_role:
-                db.add(UserRole(user_id=user.id, role_id=theme_role.id, board_id=None))
-        else:
-            logger.warning("System role 'theme_user' is unavailable; approved user may lack theme rights")
+        # Ensure approved users always receive baseline global roles.
+        # - theme_user: manage personal theme copies
+        # - board_creator: create and own new boards
+        for role_name in ('theme_user', 'board_creator'):
+            try:
+                ensure_global_role(db, user.id, role_name)
+            except ValueError:
+                logger.warning("System role '%s' is not defined; approved user may miss baseline access", role_name)
 
         db.commit()
 

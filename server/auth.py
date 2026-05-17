@@ -50,34 +50,43 @@ SESSION_LIFETIME_HOURS = 24 * 7  # 7 days
 REMEMBER_ME_LIFETIME_DAYS = 30
 
 
-def ensure_theme_user_role(db, user_id):
-  """Ensure the user has the global theme_user role."""
-  theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
-  if not theme_role:
-    role_info = INITIAL_ROLES.get('theme_user')
-    if role_info:
-      theme_role = Role(
-        name='theme_user',
-        description=role_info['description'],
-        is_system_role=role_info['is_system_role'],
-        permissions=json.dumps(role_info['permissions'])
-      )
-      db.add(theme_role)
-      db.flush()
+def ensure_global_role(db, user_id, role_name):
+  """Ensure the user has the specified global role.
 
-  if not theme_role:
-    return False
+  Returns True if the role was newly assigned, False if the user already had it.
+  Raises ValueError if the role is not defined in INITIAL_ROLES and does not
+  already exist in the database, so callers can distinguish a no-op from a
+  configuration failure without issuing an extra query.
+  """
+  role = db.query(Role).filter(Role.name == role_name).first()
+  if not role:
+    role_info = INITIAL_ROLES.get(role_name)
+    if not role_info:
+      raise ValueError(f"System role '{role_name}' is not defined in INITIAL_ROLES")
+    role = Role(
+      name=role_name,
+      description=role_info['description'],
+      is_system_role=role_info['is_system_role'],
+      permissions=json.dumps(role_info['permissions'])
+    )
+    db.add(role)
+    db.flush()
 
   existing_assignment = db.query(UserRole).filter(
     UserRole.user_id == user_id,
-    UserRole.role_id == theme_role.id,
+    UserRole.role_id == role.id,
     UserRole.board_id.is_(None)
   ).first()
   if existing_assignment:
     return False
 
-  db.add(UserRole(user_id=user_id, role_id=theme_role.id, board_id=None))
+  db.add(UserRole(user_id=user_id, role_id=role.id, board_id=None))
   return True
+
+
+def ensure_theme_user_role(db, user_id):
+  """Ensure the user has the global theme_user role."""
+  return ensure_global_role(db, user_id, 'theme_user')
 
 
 def hash_password(password: str) -> str:
@@ -374,9 +383,6 @@ def login():
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
 
-            # Guarantee baseline theme rights for all approved users.
-            ensure_theme_user_role(db, user.id)
-            
             # Update last login
             user.last_login_at = func.now()
             db.commit()
@@ -614,11 +620,6 @@ def get_current_user():
     try:
         from utils import get_user_permissions
 
-        # Backfill theme role for existing approved users on first authenticated access.
-        changed = ensure_theme_user_role(db, user.id)
-        if changed:
-            db.commit()
-        
         roles = db.query(Role).join(UserRole).filter(
             UserRole.user_id == user.id,
             UserRole.board_id.is_(None)  # Global roles only

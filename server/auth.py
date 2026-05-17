@@ -134,6 +134,18 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def _password_session_fingerprint(password_hash: str) -> str:
+    """Create a stable short fingerprint for session validation.
+
+    The fingerprint lets us invalidate existing sessions when a password hash
+    changes (for example, after an admin reset) without storing server-side
+    session records.
+    """
+    if not password_hash:
+        return ''
+    return hashlib.sha256(password_hash.encode('utf-8')).hexdigest()[:16]
+
+
 def _resolve_session_user(skip_email_hash_validation=False):
     """Resolve and validate the current session user.
 
@@ -148,6 +160,7 @@ def _resolve_session_user(skip_email_hash_validation=False):
     """
     user_id = session.get('user_id')
     stored_email_hash = session.get('user_email_hash')
+    stored_password_fingerprint = session.get('user_pwd_hash')
 
     if not user_id:
         return None, None
@@ -169,6 +182,16 @@ def _resolve_session_user(skip_email_hash_validation=False):
             current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             if stored_email_hash != current_email_hash:
                 logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
+                session.clear()
+                db.close()
+                return None, None
+
+            current_password_fingerprint = _password_session_fingerprint(user.password_hash)
+            if stored_password_fingerprint != current_password_fingerprint:
+                logger.info(
+                    "Session password fingerprint mismatch for user_id=%s; forcing re-authentication",
+                    user_id,
+                )
                 session.clear()
                 db.close()
                 return None, None
@@ -381,6 +404,7 @@ def login():
             session.clear()
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+            session['user_pwd_hash'] = _password_session_fingerprint(user.password_hash)
             session.permanent = remember_me
 
             # Update last login
@@ -953,7 +977,7 @@ def register():
 @auth_bp.route('/change-password', methods=['POST'])
 def change_password():
     """
-    Change password for current authenticated user.
+    Change password for current authenticated user or reset another user's password as an administrator.
     ---
     tags:
       - Authentication
@@ -964,13 +988,15 @@ def change_password():
         schema:
           type: object
           required:
-            - current_password
             - new_password
           properties:
+            user_id:
+              type: integer
+              description: Optional target user ID (administrator role only)
             current_password:
               type: string
               format: password
-              description: Current password
+              description: Current password (required when changing your own password)
             new_password:
               type: string
               format: password
@@ -989,6 +1015,10 @@ def change_password():
         description: Validation error
       401:
         description: Not authenticated or current password incorrect
+      403:
+        description: Non-administrator attempted to reset another user's password
+      404:
+        description: Target user not found
     """
     if not g.get('user'):
         return create_error_response("Not authenticated", 401)
@@ -1001,8 +1031,19 @@ def change_password():
         
         current_password = data.get('current_password', '')
         new_password = data.get('new_password', '')
-        
-        if not current_password or not new_password:
+        target_user_id = data.get('user_id', g.user.id)
+
+        try:
+            target_user_id = int(target_user_id)
+        except (TypeError, ValueError):
+            return create_error_response("Invalid user_id", 400)
+
+        is_admin_reset = target_user_id != g.user.id
+
+        if is_admin_reset and not new_password:
+            return create_error_response("New password is required", 400)
+
+        if not is_admin_reset and (not current_password or not new_password):
             return create_error_response("Current and new password are required", 400)
         
         if len(new_password) < 8:
@@ -1010,21 +1051,43 @@ def change_password():
         
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == g.user.id).first()
-            
-            if not user or not user.password_hash:
+            if is_admin_reset:
+                admin_role_assignment = db.query(UserRole.id).join(Role).filter(
+                    UserRole.user_id == g.user.id,
+                    UserRole.board_id.is_(None),
+                    Role.name == 'administrator'
+                ).first()
+                if not admin_role_assignment:
+                    return create_error_response("Administrator role required to reset another user's password", 403)
+
+            user = db.query(User).filter(User.id == target_user_id).first()
+
+            if not user:
+                return create_error_response("User not found", 404)
+
+            if not user.password_hash:
                 return create_error_response("Cannot change password for this account", 400)
-            
-            # Verify current password
-            if not verify_password(current_password, user.password_hash):
-                return create_error_response("Current password is incorrect", 401)
-            
-            # Update password
+
+            if not is_admin_reset:
+                # Verify current password for self-service password changes.
+                if not verify_password(current_password, user.password_hash):
+                    return create_error_response("Current password is incorrect", 401)
+
+            # Update password for either self-change or admin reset.
             user.password_hash = hash_password(new_password)
             db.commit()
-            
+
+            if is_admin_reset:
+                logger.info(
+                    "Password reset for user: %s (ID: %s) by admin %s",
+                    user.email,
+                    user.id,
+                    g.user.id,
+                )
+                return create_success_response(message="Password reset successfully")
+
             logger.info(f"Password changed for user: {user.email} (ID: {user.id})")
-            
+
             return create_success_response(message="Password changed successfully")
             
         finally:
@@ -1306,6 +1369,7 @@ def setup_admin():
             # Auto-login after setup
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+            session['user_pwd_hash'] = _password_session_fingerprint(user.password_hash)
             
             # Get user's roles and permissions
             from utils import get_user_permissions

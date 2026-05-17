@@ -38,7 +38,7 @@ from utils import (
 )
 from board_routes import (
     _apply_assignee_card_filters,
-  _build_board_owner_metadata,
+    _build_board_owner_metadata,
     _get_board_assignee_users,
     _get_board_eligible_assignee_ids,
     _parse_assignee_ids_query_param,
@@ -225,6 +225,13 @@ def get_board_cards(board_id):
         required: false
         description: Filter by archived status - 'true' for archived, 'false' for unarchived, 'both' for all (default is 'false')
         enum: ['true', 'false', 'both']
+        default: 'false'
+      - name: include_owner_candidates
+        in: query
+        type: string
+        required: false
+        description: Include owner reassignment candidate users when true
+        enum: ['true', 'false']
         default: 'false'
     responses:
       200:

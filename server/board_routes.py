@@ -9,6 +9,7 @@ import json
 import logging
 import re
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from database import SessionLocal
 from models import (
@@ -207,8 +208,14 @@ def _ensure_board_editor_role_assignment(db, user_id, board_id):
     if existing_assignment:
         return False
 
-    db.add(UserRole(user_id=user_id, role_id=board_editor_role.id, board_id=board_id))
-    return True
+    try:
+        with db.begin_nested():
+            db.add(UserRole(user_id=user_id, role_id=board_editor_role.id, board_id=board_id))
+            db.flush()
+        return True
+    except IntegrityError:
+        # Another concurrent request may have assigned this role first.
+        return False
 
 
 def _apply_assignee_card_filters(cards_query, selected_assignee_ids, include_unassigned, include_secondary_assignees):
@@ -1220,6 +1227,13 @@ def get_board_scheduled_cards(board_id):
         type: integer
         required: true
         description: The ID of the board
+            - name: include_owner_candidates
+                in: query
+                type: string
+                required: false
+                description: Include owner reassignment candidate users when true
+                enum: ['true', 'false']
+                default: 'false'
     responses:
       200:
         description: Board with columns and scheduled cards
@@ -1667,6 +1681,7 @@ def reassign_board_owner(board_id):
             return create_error_response("Selected owner not found", 404)
 
         board_editor_assigned = _ensure_board_editor_role_assignment(db, new_owner.id, board.id)
+        available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)]
 
         board.owner_id = new_owner.id
         board.updated_at = utc_now()
@@ -1689,7 +1704,11 @@ def reassign_board_owner(board_id):
 
         return create_success_response(
             {
-                **_build_board_owner_response(board, _can_reassign_board(board, g.user.id)),
+                **_build_board_owner_response(
+                    board,
+                    _can_reassign_board(board, g.user.id),
+                    available_users=available_users,
+                ),
                 **_build_board_owner_metadata(board, g.user.id, db, include_candidates=True),
             },
             message="Board reassigned successfully",
@@ -1702,5 +1721,56 @@ def reassign_board_owner(board_id):
         db.rollback()
         logger.error(f"Error reassigning board {board_id}: {str(e)}")
         return create_error_response("Failed to reassign board", 500)
+    finally:
+        db.close()
+
+
+@board_bp.route("/api/boards/<int:board_id>/owner", methods=["GET"])
+@require_board_access()
+def get_board_owner(board_id):
+    """Get board owner metadata for reassignment UI.
+
+    Users with board read access can retrieve owner details.
+    Candidate users are returned only for board owners and administrators.
+    ---
+    tags:
+        - Boards
+    parameters:
+        - name: board_id
+          in: path
+          type: integer
+          required: true
+          description: The ID of the board
+    responses:
+        200:
+            description: Board owner metadata loaded successfully
+        404:
+            description: Board not found
+        500:
+            description: Server error
+    """
+    db = SessionLocal()
+    try:
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return create_error_response("Board not found", 404)
+
+        can_reassign = _can_reassign_board(board, g.user.id)
+        available_users = [_user_summary(user) for user in _get_board_reassignment_users(db)] if can_reassign else []
+
+        return create_success_response(
+            {
+                **_build_board_owner_response(
+                    board,
+                    can_reassign,
+                    available_users=available_users,
+                ),
+                **_build_board_owner_metadata(board, g.user.id, db, include_candidates=True),
+            },
+            message="Board owner metadata loaded successfully",
+        )
+    except Exception as e:
+        logger.error(f"Error loading board owner metadata for board {board_id}: {str(e)}")
+        return create_error_response("Failed to load board owner metadata", 500)
     finally:
         db.close()

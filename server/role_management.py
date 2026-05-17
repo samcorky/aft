@@ -240,8 +240,8 @@ def get_user_roles():
     """
     db = SessionLocal()
     try:
-        # Get all active users
-        users = db.query(User).filter(User.is_active).order_by(User.username).all()
+        # Get all active AND approved users (unapproved users should not be manageable)
+        users = db.query(User).filter(User.is_active, User.is_approved).order_by(User.username).all()
         
         user_list = []
         for user in users:

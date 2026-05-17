@@ -85,7 +85,36 @@ def ensure_test_admin_session(admin_session, timeout_seconds=10):
 
 
 def register_pending_test_users(expected_count=3, timeout_seconds=10):
-    """Register the default pending users used by this test module."""
+    """Register the default pending users used by this test module.
+    
+    Ensures clean state: removes any pre-existing test users before registering new ones.
+    This handles cases where the database was not fully reset or users remained in a mixed state.
+    """
+    admin_session = requests.Session()
+    ensure_test_admin_session(admin_session, timeout_seconds=5)
+    
+    # First, remove any pre-existing test users (both pending and approved)
+    # to ensure clean state even if database reset was incomplete
+    all_users_response = admin_session.get(f"{API_BASE_URL}/api/users", timeout=5)
+    if all_users_response.status_code == 200:
+        all_users = all_users_response.json().get('users', [])
+        for user in all_users:
+            if user['email'].startswith('user') and user['email'].endswith('@test.com'):
+                # Delete pending users
+                if not user.get('is_approved'):
+                    reject_response = admin_session.post(
+                        f"{API_BASE_URL}/api/users/{user['id']}/reject",
+                        timeout=5
+                    )
+                    # 400 means already approved, 200 means rejected successfully
+                else:
+                    # For approved users, deactivate then delete if possible
+                    deactivate_response = admin_session.post(
+                        f"{API_BASE_URL}/api/users/{user['id']}/deactivate",
+                        timeout=5
+                    )
+    
+    # Now register fresh test users
     for i in range(expected_count):
         response = requests.post(
             f"{API_BASE_URL}/api/auth/register",
@@ -96,8 +125,9 @@ def register_pending_test_users(expected_count=3, timeout_seconds=10):
             },
             timeout=5,
         )
-        assert response.status_code == 201, response.text
+        assert response.status_code == 201, f"Failed to register user{i}: {response.status_code} - {response.text}"
 
+    # Wait for users to appear in pending list
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         admin_session = requests.Session()

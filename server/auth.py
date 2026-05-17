@@ -628,9 +628,13 @@ def get_current_user():
         # Backfill baseline roles for existing approved users on first authenticated access.
         changed = ensure_theme_user_role(db, user.id)
         if ensure_board_creator_role(db, user.id):
-          changed = True
+            changed = True
         if changed:
-            db.commit()
+            try:
+                db.commit()
+            except Exception as e:
+                logger.error(f"Failed to commit role backfill for user {user.id}: {e}")
+                db.rollback()
         
         roles = db.query(Role).join(UserRole).filter(
             UserRole.user_id == user.id,

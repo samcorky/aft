@@ -1176,6 +1176,13 @@ class Header {
       }
     });
 
+    // Always refresh from the owner endpoint so visibility does not depend on
+    // board payload/event timing or metadata shape.
+    const refreshedOptions = await this.fetchBoardReassignmentOptions(false);
+    if (refreshedOptions) {
+      this.boardReassignmentOptions = refreshedOptions;
+    }
+
     this.refreshBoardReassignMenuState();
   }
 

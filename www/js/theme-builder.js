@@ -623,6 +623,7 @@ class ThemeBuilder {
   showUnsavedChangesModal() {
     const modal = document.getElementById('unsaved-changes-modal');
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, close);
     
     // Set up event listeners (remove old ones first)
     const closeBtn = document.getElementById('unsaved-changes-close');
@@ -934,6 +935,7 @@ class ThemeBuilder {
     nameInput.value = this.currentThemeData ? `${this.currentThemeData.name} Copy` : '';
     errorDiv.style.display = 'none';
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideCopyModal());
     nameInput.focus();
   }
   
@@ -1045,6 +1047,7 @@ class ThemeBuilder {
     nameInput.value = this.currentThemeData.name;
     errorDiv.style.display = 'none';
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideRenameModal());
     nameInput.focus();
     nameInput.select();
   }
@@ -1158,6 +1161,7 @@ class ThemeBuilder {
     
     nameSpan.textContent = this.currentThemeData.name;
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideDeleteModal());
   }
   
   hideDeleteModal() {
@@ -1244,6 +1248,7 @@ class ThemeBuilder {
       modal.style.display = 'none';
       header.classList.remove('error');
     };
+    setupModalEscapeClose(modal, close);
     closeBtn.onclick = close;
     okBtn.onclick = close;
   }

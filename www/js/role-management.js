@@ -351,6 +351,7 @@ class RoleManagement {
     this.renderPermissionsGrid(role ? role.permissions : []);
     
     this.roleEditorModal.style.display = 'flex';
+    setupModalEscapeClose(this.roleEditorModal, () => this.closeRoleEditorModal());
   }
 
   closeRoleEditorModal() {
@@ -489,6 +490,7 @@ class RoleManagement {
     this.copyRoleNameInput.value = `${role.name} (Copy)`;
     this.copyRoleError.style.display = 'none';
     this.copyRoleModal.style.display = 'flex';
+    setupModalEscapeClose(this.copyRoleModal, () => this.closeCopyRoleModal());
   }
 
   closeCopyRoleModal() {
@@ -544,6 +546,7 @@ class RoleManagement {
     };
     
     this.confirmModal.style.display = 'flex';
+    setupModalEscapeClose(this.confirmModal, () => this.closeConfirmModal());
   }
 
   async deleteRole(roleId) {

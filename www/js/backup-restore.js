@@ -382,6 +382,7 @@ class BackupRestore {
     };
 
     confirmBtn.addEventListener('click', handleConfirm);
+    setupModalEscapeClose(modal, handleCancel);
     cancelBtn.addEventListener('click', handleCancel);
   }
 
@@ -867,6 +868,7 @@ class BackupRestore {
     };
 
     confirmBtn.addEventListener('click', handleConfirm);
+    setupModalEscapeClose(modal, handleCancel);
     cancelBtn.addEventListener('click', handleCancel);
   }
 
@@ -896,6 +898,7 @@ class BackupRestore {
       }
     };
 
+    setupModalEscapeClose(modal, handleOk);
     confirmBtn.addEventListener('click', handleOk);
   }
 

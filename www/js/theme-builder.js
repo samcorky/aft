@@ -623,7 +623,6 @@ class ThemeBuilder {
   showUnsavedChangesModal() {
     const modal = document.getElementById('unsaved-changes-modal');
     modal.style.display = 'flex';
-    setupModalEscapeClose(modal, close);
     
     // Set up event listeners (remove old ones first)
     const closeBtn = document.getElementById('unsaved-changes-close');
@@ -643,6 +642,8 @@ class ThemeBuilder {
         await this.doApplyTheme();
       }
     };
+
+    setupModalEscapeClose(modal, close);
     
     closeBtn.onclick = close;
     discardBtn.onclick = discard;

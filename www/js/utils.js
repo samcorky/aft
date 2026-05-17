@@ -568,20 +568,6 @@ class ModalDialog {
 const modalDialog = new ModalDialog();
 
 /**
- * Display a styled alert modal dialog (replacement for browser alert()).
- * Supports multi-line messages using \n characters.
- * 
- * @param {string} message - The message to display. Use \n for line breaks.
- * @param {string} [title='Alert'] - The title of the alert dialog.
- * @returns {Promise<boolean>} Promise that resolves to true when dismissed.
- * 
- * @example
- * await showAlert('Operation completed successfully!');
- * 
- * @example
- * await showAlert('Error details:\n\nFailed to save data.\nPlease try again.', 'Error');
- */
-/**
  * Close a modal when Escape is pressed, using the provided close handler.
  * Returns a cleanup function that removes the Escape listener.
  *
@@ -624,6 +610,21 @@ function setupModalEscapeClose(modal, closeHandler) {
   modal[MODAL_ESCAPE_CLEANUP_KEY] = cleanup;
   return cleanup;
 }
+
+/**
+ * Display a styled alert modal dialog (replacement for browser alert()).
+ * Supports multi-line messages using \n characters.
+ * 
+ * @param {string} message - The message to display. Use \n for line breaks.
+ * @param {string} [title='Alert'] - The title of the alert dialog.
+ * @returns {Promise<boolean>} Promise that resolves to true when dismissed.
+ * 
+ * @example
+ * await showAlert('Operation completed successfully!');
+ * 
+ * @example
+ * await showAlert('Error details:\n\nFailed to save data.\nPlease try again.', 'Error');
+ */
 function showAlert(message, title = 'Alert') {
   return modalDialog.alert(message, title);
 }

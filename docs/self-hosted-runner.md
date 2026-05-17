@@ -102,19 +102,19 @@ On any server (no repo clone needed — just a `.env` file):
 
 ```sh
 # Download the default compose file
-curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.yml
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.example.yml
 
 # Create your .env with DB credentials, SECRET_KEY, HEALTHCHECK_TOKEN, etc.
 nano .env
 
 # Pull latest images and start the stack
-docker compose pull
-docker compose up -d
+docker compose -f compose.example.yml pull
+docker compose -f compose.example.yml up -d
 ```
 
 To update to a newer release in future:
 
 ```sh
-docker compose pull
-docker compose up -d
+docker compose -f compose.example.yml pull
+docker compose -f compose.example.yml up -d
 ```

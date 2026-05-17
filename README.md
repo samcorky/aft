@@ -30,9 +30,10 @@ Authentication should be rock solid, data should be secure, known exploits patch
 No repo clone needed — images are published to GitHub Container Registry on each release.
 
 ```sh
-curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.yml
+curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/compose.example.yml
 curl -O https://raw.githubusercontent.com/sjefferson99/aft/main/.env.example
 mv .env.example .env
+mv compose.example.yml compose.yml
 ```
 
 > **Note:** The GHCR images are public, so `docker compose pull` requires no authentication. If you are pulling a private fork, log in first with `docker login ghcr.io`.
@@ -50,19 +51,19 @@ Available images:
 - `ghcr.io/sjefferson99/aft-web:latest` — nginx + UI (proxies to the server)
 
 ### Server-only deployment
-Remove or comment out the `nginx` service in `compose.yml` to run the API server without the web UI.
+Remove or comment out the `nginx` service in `compose.example.yml` before renaming it to `compose.yml` to run the API server without the web UI.
 
 ### Development / build from source
-Use `compose.dev.yml` to build images locally from the repo:
+Use `compose.yml` to build images locally from the repo:
 
-- Always use `compose.dev.yml` for local development/testing.
+- Always use `compose.yml` for local development/testing.
 - Always include `--build` when starting the dev stack so current source changes are applied.
-- Do not use `compose.yml` for development testing (it is for GHCR deployment images).
+- Use `compose.example.yml` as the GHCR deployment template.
 
 ```sh
 git clone https://github.com/sjefferson99/aft.git
 cd aft
-docker compose -f compose.dev.yml up --build -d
+docker compose up --build -d
 ```
 
 ## Features in detail

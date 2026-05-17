@@ -384,9 +384,8 @@ def login():
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
 
-            # Guarantee baseline global roles for all approved users.
+            # Guarantee baseline theme role for all approved users.
             ensure_theme_user_role(db, user.id)
-            ensure_board_creator_role(db, user.id)
             
             # Update last login
             user.last_login_at = func.now()
@@ -625,11 +624,9 @@ def get_current_user():
     try:
         from utils import get_user_permissions
 
-        # Backfill baseline roles for existing approved users on first authenticated access.
-        changed = ensure_theme_user_role(db, user.id)
-        if ensure_board_creator_role(db, user.id):
-            changed = True
-        if changed:
+        # Backfill theme role for existing approved users on first authenticated access.
+        # Board creator role is assigned only at approval time, not on login.
+        if ensure_theme_user_role(db, user.id):
             try:
                 db.commit()
             except Exception as e:

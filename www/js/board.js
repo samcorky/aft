@@ -3665,6 +3665,7 @@ class BoardManager {
 
     // Close modal when clicking outside (ignore text selection drags)
     setupModalBackgroundClose(modal, handleCancel);
+    setupModalEscapeClose(modal, handleCancel);
   }
 
   openAddColumnModal() {
@@ -3702,12 +3703,20 @@ class BoardManager {
     const cancelBtn = document.getElementById('cancel-column-btn');
     const nameInput = document.getElementById('column-name');
 
+    let removeEscapeClose = () => {};
+    const closeModal = () => {
+      removeEscapeClose();
+      modal.remove();
+    };
+
+    removeEscapeClose = setupModalEscapeClose(modal, closeModal);
+
     // Focus on input
     nameInput.focus();
 
     // Handle cancel
     cancelBtn.addEventListener('click', () => {
-      modal.remove();
+      closeModal();
     });
 
     // Handle form submit
@@ -3717,7 +3726,7 @@ class BoardManager {
       
       if (columnName) {
         await this.createColumn(columnName);
-        modal.remove();
+        closeModal();
       }
     });
 
@@ -4124,6 +4133,7 @@ class BoardManager {
 
     // Close modal on background click with warning (ignore text selection drags)
     setupModalBackgroundClose(modal, handleCancel);
+    setupModalEscapeClose(modal, handleCancel);
   }
 
   async createColumn(name) {
@@ -4930,6 +4940,7 @@ class BoardManager {
 
     // Close modal on background click with warning (ignore text selection drags)
     setupModalBackgroundClose(modal, handleCancel);
+    setupModalEscapeClose(modal, handleCancel);
   }
 
   async createCard(columnId, title, description, order = null, checklistItems = [], scheduled = false) {
@@ -5934,6 +5945,7 @@ class BoardManager {
 
     // Close modal on background click with warning (ignore text selection drags)
     setupModalBackgroundClose(modal, handleCancel);
+    setupModalEscapeClose(modal, handleCancel);
   }
 
   async getCardData(cardId) {

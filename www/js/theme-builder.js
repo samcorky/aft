@@ -642,6 +642,8 @@ class ThemeBuilder {
         await this.doApplyTheme();
       }
     };
+
+    setupModalEscapeClose(modal, close);
     
     closeBtn.onclick = close;
     discardBtn.onclick = discard;
@@ -934,6 +936,7 @@ class ThemeBuilder {
     nameInput.value = this.currentThemeData ? `${this.currentThemeData.name} Copy` : '';
     errorDiv.style.display = 'none';
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideCopyModal());
     nameInput.focus();
   }
   
@@ -1045,6 +1048,7 @@ class ThemeBuilder {
     nameInput.value = this.currentThemeData.name;
     errorDiv.style.display = 'none';
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideRenameModal());
     nameInput.focus();
     nameInput.select();
   }
@@ -1158,6 +1162,7 @@ class ThemeBuilder {
     
     nameSpan.textContent = this.currentThemeData.name;
     modal.style.display = 'flex';
+    setupModalEscapeClose(modal, () => this.hideDeleteModal());
   }
   
   hideDeleteModal() {
@@ -1244,6 +1249,7 @@ class ThemeBuilder {
       modal.style.display = 'none';
       header.classList.remove('error');
     };
+    setupModalEscapeClose(modal, close);
     closeBtn.onclick = close;
     okBtn.onclick = close;
   }

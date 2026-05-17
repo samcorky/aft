@@ -568,6 +568,50 @@ class ModalDialog {
 const modalDialog = new ModalDialog();
 
 /**
+ * Close a modal when Escape is pressed, using the provided close handler.
+ * Returns a cleanup function that removes the Escape listener.
+ *
+ * @param {HTMLElement} modal - The modal element to bind.
+ * @param {Function} closeHandler - Function to invoke when Escape is pressed.
+ * @returns {Function} Cleanup function that removes the listener.
+ */
+const MODAL_ESCAPE_CLEANUP_KEY = '__aftModalEscapeCleanup';
+
+function setupModalEscapeClose(modal, closeHandler) {
+  if (!modal || typeof closeHandler !== 'function') {
+    return () => {};
+  }
+
+  const previousCleanup = modal[MODAL_ESCAPE_CLEANUP_KEY];
+  if (typeof previousCleanup === 'function') {
+    previousCleanup();
+  }
+
+  const handleKeydown = (event) => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    event.preventDefault();
+    Promise.resolve(closeHandler()).catch((error) => {
+      console.error('Error in modal Escape close handler:', error);
+    });
+  };
+
+  document.addEventListener('keydown', handleKeydown);
+
+  const cleanup = () => {
+    document.removeEventListener('keydown', handleKeydown);
+    if (modal[MODAL_ESCAPE_CLEANUP_KEY] === cleanup) {
+      modal[MODAL_ESCAPE_CLEANUP_KEY] = null;
+    }
+  };
+
+  modal[MODAL_ESCAPE_CLEANUP_KEY] = cleanup;
+  return cleanup;
+}
+
+/**
  * Display a styled alert modal dialog (replacement for browser alert()).
  * Supports multi-line messages using \n characters.
  * 

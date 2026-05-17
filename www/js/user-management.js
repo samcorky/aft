@@ -697,6 +697,7 @@ class UserManagement {
     });
     
     this.confirmModal.style.display = 'flex';
+    setupModalEscapeClose(this.confirmModal, () => this.closeConfirmModal());
     console.log('Modal displayed');
   }
 
@@ -877,6 +878,7 @@ class UserManagement {
     
     // Display modal
     this.addUserModal.style.display = 'flex';
+    setupModalEscapeClose(this.addUserModal, () => this.closeAddUserModal());
     
     // Focus on first field after modal is visible
     this.addUserEmail.focus();
@@ -1028,6 +1030,7 @@ class UserManagement {
     this.resetPasswordUserName.textContent = `Reset password for ${displayName}`;
 
     this.resetPasswordModal.style.display = 'flex';
+    setupModalEscapeClose(this.resetPasswordModal, () => this.closeResetPasswordModal());
     this.resetPasswordNew.focus();
   }
 
@@ -1457,6 +1460,7 @@ class UserManagement {
     }
 
     this.addRoleModal.style.display = 'flex';
+    setupModalEscapeClose(this.addRoleModal, () => this.closeAddRoleModal());
   }
   
   handleRoleSelectChange() {
@@ -1578,6 +1582,7 @@ class UserManagement {
     });
     
     this.confirmModal.style.display = 'flex';
+    setupModalEscapeClose(this.confirmModal, () => this.closeConfirmModal());
   }
 
   async removeRole(userId, roleId, boardId) {

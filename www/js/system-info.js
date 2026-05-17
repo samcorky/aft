@@ -513,6 +513,7 @@ class SystemInfo {
     }
 
     this.cardRegenerateModal.classList.add('active');
+    setupModalEscapeClose(this.cardRegenerateModal, () => this.closeCardRegenerateModal());
     this.scheduleCardRegeneratePreview(true);
   }
 
@@ -719,6 +720,7 @@ class SystemInfo {
 
   openDeleteModal() {
     this.modal.classList.add('active');
+    setupModalEscapeClose(this.modal, () => this.closeDeleteModal());
     this.confirmInput.value = '';
     this.errorMessage.textContent = '';
     this.confirmInput.focus();

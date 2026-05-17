@@ -829,13 +829,14 @@ class UserManagement {
     this.addUserErrorMessage.style.display = 'none';
     this.addUserErrorMessage.textContent = '';
     
-    // Disable submit button
+    // Enable submit button
     this.addUserOkBtn.disabled = false;
     
-    // Focus on first field
-    this.addUserEmail.focus();
-    
+    // Display modal
     this.addUserModal.style.display = 'flex';
+    
+    // Focus on first field after modal is visible
+    this.addUserEmail.focus();
   }
 
   closeAddUserModal() {
@@ -891,6 +892,13 @@ class UserManagement {
       return;
     }
 
+    // Validate username format: letters, numbers, underscores, and hyphens only
+    const usernameRegex = /^[a-zA-Z0-9_-]+$/;
+    if (!usernameRegex.test(username)) {
+      this.showAddUserError('Username can only contain letters, numbers, underscores, and hyphens');
+      return;
+    }
+
     // Disable button during submission
     this.addUserOkBtn.disabled = true;
     const originalText = this.addUserOkBtn.textContent;
@@ -928,7 +936,15 @@ class UserManagement {
       const approveData = await approveResponse.json();
 
       if (!approveResponse.ok || !approveData.success) {
-        throw new Error(approveData.message || 'Failed to approve user');
+        // User was created but approval failed - provide specific feedback
+        console.error('User created but approval failed:', approveData);
+        this.showAddUserError('User was created but approval failed. Please approve the account from the Pending Approval list.');
+        this.closeAddUserModal();
+        // Reload pending users to show the newly created user
+        if (typeof this.loadPendingUsers === 'function') {
+          await this.loadPendingUsers();
+        }
+        return;
       }
 
       // Success! Close modal and refresh user list

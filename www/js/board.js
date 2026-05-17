@@ -1736,6 +1736,12 @@ class BoardManager {
   processBoard(board) {
     try {
       this.boardName = board.name;
+      this.boardOwnerData = {
+        owner_id: board.owner_id,
+        owner: board.owner || null,
+        can_reassign_owner: board.can_reassign_owner === true,
+        available_owner_users: Array.isArray(board.available_owner_users) ? board.available_owner_users : []
+      };
       this.assigneeFilterUsers = Array.isArray(board.assignee_filter_users) ? board.assignee_filter_users : [];
 
       const eligibleUserIds = new Set(this.assigneeFilterUsers.map((u) => u.id));
@@ -1769,6 +1775,12 @@ class BoardManager {
       
       // Update header with board name and page title
       this.updateBoardTitle();
+      window.dispatchEvent(new CustomEvent('boardOwnerDataLoaded', {
+        detail: {
+          boardId: this.boardId,
+          ...this.boardOwnerData,
+        }
+      }));
       this.hasLoadedBoardData = true;
       
       this.renderBoard();

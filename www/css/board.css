@@ -703,6 +703,14 @@
   max-width: 480px;
 }
 
+.modal-content.board-owner-modal-content {
+  max-width: 480px;
+}
+
+.board-owner-current {
+  margin-bottom: 12px;
+}
+
 .assignee-modal-section {
   margin-top: 16px;
 }

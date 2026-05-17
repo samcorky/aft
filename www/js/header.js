@@ -205,8 +205,10 @@ class Header {
     this.mobileBreakpoint = 900;
     this.boardFiltersVisibilityHandler = this.handleBoardFiltersVisibilityChanged.bind(this);
     this.boardFiltersActiveStateHandler = this.handleBoardFiltersActiveStateChanged.bind(this);
+    this.boardOwnerDataLoadedHandler = this.handleBoardOwnerDataLoaded.bind(this);
     this.boardFilterStateWatchInterval = null;
     this.workingStyleLoadPromise = null;
+    this.boardReassignmentOptions = null;
     this._prevUnhealthyServices = null; // Track previous scheduler health state for toast deduplication
   }
 
@@ -310,6 +312,9 @@ class Header {
 
     // Initialize board style toggle in settings menu
     this.initializeBoardStyleToggleMenu();
+
+    // Initialize board reassignment in settings menu
+    await this.initializeBoardReassignMenu();
     
     // Initialize views dropdown
     this.initializeViewsDropdown();
@@ -1134,6 +1139,302 @@ class Header {
     }
   }
 
+  async initializeBoardReassignMenu() {
+    const menuItems = [
+      document.getElementById('reassign-board-menu-item'),
+      document.getElementById('mobile-reassign-board-menu-item')
+    ].filter(Boolean);
+
+    if (menuItems.length === 0) {
+      return;
+    }
+
+    if (!this.currentBoardId) {
+      this.updateBoardReassignMenuVisibility(false);
+      return;
+    }
+
+    if (!window.__boardOwnerDataLoadedHeaderBound) {
+      window.addEventListener('boardOwnerDataLoaded', this.boardOwnerDataLoadedHandler);
+      window.__boardOwnerDataLoadedHeaderBound = 'true';
+    }
+
+    menuItems.forEach((menuItem) => {
+      if (!menuItem.dataset.boundReassignHandler) {
+        menuItem.addEventListener('click', async (e) => {
+          e.preventDefault();
+          await this.openBoardReassignModal();
+          closeAllMenusExcept(null);
+          updateMenuHoverState();
+        });
+        menuItem.dataset.boundReassignHandler = 'true';
+      }
+    });
+
+    this.refreshBoardReassignMenuState();
+  }
+
+  updateBoardReassignMenuVisibility(visible) {
+    const menuItems = [
+      document.getElementById('reassign-board-menu-item'),
+      document.getElementById('mobile-reassign-board-menu-item')
+    ].filter(Boolean);
+
+    menuItems.forEach((menuItem) => {
+      menuItem.style.display = visible ? '' : 'none';
+    });
+  }
+
+  showBoardPageToast(message) {
+    if (window.boardManager && typeof window.boardManager.showErrorToast === 'function') {
+      window.boardManager.showErrorToast(message);
+      return;
+    }
+
+    console.error(message);
+  }
+
+  handleBoardOwnerDataLoaded(event) {
+    const detail = event?.detail;
+    if (!detail || detail.boardId !== this.currentBoardId) {
+      return;
+    }
+
+    this.boardReassignmentOptions = {
+      board: {
+        id: detail.boardId,
+        owner_id: detail.owner_id,
+      },
+      current_owner: detail.owner || null,
+      can_reassign: detail.can_reassign_owner === true,
+      available_users: Array.isArray(detail.available_owner_users) ? detail.available_owner_users : [],
+    };
+
+    this.refreshBoardReassignMenuState();
+  }
+
+  refreshBoardReassignMenuState() {
+    if (!this.currentBoardId) {
+      this.boardReassignmentOptions = null;
+      this.updateBoardReassignMenuVisibility(false);
+      return;
+    }
+
+    this.updateBoardReassignMenuVisibility(this.boardReassignmentOptions?.can_reassign === true);
+  }
+
+  async openBoardReassignModal() {
+    const existingModal = document.getElementById('board-owner-modal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+
+    const options = this.boardReassignmentOptions;
+    if (!options || options.can_reassign !== true) {
+      this.refreshBoardReassignMenuState();
+      return;
+    }
+
+    const previousActiveElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const previousOverflow = document.body.style.overflow;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'board-owner-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'board-owner-modal-title');
+    modal.setAttribute('aria-describedby', 'board-owner-modal-description');
+
+    const modalContent = document.createElement('div');
+    modalContent.className = 'modal-content board-owner-modal-content';
+
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'modal-header';
+
+    const headerActions = document.createElement('div');
+    headerActions.className = 'modal-header-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = 'Cancel';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.textContent = 'Save';
+
+    headerActions.append(cancelBtn, saveBtn);
+
+    const title = document.createElement('h2');
+    title.id = 'board-owner-modal-title';
+    title.textContent = 'Reassign Board';
+
+    modalHeader.append(headerActions, title);
+
+    const description = document.createElement('p');
+    description.id = 'board-owner-modal-description';
+    description.className = 'modal-description';
+    description.textContent = 'Choose the new board owner. Owners and administrators can reassign boards from this menu.';
+
+    const currentOwner = document.createElement('p');
+    currentOwner.className = 'modal-description board-owner-current';
+    const currentOwnerName = options.current_owner?.display_name || options.current_owner?.username || 'Unknown user';
+    currentOwner.textContent = `Current owner: ${currentOwnerName}`;
+
+    const ownerGroup = document.createElement('div');
+    ownerGroup.className = 'form-group';
+
+    const ownerLabel = document.createElement('label');
+    ownerLabel.setAttribute('for', 'board-owner-select');
+    ownerLabel.textContent = 'New Owner';
+
+    const ownerSelect = document.createElement('select');
+    ownerSelect.id = 'board-owner-select';
+    ownerSelect.name = 'owner';
+    ownerSelect.required = true;
+    ownerSelect.setAttribute('aria-required', 'true');
+
+    (options.available_users || []).forEach((user) => {
+      const option = document.createElement('option');
+      option.value = String(user.id);
+
+      const label = user.display_name && user.username && user.display_name !== user.username
+        ? `${user.display_name} (@${user.username})`
+        : (user.display_name || user.username || `User ${user.id}`);
+
+      option.textContent = label;
+      ownerSelect.appendChild(option);
+    });
+
+    if (options.current_owner?.id) {
+      ownerSelect.value = String(options.current_owner.id);
+    }
+
+    ownerGroup.append(ownerLabel, ownerSelect);
+    modalContent.append(modalHeader, description, currentOwner, ownerGroup);
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+
+    let mouseDownOnBackground = false;
+
+    const closeModal = () => {
+      modal.remove();
+      document.body.style.overflow = previousOverflow;
+      if (previousActiveElement) {
+        previousActiveElement.focus();
+      }
+    };
+
+    modal.addEventListener('mousedown', (event) => {
+      mouseDownOnBackground = event.target === modal;
+    });
+
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal && mouseDownOnBackground) {
+        closeModal();
+      }
+      mouseDownOnBackground = false;
+    });
+
+    const handleKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeModal();
+        return;
+      }
+
+      if (event.key !== 'Tab') {
+        return;
+      }
+
+      const focusable = Array.from(modal.querySelectorAll(
+        'button:not([disabled]), select:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+
+      if (focusable.length === 0) {
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    modal.addEventListener('keydown', handleKeydown);
+    cancelBtn.addEventListener('click', closeModal);
+    ownerSelect.focus();
+
+    saveBtn.addEventListener('click', async () => {
+      const selectedOwnerId = parseInt(ownerSelect.value, 10);
+      if (!Number.isFinite(selectedOwnerId) || selectedOwnerId <= 0) {
+        this.showBoardPageToast('Select a valid owner.');
+        ownerSelect.focus();
+        return;
+      }
+
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const response = await fetch(`/api/boards/${this.currentBoardId}/owner`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ owner_id: selectedOwnerId }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        let data;
+        try {
+          data = await response.json();
+        } catch (error) {
+          data = {
+            success: false,
+            message: response.ok
+              ? 'Invalid JSON response from server'
+              : `HTTP error ${response.status}`
+          };
+        }
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.message || 'Failed to reassign board');
+        }
+
+        this.boardReassignmentOptions = data;
+        closeModal();
+        this.refreshBoardReassignMenuState();
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          this.showBoardPageToast('Reassigning the board timed out. Please try again.');
+        } else {
+          this.showBoardPageToast(error.message || 'Failed to reassign board.');
+        }
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
+  }
+
   initializeBoardFilterToggleMenu() {
     const menuItems = [
       document.getElementById('toggle-board-filters-menu-item'),
@@ -1220,7 +1521,7 @@ class Header {
       return;
     }
 
-    const label = visible ? 'Hide filters' : 'Show filters';
+    const label = visible ? 'Hide Filters' : 'Show Filters';
     menuItems.forEach((menuItem) => {
       menuItem.textContent = label;
     });

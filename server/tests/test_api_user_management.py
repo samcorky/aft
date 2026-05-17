@@ -12,7 +12,6 @@ Tests the following endpoints:
 - DELETE /api/users/:id/roles/:role_id - Remove role from user
 """
 import pytest
-import re
 import requests
 import time
 import uuid
@@ -86,35 +85,7 @@ def ensure_test_admin_session(admin_session, timeout_seconds=10):
 
 
 def register_pending_test_users(expected_count=3, timeout_seconds=10):
-    """Register the default pending users used by this test module.
-    
-    Ensures clean state: removes any pre-existing test users before registering new ones.
-    This handles cases where the database was not fully reset or users remained in a mixed state.
-    """
-    admin_session = requests.Session()
-    ensure_test_admin_session(admin_session, timeout_seconds=5)
-    
-    # First, remove any pre-existing test users (both pending and approved)
-    # to ensure clean state even if database reset was incomplete.
-    # Only match the exact fixture pattern: user0@test.com, user1@test.com, ...
-    _TEST_USER_EMAIL_RE = re.compile(r'^user\d+@test\.com$')
-    all_users_response = admin_session.get(f"{API_BASE_URL}/api/users", timeout=5)
-    if all_users_response.status_code == 200:
-        all_users = all_users_response.json().get('users', [])
-        for user in all_users:
-            if not _TEST_USER_EMAIL_RE.match(user['email']):
-                continue
-            # Permanently delete regardless of state via the admin delete endpoint
-            del_response = admin_session.delete(
-                f"{API_BASE_URL}/api/users/{user['id']}",
-                timeout=5
-            )
-            if del_response.status_code not in (200, 404):
-                # Log unexpected failures so they surface during debugging
-                print(f"[cleanup] WARNING: failed to delete {user['email']}: "
-                      f"{del_response.status_code} {del_response.text}")
-    
-    # Now register fresh test users
+    """Register the default pending users used by this test module."""
     for i in range(expected_count):
         response = requests.post(
             f"{API_BASE_URL}/api/auth/register",

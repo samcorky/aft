@@ -375,51 +375,6 @@ def deactivate_user(user_id):
         db.close()
 
 
-@user_mgmt_bp.route('/<int:user_id>', methods=['DELETE'])
-@require_permission('user.manage')
-def delete_user(user_id):
-    """
-    Permanently delete a user account (any state).
-    ---
-    tags:
-      - User Management
-    parameters:
-      - name: user_id
-        in: path
-        type: integer
-        required: true
-        description: ID of user to delete
-    responses:
-      200:
-        description: User deleted successfully
-      403:
-        description: Forbidden - requires user.manage permission
-      404:
-        description: User not found
-    """
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-
-        if not user:
-            return create_error_response("User not found", 404)
-
-        username = user.username
-        email = user.email
-
-        db.delete(user)
-        db.commit()
-
-        logger.info(f"User deleted: {email} (username: {username}) by admin {g.user.id}")
-
-        return create_success_response(
-            message=f"User {username} has been permanently deleted"
-        )
-
-    finally:
-        db.close()
-
-
 @user_mgmt_bp.route('/<int:user_id>/activate', methods=['POST'])
 @require_permission('user.manage')
 def activate_user(user_id):

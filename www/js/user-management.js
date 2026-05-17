@@ -31,6 +31,15 @@ class UserManagement {
     this.addUserErrorMessage = document.getElementById('add-user-error-message');
     this.addUserCancelBtn = document.getElementById('add-user-cancel-btn');
     this.addUserOkBtn = document.getElementById('add-user-ok-btn');
+
+    // Reset password modal elements
+    this.resetPasswordModal = document.getElementById('reset-password-modal');
+    this.resetPasswordUserName = document.getElementById('reset-password-user-name');
+    this.resetPasswordNew = document.getElementById('reset-password-new');
+    this.resetPasswordConfirm = document.getElementById('reset-password-confirm');
+    this.resetPasswordErrorMessage = document.getElementById('reset-password-error-message');
+    this.resetPasswordCancelBtn = document.getElementById('reset-password-cancel-btn');
+    this.resetPasswordOkBtn = document.getElementById('reset-password-ok-btn');
     
     // Role assignment elements
     this.roleUsersContainer = document.getElementById('role-users-list');
@@ -55,9 +64,11 @@ class UserManagement {
     this.boards = [];
     this.canAssignAllRoles = false; // Whether user has role.manage permission
     this.canManageUsers = false;
+    this.canResetPasswords = false;
     this.canViewTestUserGuidance = false;
     this.canRemoveTestUser = false;
     this.testUserDetected = false;
+    this.selectedResetUser = null;
     
     // Permission model elements
     this.permissionModelLoading = document.getElementById('permission-model-loading');
@@ -74,8 +85,11 @@ class UserManagement {
     // Check permission before loading page content
     const hasUserManage = typeof hasPermission === 'function' && hasPermission('user.manage');
     const hasUserRole = typeof hasPermission === 'function' && hasPermission('user.role');
+    const hasAdministratorRole = Array.isArray(window.currentUser?.roles)
+      && window.currentUser.roles.some(role => role && role.name === 'administrator');
 
     this.canManageUsers = hasUserManage;
+    this.canResetPasswords = hasUserManage && hasAdministratorRole;
     this.canViewTestUserGuidance = hasUserManage || hasUserRole;
     this.canRemoveTestUser = hasUserManage;
     
@@ -223,6 +237,18 @@ class UserManagement {
       });
     }
 
+    if (this.resetPasswordCancelBtn) {
+      this.resetPasswordCancelBtn.addEventListener('click', () => {
+        this.closeResetPasswordModal();
+      });
+    }
+
+    if (this.resetPasswordOkBtn) {
+      this.resetPasswordOkBtn.addEventListener('click', () => {
+        this.handleResetPassword();
+      });
+    }
+
     if (this.addUserOkBtn) {
       this.addUserOkBtn.addEventListener('click', () => {
         this.handleCreateUser();
@@ -233,6 +259,14 @@ class UserManagement {
       this.addUserModal.addEventListener('click', (e) => {
         if (e.target === this.addUserModal) {
           this.closeAddUserModal();
+        }
+      });
+    }
+
+    if (this.resetPasswordModal) {
+      this.resetPasswordModal.addEventListener('click', (e) => {
+        if (e.target === this.resetPasswordModal) {
+          this.closeResetPasswordModal();
         }
       });
     }
@@ -443,6 +477,10 @@ class UserManagement {
           ? `<button class="btn btn-secondary btn-sm" data-action="deactivate" data-user-id="${safeUserId}" ${window.currentUser && user.id === window.currentUser.id ? 'disabled title="You cannot deactivate your own account"' : ''}>Deactivate</button>`
           : `<button class="btn btn-primary btn-sm" data-action="activate" data-user-id="${safeUserId}">Activate</button>`
         }
+        ${this.canResetPasswords && (!window.currentUser || user.id !== window.currentUser.id)
+          ? `<button class="btn btn-secondary btn-sm" data-action="reset-password" data-user-id="${safeUserId}">Reset Password</button>`
+          : ''
+        }
       </div>
     `;
 
@@ -456,6 +494,11 @@ class UserManagement {
     } else {
       const activateBtn = card.querySelector('[data-action="activate"]');
       activateBtn.addEventListener('click', () => this.handleActivate(user));
+    }
+
+    const resetPasswordBtn = card.querySelector('[data-action="reset-password"]');
+    if (resetPasswordBtn) {
+      resetPasswordBtn.addEventListener('click', () => this.openResetPasswordModal(user));
     }
 
     return card;
@@ -966,6 +1009,100 @@ class UserManagement {
   showAddUserError(message) {
     this.addUserErrorMessage.textContent = message;
     this.addUserErrorMessage.style.display = 'block';
+  }
+
+  openResetPasswordModal(user) {
+    if (!this.canResetPasswords) {
+      this.showStatus('Only administrators can reset other users\' passwords.', 'error');
+      return;
+    }
+
+    this.selectedResetUser = user;
+    this.resetPasswordNew.value = '';
+    this.resetPasswordConfirm.value = '';
+    this.resetPasswordErrorMessage.style.display = 'none';
+    this.resetPasswordErrorMessage.textContent = '';
+    this.resetPasswordOkBtn.disabled = false;
+
+    const displayName = user.display_name || user.username || user.email;
+    this.resetPasswordUserName.textContent = `Reset password for ${displayName}`;
+
+    this.resetPasswordModal.style.display = 'flex';
+    this.resetPasswordNew.focus();
+  }
+
+  closeResetPasswordModal() {
+    if (this.resetPasswordModal) {
+      this.resetPasswordModal.style.display = 'none';
+    }
+    this.selectedResetUser = null;
+    this.resetPasswordNew.value = '';
+    this.resetPasswordConfirm.value = '';
+    this.resetPasswordErrorMessage.style.display = 'none';
+    this.resetPasswordErrorMessage.textContent = '';
+  }
+
+  showResetPasswordError(message) {
+    this.resetPasswordErrorMessage.textContent = message;
+    this.resetPasswordErrorMessage.style.display = 'block';
+  }
+
+  async handleResetPassword() {
+    if (!this.selectedResetUser) {
+      this.showResetPasswordError('No user selected for password reset.');
+      return;
+    }
+
+    const newPassword = this.resetPasswordNew.value;
+    const confirmPassword = this.resetPasswordConfirm.value;
+
+    if (!newPassword) {
+      this.showResetPasswordError('New password is required.');
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      this.showResetPasswordError('Password must be at least 8 characters.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      this.showResetPasswordError('Passwords do not match.');
+      return;
+    }
+
+    const displayName = this.selectedResetUser.display_name || this.selectedResetUser.username || this.selectedResetUser.email;
+
+    this.resetPasswordOkBtn.disabled = true;
+    const originalText = this.resetPasswordOkBtn.textContent;
+    this.resetPasswordOkBtn.textContent = 'Resetting...';
+
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          user_id: this.selectedResetUser.id,
+          new_password: newPassword
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Failed to reset password');
+      }
+
+      this.showStatus(`Password reset for ${displayName}`, 'success');
+      this.closeResetPasswordModal();
+    } catch (error) {
+      console.error('Error resetting password:', error);
+      this.showResetPasswordError(error.message);
+    } finally {
+      this.resetPasswordOkBtn.disabled = false;
+      this.resetPasswordOkBtn.textContent = originalText;
+    }
   }
 
   // Role assignment methods

@@ -953,7 +953,7 @@ def register():
 @auth_bp.route('/change-password', methods=['POST'])
 def change_password():
     """
-    Change password for current authenticated user.
+    Change password for current authenticated user or reset another user's password as an administrator.
     ---
     tags:
       - Authentication
@@ -964,13 +964,15 @@ def change_password():
         schema:
           type: object
           required:
-            - current_password
             - new_password
           properties:
+            user_id:
+              type: integer
+              description: Optional target user ID (administrator role only)
             current_password:
               type: string
               format: password
-              description: Current password
+              description: Current password (required when changing your own password)
             new_password:
               type: string
               format: password
@@ -1001,8 +1003,19 @@ def change_password():
         
         current_password = data.get('current_password', '')
         new_password = data.get('new_password', '')
-        
-        if not current_password or not new_password:
+        target_user_id = data.get('user_id', g.user.id)
+
+        try:
+            target_user_id = int(target_user_id)
+        except (TypeError, ValueError):
+            return create_error_response("Invalid user_id", 400)
+
+        is_admin_reset = target_user_id != g.user.id
+
+        if is_admin_reset and not new_password:
+            return create_error_response("New password is required", 400)
+
+        if not is_admin_reset and (not current_password or not new_password):
             return create_error_response("Current and new password are required", 400)
         
         if len(new_password) < 8:
@@ -1010,21 +1023,43 @@ def change_password():
         
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == g.user.id).first()
-            
-            if not user or not user.password_hash:
+            if is_admin_reset:
+                admin_role_assignment = db.query(UserRole.id).join(Role).filter(
+                    UserRole.user_id == g.user.id,
+                    UserRole.board_id.is_(None),
+                    Role.name == 'administrator'
+                ).first()
+                if not admin_role_assignment:
+                    return create_error_response("Administrator role required to reset another user's password", 403)
+
+            user = db.query(User).filter(User.id == target_user_id).first()
+
+            if not user:
+                return create_error_response("User not found", 404)
+
+            if not user.password_hash:
                 return create_error_response("Cannot change password for this account", 400)
-            
-            # Verify current password
-            if not verify_password(current_password, user.password_hash):
-                return create_error_response("Current password is incorrect", 401)
-            
-            # Update password
+
+            if not is_admin_reset:
+                # Verify current password for self-service password changes.
+                if not verify_password(current_password, user.password_hash):
+                    return create_error_response("Current password is incorrect", 401)
+
+            # Update password for either self-change or admin reset.
             user.password_hash = hash_password(new_password)
             db.commit()
-            
+
+            if is_admin_reset:
+                logger.info(
+                    "Password reset for user: %s (ID: %s) by admin %s",
+                    user.email,
+                    user.id,
+                    g.user.id,
+                )
+                return create_success_response(message="Password reset successfully")
+
             logger.info(f"Password changed for user: {user.email} (ID: {user.id})")
-            
+
             return create_success_response(message="Password changed successfully")
             
         finally:

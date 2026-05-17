@@ -17,6 +17,7 @@ import time
 import os
 import hashlib
 import re
+import uuid
 from pathlib import Path
 from flask import Flask
 from flask.sessions import SecureCookieSessionInterface
@@ -517,6 +518,121 @@ class TestPasswordChange:
             "new_password": "TestAdmin123!"
         })
         assert reset_response.status_code == 200
+
+    def test_admin_can_reset_another_users_password(self, authenticated_session):
+        """Administrators can reset another user's password through the shared endpoint."""
+        suffix = uuid.uuid4().hex[:8]
+        target_email = f"pwdreset_{suffix}@test.com"
+        target_username = f"pwdreset_{suffix}"
+        original_password = "OriginalPass123!"
+        reset_password = "ResetPass456!"
+
+        register_response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
+            "email": target_email,
+            "username": target_username,
+            "password": original_password
+        })
+        assert register_response.status_code == 201
+
+        pending_response = authenticated_session.get(f"{API_BASE_URL}/api/users/pending")
+        assert pending_response.status_code == 200
+        target_user = next(
+            (u for u in pending_response.json()['users'] if u['email'] == target_email),
+            None
+        )
+        assert target_user is not None
+
+        approve_response = authenticated_session.post(f"{API_BASE_URL}/api/users/{target_user['id']}/approve")
+        assert approve_response.status_code == 200
+
+        reset_response = authenticated_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
+            "user_id": target_user['id'],
+            "new_password": reset_password
+        })
+        assert reset_response.status_code == 200
+        assert reset_response.json()['success'] is True
+
+        old_login_session = requests.Session()
+        old_login_response = old_login_session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": target_email,
+            "password": original_password
+        })
+        assert old_login_response.status_code == 401
+
+        new_login_session = requests.Session()
+        new_login_response = new_login_session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": target_email,
+            "password": reset_password
+        })
+        assert new_login_response.status_code == 200
+
+    def test_non_admin_with_user_manage_cannot_reset_another_users_password(self, authenticated_session):
+        """Users with user.manage but without administrator role cannot reset other users' passwords."""
+        manager_suffix = uuid.uuid4().hex[:8]
+        manager_email = f"manager_{manager_suffix}@test.com"
+        manager_username = f"manager_{manager_suffix}"
+        manager_password = "ManagerPass123!"
+
+        target_suffix = uuid.uuid4().hex[:8]
+        target_email = f"target_{target_suffix}@test.com"
+        target_username = f"target_{target_suffix}"
+        target_password = "TargetPass123!"
+
+        create_manager_response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
+            "email": manager_email,
+            "username": manager_username,
+            "password": manager_password
+        })
+        assert create_manager_response.status_code == 201
+
+        create_target_response = requests.post(f"{API_BASE_URL}/api/auth/register", json={
+            "email": target_email,
+            "username": target_username,
+            "password": target_password
+        })
+        assert create_target_response.status_code == 201
+
+        pending_response = authenticated_session.get(f"{API_BASE_URL}/api/users/pending")
+        assert pending_response.status_code == 200
+        pending_users = pending_response.json()['users']
+
+        manager_user = next((u for u in pending_users if u['email'] == manager_email), None)
+        target_user = next((u for u in pending_users if u['email'] == target_email), None)
+        assert manager_user is not None
+        assert target_user is not None
+
+        assert authenticated_session.post(f"{API_BASE_URL}/api/users/{manager_user['id']}/approve").status_code == 200
+        assert authenticated_session.post(f"{API_BASE_URL}/api/users/{target_user['id']}/approve").status_code == 200
+
+        role_name = f"manage_only_{uuid.uuid4().hex[:8]}"
+        create_role_response = authenticated_session.post(
+            f"{API_BASE_URL}/api/roles",
+            json={
+                "name": role_name,
+                "description": "Can manage users but is not an administrator",
+                "permissions": ["user.manage"]
+            }
+        )
+        assert create_role_response.status_code == 201
+
+        role_response = authenticated_session.post(
+            f"{API_BASE_URL}/api/users/{manager_user['id']}/roles",
+            json={"role_name": role_name}
+        )
+        assert role_response.status_code == 200
+
+        manager_session = requests.Session()
+        manager_login = manager_session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": manager_email,
+            "password": manager_password
+        })
+        assert manager_login.status_code == 200
+
+        forbidden_reset = manager_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
+            "user_id": target_user['id'],
+            "new_password": "ShouldNotWork123!"
+        })
+        assert forbidden_reset.status_code == 403
 
 
 class TestAuthenticationFlow:

@@ -19,6 +19,19 @@ class UserManagement {
     this.confirmOkBtn = document.getElementById('confirm-ok-btn');
     this.showActiveOnlyToggle = document.getElementById('show-active-only');
     
+    // Add user modal elements
+    this.addUserBtn = document.getElementById('add-user-btn');
+    this.addUserModal = document.getElementById('add-user-modal');
+    this.addUserEmail = document.getElementById('add-user-email');
+    this.addUserUsername = document.getElementById('add-user-username');
+    this.addUserDisplayName = document.getElementById('add-user-display-name');
+    this.addUserPassword = document.getElementById('add-user-password');
+    this.addUserConfirmPassword = document.getElementById('add-user-confirm-password');
+    this.addUserPasswordStrengthBar = document.getElementById('add-user-password-strength-bar');
+    this.addUserErrorMessage = document.getElementById('add-user-error-message');
+    this.addUserCancelBtn = document.getElementById('add-user-cancel-btn');
+    this.addUserOkBtn = document.getElementById('add-user-ok-btn');
+    
     // Role assignment elements
     this.roleUsersContainer = document.getElementById('role-users-list');
     this.roleUsersLoading = document.getElementById('role-users-loading');
@@ -115,6 +128,11 @@ class UserManagement {
       const activeSection = document.getElementById('active-users-section');
       if (pendingSection) pendingSection.style.display = 'none';
       if (activeSection) activeSection.style.display = 'none';
+    } else {
+      // Show Add User button if user can manage users
+      if (this.addUserBtn) {
+        this.addUserBtn.style.display = 'inline-flex';
+      }
     }
     
     if (!hasUserRole) {
@@ -189,6 +207,40 @@ class UserManagement {
     if (testUserBtn) {
       testUserBtn.addEventListener('click', () => {
         this.confirmRemoveKnownTestUser();
+      });
+    }
+
+    // Add user button and modal handlers
+    if (this.addUserBtn) {
+      this.addUserBtn.addEventListener('click', () => {
+        this.openAddUserModal();
+      });
+    }
+
+    if (this.addUserCancelBtn) {
+      this.addUserCancelBtn.addEventListener('click', () => {
+        this.closeAddUserModal();
+      });
+    }
+
+    if (this.addUserOkBtn) {
+      this.addUserOkBtn.addEventListener('click', () => {
+        this.handleCreateUser();
+      });
+    }
+
+    if (this.addUserModal) {
+      this.addUserModal.addEventListener('click', (e) => {
+        if (e.target === this.addUserModal) {
+          this.closeAddUserModal();
+        }
+      });
+    }
+
+    // Password strength indicator for add user modal
+    if (this.addUserPassword) {
+      this.addUserPassword.addEventListener('input', () => {
+        this.updatePasswordStrength();
       });
     }
   }
@@ -764,6 +816,140 @@ class UserManagement {
       btn.disabled = false;
       btnText.textContent = originalText;
     }
+  }
+
+  openAddUserModal() {
+    // Clear form fields
+    this.addUserEmail.value = '';
+    this.addUserUsername.value = '';
+    this.addUserDisplayName.value = '';
+    this.addUserPassword.value = '';
+    this.addUserConfirmPassword.value = '';
+    this.addUserPasswordStrengthBar.className = 'password-strength-bar';
+    this.addUserErrorMessage.style.display = 'none';
+    this.addUserErrorMessage.textContent = '';
+    
+    // Disable submit button
+    this.addUserOkBtn.disabled = false;
+    
+    // Focus on first field
+    this.addUserEmail.focus();
+    
+    this.addUserModal.style.display = 'flex';
+  }
+
+  closeAddUserModal() {
+    this.addUserModal.style.display = 'none';
+    this.addUserEmail.value = '';
+    this.addUserUsername.value = '';
+    this.addUserDisplayName.value = '';
+    this.addUserPassword.value = '';
+    this.addUserConfirmPassword.value = '';
+    this.addUserErrorMessage.style.display = 'none';
+    this.addUserErrorMessage.textContent = '';
+  }
+
+  updatePasswordStrength() {
+    const password = this.addUserPassword.value;
+    let strength = 0;
+
+    if (password.length >= 8) strength++;
+    if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
+    if (password.match(/\d/)) strength++;
+    if (password.match(/[^a-zA-Z\d]/)) strength++;
+
+    this.addUserPasswordStrengthBar.className = 'password-strength-bar';
+    if (strength >= 3) {
+      this.addUserPasswordStrengthBar.classList.add('strong');
+    } else if (strength >= 2) {
+      this.addUserPasswordStrengthBar.classList.add('medium');
+    } else if (strength >= 1) {
+      this.addUserPasswordStrengthBar.classList.add('weak');
+    }
+  }
+
+  async handleCreateUser() {
+    const email = this.addUserEmail.value.trim().toLowerCase();
+    const username = this.addUserUsername.value.trim();
+    const displayName = this.addUserDisplayName.value.trim();
+    const password = this.addUserPassword.value;
+    const confirmPassword = this.addUserConfirmPassword.value;
+
+    // Validate inputs
+    if (!email || !username || !password) {
+      this.showAddUserError('Email, username, and password are required');
+      return;
+    }
+
+    if (password.length < 8) {
+      this.showAddUserError('Password must be at least 8 characters');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      this.showAddUserError('Passwords do not match');
+      return;
+    }
+
+    // Disable button during submission
+    this.addUserOkBtn.disabled = true;
+    const originalText = this.addUserOkBtn.textContent;
+    this.addUserOkBtn.textContent = 'Creating...';
+
+    try {
+      // Step 1: Create the user via registration endpoint
+      const createResponse = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          email,
+          username,
+          password,
+          display_name: displayName || username
+        })
+      });
+
+      const createData = await createResponse.json();
+
+      if (!createResponse.ok || !createData.success) {
+        throw new Error(createData.message || 'Failed to create user');
+      }
+
+      const newUserId = createData.user.id;
+
+      // Step 2: Immediately approve the user
+      const approveResponse = await fetch(`/api/users/${newUserId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin'
+      });
+
+      const approveData = await approveResponse.json();
+
+      if (!approveResponse.ok || !approveData.success) {
+        throw new Error(approveData.message || 'Failed to approve user');
+      }
+
+      // Success! Close modal and refresh user list
+      this.showStatus(`User ${username} created and approved successfully`, 'success');
+      this.closeAddUserModal();
+      
+      // Refresh the active users list
+      await this.loadActiveUsers();
+
+    } catch (error) {
+      console.error('Error creating user:', error);
+      this.showAddUserError(error.message);
+    } finally {
+      this.addUserOkBtn.disabled = false;
+      this.addUserOkBtn.textContent = originalText;
+    }
+  }
+
+  showAddUserError(message) {
+    this.addUserErrorMessage.textContent = message;
+    this.addUserErrorMessage.style.display = 'block';
   }
 
   // Role assignment methods

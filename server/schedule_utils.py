@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 
+from datetime_helpers import utc_now
+
 
 def _add_months(dt: datetime, months: int) -> datetime:
     """Add months to a datetime (simple implementation)."""
@@ -40,7 +42,7 @@ def calculate_next_runs(
     Returns:
         List of ISO formatted datetime strings representing the next scheduled runs
     """
-    now = datetime.now()
+    now = utc_now()
     current = start_datetime
     next_runs = []
     
@@ -190,7 +192,7 @@ def should_create_card(
         True if a card should be created, False otherwise
     """
     if now is None:
-        now = datetime.now()
+        now = utc_now()
     
     # Not yet started
     if now < start_datetime:

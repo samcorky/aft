@@ -89,11 +89,6 @@ def ensure_theme_user_role(db, user_id):
   return ensure_global_role(db, user_id, 'theme_user')
 
 
-def ensure_board_creator_role(db, user_id):
-  """Ensure the user has the global board_creator role."""
-  return ensure_global_role(db, user_id, 'board_creator')
-
-
 def hash_password(password: str) -> str:
     """
     Hash a password using PBKDF2-HMAC-SHA256.
@@ -388,9 +383,6 @@ def login():
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
 
-            # Guarantee baseline theme role for all approved users.
-            ensure_theme_user_role(db, user.id)
-            
             # Update last login
             user.last_login_at = func.now()
             db.commit()
@@ -628,15 +620,6 @@ def get_current_user():
     try:
         from utils import get_user_permissions
 
-        # Backfill theme role for existing approved users on first authenticated access.
-        # Board creator role is assigned only at approval time, not on login.
-        if ensure_theme_user_role(db, user.id):
-            try:
-                db.commit()
-            except Exception as e:
-                logger.error(f"Failed to commit role backfill for user {user.id}: {e}")
-                db.rollback()
-        
         roles = db.query(Role).join(UserRole).filter(
             UserRole.user_id == user.id,
             UserRole.board_id.is_(None)  # Global roles only

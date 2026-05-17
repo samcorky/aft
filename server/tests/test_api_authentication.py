@@ -545,12 +545,27 @@ class TestPasswordChange:
         approve_response = authenticated_session.post(f"{API_BASE_URL}/api/users/{target_user['id']}/approve")
         assert approve_response.status_code == 200
 
+        target_session = requests.Session()
+        target_login_response = target_session.post(f"{API_BASE_URL}/api/auth/login", json={
+            "email": target_email,
+            "password": original_password
+        })
+        assert target_login_response.status_code == 200
+
+        target_check_before_reset = target_session.get(f"{API_BASE_URL}/api/auth/check")
+        assert target_check_before_reset.status_code == 200
+        assert target_check_before_reset.json().get('authenticated') is True
+
         reset_response = authenticated_session.post(f"{API_BASE_URL}/api/auth/change-password", json={
             "user_id": target_user['id'],
             "new_password": reset_password
         })
         assert reset_response.status_code == 200
         assert reset_response.json()['success'] is True
+
+        target_check_after_reset = target_session.get(f"{API_BASE_URL}/api/auth/check")
+        assert target_check_after_reset.status_code == 401
+        assert target_check_after_reset.json().get('authenticated') is False
 
         old_login_session = requests.Session()
         old_login_response = old_login_session.post(f"{API_BASE_URL}/api/auth/login", json={

@@ -134,6 +134,18 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def _password_session_fingerprint(password_hash: str) -> str:
+    """Create a stable short fingerprint for session validation.
+
+    The fingerprint lets us invalidate existing sessions when a password hash
+    changes (for example, after an admin reset) without storing server-side
+    session records.
+    """
+    if not password_hash:
+        return ''
+    return hashlib.sha256(password_hash.encode('utf-8')).hexdigest()[:16]
+
+
 def _resolve_session_user(skip_email_hash_validation=False):
     """Resolve and validate the current session user.
 
@@ -148,6 +160,7 @@ def _resolve_session_user(skip_email_hash_validation=False):
     """
     user_id = session.get('user_id')
     stored_email_hash = session.get('user_email_hash')
+    stored_password_fingerprint = session.get('user_pwd_hash')
 
     if not user_id:
         return None, None
@@ -169,6 +182,16 @@ def _resolve_session_user(skip_email_hash_validation=False):
             current_email_hash = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             if stored_email_hash != current_email_hash:
                 logger.warning(f"Session email hash mismatch for user_id={user_id}, clearing session")
+                session.clear()
+                db.close()
+                return None, None
+
+            current_password_fingerprint = _password_session_fingerprint(user.password_hash)
+            if stored_password_fingerprint != current_password_fingerprint:
+                logger.info(
+                    "Session password fingerprint mismatch for user_id=%s; forcing re-authentication",
+                    user_id,
+                )
                 session.clear()
                 db.close()
                 return None, None
@@ -381,6 +404,7 @@ def login():
             session.clear()
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+            session['user_pwd_hash'] = _password_session_fingerprint(user.password_hash)
             session.permanent = remember_me
 
             # Update last login
@@ -991,6 +1015,10 @@ def change_password():
         description: Validation error
       401:
         description: Not authenticated or current password incorrect
+      403:
+        description: Non-administrator attempted to reset another user's password
+      404:
+        description: Target user not found
     """
     if not g.get('user'):
         return create_error_response("Not authenticated", 401)
@@ -1341,6 +1369,7 @@ def setup_admin():
             # Auto-login after setup
             session['user_id'] = user.id
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
+            session['user_pwd_hash'] = _password_session_fingerprint(user.password_hash)
             
             # Get user's roles and permissions
             from utils import get_user_permissions

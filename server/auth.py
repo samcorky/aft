@@ -51,22 +51,26 @@ REMEMBER_ME_LIFETIME_DAYS = 30
 
 
 def ensure_global_role(db, user_id, role_name):
-  """Ensure the user has the specified global role."""
+  """Ensure the user has the specified global role.
+
+  Returns True if the role was newly assigned, False if the user already had it.
+  Raises ValueError if the role is not defined in INITIAL_ROLES and does not
+  already exist in the database, so callers can distinguish a no-op from a
+  configuration failure without issuing an extra query.
+  """
   role = db.query(Role).filter(Role.name == role_name).first()
   if not role:
     role_info = INITIAL_ROLES.get(role_name)
-    if role_info:
-      role = Role(
-        name=role_name,
-        description=role_info['description'],
-        is_system_role=role_info['is_system_role'],
-        permissions=json.dumps(role_info['permissions'])
-      )
-      db.add(role)
-      db.flush()
-
-  if not role:
-    return False
+    if not role_info:
+      raise ValueError(f"System role '{role_name}' is not defined in INITIAL_ROLES")
+    role = Role(
+      name=role_name,
+      description=role_info['description'],
+      is_system_role=role_info['is_system_role'],
+      permissions=json.dumps(role_info['permissions'])
+    )
+    db.add(role)
+    db.flush()
 
   existing_assignment = db.query(UserRole).filter(
     UserRole.user_id == user_id,

@@ -12,6 +12,7 @@ Tests the following endpoints:
 - DELETE /api/users/:id/roles/:role_id - Remove role from user
 """
 import pytest
+import re
 import requests
 import time
 import uuid
@@ -94,25 +95,24 @@ def register_pending_test_users(expected_count=3, timeout_seconds=10):
     ensure_test_admin_session(admin_session, timeout_seconds=5)
     
     # First, remove any pre-existing test users (both pending and approved)
-    # to ensure clean state even if database reset was incomplete
+    # to ensure clean state even if database reset was incomplete.
+    # Only match the exact fixture pattern: user0@test.com, user1@test.com, ...
+    _TEST_USER_EMAIL_RE = re.compile(r'^user\d+@test\.com$')
     all_users_response = admin_session.get(f"{API_BASE_URL}/api/users", timeout=5)
     if all_users_response.status_code == 200:
         all_users = all_users_response.json().get('users', [])
         for user in all_users:
-            if user['email'].startswith('user') and user['email'].endswith('@test.com'):
-                # Delete pending users
-                if not user.get('is_approved'):
-                    reject_response = admin_session.post(
-                        f"{API_BASE_URL}/api/users/{user['id']}/reject",
-                        timeout=5
-                    )
-                    # 400 means already approved, 200 means rejected successfully
-                else:
-                    # For approved users, deactivate then delete if possible
-                    deactivate_response = admin_session.post(
-                        f"{API_BASE_URL}/api/users/{user['id']}/deactivate",
-                        timeout=5
-                    )
+            if not _TEST_USER_EMAIL_RE.match(user['email']):
+                continue
+            # Permanently delete regardless of state via the admin delete endpoint
+            del_response = admin_session.delete(
+                f"{API_BASE_URL}/api/users/{user['id']}",
+                timeout=5
+            )
+            if del_response.status_code not in (200, 404):
+                # Log unexpected failures so they surface during debugging
+                print(f"[cleanup] WARNING: failed to delete {user['email']}: "
+                      f"{del_response.status_code} {del_response.text}")
     
     # Now register fresh test users
     for i in range(expected_count):

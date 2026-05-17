@@ -222,10 +222,10 @@ def approve_user(user_id):
         # - theme_user: manage personal theme copies
         # - board_creator: create and own new boards
         for role_name in ('theme_user', 'board_creator'):
-            if not ensure_global_role(db, user.id, role_name):
-                role_exists = db.query(Role).filter(Role.name == role_name).first()
-                if not role_exists:
-                    logger.warning("System role '%s' is unavailable; approved user may miss baseline access", role_name)
+            try:
+                ensure_global_role(db, user.id, role_name)
+            except ValueError:
+                logger.warning("System role '%s' is not defined; approved user may miss baseline access", role_name)
 
         db.commit()
 
@@ -371,6 +371,51 @@ def deactivate_user(user_id):
           }
         )
         
+    finally:
+        db.close()
+
+
+@user_mgmt_bp.route('/<int:user_id>', methods=['DELETE'])
+@require_permission('user.manage')
+def delete_user(user_id):
+    """
+    Permanently delete a user account (any state).
+    ---
+    tags:
+      - User Management
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: ID of user to delete
+    responses:
+      200:
+        description: User deleted successfully
+      403:
+        description: Forbidden - requires user.manage permission
+      404:
+        description: User not found
+    """
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            return create_error_response("User not found", 404)
+
+        username = user.username
+        email = user.email
+
+        db.delete(user)
+        db.commit()
+
+        logger.info(f"User deleted: {email} (username: {username}) by admin {g.user.id}")
+
+        return create_success_response(
+            message=f"User {username} has been permanently deleted"
+        )
+
     finally:
         db.close()
 

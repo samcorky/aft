@@ -241,12 +241,6 @@ class TestBoardsAPI:
         second_user = get_current_user(api_client, second_user_session)
         admin_user = get_current_user(api_client, authenticated_session)
 
-        grant_response = authenticated_session.post(
-            f'{api_client}/api/users/{second_user["id"]}/roles',
-            json={'role_name': 'board_creator'}
-        )
-        assert grant_response.status_code == 200
-
         create_response = second_user_session.post(
             f'{api_client}/api/boards',
             json={'name': 'Second User Owned Board', 'description': 'Owned by test user B'}
@@ -293,12 +287,6 @@ class TestBoardsAPI:
         """Administrators should be able to reassign any board."""
         second_user = get_current_user(api_client, second_user_session)
         admin_user = get_current_user(api_client, authenticated_session)
-
-        grant_response = authenticated_session.post(
-            f'{api_client}/api/users/{second_user["id"]}/roles',
-            json={'role_name': 'board_creator'}
-        )
-        assert grant_response.status_code == 200
 
         create_response = second_user_session.post(
             f'{api_client}/api/boards',
@@ -659,8 +647,21 @@ class TestBoardsAPI:
         assert imported_data['board']['name'] != sample_board['name']
         assert imported_data['board']['name'].startswith(f"{sample_board['name']} (imported)")
 
-    def test_import_board_permission_denied(self, api_client, second_user_session):
+    def test_import_board_permission_denied(self, api_client, authenticated_session, second_user_session):
         """Import requires editor-level capability and is denied otherwise."""
+        second_user = get_current_user(api_client, second_user_session)
+
+        roles_response = authenticated_session.get(f'{api_client}/api/roles')
+        assert roles_response.status_code == 200
+        board_creator_role = next(
+            role for role in roles_response.json()['roles'] if role['name'] == 'board_creator'
+        )
+
+        remove_role_response = authenticated_session.delete(
+            f'{api_client}/api/users/{second_user["id"]}/roles/{board_creator_role["id"]}'
+        )
+        assert remove_role_response.status_code == 200
+
         payload = build_minimal_board_import_payload('Import Denied Board')
 
         response = second_user_session.post(

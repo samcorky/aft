@@ -284,7 +284,21 @@ def test_boards_endpoint_returns_helpful_403_for_user_with_no_board_access(
     """A user with no board roles/perms should get a clear 403 from GET /api/boards."""
     api_base_url = _normalize_api_base_url(api_client)
     suffix = uuid.uuid4().hex[:8]
-    _, user_session = _create_permission_user(authenticated_session, api_base_url, suffix)
+    user_id, user_session = _create_permission_user(authenticated_session, api_base_url, suffix)
+
+    # Remove default board_creator role so we can test the "no board access" scenario
+    roles_response = authenticated_session.get(f"{api_base_url}/api/roles", timeout=10)
+    assert roles_response.status_code == 200
+    board_creator_role = next(
+        (r for r in roles_response.json().get("roles", []) if r["name"] == "board_creator"),
+        None
+    )
+    if board_creator_role:
+        remove_response = authenticated_session.delete(
+            f"{api_base_url}/api/users/{user_id}/roles/{board_creator_role['id']}",
+            timeout=10
+        )
+        assert remove_response.status_code == 200, remove_response.text
 
     response = _request(user_session, api_base_url, "GET", "/api/boards")
 

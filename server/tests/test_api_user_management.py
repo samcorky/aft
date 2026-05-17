@@ -286,6 +286,11 @@ class TestUserApproval:
             "password": f"UserPass{user_num}123!"
         })
         assert response.status_code == 200
+
+        me_response = user_session.get(f"{API_BASE_URL}/api/auth/me")
+        assert me_response.status_code == 200
+        role_names = [role["name"] for role in me_response.json()["user"]["roles"]]
+        assert 'board_creator' in role_names
     
     def test_reject_user_success(self, admin_session, setup_test_environment):
         """Admin should be able to reject pending users."""
@@ -811,11 +816,9 @@ class TestCompleteUserManagementFlow:
         response = admin.post(f"{API_BASE_URL}/api/users/{user_id}/approve")
         assert response.status_code == 200
         
-        # 6. Assign role
-        response = admin.post(
-            f"{API_BASE_URL}/api/users/{user_id}/roles",
-            json={"role_name": "board_creator"}
-        )
+        # 6. Verify board_creator role is auto-assigned (no manual assignment needed)
+        # Users now receive board_creator automatically on approval
+        response = admin.get(f"{API_BASE_URL}/api/auth/check")
         assert response.status_code == 200
         
         # 7. Verify user can login

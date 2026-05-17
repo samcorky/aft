@@ -80,6 +80,36 @@ def ensure_theme_user_role(db, user_id):
   return True
 
 
+def ensure_board_creator_role(db, user_id):
+  """Ensure the user has the global board_creator role."""
+  board_creator_role = db.query(Role).filter(Role.name == 'board_creator').first()
+  if not board_creator_role:
+    role_info = INITIAL_ROLES.get('board_creator')
+    if role_info:
+      board_creator_role = Role(
+        name='board_creator',
+        description=role_info['description'],
+        is_system_role=role_info['is_system_role'],
+        permissions=json.dumps(role_info['permissions'])
+      )
+      db.add(board_creator_role)
+      db.flush()
+
+  if not board_creator_role:
+    return False
+
+  existing_assignment = db.query(UserRole).filter(
+    UserRole.user_id == user_id,
+    UserRole.role_id == board_creator_role.id,
+    UserRole.board_id.is_(None)
+  ).first()
+  if existing_assignment:
+    return False
+
+  db.add(UserRole(user_id=user_id, role_id=board_creator_role.id, board_id=None))
+  return True
+
+
 def hash_password(password: str) -> str:
     """
     Hash a password using PBKDF2-HMAC-SHA256.
@@ -374,8 +404,9 @@ def login():
             session['user_email_hash'] = hashlib.sha256(user.email.encode()).hexdigest()[:16]
             session.permanent = remember_me
 
-            # Guarantee baseline theme rights for all approved users.
+            # Guarantee baseline global roles for all approved users.
             ensure_theme_user_role(db, user.id)
+            ensure_board_creator_role(db, user.id)
             
             # Update last login
             user.last_login_at = func.now()
@@ -614,8 +645,10 @@ def get_current_user():
     try:
         from utils import get_user_permissions
 
-        # Backfill theme role for existing approved users on first authenticated access.
+        # Backfill baseline roles for existing approved users on first authenticated access.
         changed = ensure_theme_user_role(db, user.id)
+        if ensure_board_creator_role(db, user.id):
+          changed = True
         if changed:
             db.commit()
         

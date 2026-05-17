@@ -219,31 +219,33 @@ def approve_user(user_id):
         
         user.is_approved = True
 
-        # Ensure approved users always get full theme rights globally.
-        # This gives access to copy system themes and manage only their own copies.
-        theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
-        if not theme_role:
-            role_info = INITIAL_ROLES.get('theme_user')
+        # Ensure approved users always receive baseline global roles.
+        # - theme_user: manage personal theme copies
+        # - board_creator: create and own new boards
+        for role_name in ('theme_user', 'board_creator'):
+          role = db.query(Role).filter(Role.name == role_name).first()
+          if not role:
+            role_info = INITIAL_ROLES.get(role_name)
             if role_info:
-                theme_role = Role(
-                    name='theme_user',
-                    description=role_info['description'],
-                    is_system_role=role_info['is_system_role'],
-                    permissions=json.dumps(role_info['permissions'])
-                )
-                db.add(theme_role)
-                db.flush()
+              role = Role(
+                name=role_name,
+                description=role_info['description'],
+                is_system_role=role_info['is_system_role'],
+                permissions=json.dumps(role_info['permissions'])
+              )
+              db.add(role)
+              db.flush()
 
-        if theme_role:
-            existing_theme_role = db.query(UserRole).filter(
-                UserRole.user_id == user.id,
-                UserRole.role_id == theme_role.id,
-                UserRole.board_id.is_(None)
+          if role:
+            existing_assignment = db.query(UserRole).filter(
+              UserRole.user_id == user.id,
+              UserRole.role_id == role.id,
+              UserRole.board_id.is_(None)
             ).first()
-            if not existing_theme_role:
-                db.add(UserRole(user_id=user.id, role_id=theme_role.id, board_id=None))
-        else:
-            logger.warning("System role 'theme_user' is unavailable; approved user may lack theme rights")
+            if not existing_assignment:
+              db.add(UserRole(user_id=user.id, role_id=role.id, board_id=None))
+          else:
+            logger.warning("System role '%s' is unavailable; approved user may miss baseline access", role_name)
 
         db.commit()
 

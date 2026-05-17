@@ -10,7 +10,7 @@ import logging
 
 from sqlalchemy import func, text
 from database import SessionLocal
-from datetime_helpers import serialize_datetime
+from datetime_helpers import serialize_datetime, utc_now
 from models import Card, ScheduledCard, Comment, ChecklistItem, BoardColumn
 from notification_utils import create_notification
 from schedule_utils import get_next_run
@@ -171,7 +171,8 @@ class CardScheduler:
         db = SessionLocal()
         pending_broadcasts = []
         try:
-            now = datetime.now()
+            # Schedule datetimes are stored as naive UTC values; compare in UTC.
+            now = utc_now()
             
             # Get all enabled schedules
             schedules = (

@@ -3240,13 +3240,22 @@ class BoardManager {
       }
     }
 
+    // Datetime-local controls expect local wall time strings (no timezone suffix).
+    const toDatetimeLocalValue = (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+
+      const pad = (num) => String(num).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+
     // Set default values
-    const now = new Date();
-    const defaultStartDatetime = scheduleData?.start_datetime 
-      ? scheduleData.start_datetime.substring(0, 16) // Format: YYYY-MM-DDTHH:MM
-      : now.toISOString().substring(0, 16); // Current date and time
-    const defaultEndDatetime = scheduleData?.end_datetime 
-      ? scheduleData.end_datetime.substring(0, 16)
+    const defaultStartDatetime = scheduleData?.start_datetime
+      ? toDatetimeLocalValue(scheduleData.start_datetime)
+      : toDatetimeLocalValue(new Date());
+    const defaultEndDatetime = scheduleData?.end_datetime
+      ? toDatetimeLocalValue(scheduleData.end_datetime)
       : '';
     const defaultRunEvery = scheduleData?.run_every || 1;
     const defaultUnit = scheduleData?.unit || 'day';
@@ -3719,9 +3728,17 @@ class BoardManager {
     let checklistVisible = false;
     let hasUnsavedChanges = false;
     
+    // Datetime-local expects local wall time, not UTC clock values.
+    const toDatetimeLocalValue = (value) => {
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+
+      const pad = (num) => String(num).padStart(2, '0');
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+
     // Set default values for schedule
-    const now = new Date();
-    const defaultStartDatetime = now.toISOString().substring(0, 16); // Format: YYYY-MM-DDTHH:MM
+    const defaultStartDatetime = toDatetimeLocalValue(new Date());
     const defaultRunEvery = 1;
     const defaultUnit = 'day';
     const defaultEnabled = true;

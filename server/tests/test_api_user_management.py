@@ -816,10 +816,12 @@ class TestCompleteUserManagementFlow:
         response = admin.post(f"{API_BASE_URL}/api/users/{user_id}/approve")
         assert response.status_code == 200
         
-        # 6. Verify board_creator role is auto-assigned (no manual assignment needed)
-        # Users now receive board_creator automatically on approval
-        response = admin.get(f"{API_BASE_URL}/api/auth/check")
+        # 6. Verify board_creator role is auto-assigned on approval
+        response = admin.get(f"{API_BASE_URL}/api/users")
         assert response.status_code == 200
+        approved_user = next(u for u in response.json()['users'] if u['id'] == user_id)
+        role_names = [r['name'] for r in approved_user['roles']]
+        assert 'board_creator' in role_names
         
         # 7. Verify user can login
         user_session = requests.Session()

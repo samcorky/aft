@@ -50,64 +50,44 @@ SESSION_LIFETIME_HOURS = 24 * 7  # 7 days
 REMEMBER_ME_LIFETIME_DAYS = 30
 
 
-def ensure_theme_user_role(db, user_id):
-  """Ensure the user has the global theme_user role."""
-  theme_role = db.query(Role).filter(Role.name == 'theme_user').first()
-  if not theme_role:
-    role_info = INITIAL_ROLES.get('theme_user')
+def ensure_global_role(db, user_id, role_name):
+  """Ensure the user has the specified global role."""
+  role = db.query(Role).filter(Role.name == role_name).first()
+  if not role:
+    role_info = INITIAL_ROLES.get(role_name)
     if role_info:
-      theme_role = Role(
-        name='theme_user',
+      role = Role(
+        name=role_name,
         description=role_info['description'],
         is_system_role=role_info['is_system_role'],
         permissions=json.dumps(role_info['permissions'])
       )
-      db.add(theme_role)
+      db.add(role)
       db.flush()
 
-  if not theme_role:
+  if not role:
     return False
 
   existing_assignment = db.query(UserRole).filter(
     UserRole.user_id == user_id,
-    UserRole.role_id == theme_role.id,
+    UserRole.role_id == role.id,
     UserRole.board_id.is_(None)
   ).first()
   if existing_assignment:
     return False
 
-  db.add(UserRole(user_id=user_id, role_id=theme_role.id, board_id=None))
+  db.add(UserRole(user_id=user_id, role_id=role.id, board_id=None))
   return True
+
+
+def ensure_theme_user_role(db, user_id):
+  """Ensure the user has the global theme_user role."""
+  return ensure_global_role(db, user_id, 'theme_user')
 
 
 def ensure_board_creator_role(db, user_id):
   """Ensure the user has the global board_creator role."""
-  board_creator_role = db.query(Role).filter(Role.name == 'board_creator').first()
-  if not board_creator_role:
-    role_info = INITIAL_ROLES.get('board_creator')
-    if role_info:
-      board_creator_role = Role(
-        name='board_creator',
-        description=role_info['description'],
-        is_system_role=role_info['is_system_role'],
-        permissions=json.dumps(role_info['permissions'])
-      )
-      db.add(board_creator_role)
-      db.flush()
-
-  if not board_creator_role:
-    return False
-
-  existing_assignment = db.query(UserRole).filter(
-    UserRole.user_id == user_id,
-    UserRole.role_id == board_creator_role.id,
-    UserRole.board_id.is_(None)
-  ).first()
-  if existing_assignment:
-    return False
-
-  db.add(UserRole(user_id=user_id, role_id=board_creator_role.id, board_id=None))
-  return True
+  return ensure_global_role(db, user_id, 'board_creator')
 
 
 def hash_password(password: str) -> str:

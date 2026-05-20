@@ -2048,7 +2048,7 @@ class BoardManager {
           <div class="empty-board">
             <div class="empty-board-icon">📋</div>
             <h3>No columns yet</h3>
-            <p>Add your first column to start organizing tasks!</p>
+            <p>Add your first column to start organising tasks!</p>
             ${this.canEdit ? '<button class="btn btn-primary" id="add-column-empty-btn">+ Add Column</button>' : '<p style="color: var(--secondary-color); margin-top: 10px;">Read-only access - cannot add columns</p>'}
           </div>
         </div>

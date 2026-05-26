@@ -63,6 +63,8 @@ class TestPublicBoardsAPI:
 
         public_response = requests.get(f"{api_client}/api/public/boards/{slug}")
         assert public_response.status_code == 200
+        assert public_response.headers.get("X-Robots-Tag") == "noindex, nofollow, noarchive"
+        assert "no-store" in (public_response.headers.get("Cache-Control") or "")
 
         data = public_response.json()
         assert data["success"] is True

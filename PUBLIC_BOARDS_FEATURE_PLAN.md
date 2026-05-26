@@ -12,6 +12,41 @@ Public boards should:
 - Never allow edits, mutations, or privilege escalation.
 - Preserve the existing authenticated experience for private boards.
 
+## Implementation Status (Updated 2026-05-26)
+
+This section tracks what is complete on branch `415-make-selected-boards-publicly-accessible` and what is still outstanding.
+
+### Completed tasks
+
+- [x] Board data model includes `is_public` and `public_slug`.
+- [x] Migration exists for public board visibility fields (defaults existing boards to private).
+- [x] Public slug generation is implemented when a board is toggled public.
+- [x] Board update API supports toggling public/private and revokes slug when private.
+- [x] Public read-only endpoint exists: `GET /api/public/boards/<slug>`.
+- [x] Public endpoint enforces public-only lookup and returns not found for private/revoked slugs.
+- [x] Public payload redaction is in place (no owner identity, no assignee metadata, no comment author identity fields).
+- [x] Public payload excludes scheduled cards/metadata in first phase.
+- [x] Anonymous writes remain denied on private write endpoints.
+- [x] API tests added for anonymous read, revoked access behavior, and denied writes.
+- [x] Public board page created at `/public-board.html` with slug-based loading.
+- [x] Public board frontend mode skips `PermissionManager.init()` and websocket setup.
+- [x] Public board UI renders as read-only (no edit controls).
+- [x] Public mode loads from public endpoint rather than authenticated board endpoints.
+- [x] Public mode hides scheduled view/components.
+- [x] Header has public page minimal mode and anonymous login call-to-action.
+- [x] Authenticated users viewing public boards see a public badge with copy-link action.
+- [x] Public page uses a Fresh Green default theme variable set.
+- [x] Public endpoint adds crawler-dissuasion header (`X-Robots-Tag`) and explicit cache-control response header.
+
+### Outstanding tasks (full list)
+
+- [ ] Add server-side rate limiting/throttling for public board endpoints.
+- [ ] Add reverse proxy throttling rules for public routes (deployment config level).
+- [ ] Add/verify tests that explicitly validate robots/crawler headers across deployed nginx path.
+- [ ] Perform full regression run on clean DB and resolve any environment-specific integration failures.
+- [ ] Final UX copy/design pass for public-indicator wording and any visual refinements.
+- [ ] Decide whether to keep or remove this plan file once feature is considered complete.
+
 ## Recommended Design
 
 Use an explicit board visibility flag on the board record rather than a special anonymous user.

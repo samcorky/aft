@@ -1304,7 +1304,13 @@ def get_board_scheduled_cards(board_id):
         include_owner_candidates = request.args.get('include_owner_candidates', 'false').lower() == 'true'
 
         # Build nested structure with scheduled cards
-        result = {"id": board.id, "name": board.name, "columns": []}
+        result = {
+            "id": board.id,
+            "name": board.name,
+            "is_public": bool(board.is_public),
+            "public_slug": board.public_slug,
+            "columns": [],
+        }
         result.update(_build_board_owner_metadata(board, g.user.id, db, include_candidates=include_owner_candidates))
 
         eligible_users = _get_board_assignee_users(db, board_id)
@@ -1825,7 +1831,10 @@ def get_public_board(slug):
                 }
             )
 
-        return create_success_response({"board": result})
+        response, status_code = create_success_response({"board": result})
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+        return response, status_code
     except Exception as e:
         logger.error(f"Error getting public board '{slug}': {str(e)}")
         return create_error_response("Failed to load public board", 500)

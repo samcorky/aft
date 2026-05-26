@@ -746,5 +746,18 @@ def second_user_session(api_client, test_admin_session):
 
     yield session
 
+    # Clean up boards visible to user B first. This prevents cross-test residue
+    # if admin-scoped cleanup cannot delete user-owned boards under stricter permissions.
+    try:
+        boards_response = session.get(f"{api_client}/api/boards")
+        if boards_response.status_code == 200:
+            for board in boards_response.json().get('boards', []):
+                session.delete(f"{api_client}/api/boards/{board['id']}")
+    except requests.exceptions.RequestException:
+        pass
+
     # Clean up user B's notifications after the test.
-    session.delete(f"{api_client}/api/notifications/delete-all")
+    try:
+        session.delete(f"{api_client}/api/notifications/delete-all")
+    except requests.exceptions.RequestException:
+        pass

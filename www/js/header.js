@@ -610,7 +610,7 @@ class Header {
       badgeButton.type = 'button';
       badgeButton.className = 'public-board-badge-btn';
       badgeButton.setAttribute('aria-label', 'Copy public board link');
-      badgeButton.textContent = 'Public Board - Copy Link';
+      badgeButton.textContent = 'Public: Copy Share Link';
       navBoardName.appendChild(badgeButton);
     }
 
@@ -1369,7 +1369,7 @@ class Header {
     }
 
     const visible = !!this.currentBoardId && !this.isPublicBoardPage && this.boardVisibilityEditable;
-    const label = this.boardIsPublic ? 'Visibility: Public' : 'Visibility: Private';
+    const label = this.boardIsPublic ? 'Access: Public' : 'Access: Private';
 
     menuItems.forEach((menuItem) => {
       menuItem.style.display = visible ? '' : 'none';

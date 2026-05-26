@@ -7,9 +7,12 @@ from flask import Blueprint, jsonify, request, send_file, g
 import io
 import json
 import logging
+import os
 import re
 import secrets
 import string
+import threading
+import time
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -61,6 +64,18 @@ MAX_BOARD_IMPORT_FILE_SIZE_MB = 25
 BOARD_EXPORT_FORMAT = "aft-board"
 PUBLIC_SLUG_LENGTH = 12
 PUBLIC_SLUG_ALPHABET = string.ascii_lowercase + string.digits
+PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE = max(
+    1,
+    int(os.getenv("PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE", "120")),
+)
+PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS = 60
+
+_public_rate_limit_store = {
+    "buckets": {},
+    "lock": threading.Lock(),
+}
+_public_rate_limit_redis = None
+_public_rate_limit_redis_init = False
 
 
 def configure_board_routes(app_version):
@@ -78,6 +93,85 @@ def _generate_public_slug(db, length=PUBLIC_SLUG_LENGTH, max_attempts=32):
             return slug
 
     raise RuntimeError("Failed to generate unique public slug")
+
+
+def _extract_client_ip():
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if forwarded_for:
+        first_ip = forwarded_for.split(",", 1)[0].strip()
+        if first_ip:
+            return first_ip
+
+    return request.remote_addr or "unknown"
+
+
+def _get_public_rate_limit_redis_client():
+    global _public_rate_limit_redis_init
+    global _public_rate_limit_redis
+
+    if _public_rate_limit_redis_init:
+        return _public_rate_limit_redis
+
+    _public_rate_limit_redis_init = True
+    try:
+        import redis
+
+        redis_url = os.getenv("REDIS_URL")
+        if not redis_url:
+            _public_rate_limit_redis = None
+            return None
+
+        candidate = redis.from_url(redis_url)
+        candidate.ping()
+        _public_rate_limit_redis = candidate
+        logger.info("Public board rate limiter: Redis backend enabled")
+    except Exception as error:
+        _public_rate_limit_redis = None
+        logger.warning("Public board rate limiter falling back to in-memory store: %s", error)
+
+    return _public_rate_limit_redis
+
+
+def _check_public_endpoint_rate_limit():
+    """Apply per-client fixed-window throttle for anonymous public board reads."""
+    client_ip = _extract_client_ip()
+    now_epoch = int(time.time())
+    window_id = now_epoch // PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS
+    redis_client = _get_public_rate_limit_redis_client()
+
+    if redis_client:
+        key = f"aft:rl:public_board:{client_ip}:{window_id}"
+        try:
+            current_count = redis_client.incr(key)
+            if current_count == 1:
+                redis_client.expire(key, PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS + 5)
+
+            if current_count > PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE:
+                retry_after = PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS - (now_epoch % PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS)
+                return True, max(1, retry_after)
+
+            return False, 0
+        except Exception as error:
+            logger.warning("Public board Redis rate-limit check failed, using in-memory fallback: %s", error)
+
+    key = (client_ip, window_id)
+    with _public_rate_limit_store["lock"]:
+        buckets = _public_rate_limit_store["buckets"]
+        buckets[key] = buckets.get(key, 0) + 1
+
+        # Drop stale windows so fallback memory stays bounded.
+        stale_cutoff = window_id - 2
+        stale_keys = [bucket_key for bucket_key in buckets if bucket_key[1] < stale_cutoff]
+        for stale_key in stale_keys:
+            buckets.pop(stale_key, None)
+
+        current_count = buckets[key]
+
+    if current_count > PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE:
+        retry_after = PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS - (now_epoch % PUBLIC_BOARD_RATE_LIMIT_WINDOW_SECONDS)
+        return True, max(1, retry_after)
+
+    return False, 0
 
 
 def _parse_board_working_style(setting_value):
@@ -1789,6 +1883,13 @@ def get_public_board(slug):
     """
     db = SessionLocal()
     try:
+        is_limited, retry_after = _check_public_endpoint_rate_limit()
+        if is_limited:
+            response, status_code = create_error_response("Too many requests", 429)
+            response.headers["Retry-After"] = str(retry_after)
+            response.headers["Cache-Control"] = "private, no-store, max-age=0"
+            return response, status_code
+
         safe_slug = (slug or "").strip().lower()
         if not safe_slug:
             return create_error_response("Board not found", 404)

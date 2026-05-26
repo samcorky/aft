@@ -93,6 +93,31 @@ class TestPublicBoardsAPI:
         assert "user_id" not in card["comments"][0]
         assert "author" not in card["comments"][0]
 
+    def test_public_board_headers_are_present_via_nginx_http_and_https(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Public board crawler/cache headers should be preserved through nginx in both protocols."""
+        make_public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert make_public_response.status_code == 200, make_public_response.text
+        slug = make_public_response.json()["board"]["public_slug"]
+
+        http_response = requests.get(f"{api_client}/api/public/boards/{slug}")
+        assert http_response.status_code == 200
+        assert http_response.headers.get("X-Robots-Tag") == "noindex, nofollow, noarchive"
+        assert "no-store" in (http_response.headers.get("Cache-Control") or "")
+
+        https_url = f"https://localhost/api/public/boards/{slug}"
+        https_response = requests.get(https_url, verify=False)
+        assert https_response.status_code == 200
+        assert https_response.headers.get("X-Robots-Tag") == "noindex, nofollow, noarchive"
+        assert "no-store" in (https_response.headers.get("Cache-Control") or "")
+
     def test_private_or_revoked_public_board_returns_not_found(
         self,
         api_client,
@@ -240,3 +265,26 @@ class TestPublicBoardsAPI:
 
         delete_board_response = requests.delete(f"{api_client}/api/boards/{sample_board['id']}")
         assert delete_board_response.status_code == 401
+
+    def test_public_board_read_throttling_engages_under_burst_traffic(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Burst traffic should trigger public-read throttling (app or proxy layer)."""
+        make_public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert make_public_response.status_code == 200, make_public_response.text
+        slug = make_public_response.json()["board"]["public_slug"]
+
+        statuses = []
+        for _ in range(95):
+            response = requests.get(f"{api_client}/api/public/boards/{slug}", timeout=5)
+            statuses.append(response.status_code)
+
+        # Proxy limiting may return 503 by default; app limiter returns 429.
+        throttled_statuses = [status for status in statuses if status in (429, 503)]
+        assert throttled_statuses, f"Expected throttling under burst traffic, got statuses: {set(statuses)}"

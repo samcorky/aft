@@ -37,6 +37,9 @@ This section tracks what is complete on branch `415-make-selected-boards-publicl
 - [x] Authenticated users viewing public boards see a public badge with copy-link action.
 - [x] Public page uses a Fresh Green default theme variable set.
 - [x] Public endpoint adds crawler-dissuasion header (`X-Robots-Tag`) and explicit cache-control response header.
+- [x] Public slug remains stable across private/public toggles.
+- [x] Explicit public-link rotation endpoint exists (`POST /api/boards/<id>/public-link/rotate`).
+- [x] Settings menu includes explicit visibility toggle confirmations and rotate-link confirmation.
 
 ### Outstanding tasks (full list)
 
@@ -198,6 +201,49 @@ Need to decide:
 - Public users will not receive filter metadata or filter persistence support.
 - Public-indicator visual refinements and URL-copy UX wording will be reviewed after first implementation render.
 - Any additional sharing metadata is deferred until there is a concrete need.
+
+## Public Slug Stability and Rotation Proposal
+
+### Current behavior (as implemented)
+- Public slug is generated randomly when a board is made public.
+- When a board is switched to private, `public_slug` is cleared.
+- If later switched back to public, a new slug is generated.
+
+Impact:
+- Better accidental-link invalidation by default.
+- Existing shared URLs break after private->public cycles, which is disruptive for widely distributed links.
+
+### Proposed behavior
+- Keep a board's public slug stable across `is_public` toggles.
+- Switching to private should disable anonymous access via `is_public = false` but should not automatically rotate the slug.
+- Add explicit "Rotate Public Link" action to deliberately invalidate old links and generate a new slug.
+
+### Token generation options
+- Option A (recommended): Continue using random slug generation, persist slug until explicit rotation.
+- Option B (possible but not preferred): Deterministic salted hash/HMAC-derived slug.
+
+Why Option A is preferred:
+- Simpler operational model and easier incident handling.
+- Avoids coupling link stability to server-secret lifecycle.
+- Rotation remains explicit and auditable.
+
+### API and UI shape for proposal
+- Keep existing `PATCH /api/boards/<id>` toggle for `is_public`.
+- Change toggle semantics so private mode no longer clears `public_slug`.
+- Add explicit rotate endpoint or flag, for example:
+	- `POST /api/boards/<id>/public-link/rotate`, or
+	- `PATCH /api/boards/<id>` with `rotate_public_slug: true`.
+- Add Settings menu action "Rotate Public Link" with confirmation dialog.
+
+### Security and ops notes
+- Private mode still immediately blocks anonymous access because lookup requires `is_public = true`.
+- Rotating slug should immediately revoke old URL access.
+- Rotation should be rate-limited and recorded in audit logs once audit actions are available.
+
+### Tests to add/update
+- Toggle public->private->public keeps same slug unless rotate is explicitly requested.
+- Explicit rotate invalidates old slug and activates new slug.
+- Public endpoint remains inaccessible while `is_public = false` even if slug is retained.
 
 ## Suggested Delivery Phases
 

@@ -115,10 +115,103 @@ class TestPublicBoardsAPI:
             json={"is_public": False},
         )
         assert revoke_response.status_code == 200
-        assert revoke_response.json()["board"]["public_slug"] is None
+        assert revoke_response.json()["board"]["public_slug"] == slug
 
         after_revoke_response = requests.get(f"{api_client}/api/public/boards/{slug}")
         assert after_revoke_response.status_code == 404
+
+    def test_reenable_public_board_reuses_existing_slug(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Public slug should remain stable across private/public toggles until explicitly rotated."""
+        first_public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert first_public_response.status_code == 200, first_public_response.text
+        slug = first_public_response.json()["board"]["public_slug"]
+
+        private_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": False},
+        )
+        assert private_response.status_code == 200, private_response.text
+        assert private_response.json()["board"]["public_slug"] == slug
+
+        second_public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert second_public_response.status_code == 200, second_public_response.text
+        assert second_public_response.json()["board"]["public_slug"] == slug
+
+    def test_rotate_public_link_replaces_slug_and_invalidates_old_link(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Explicit rotation should issue a new slug and invalidate the prior public URL."""
+        public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert public_response.status_code == 200, public_response.text
+        old_slug = public_response.json()["board"]["public_slug"]
+
+        rotate_response = authenticated_session.post(
+            f"{api_client}/api/boards/{sample_board['id']}/public-link/rotate",
+            json={},
+        )
+        assert rotate_response.status_code == 200, rotate_response.text
+
+        rotate_data = rotate_response.json()
+        assert rotate_data["success"] is True
+        assert rotate_data["previous_public_slug"] == old_slug
+        new_slug = rotate_data["board"]["public_slug"]
+        assert isinstance(new_slug, str)
+        assert new_slug != old_slug
+
+        old_link_response = requests.get(f"{api_client}/api/public/boards/{old_slug}")
+        assert old_link_response.status_code == 404
+
+        new_link_response = requests.get(f"{api_client}/api/public/boards/{new_slug}")
+        assert new_link_response.status_code == 200
+
+    def test_rotate_public_link_requires_public_board(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Cannot rotate a link for a board that is currently private."""
+        rotate_response = authenticated_session.post(
+            f"{api_client}/api/boards/{sample_board['id']}/public-link/rotate",
+            json={},
+        )
+        assert rotate_response.status_code == 400
+
+    def test_anonymous_rotate_public_link_is_denied(
+        self,
+        api_client,
+        authenticated_session,
+        sample_board,
+    ):
+        """Anonymous callers cannot rotate links even if board is public."""
+        make_public_response = authenticated_session.patch(
+            f"{api_client}/api/boards/{sample_board['id']}",
+            json={"is_public": True},
+        )
+        assert make_public_response.status_code == 200, make_public_response.text
+
+        rotate_response = requests.post(
+            f"{api_client}/api/boards/{sample_board['id']}/public-link/rotate",
+            json={},
+        )
+        assert rotate_response.status_code == 401
 
     def test_anonymous_write_requests_are_denied_even_for_public_boards(
         self,

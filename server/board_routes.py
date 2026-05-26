@@ -1649,11 +1649,10 @@ def update_board(board_id):
                 return create_error_response("is_public must be a boolean", 400)
 
             board.is_public = is_public
-            if is_public:
-                if not board.public_slug:
-                    board.public_slug = _generate_public_slug(db)
-            else:
-                board.public_slug = None
+            # Keep public slug stable across visibility toggles.
+            # Slug rotation is an explicit action via the rotate endpoint.
+            if is_public and not board.public_slug:
+                board.public_slug = _generate_public_slug(db)
 
         # Set updated_at timestamp
         board.updated_at = utc_now()
@@ -1678,6 +1677,76 @@ def update_board(board_id):
         db.rollback()
         logger.error(f"Error updating board {board_id}: {str(e)}")
         return create_error_response("Failed to update board", 500)
+    finally:
+        db.close()
+
+
+@board_bp.route("/api/boards/<int:board_id>/public-link/rotate", methods=["POST"])
+@require_board_access()
+@require_permission('board.edit')
+def rotate_public_board_link(board_id):
+    """Rotate a board's public link slug.
+    ---
+    tags:
+      - Boards
+    parameters:
+      - name: board_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the board to rotate public link for
+    responses:
+      200:
+        description: Public link rotated successfully
+      400:
+        description: Board is not public
+      404:
+        description: Board not found
+      500:
+        description: Server error
+    """
+    db = SessionLocal()
+    try:
+        board = db.query(Board).filter(Board.id == board_id).first()
+        if not board:
+            return create_error_response("Board not found", 404)
+
+        if not board.is_public:
+            return create_error_response("Board must be public before rotating its link", 400)
+
+        previous_slug = board.public_slug
+        new_slug = _generate_public_slug(db)
+        # Extremely unlikely collision with existing board and avoid no-op reuse.
+        while previous_slug and new_slug == previous_slug:
+            new_slug = _generate_public_slug(db)
+
+        board.public_slug = new_slug
+        board.updated_at = utc_now()
+
+        db.commit()
+        db.refresh(board)
+
+        result = {
+            "id": board.id,
+            "name": board.name,
+            "description": board.description,
+            "is_public": bool(board.is_public),
+            "public_slug": board.public_slug,
+            "created_at": serialize_datetime(board.created_at),
+            "updated_at": serialize_datetime(board.updated_at),
+        }
+        return create_success_response(
+            {
+                "board": result,
+                "previous_public_slug": previous_slug,
+                "message": "Public link rotated successfully",
+            }
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error rotating public link for board {board_id}: {str(e)}")
+        return create_error_response("Failed to rotate public link", 500)
     finally:
         db.close()
 

@@ -23,12 +23,10 @@ def upgrade():
         )
         batch_op.add_column(sa.Column('public_slug', sa.String(length=64), nullable=True))
         batch_op.create_unique_constraint('uq_boards_public_slug', ['public_slug'])
-        batch_op.create_index('ix_boards_public_slug', ['public_slug'], unique=False)
 
 
 def downgrade():
     with op.batch_alter_table('boards') as batch_op:
-        batch_op.drop_index('ix_boards_public_slug')
         batch_op.drop_constraint('uq_boards_public_slug', type_='unique')
         batch_op.drop_column('public_slug')
         batch_op.drop_column('is_public')

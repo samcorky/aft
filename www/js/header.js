@@ -648,11 +648,16 @@ class Header {
 
     if (!showLoginCta) {
       loginLink.style.display = 'none';
+      loginLink.onclick = null;
       return;
     }
 
     const redirectPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    loginLink.href = `/login.html?redirect=${encodeURIComponent(redirectPath)}`;
+    loginLink.href = '/login.html';
+    loginLink.onclick = () => {
+      // Keep redirect behavior aligned with login.js expectations.
+      sessionStorage.setItem('redirectAfterLogin', redirectPath);
+    };
     loginLink.style.display = 'inline-flex';
   }
 

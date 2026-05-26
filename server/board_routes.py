@@ -64,6 +64,7 @@ MAX_BOARD_IMPORT_FILE_SIZE_MB = 25
 BOARD_EXPORT_FORMAT = "aft-board"
 PUBLIC_SLUG_LENGTH = 12
 PUBLIC_SLUG_ALPHABET = string.ascii_lowercase + string.digits
+PUBLIC_SLUG_PATTERN = re.compile(rf"^[a-z0-9]{{{PUBLIC_SLUG_LENGTH}}}$")
 PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE = max(
     1,
     int(os.getenv("PUBLIC_BOARD_RATE_LIMIT_PER_MINUTE", "120")),
@@ -96,12 +97,7 @@ def _generate_public_slug(db, length=PUBLIC_SLUG_LENGTH, max_attempts=32):
 
 
 def _extract_client_ip():
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
-        first_ip = forwarded_for.split(",", 1)[0].strip()
-        if first_ip:
-            return first_ip
-
+    # Avoid trusting spoofable forwarding headers unless trusted proxies are configured.
     return request.remote_addr or "unknown"
 
 
@@ -1891,7 +1887,7 @@ def get_public_board(slug):
             return response, status_code
 
         safe_slug = (slug or "").strip().lower()
-        if not safe_slug:
+        if not safe_slug or not PUBLIC_SLUG_PATTERN.fullmatch(safe_slug):
             return create_error_response("Board not found", 404)
 
         board = (
@@ -1952,6 +1948,10 @@ def get_public_board(slug):
             elif done_param == "false":
                 cards_query = cards_query.filter(Card.done.is_(False))
 
+            cards_query = cards_query.options(
+                selectinload(Card.checklist_items),
+                selectinload(Card.comments),
+            )
             cards = cards_query.order_by(Card.order).all()
 
             cards_data = [

@@ -615,21 +615,7 @@ class Header {
       navBoardName.appendChild(badgeButton);
     }
 
-    if (!showBadge || !publicUrl) {
-      badgeButton.style.display = 'none';
-      badgeButton.onclick = null;
-      return;
-    }
-
-    badgeButton.style.display = 'inline-flex';
-    badgeButton.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(publicUrl);
-        this.showHeaderToast('Public board link copied to clipboard');
-      } catch (error) {
-        this.showHeaderToast('Unable to copy link automatically', true);
-      }
-    };
+    this.applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl);
   }
 
   ensureMobilePublicBoardBadge(showBadge, publicUrl) {
@@ -645,7 +631,7 @@ class Header {
       badgeButton.type = 'button';
       badgeButton.className = 'public-board-badge-btn public-board-badge-mobile-btn';
       badgeButton.setAttribute('aria-label', 'Copy public board link');
-      badgeButton.textContent = 'Public Link';
+      badgeButton.textContent = 'Copy Link';
       const mobileToggle = document.getElementById('mobile-menu-toggle');
       if (mobileToggle && mobileToggle.parentElement === headerRight) {
         headerRight.insertBefore(badgeButton, mobileToggle);
@@ -654,13 +640,22 @@ class Header {
       }
     }
 
+    this.applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl);
+  }
+
+  applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl) {
+    if (!badgeButton) {
+      return;
+    }
+
     if (!showBadge || !publicUrl) {
       badgeButton.style.display = 'none';
       badgeButton.onclick = null;
       return;
     }
 
-    badgeButton.style.display = 'inline-flex';
+    // Clear inline style so responsive CSS controls visibility (desktop vs mobile).
+    badgeButton.style.display = '';
     badgeButton.onclick = async () => {
       try {
         await navigator.clipboard.writeText(publicUrl);

@@ -594,6 +594,7 @@ class Header {
 
     const shouldShowPublicBadge = isPublicBoard && !!window.currentUser;
     this.ensurePublicBoardBadge(shouldShowPublicBadge, publicUrl);
+    this.ensureMobilePublicBoardBadge(shouldShowPublicBadge && !useMinimalPublicChrome, publicUrl);
     this.ensurePublicBoardLoginCta(useMinimalPublicChrome && showLoginCta);
   }
 
@@ -612,6 +613,45 @@ class Header {
       badgeButton.setAttribute('aria-label', 'Copy public board link');
       badgeButton.textContent = 'Public: Copy Share Link';
       navBoardName.appendChild(badgeButton);
+    }
+
+    if (!showBadge || !publicUrl) {
+      badgeButton.style.display = 'none';
+      badgeButton.onclick = null;
+      return;
+    }
+
+    badgeButton.style.display = 'inline-flex';
+    badgeButton.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(publicUrl);
+        this.showHeaderToast('Public board link copied to clipboard');
+      } catch (error) {
+        this.showHeaderToast('Unable to copy link automatically', true);
+      }
+    };
+  }
+
+  ensureMobilePublicBoardBadge(showBadge, publicUrl) {
+    const headerRight = document.querySelector('.header-right');
+    if (!headerRight) {
+      return;
+    }
+
+    let badgeButton = document.getElementById('public-board-badge-mobile-btn');
+    if (!badgeButton) {
+      badgeButton = document.createElement('button');
+      badgeButton.id = 'public-board-badge-mobile-btn';
+      badgeButton.type = 'button';
+      badgeButton.className = 'public-board-badge-btn public-board-badge-mobile-btn';
+      badgeButton.setAttribute('aria-label', 'Copy public board link');
+      badgeButton.textContent = 'Public Link';
+      const mobileToggle = document.getElementById('mobile-menu-toggle');
+      if (mobileToggle && mobileToggle.parentElement === headerRight) {
+        headerRight.insertBefore(badgeButton, mobileToggle);
+      } else {
+        headerRight.appendChild(badgeButton);
+      }
     }
 
     if (!showBadge || !publicUrl) {

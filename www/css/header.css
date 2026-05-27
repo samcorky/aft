@@ -665,6 +665,10 @@
   background-color: var(--primary-hover);
 }
 
+.public-board-badge-mobile-btn {
+  display: none;
+}
+
 .header-inline-toast {
   position: fixed;
   right: 20px;
@@ -950,7 +954,7 @@
 
   .header-right {
     margin-left: auto;
-    gap: 0;
+    gap: 8px;
   }
 
   .header-public-board .header-nav {
@@ -980,6 +984,17 @@
   .header-public-board .public-board-login-link {
     font-size: 12px;
     padding: 8px 12px;
+  }
+
+  .public-board-badge-mobile-btn {
+    display: inline-flex;
+    font-size: 10px;
+    padding: 6px 10px;
+    margin-right: 2px;
+    max-width: min(42vw, 180px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .mobile-menu-toggle {

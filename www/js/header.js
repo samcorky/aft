@@ -594,6 +594,7 @@ class Header {
 
     const shouldShowPublicBadge = isPublicBoard && !!window.currentUser;
     this.ensurePublicBoardBadge(shouldShowPublicBadge, publicUrl);
+    this.ensureMobilePublicBoardBadge(shouldShowPublicBadge && !useMinimalPublicChrome, publicUrl);
     this.ensurePublicBoardLoginCta(useMinimalPublicChrome && showLoginCta);
   }
 
@@ -614,13 +615,47 @@ class Header {
       navBoardName.appendChild(badgeButton);
     }
 
+    this.applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl);
+  }
+
+  ensureMobilePublicBoardBadge(showBadge, publicUrl) {
+    const headerRight = document.querySelector('.header-right');
+    if (!headerRight) {
+      return;
+    }
+
+    let badgeButton = document.getElementById('public-board-badge-mobile-btn');
+    if (!badgeButton) {
+      badgeButton = document.createElement('button');
+      badgeButton.id = 'public-board-badge-mobile-btn';
+      badgeButton.type = 'button';
+      badgeButton.className = 'public-board-badge-btn public-board-badge-mobile-btn';
+      badgeButton.setAttribute('aria-label', 'Copy public board link');
+      badgeButton.textContent = 'Copy Link';
+      const mobileToggle = document.getElementById('mobile-menu-toggle');
+      if (mobileToggle && mobileToggle.parentElement === headerRight) {
+        headerRight.insertBefore(badgeButton, mobileToggle);
+      } else {
+        headerRight.appendChild(badgeButton);
+      }
+    }
+
+    this.applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl);
+  }
+
+  applyPublicLinkBadgeState(badgeButton, showBadge, publicUrl) {
+    if (!badgeButton) {
+      return;
+    }
+
     if (!showBadge || !publicUrl) {
       badgeButton.style.display = 'none';
       badgeButton.onclick = null;
       return;
     }
 
-    badgeButton.style.display = 'inline-flex';
+    // Clear inline style so responsive CSS controls visibility (desktop vs mobile).
+    badgeButton.style.display = '';
     badgeButton.onclick = async () => {
       try {
         await navigator.clipboard.writeText(publicUrl);
